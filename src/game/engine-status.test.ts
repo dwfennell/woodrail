@@ -4,6 +4,8 @@ import { Sim, SIM_DT, type CarKind } from "../sim";
 import { chain as loopChain } from "../economy/loop-fixtures";
 import { startLine } from "./lines";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
+import { oval } from "../routing/scenarios";
+import { signal } from "../routing/harness";
 import { blockerName, engineStatus, engineView, fullLineToast, headOnTip, trainState, trainsForReport, type Blocker } from "./engine-status";
 
 function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] };
@@ -611,5 +613,32 @@ describe("who's in the way (the card's Show: blockerOf, blockerName)", () => {
     }
     // (Even as it turns back at the end of the track: under way, not "stopped".)
     expect([...said].filter((x) => x.startsWith("Waiting"))).toEqual(["Waiting: the train by Elder is in the way. It has no route"]);
+  });
+});
+
+describe("the engine card at a ring of signals (signals audit, 2026-11-06)", () => {
+  it("every train standing at a red that won't clear says it's stuck, and what to do, not just \"Waiting at a red signal\"", () => {
+    // (An oval with 2 signals and 3 trains: each stands at a red for the train in the block ahead. Stalls said all three
+    // stuck, but the card checked "at a red" first, so two of them only ever said "Waiting at a red signal".)
+    const layout = new Layout();
+    const o = oval(layout);
+    signal(layout, o.ids[2], 1);
+    signal(layout, o.ids[9], 1);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const engines: number[] = [];
+    for (const p of [o.ids[1], o.ids[5], o.ids[11]]) {
+      const r = sim.addTrain(["engine", "timber"], { pieceId: p, pathIndex: 0, reversed: false, s: 50 });
+      if (r.kind !== "placed") throw new Error(r.kind);
+      const e = sim.getTrain(r.trainId)!.cars[0].id;
+      sim.setLever(e, 1);
+      engines.push(e);
+    }
+    for (let i = 0; i < 120 * 90; i++) {
+      sim.tick();
+      economy.tick();
+    }
+    expect(engines.filter((e) => sim.atRedSignal(sim.findCar(e)!.train.id)).length).toBeGreaterThan(0);
+    for (const e of engines) expect(engineStatus(sim, economy, e, () => "Oakhollow")).toBe("Stuck: too many trains for these signals. Add a signal");
   });
 });

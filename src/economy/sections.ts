@@ -826,7 +826,12 @@ export class Sections {
     if (st.beyond === Infinity) return Infinity;
     const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
     const room = lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s + st.beyond - CAR_SPECS[lead.kind].bogieInset;
-    if (room <= (train.speed * train.speed) / (2 * ACCELERATION) + ASK_LOOK && now - st.askedAt >= CHECK_TICKS) {
+    // (Or standing at a red signal short of its slot's end, one that's no waiting point (a pair in a line end): it asks
+    // from there. A path signal shows clear only once the router has its way locked, which waits for this grant, so
+    // asking only at the slot's end it stood at the signal for good, and the line's train waiting for its slot too
+    // (signals audit, 2026-11-06). Not at one held by hand: there it holds nothing ahead (signals spec §3.3).)
+    const atRed = room > 0 && train.speed < 1 && this.sim.atRedSignal(train.id) && !this.sim.redHeldByHand(train.id);
+    if ((atRed || room <= (train.speed * train.speed) / (2 * ACCELERATION) + ASK_LOOK) && now - st.askedAt >= CHECK_TICKS) {
       st.askedAt = now;
       if (this.ask(st, info)) {
         // (Nothing to ask for on this way: it isn't gated here.)

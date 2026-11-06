@@ -12,7 +12,7 @@ import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLe
 import { METRO_KIT, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
-import { markGhost, placeGhost } from "../render/signal-marks-view";
+import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
 import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
 import { topologyOf, trainLength } from "../economy/sections";
 import { SIGNAL_MODES, type SignalStyle } from "../track";
@@ -370,7 +370,7 @@ type Mode =
    * Clearing (the Clear chip on): a tap or a sweep marks what it passes over, taken away when the finger's lifted (see
    * `commitErase`). Where the pointer last was, what's marked, and why what it passed over stays (said once, on lift).
    */
-  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; told: Map<EraseRefusal, string>; stays: Set<number> }
+  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; signals: Set<number>; told: Map<EraseRefusal, string>; stays: Set<number> }
   | {
       kind: "drag-scenery";
       pointerId: number;
@@ -679,13 +679,17 @@ export class Interaction {
   /** How long (ms) each pointer move placing a signal took (its snap and its tint), latest last: for the e2e. */
   readonly signalMoveMs: number[] = [];
 
-  /** A signal in the hand: a new one from the tray (`moving` −1), or a placed one picked up (its mark's id). */
+  /**
+   * A signal in the hand: a new one from the tray (`moving` −1), or a placed one picked up (its mark's id), with its set
+   * partner (the one facing the other way on its joint): both picked up, both shown in the ghost.
+   */
   private signalDrag(pointerId: number, moving: number): Extract<Mode, { kind: "drag-signal" }> {
-    const ghost = markGhost(this.game.mats);
+    const ghost = markSetGhost(this.game.mats);
     ghost.visible = false;
     this.game.scene.add(ghost);
     if (moving !== -1) {
-      this.game.marksView.hidden = moving;
+      const partner = this.game.layout.signalPartner(moving);
+      this.game.marksView.hidden = partner ? [moving, partner.id] : [moving];
       this.onPickup?.();
     }
     this.game.controls.enabled = false;
@@ -720,8 +724,8 @@ export class Interaction {
         }
         if (m.dir === 0) m.dir = Math.cos(h - this.cameraHeading()) >= 0 ? 1 : -1;
         target = snapJoint(layout, near.cursor, m.dir);
-        const there = target === -1 ? undefined : layout.signalAt(target);
-        if (there && there.id !== m.moving) target = -1;
+        // (A new one goes where none faces that way; a placed one with its set, where both fit: `signalSetAt`.)
+        if (target !== -1 && (m.moving === -1 ? !!layout.signalAt(target) : !this.editor().signalSetAt(m.moving, target))) target = -1;
         // (Not in a tunnel: it couldn't be seen or tapped there.)
         this.signalDark = target !== -1 && this.jointInTunnel(target);
         if (this.signalDark) target = -1;
@@ -735,7 +739,9 @@ export class Interaction {
       m.target = target;
       m.ghost.visible = target !== -1;
       if (target !== -1) {
-        placeGhost(m.ghost, layout, target);
+        // (Both posts, as the drop will put them: a new pair where the other way's free, a set with its partner.)
+        const both = m.moving === -1 ? !layout.signalAt(layout.joinedConnector(target)) : !!layout.signalPartner(m.moving);
+        placeSetGhost(m.ghost, layout, target, both);
         this.showTint(target, m.moving);
       } else g.blockTint.hide();
       g.invalidate();
@@ -758,7 +764,7 @@ export class Interaction {
     g.director.setEdgePointer(null);
     g.scene.remove(m.ghost);
     disposeObject(m.ghost);
-    g.marksView.hidden = -1;
+    g.marksView.hidden = [];
     g.blockTint.hide();
     g.invalidate();
   }
@@ -772,7 +778,7 @@ export class Interaction {
     if (m.target === -1) {
       // (A placed one taken back to the tray: taken away.)
       if (m.overTray && m.moving !== -1) {
-        ed.removeSignal(m.moving);
+        ed.removeSignalSet(m.moving);
         this.hud.toast("Back in the box");
       } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : "Drop it onto the track");
       return;
@@ -787,6 +793,11 @@ export class Interaction {
       return;
     }
     if (this.game.layout.getSignal(id)?.at !== m.target) ed.moveSignal(id, m.target);
+    // (A set moved together: one each way, nothing to turn round.)
+    if (this.game.layout.signalPartner(id)) {
+      this.hud.toast("Signals moved, both together", false, 2400);
+      return;
+    }
     // (The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with.)
     this.hud.toast("Signal moved. Tap here to turn it round", false, 3600, () => {
       if (this.game.layout.getSignal(id) && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
@@ -907,8 +918,9 @@ export class Interaction {
     const last = m.ats.length > 0 ? postAt(layout, m.ats[m.ats.length - 1]) : null;
     if (last && Math.hypot(last.x - j.x, last.z - j.z) < m.gap) return;
     m.ats.push(at);
-    const ghost = markGhost(g.mats);
-    placeGhost(ghost, layout, at);
+    // (Both posts of the pair each joint gets, the other only where that way's free.)
+    const ghost = markSetGhost(g.mats);
+    placeSetGhost(ghost, layout, at, !layout.signalAt(layout.joinedConnector(at)));
     g.scene.add(ghost);
     m.ghosts.push(ghost);
     g.invalidate();
@@ -948,10 +960,18 @@ export class Interaction {
   private tapMark(id: number): void {
     if (!this.game.layout.getSignal(id)) return;
     this.game.sim.toggleMark(id);
+    // (Once a session: what a tap did, and where the rest is. A long press was the only way to its card, Remove too.)
+    if (!this.markTapHinted && this.selectedMark !== id) {
+      this.markTapHinted = true;
+      const held = !!this.game.layout.getSignal(id)?.held;
+      this.hud.toast(`${held ? "Held at red" : "Let go"} · press and hold a signal for its card: modes, Remove`, false, 4200);
+    }
     this.onSwitched?.();
     this.game.invalidate();
     if (this.selectedMark === id) this.showMarkCard();
   }
+
+  private markTapHinted = false;
 
   /** Open a signal's card, its blocks tinted. */
   selectMark(id: number): void {
@@ -982,6 +1002,9 @@ export class Interaction {
       return;
     }
     this.hud.showPieceCard(false, "Signal: guards this way →", false, false, false, this.markWaits(m.at) ? "" : "Too short for a train to wait here");
+    // Remove, said plainly (the user: "there doesn't seem to be a way to remove signals"): the set, one undo step.
+    const pair = !!g.layout.signalPartner(id);
+    this.hud.setDeleteLabel(pair ? "Remove signals" : "Remove signal", pair ? "Take this signal and the one facing the other way off the track (Del)" : "Take this signal off the track (Del)");
     // How it works (the user: "auto or forced on or off"): Auto, Always red (a tap holds it so too), Always green.
     this.hud.showSignalModes(Interaction.MODES, SIGNAL_MODES.indexOf(m.mode), (i) => {
       g.sim.setMarkMode(id, SIGNAL_MODES[i]);
@@ -1837,7 +1860,7 @@ export class Interaction {
     // Clearing: the press marks what's under it, and a sweep from there all it passes over (two fingers still pan).
     if (this.erasesNow && this.touches.size <= 1) {
       this.game.controls.enabled = false;
-      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), told: new Map(), stays: new Set() };
+      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), signals: new Set(), told: new Map(), stays: new Set() };
       this.mode = m;
       this.eraseAt(m, e.clientX, e.clientY);
       this.showErase(m);
@@ -3931,7 +3954,8 @@ export class Interaction {
       const id = this.selectedMark;
       this.clearSelection();
       this.hud.hideCards();
-      this.editor().removeSignal(id);
+      // (With its set partner: placed together, taken away together.)
+      this.editor().removeSignalSet(id);
       return;
     }
     if (this.roads.selected !== -1) {
@@ -4031,6 +4055,17 @@ export class Interaction {
 
   /** Mark what's under (x, y) to be cleared, if it may be; note why something may not (said on lift: `eraseRefusal`). */
   private eraseAt(m: Mode & { kind: "erase" }, x: number, y: number): void {
+    // A signal's post: the signal goes, with its set partner (placed together, cleared together). Shown gone at once.
+    const mark = this.game.layout.signalCount > 0 ? this.markAt(x, y, this.lastPointerWasTouch) : -1;
+    if (mark !== -1) {
+      if (m.signals.has(mark)) return;
+      const partner = this.game.layout.signalPartner(mark);
+      m.signals.add(mark);
+      if (partner) m.signals.add(partner.id);
+      this.game.marksView.hidden = [...m.signals];
+      this.game.invalidate();
+      return;
+    }
     const hit = this.pickExact(x, y);
     // (The first reason of each kind is kept: a depot's track and its building are one thing that stays.)
     const note = (kind: EraseRefusal, why: string) => {
@@ -4093,6 +4128,8 @@ export class Interaction {
   private showErase(m: (Mode & { kind: "erase" }) | null): void {
     const g = this.game;
     g.trackView.setHighlights(m ? m.pieces : [], "blocked");
+    // (Signals swept are hidden while the sweep goes on: drawn again if it's let go of, or gone with it.)
+    if (!m && g.marksView.hidden.length > 0 && this.mode.kind !== "drag-signal") g.marksView.hidden = [];
     let k = 0;
     for (const id of m?.props ?? []) {
       const p = g.props.get(id);
@@ -4147,9 +4184,12 @@ export class Interaction {
     if (why) this.hud.toast(why);
     const ids = this.keepCarryingStands(this.withRisers(free)).filter((id) => !this.liftHeld(id));
     const props = [...m.props].filter((id) => g.props.get(id));
-    if (ids.length === 0 && props.length === 0) return;
+    const signals = [...m.signals].filter((id) => g.layout.getSignal(id));
+    if (ids.length === 0 && props.length === 0 && signals.length === 0) return;
     const pieces = ids.map((id) => g.layout.getPiece(id)!);
     this.editor().group(() => {
+      // (Signals first: their track going would put them by, to come back on Undo with it.)
+      for (const id of signals) if (g.layout.getSignal(id)) this.editor().removeSignalSet(id);
       if (ids.length > 0) this.editor().removeGroup(ids);
       this.removeProps(props);
     });

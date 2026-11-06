@@ -2063,6 +2063,7 @@ export class Hud {
     this.rotateBtn.textContent = "Rotate";
     this.rotateBtn.disabled = false;
     this.deleteBtn.disabled = false;
+    this.deleteBtn.textContent = "Delete";
     this.deleteBtn.title = "Remove this piece (Del)";
     this.selectMoreBtn.hidden = !canGroup;
     this.groupHint.hidden = true;
@@ -2077,6 +2078,12 @@ export class Hud {
    * On the open piece card (a signal box or lever frame's): the points and signals near it, each a chip saying which
    * way it's set; a tap throws it (`onThrow` with its index). An empty list says there are none near.
    */
+  /** The open piece card's delete button said otherwise (a signal's: "Remove signals"); `showPieceCard` sets it back. */
+  setDeleteLabel(label: string, title: string): void {
+    this.deleteBtn.textContent = label;
+    this.deleteBtn.title = title;
+  }
+
   /**
    * On a signal's card: its modes, each a chip (`modes`, the one `on` pressed); a tap on another calls `onPick` with its
    * index. Built when the card is shown or changes, never per frame.

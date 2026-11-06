@@ -380,6 +380,45 @@ export class Editor {
     });
   }
 
+  /**
+   * Take a signal away with its set partner (the one facing the other way on its joint), as one undo step; a lone one
+   * by itself. Undone, both are back as they were.
+   */
+  removeSignalSet(id: number): boolean {
+    const m = this.layout.getSignal(id);
+    if (!m) return false;
+    const marks = [m, this.layout.signalPartner(id)].filter((x): x is NonNullable<typeof x> => !!x);
+    return this.run({
+      do: () => {
+        for (const x of marks) this.layout.removeSignal(x.id);
+      },
+      undo: () => {
+        for (const x of marks) this.layout.addSignal(x.at, x.style, x.mode, x.id);
+      },
+      signals: true,
+    });
+  }
+
+  /**
+   * Where a signal's set would go with it on joint end `at` (the user: sets "move together"): its partner, if it has
+   * one, on the same joint's other end. Null if it can't: not a joint, or another signal (not the set's own) on either
+   * end. `ids` the set's marks, `ats` their ends there, in the same order.
+   */
+  signalSetAt(id: number, at: number): { ids: number[]; ats: number[] } | null {
+    const L = this.layout;
+    const m = L.getSignal(id);
+    const other = L.joinedConnector(at);
+    if (!m || other === -1) return null;
+    const partner = L.signalPartner(id);
+    const ids = partner ? [id, partner.id] : [id];
+    const ats = partner ? [at, other] : [at];
+    for (const a of ats) {
+      const there = L.signalAt(a);
+      if (there && !ids.includes(there.id)) return null;
+    }
+    return { ids, ats };
+  }
+
   /** Turn a signal mark round on its joint, as one undo step. False if one faces the other way there already. */
   turnSignal(id: number): boolean {
     const m = this.layout.getSignal(id);
@@ -388,17 +427,22 @@ export class Editor {
     return this.run({ do: () => void this.layout.turnSignal(id), undo: () => void this.layout.turnSignal(id), signals: true });
   }
 
-  /** Move a signal mark to another joint end, as one undo step (it keeps its id, style and hold). False if it can't go there. */
+  /**
+   * Move a signal to another joint end with its set partner, which goes to that joint's other end (the user: "signal
+   * sets should move together"), as one undo step; each keeps its id, style and mode. A lone one moves by itself. False
+   * if they can't go there (`signalSetAt`), or it's where it is.
+   */
   moveSignal(id: number, at: number): boolean {
     const m = this.layout.getSignal(id);
-    if (!m || m.at === at || this.layout.joinedConnector(at) === -1 || this.layout.signalAt(at)) return false;
-    const from = m.at;
-    const move = (to: number) => {
-      const now = this.layout.getSignal(id)!;
-      this.layout.removeSignal(id);
-      this.layout.addSignal(to, now.style, now.mode, id);
+    const set = this.signalSetAt(id, at);
+    if (!m || !set || m.at === at) return false;
+    const from = set.ids.map((i) => this.layout.getSignal(i)!.at);
+    const move = (to: readonly number[]) => {
+      const now = set.ids.map((i) => this.layout.getSignal(i)!);
+      for (const x of now) this.layout.removeSignal(x.id);
+      now.forEach((x, k) => this.layout.addSignal(to[k], x.style, x.mode, x.id));
     };
-    return this.run({ do: () => move(at), undo: () => move(from), signals: true });
+    return this.run({ do: () => move(set.ats), undo: () => move(from), signals: true });
   }
 
   /** Put signal marks on several joint ends at once (a drag along the track with the Signal tool), as one undo step. */

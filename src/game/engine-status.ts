@@ -122,7 +122,10 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const rack = sim.rackHeld(train.id);
     if (rack !== -1) return { kind: "rack", pieceId: rack };
   }
-  if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
+  // (At a red that won't clear, said stuck (a ring of signals: each train at a red for the next), the stuck card below
+  // says so and what to do, not "Waiting at a red signal".)
+  if (sim.atRedSignal(train.id) && !train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id)))
+    return { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   // Held a moment at its stop so its line's trains spread out.
   for (const car of train.cars) {

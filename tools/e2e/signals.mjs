@@ -230,10 +230,15 @@ if (!setup.error) {
       const w = window.woodrail;
       const m = w.interaction.mode;
       const ms = [...w.interaction.signalMoveMs].sort((a, b) => a - b);
-      return { kind: m.kind, target: m.target, ghost: m.ghost?.visible, tint: w.blockTint.mesh.visible && (w.blockTint.mesh.geometry.getAttribute("position")?.count ?? 0) > 0, moves: ms.length, median: ms[Math.floor(ms.length / 2)], worst: ms[ms.length - 1] };
+      const post = (n) => m.ghost?.getObjectByName(n);
+      const p0 = post("post0")?.position;
+      const p1 = post("post1")?.position;
+      return { kind: m.kind, target: m.target, ghost: m.ghost?.visible, both: !!post("post1")?.visible, across: p0 && p1 ? Math.hypot(p0.x - p1.x, p0.z - p1.z) : 0, tint: w.blockTint.mesh.visible && (w.blockTint.mesh.geometry.getAttribute("position")?.count ?? 0) > 0, moves: ms.length, median: ms[Math.floor(ms.length / 2)], worst: ms[ms.length - 1] };
     });
     await shot("1-held");
     check("held over the line: the ghost snaps to the joint, facing the way the finger went", held.kind === "drag-signal" && held.ghost && held.target === at, JSON.stringify({ ...held, at }));
+    // (The user: "the preview when moving and placing should always include both".)
+    check("…the preview shows both posts of the pair, one each side of the track", held.both && held.across > 30, JSON.stringify({ both: held.both, across: held.across }));
     check("the blocks are tinted while it's held (an overlay mesh shown)", held.tint === true);
     check("each pointer move placing it costs under 1 ms (median)", held.moves >= 10 && held.median < 1, JSON.stringify({ moves: held.moves, median: held.median, worst: held.worst }));
     await touch("touchEnd", 0, 0, (t += 0.05));
@@ -280,6 +285,66 @@ if (!setup.error) {
     check("Always green: shown green, pressed", m2.mode === "green" && m2.clear && m2.pressed[2][1] === "true", JSON.stringify(m2));
     await tapChip("Auto", ".signal-mode");
     check("…and back to Auto", (await modes()).mode === "auto");
+    // The set moved by a drag on its post (the user: "signal sets should move together"): both picked up, the preview
+    // showing both, and both put down on another joint, one each side; one Undo puts both back. (On touch a drag moves a
+    // signal while its card is open, as it is here from the long press; else it pans.)
+    check("its card is open (a drag on its post then moves it)", await p.evaluate((id) => window.woodrail.interaction.selectedMark === id, id));
+    const dest = await p.evaluate(async (at) => {
+      const { jointPose } = await import("/src/game/signal-place.ts");
+      const { connectorRef, pieceOfRef, indexOfRef } = await import("/src/track/layout.ts");
+      const L = window.woodrail.layout;
+      // (Two pieces on along the line, the way it guards: that piece's far end.)
+      let ref = at;
+      for (let k = 0; k < 2; k++) {
+        const next = L.joinedConnector(ref);
+        if (next === -1) return null;
+        ref = connectorRef(pieceOfRef(next), 1 - indexOfRef(next));
+      }
+      if (L.joinedConnector(ref) === -1 || L.signalAt(ref) || L.signalAt(L.joinedConnector(ref))) return null;
+      const j = jointPose(L, ref);
+      return { at: ref, x: j.x, y: j.y, z: j.z, heading: j.heading };
+    }, at);
+    if (dest) {
+      // (Framed on both joints, so the picture shows the set's ghost where it's going.)
+      const from0 = await post();
+      await glideTo({ x: (from0.x + dest.x) / 2, y: 0, z: (from0.z + dest.z) / 2 }, 1100);
+      await settle();
+      const top = await post();
+      const [sx, sy] = await screenOf({ x: top.x, y: top.y - 20, z: top.z });
+      const [ex, ey] = await screenOf({ x: dest.x - Math.cos(dest.heading) * 30, y: dest.y, z: dest.z - Math.sin(dest.heading) * 30 });
+      let t = Date.now() / 1000;
+      await touch("touchStart", sx, sy, t);
+      for (let k = 1; k <= 16; k++) await touch("touchMove", sx + ((ex - sx) * k) / 16, sy + ((ey + 56 - sy) * k) / 16, (t += 0.03));
+      await frames();
+      const moving = await p.evaluate((ids) => {
+        const w = window.woodrail;
+        const m = w.interaction.mode;
+        const post = (n) => m.ghost?.getObjectByName(n);
+        return { kind: m.kind, moving: m.moving, target: m.target, ghost: !!m.ghost?.visible, both: !!post("post1")?.visible, hidden: [...w.marksView.hidden].sort(), want: [...ids].sort(), drawn: ids.map((i) => !!w.marksView.topOf(i)) };
+      }, [id, partner]);
+      await shot("2c-moving-pair");
+      check("picked up by a drag on its post: both signals in the hand, neither drawn where they were", moving.kind === "drag-signal" && JSON.stringify(moving.hidden) === JSON.stringify(moving.want) && moving.drawn.every((d) => !d), JSON.stringify(moving));
+      check("…the moving preview shows both posts", moving.ghost && moving.both && moving.target === dest.at, JSON.stringify({ ...moving, dest: dest.at }));
+      await touch("touchEnd", 0, 0, (t += 0.05));
+      await settle();
+      const after = await p.evaluate(([id, partner, at]) => {
+        const L = window.woodrail.layout;
+        return { a: L.getSignal(id)?.at, b: L.getSignal(partner)?.at, joined: L.joinedConnector(L.getSignal(id)?.at ?? -1), oldA: !!L.signalAt(at), oldB: !!L.signalAt(L.joinedConnector(at)), count: L.signalCount };
+      }, [id, partner, at]);
+      check("let go: both moved to the new joint, one each side, none left where they were", after.a === dest.at && after.b === after.joined && !after.oldA && !after.oldB && after.count === 2, JSON.stringify({ ...after, dest: dest.at }));
+      await shot("2d-moved-pair");
+      const undoAt = await p.evaluate(() => {
+        const r = document.querySelector('button[aria-label="Undo (Ctrl+Z)"]').getBoundingClientRect();
+        return [r.x + r.width / 2, r.y + r.height / 2];
+      });
+      await tapAt(...undoAt);
+      await p.waitForTimeout(300);
+      const back = await p.evaluate(([id, partner, at]) => {
+        const L = window.woodrail.layout;
+        return { a: L.getSignal(id)?.at, b: L.getSignal(partner)?.at, other: L.joinedConnector(at) };
+      }, [id, partner, at]);
+      check("…one Undo puts both back", back.a === at && back.b === back.other, JSON.stringify({ ...back, at }));
+    } else check("a joint two pieces on to move the pair to", false);
     // The pair from the side this one faces (its lamps toward its trains): it held red, its partner beside it green.
     // (Setup for the picture: the mode set as its card sets it, the card closed, the view turned round the joint.)
     await p.evaluate((id) => {
@@ -605,32 +670,90 @@ if (!setup.error) {
     check("5. a tap lets it go: the train goes on", went);
   }
 
-  // 4 (on). The same layout with no signal: removed by its card (a long press on its post, then Delete); the trains put
-  // back where they began; fewer goods delivered in the same 4 minutes.
-  const [lx, ly] = await postScreen();
-  let t = Date.now() / 1000;
-  await touch("touchStart", lx, ly, t);
-  await p.waitForTimeout(800);
-  await touch("touchEnd", 0, 0, Date.now() / 1000);
-  await frames();
-  const del = await p.evaluate(() => {
-    const e = [...document.querySelectorAll(".piece-card button")].find((b) => b.textContent === "Delete" && b.getBoundingClientRect().width > 0);
-    if (!e) return null;
+  // 4 (on). The same layout with no signal: removed by taps (the user: "there doesn't seem to be a way to remove signals
+  // once they are placed"): a long press on its post, its card's Remove signals, both of the set gone; one Undo brings
+  // both back; Remove again. Then the trains put back where they began; fewer goods delivered in the same 4 minutes.
+  const openCard = async () => {
+    const [lx, ly] = await postScreen();
+    const t = Date.now() / 1000;
+    await touch("touchStart", lx, ly, t);
+    await p.waitForTimeout(800);
+    await touch("touchEnd", 0, 0, Date.now() / 1000);
+    // (Measured once the card has popped in, not mid-way through its grow.)
+    await p.waitForTimeout(600);
+    await frames();
+    return p.evaluate(() => {
+      const e = [...document.querySelectorAll(".piece-card:not([hidden]) button")].find((b) => b.textContent === "Remove signals" && b.getBoundingClientRect().width > 0);
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2, r.height];
+    });
+  };
+  const gone = () => p.evaluate((at) => ({ here: !!window.woodrail.layout.signalAt(at), other: !!window.woodrail.layout.signalAt(window.woodrail.layout.joinedConnector(at)), count: window.woodrail.layout.signalCount }), line.at);
+  let del = await openCard();
+  check("4. its card has Remove signals, a finger's height", !!del && del[2] >= 44, JSON.stringify(del));
+  await shot("11-card-remove");
+  if (del) {
+    await p.waitForTimeout(400);
+    await tapAt(del[0], del[1]);
+  }
+  await p.waitForTimeout(600);
+  const g1 = await gone();
+  check("4. Remove signals on its card takes the set away, both", !g1.here && !g1.other && g1.count === 0, JSON.stringify(g1));
+  const undoBtn = await p.evaluate(() => {
+    const r = document.querySelector('button[aria-label="Undo (Ctrl+Z)"]').getBoundingClientRect();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  });
+  await tapAt(...undoBtn);
+  await p.waitForTimeout(400);
+  const g2 = await gone();
+  check("4. …one Undo brings both back", g2.here && g2.other && g2.count === 2, JSON.stringify(g2));
+  // Clear (the tray's eraser) swept over a post takes the set too, one Undo brings it back.
+  const clearBtn = await p.evaluate(() => {
+    const e = document.querySelector(".tray-erase");
+    if (!e || !e.getBoundingClientRect().width) return null;
     const r = e.getBoundingClientRect();
     return [r.x + r.width / 2, r.y + r.height / 2];
   });
-  check("4. its card has Delete", !!del);
+  if (clearBtn) {
+    await tapAt(...clearBtn);
+    const [cx, cy] = await postScreen();
+    // (A tap with Clear on, on the post: as a sweep's first point.)
+    await tapAt(cx, cy);
+    await p.waitForTimeout(400);
+    const g3 = await gone();
+    const track = await p.evaluate((at) => !!window.woodrail.layout.getPiece(Math.floor(at / 8)), line.at);
+    check("4. Clear tapped on a post takes the set away, its track stays", !g3.here && !g3.other && track, JSON.stringify({ ...g3, track }));
+    // (Clear put away, then Undo: a player's pause between taps.)
+    await p.waitForTimeout(600);
+    // (Clear put away by a tap on it, again if the first didn't take, as a player would see it still lit.)
+    // (Each measured afresh: the tray and bar can move while Clear is on.)
+    const at = (sel) => p.evaluate((sel) => {
+      const e = document.querySelector(sel);
+      if (!e || !e.getBoundingClientRect().width) return null;
+      const r = e.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2];
+    }, sel);
+    for (let k = 0; k < 2 && (await p.evaluate(() => window.woodrail.interaction.isErasing)); k++) {
+      const c = await at(".tray-erase");
+      if (c) await tapAt(...c);
+      await p.waitForTimeout(600);
+    }
+    const before = await p.evaluate(() => ({ erasing: window.woodrail.interaction.isErasing, mode: window.woodrail.interaction.mode.kind }));
+    check("4. Clear put away", !before.erasing, JSON.stringify(before));
+    const u = await at('button[aria-label="Undo (Ctrl+Z)"]');
+    if (u) await tapAt(...u);
+    await p.waitForTimeout(600);
+    const g4 = await gone();
+    if (!g4.here) console.log("(after Clear's Undo:", JSON.stringify({ before, mode: await p.evaluate(() => window.woodrail.interaction.mode.kind), history: await p.evaluate(() => document.querySelector('button[aria-label="Undo (Ctrl+Z)"]')?.disabled) }), ")");
+    check("4. …one Undo brings both back", g4.here && g4.other, JSON.stringify(g4));
+  } else check("4. the tray's Clear", false);
+  del = await openCard();
   if (del) {
     await p.waitForTimeout(400);
-    await tapAt(...del);
+    await tapAt(del[0], del[1]);
   }
-  check("4. Delete on its card takes the signal away", await p.evaluate((at) => !window.woodrail.layout.signalAt(at), line.at));
-  // (Its partner, facing the other way, taken away too (setup, as a second Delete would): the line with no signal.)
-  await p.evaluate((at) => {
-    const w = window.woodrail;
-    const o = w.layout.signalAt(w.layout.joinedConnector(at));
-    if (o) w.editor().removeSignal(o.id);
-  }, line.at);
+  check("4. removed again: the line has no signal", await p.evaluate((at) => !window.woodrail.layout.signalAt(window.woodrail.layout.joinedConnector(at)) && window.woodrail.layout.signalCount === 0, line.at));
   await p.evaluate(() => window.__lineTrains());
   const without = await p.evaluate(() => window.__lineRun(240));
   const stops = (r) => (r.arrived[0] ?? 0) + (r.arrived[1] ?? 0);
