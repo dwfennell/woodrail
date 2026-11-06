@@ -367,7 +367,7 @@ type Mode =
    * Clearing (the Clear chip on): a tap or a sweep marks what it passes over, taken away when the finger's lifted (see
    * `commitErase`). Where the pointer last was, what's marked, and why what it passed over stays (said once, on lift).
    */
-  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; told: Map<EraseRefusal, string>; stays: Set<number> }
+  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; signals: Set<number>; told: Map<EraseRefusal, string>; stays: Set<number> }
   | {
       kind: "drag-scenery";
       pointerId: number;
@@ -957,10 +957,18 @@ export class Interaction {
   private tapMark(id: number): void {
     if (!this.game.layout.getSignal(id)) return;
     this.game.sim.toggleMark(id);
+    // (Once a session: what a tap did, and where the rest is. A long press was the only way to its card, Remove too.)
+    if (!this.markTapHinted && this.selectedMark !== id) {
+      this.markTapHinted = true;
+      const held = !!this.game.layout.getSignal(id)?.held;
+      this.hud.toast(`${held ? "Held at red" : "Let go"} · press and hold a signal for its card: modes, Remove`, false, 4200);
+    }
     this.onSwitched?.();
     this.game.invalidate();
     if (this.selectedMark === id) this.showMarkCard();
   }
+
+  private markTapHinted = false;
 
   /** Open a signal's card, its blocks tinted. */
   selectMark(id: number): void {
@@ -991,6 +999,9 @@ export class Interaction {
       return;
     }
     this.hud.showPieceCard(false, "Signal: guards this way →", false, false, false, this.markWaits(m.at) ? "" : "Too short for a train to wait here");
+    // Remove, said plainly (the user: "there doesn't seem to be a way to remove signals"): the set, one undo step.
+    const pair = !!g.layout.signalPartner(id);
+    this.hud.setDeleteLabel(pair ? "Remove signals" : "Remove signal", pair ? "Take this signal and the one facing the other way off the track (Del)" : "Take this signal off the track (Del)");
     // How it works (the user: "auto or forced on or off"): Auto, Always red (a tap holds it so too), Always green.
     this.hud.showSignalModes(Interaction.MODES, SIGNAL_MODES.indexOf(m.mode), (i) => {
       g.sim.setMarkMode(id, SIGNAL_MODES[i]);
@@ -1846,7 +1857,7 @@ export class Interaction {
     // Clearing: the press marks what's under it, and a sweep from there all it passes over (two fingers still pan).
     if (this.erasesNow && this.touches.size <= 1) {
       this.game.controls.enabled = false;
-      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), told: new Map(), stays: new Set() };
+      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), signals: new Set(), told: new Map(), stays: new Set() };
       this.mode = m;
       this.eraseAt(m, e.clientX, e.clientY);
       this.showErase(m);
@@ -4009,6 +4020,17 @@ export class Interaction {
 
   /** Mark what's under (x, y) to be cleared, if it may be; note why something may not (said on lift: `eraseRefusal`). */
   private eraseAt(m: Mode & { kind: "erase" }, x: number, y: number): void {
+    // A signal's post: the signal goes, with its set partner (placed together, cleared together). Shown gone at once.
+    const mark = this.game.layout.signalCount > 0 ? this.markAt(x, y, this.lastPointerWasTouch) : -1;
+    if (mark !== -1) {
+      if (m.signals.has(mark)) return;
+      const partner = this.game.layout.signalPartner(mark);
+      m.signals.add(mark);
+      if (partner) m.signals.add(partner.id);
+      this.game.marksView.hidden = [...m.signals];
+      this.game.invalidate();
+      return;
+    }
     const hit = this.pickExact(x, y);
     // (The first reason of each kind is kept: a depot's track and its building are one thing that stays.)
     const note = (kind: EraseRefusal, why: string) => {
@@ -4071,6 +4093,8 @@ export class Interaction {
   private showErase(m: (Mode & { kind: "erase" }) | null): void {
     const g = this.game;
     g.trackView.setHighlights(m ? m.pieces : [], "blocked");
+    // (Signals swept are hidden while the sweep goes on: drawn again if it's let go of, or gone with it.)
+    if (!m && g.marksView.hidden.length > 0 && this.mode.kind !== "drag-signal") g.marksView.hidden = [];
     let k = 0;
     for (const id of m?.props ?? []) {
       const p = g.props.get(id);
@@ -4125,9 +4149,12 @@ export class Interaction {
     if (why) this.hud.toast(why);
     const ids = this.keepCarryingStands(this.withRisers(free)).filter((id) => !this.liftHeld(id));
     const props = [...m.props].filter((id) => g.props.get(id));
-    if (ids.length === 0 && props.length === 0) return;
+    const signals = [...m.signals].filter((id) => g.layout.getSignal(id));
+    if (ids.length === 0 && props.length === 0 && signals.length === 0) return;
     const pieces = ids.map((id) => g.layout.getPiece(id)!);
     this.editor().group(() => {
+      // (Signals first: their track going would put them by, to come back on Undo with it.)
+      for (const id of signals) if (g.layout.getSignal(id)) this.editor().removeSignalSet(id);
       if (ids.length > 0) this.editor().removeGroup(ids);
       this.removeProps(props);
     });

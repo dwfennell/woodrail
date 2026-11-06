@@ -667,28 +667,69 @@ if (!setup.error) {
     check("5. a tap lets it go: the train goes on", went);
   }
 
-  // 4 (on). The same layout with no signal: removed by its card (a long press on its post, then Delete); the trains put
-  // back where they began; fewer goods delivered in the same 4 minutes.
-  const [lx, ly] = await postScreen();
-  let t = Date.now() / 1000;
-  await touch("touchStart", lx, ly, t);
-  await p.waitForTimeout(800);
-  await touch("touchEnd", 0, 0, Date.now() / 1000);
-  await frames();
-  const del = await p.evaluate(() => {
-    const e = [...document.querySelectorAll(".piece-card button")].find((b) => b.textContent === "Delete" && b.getBoundingClientRect().width > 0);
-    if (!e) return null;
+  // 4 (on). The same layout with no signal: removed by taps (the user: "there doesn't seem to be a way to remove signals
+  // once they are placed"): a long press on its post, its card's Remove signals, both of the set gone; one Undo brings
+  // both back; Remove again. Then the trains put back where they began; fewer goods delivered in the same 4 minutes.
+  const openCard = async () => {
+    const [lx, ly] = await postScreen();
+    const t = Date.now() / 1000;
+    await touch("touchStart", lx, ly, t);
+    await p.waitForTimeout(800);
+    await touch("touchEnd", 0, 0, Date.now() / 1000);
+    await frames();
+    return p.evaluate(() => {
+      const e = [...document.querySelectorAll(".piece-card:not([hidden]) button")].find((b) => b.textContent === "Remove signals" && b.getBoundingClientRect().width > 0);
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2, r.height];
+    });
+  };
+  const gone = () => p.evaluate((at) => ({ here: !!window.woodrail.layout.signalAt(at), other: !!window.woodrail.layout.signalAt(window.woodrail.layout.joinedConnector(at)), count: window.woodrail.layout.signalCount }), line.at);
+  let del = await openCard();
+  check("4. its card has Remove signals, a finger's height", !!del && del[2] >= 44, JSON.stringify(del));
+  await shot("11-card-remove");
+  if (del) {
+    await p.waitForTimeout(400);
+    await tapAt(del[0], del[1]);
+  }
+  const g1 = await gone();
+  check("4. Remove signals on its card takes the set away, both", !g1.here && !g1.other && g1.count === 0, JSON.stringify(g1));
+  const undoBtn = await p.evaluate(() => {
+    const r = document.querySelector('button[aria-label="Undo (Ctrl+Z)"]').getBoundingClientRect();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  });
+  await tapAt(...undoBtn);
+  await p.waitForTimeout(400);
+  const g2 = await gone();
+  check("4. …one Undo brings both back", g2.here && g2.other && g2.count === 2, JSON.stringify(g2));
+  // Clear (the tray's eraser) swept over a post takes the set too, one Undo brings it back.
+  const clearBtn = await p.evaluate(() => {
+    const e = document.querySelector(".tray-erase");
+    if (!e || !e.getBoundingClientRect().width) return null;
     const r = e.getBoundingClientRect();
     return [r.x + r.width / 2, r.y + r.height / 2];
   });
-  check("4. its card has Delete", !!del);
+  if (clearBtn) {
+    await tapAt(...clearBtn);
+    const [cx, cy] = await postScreen();
+    // (A tap with Clear on, on the post: as a sweep's first point.)
+    await tapAt(cx, cy);
+    await p.waitForTimeout(400);
+    const g3 = await gone();
+    const track = await p.evaluate((at) => !!window.woodrail.layout.getPiece(Math.floor(at / 8)), line.at);
+    check("4. Clear tapped on a post takes the set away, its track stays", !g3.here && !g3.other && track, JSON.stringify({ ...g3, track }));
+    await tapAt(...clearBtn);
+    await tapAt(...undoBtn);
+    await p.waitForTimeout(400);
+    const g4 = await gone();
+    check("4. …one Undo brings both back", g4.here && g4.other, JSON.stringify(g4));
+  } else check("4. the tray's Clear", false);
+  del = await openCard();
   if (del) {
     await p.waitForTimeout(400);
-    await tapAt(...del);
+    await tapAt(del[0], del[1]);
   }
-  check("4. Delete on its card takes the signal away", await p.evaluate((at) => !window.woodrail.layout.signalAt(at), line.at));
-  // (The set goes together: placed together, taken away together.)
-  check("4. …and its partner with it: the line has no signal", await p.evaluate((at) => !window.woodrail.layout.signalAt(window.woodrail.layout.joinedConnector(at)) && window.woodrail.layout.signalCount === 0, line.at));
+  check("4. removed again: the line has no signal", await p.evaluate((at) => !window.woodrail.layout.signalAt(window.woodrail.layout.joinedConnector(at)) && window.woodrail.layout.signalCount === 0, line.at));
   await p.evaluate(() => window.__lineTrains());
   const without = await p.evaluate(() => window.__lineRun(240));
   const stops = (r) => (r.arrived[0] ?? 0) + (r.arrived[1] ?? 0);
