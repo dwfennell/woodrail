@@ -89,6 +89,12 @@ const showing = async (what, dist = 1300, theta = null) => {
  * `cars`: a car standing on the depot counts as it (a route's stop, while planning).
  */
 const tapOn = async (what, cars = false) => {
+  // (A town grown by a delivery opens its "Pick one" sheet over the map: closed by its ✕ first, as a player would to
+  // get back to the map. It covered the mine's first tap: the reward isn't what's tested.)
+  if (await p.evaluate(() => [...document.querySelectorAll(".growth-sheet")].some((e) => !e.hidden && e.getBoundingClientRect().width > 0))) {
+    await tapButton(".growth-sheet:not([hidden]) .close");
+    await p.waitForFunction(() => ![...document.querySelectorAll(".growth-sheet")].some((e) => !e.hidden && e.getBoundingClientRect().width > 0), null, { timeout: 10000 });
+  }
   await showing(what);
   let at = await aimAt(p, what, { cars });
   for (let k = 1; k < 4 && at === null; k++) {
