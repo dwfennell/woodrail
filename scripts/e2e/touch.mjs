@@ -1460,7 +1460,8 @@ function mapHelpers(p) {
   // have left it off screen), then a tap where it's seen.
   const showing = async (what) => {
     const v = await worldAt(what);
-    await p.evaluate((v) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), 1500, { duration: 0.2 }), v);
+    // (Planning, in the map's room above the line sheet: centred, a place could sit under it.)
+    await p.evaluate((v) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), 1500, { duration: 0.2, inRoom: !!document.querySelector(".line-sheet:not([hidden])") }), v);
     await still();
   };
   const tapOn = async (what) => {
@@ -5266,7 +5267,7 @@ async function step(name, p, fn) {
     await fn();
   } catch (e) {
     // (With the line of this script it stopped at: a wait that timed out says which.)
-    const at = String(e?.stack ?? "").split("\n").find((l) => l.includes("touch.mjs") && !l.includes("mapHelpers"))?.trim() ?? "";
+    const at = String(e?.stack ?? "").split("\n").filter((l) => l.includes("touch.mjs")).slice(0, 3).map((l) => l.trim().replace(/\(.*touch\.mjs:/, "(touch.mjs:")).join(" < ");
     check(`${name}: ran to the end`, false, `${String(e?.message ?? e).split("\n")[0]} ${at}`);
   }
   await p.keyboard.press("Escape");

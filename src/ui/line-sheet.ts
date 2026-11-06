@@ -146,6 +146,22 @@ export class LineSheet {
     const key = JSON.stringify(m);
     this.root.hidden = false;
     if (key === this.shownKey || this.dragging) return;
+    // Only the trains' doings changed (they run on): those words updated in place, not the sheet built again, so a tap
+    // on a button isn't lost to a rebuild under the finger.
+    if (this.shownKey !== "" && this.shape(key) === this.shape(this.shownKey)) {
+      this.shownKey = key;
+      for (const t of m.trains) {
+        const status = this.root.querySelector<HTMLElement>(`.ls-train[data-engine="${t.engine}"] .ls-train-status`);
+        if (status && status.textContent !== t.status) status.textContent = t.status;
+      }
+      for (const f of m.free) {
+        const where = this.root.querySelector<HTMLElement>(`.ls-add-train[data-engine="${f.engine}"] span`);
+        if (where && where.textContent !== ` · ${f.where}`) where.textContent = ` · ${f.where}`;
+      }
+      const carries = this.root.querySelector<HTMLElement>(".ls-carries");
+      if (carries && carries.textContent !== m.carries) carries.textContent = m.carries;
+      return;
+    }
     if (this.root.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === "INPUT") return;
     const scroll = this.root.querySelector(".ls-body")?.scrollTop ?? 0;
     const sameLine = this.shownKey !== "" && (JSON.parse(this.shownKey) as SheetModel).id === m.id;
@@ -166,6 +182,12 @@ export class LineSheet {
     const target = body.querySelector<HTMLElement>(".ls-stop.open, .ls-via.open");
     // (Its top: an open stop can be taller than the sheet, and its name says which it is.)
     if (target) requestAnimationFrame(() => target.isConnected && target.scrollIntoView({ block: target.offsetHeight > body.clientHeight ? "start" : "nearest" }));
+  }
+
+  /** A model's key without what changes as trains run (statuses, where free trains are, loads): its shape. */
+  private shape(key: string): string {
+    const m = JSON.parse(key) as SheetModel;
+    return JSON.stringify({ ...m, trains: m.trains.map((t) => t.engine), free: m.free.map((f) => f.engine), carries: !!m.carries, health: m.health });
   }
 
   private button(text: string, cls: string, tip: string, fn: () => void): HTMLButtonElement {
