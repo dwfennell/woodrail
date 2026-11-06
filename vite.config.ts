@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from "vitest/config";
 import { gitShortHash, updateCheckOn } from "./scripts/build-info.mjs";
 import { debugReports } from "./scripts/debug-reports.mjs";
+import { workerChunks } from "./scripts/worker-chunks.mjs";
 
 // Names this build, so caches of things it generates (track piece geometry) are only reused by the same build, and so
 // a running game can tell a newer deploy (version.json) from itself.
@@ -20,7 +21,7 @@ function versionFile(): Plugin {
 
 export default defineConfig(({ command }) => ({
   // "Send to Claude" reports from the dev server, written to .reports/.
-  plugins: [debugReports(), versionFile()],
+  plugins: [debugReports(), versionFile(), workerChunks()],
   define: {
     // Empty in dev and tests: nothing is cached there.
     __BUILD_ID__: JSON.stringify(command === "build" ? BUILD_ID : ""),
