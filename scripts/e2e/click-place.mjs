@@ -579,7 +579,7 @@ suite.add("tight-curves", async () => {
       await frames(p);
       at = await find();
     }
-    if (!at) throw new Error("no tight curve in the tray");
+    if (!at) throw new Error("no tight curve in the tray: " + JSON.stringify(await p.evaluate(() => [...document.querySelectorAll(".scroller > *")].map((e) => e.className.split(" ")[0] + ":" + (e.dataset.key ?? e.querySelector(".label")?.textContent ?? "")))));
     return at;
   };
   const curves = (before) => p.evaluate((before) => {
