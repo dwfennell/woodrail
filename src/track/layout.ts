@@ -490,6 +490,18 @@ export class Layout {
   }
 
   /** The mark guarding trains that cross a joint from this end of it (a connector ref), if any. */
+  /**
+   * A signal's set partner: the signal facing the other way on the same joint (the user: "signal sets should move
+   * together"). Two marks on one joint's two ends are one set, placed together; a lone one (an old save's, or one whose
+   * partner was turned or taken away by itself) has none.
+   */
+  signalPartner(id: number): Signal | undefined {
+    const m = this.signalMarks.get(id);
+    if (!m) return undefined;
+    const other = this.joinedTo.get(m.at);
+    return other === undefined ? undefined : this.signalAt(other);
+  }
+
   signalAt(at: number): Signal | undefined {
     if (this.signalMarks.size === 0) return undefined;
     const id = this.signalByAt.get(at);

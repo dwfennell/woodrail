@@ -1763,8 +1763,15 @@ export class Sim {
     return ((this.layout.switchState(pieceId) >> road) & 1) === 1;
   }
 
-  /** Is this mark (a `Layout` signal id) at clear? A mark not yet worked out shows clear. */
+  /** The layout's signals and track as the aspects were last worked out at (`updateSignals`). */
+  private aspectsAt = { signals: -1, revision: -1 };
+
+  /**
+   * Is this mark (a `Layout` signal id) at clear? Worked out first if signals or track changed since the aspects were
+   * (a signal just put down, moved or turned, even paused, with no tick to come: it shows what its block holds at once).
+   */
   markClear(id: number): boolean {
+    if (this.aspectsAt.signals !== this.layout.signalsVersion || this.aspectsAt.revision !== this.layout.revision) this.updateSignals();
     return this.aspects.get(markKey(id)) ?? true;
   }
 
@@ -1926,8 +1933,9 @@ export class Sim {
       // (A mark facing on at this joint: the block ends there.)
       if (ref !== start && marks && this.marksAt.has(ref)) continue;
       const next = this.layout.joinedConnector(ref);
-      // (A mark facing back at this joint: the block ends at it.)
-      if (next === -1 || seen.has(next) || (marks && this.marksAt.has(next))) continue;
+      // (A mark facing back at this joint: the block ends at it. Not at its own joint: there a mark facing back is its
+      // set partner, guarding the other way, and the block starts past it.)
+      if (next === -1 || seen.has(next) || (marks && ref !== start && this.marksAt.has(next))) continue;
       seen.add(next);
       const id = pieceOfRef(next);
       if (id === g.pieceId && g.markId === -1) continue;
@@ -1984,6 +1992,11 @@ export class Sim {
     }
     stamp = (Math.imul(stamp, 0x01000193) ^ (this.pathLocks ? this.pathLocks.version() : 0)) | 0;
     stamp = (Math.imul(stamp, 0x01000193) ^ (this.signalGate ? this.signalGate.version() : 0)) | 0;
+    // (Signals placed, moved or turned, and track laid or taken up, change blocks: worked out again then too, though no
+    // train moved. Before, a signal put down beside a standing train showed clear, the default, till a train moved.)
+    stamp = (Math.imul(stamp, 0x01000193) ^ this.layout.signalsVersion) | 0;
+    stamp = (Math.imul(stamp, 0x01000193) ^ this.layout.revision) | 0;
+    this.aspectsAt = { signals: this.layout.signalsVersion, revision: this.layout.revision };
     if (!force && stamp === this.signalStamp) return;
     this.signalStamp = stamp;
     this.pathCache.clear();
@@ -2061,7 +2074,8 @@ export class Sim {
         const ref = connectorRef(at, exit);
         if (n > 0 && marks && this.marksAt.has(ref)) break;
         const next = this.layout.joinedConnector(ref);
-        if (next === -1 || (marks && this.marksAt.has(next))) break;
+        // (Not at its own joint: a mark facing back there is its set partner.)
+        if (next === -1 || (marks && n > 0 && this.marksAt.has(next))) break;
         if (!routeFrom(this.layout, at, exit, pathStep)) break;
         const id = pathStep.pieceId;
         if (!g.block.has(id)) break;

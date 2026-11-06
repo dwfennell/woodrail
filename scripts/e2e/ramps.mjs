@@ -323,7 +323,14 @@ for (const { name, steps } of LANES) {
     await frames();
     await p.keyboard.press("Escape");
   }
-  const train = await p.evaluate((n0) => (window.woodrail.sim.trainIds().length > n0 ? window.woodrail.sim.trainIds().at(-1) : null), n0);
+  // The one on this line: not the newest id. (An engine on a line before this one turns round at its end as a new
+  // train, the newest id; one that did just now was watched instead, and turning at its other end it was gone: read
+  // as off the rails, 1 run in 2 on a loaded machine.)
+  const train = await p.evaluate(({ n0, ids }) => {
+    const sim = window.woodrail.sim;
+    if (sim.trainIds().length <= n0) return null;
+    return sim.trainIds().find((id) => sim.getTrain(id).bogies.some((bg) => ids.includes(bg.pieceId))) ?? null;
+  }, { n0, ids });
   if (train === null) {
     check(`${name}: an engine goes on the line`, false, `trains ${n0}; at ${onLine}`);
     continue;
@@ -348,7 +355,8 @@ for (const { name, steps } of LANES) {
         const sim0 = w.simSeconds;
         const step = () => {
           const t = w.sim.getTrain(train);
-          if (!t || t.derailed) return resolve({ derailed: true, topY });
+          // (Gone isn't off the rails: say which. A train turned round at an end is a new train, the old one gone.)
+          if (!t || t.derailed) return resolve({ derailed: !!t, gone: !t, topY });
           for (const c of t.world ?? []) if (typeof c?.y === "number") topY = Math.max(topY, c.y);
           // At the line's end: turned at the last piece's open end (the payoff). Else, out of time: by the game's own
           // clock (a slow machine runs it slowly), with a long wall-clock bound too.
@@ -365,7 +373,7 @@ for (const { name, steps } of LANES) {
   );
   check(
     `${name}: an engine started on the straight (its card's Go) climbs to the top, ${48 * levels} mm up, and runs on to the line's end there, on the rails`,
-    !ride.derailed && ride.topY > 48 * levels - 2 && ride.lastTurn?.cause === "open-end" && ride.lastTurn.pieceId === last,
+    !ride.derailed && !ride.gone && ride.topY > 48 * levels - 2 && ride.lastTurn?.cause === "open-end" && ride.lastTurn.pieceId === last,
     `${JSON.stringify(ride)}; last piece ${last}; Go ${go ? "pressed" : "not shown"}`,
   );
   // (It stands at the end of its own line, out of the next one's way.)

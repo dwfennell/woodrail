@@ -4,6 +4,7 @@
  * depots on the map, asked when a card opens or its piles change, or when an industry is picked up (never per frame).
  */
 import { CARGO, CARRIES, type CargoKind } from "../economy/cargo";
+import { needsWagonText, wagonWords } from "../economy/wagons";
 import { capAt, RECIPES, storeLetsOut, type DepotRole, type DepotState } from "../economy/economy";
 import type { CarKind } from "../sim";
 
@@ -22,6 +23,7 @@ export const MAKER_LABEL: Partial<Record<DepotRole, string>> = {
   jamworks: "Jam kitchen",
   flowerfield: "Flower field",
   dyeworks: "Dye works",
+  glassworks: "Glassworks",
   toyworks: "Toy workshop",
   quarry: "Quarry",
   mine: "Mine",
@@ -54,17 +56,16 @@ export function makerOf(kind: CargoKind): string | null {
   return null;
 }
 
-/** The wagon (the tray's name) that carries `kind`: "a flatbed wagon" for logs. */
+/** The wagon (the tray's name) that carries `kind`, in a sentence: "a flatbed" for logs, "a goods van or cold van". */
 export function wagonFor(kind: CargoKind): string {
-  const car = (Object.entries(CARRIES) as [CarKind, readonly CargoKind[]][]).find(([, list]) => list.includes(kind))?.[0];
-  return car ? WAGON_WORDS[car] ?? "a wagon" : "a wagon";
+  const w = wagonWords(kind).toLowerCase();
+  return w ? `${/^[aeiou]/.test(w) ? "an" : "a"} ${w}` : "a wagon";
 }
-const WAGON_WORDS: Partial<Record<CarKind, string>> = { timber: "a flatbed wagon", hopper: "a hopper", van: "a goods van", tanker: "a milk tank wagon" };
 
 /** A good's name in a sentence ("logs", "milk"). */
 export const goodsWord = (kind: CargoKind): string => CARGO[kind].label.toLowerCase();
 /** Is a good's name a plural ("logs", "planks", "tools"), for "go"/"goes" and "them"/"it"? */
-const plural = (kind: CargoKind): boolean => CARGO[kind].label.endsWith("s");
+export const plural = (kind: CargoKind): boolean => CARGO[kind].label.endsWith("s");
 
 /** One good in or out of a place: the nearest place on the map it comes from (or goes to), and how many others. */
 export interface ChainLink {
@@ -230,7 +231,7 @@ export function loadHint(
   return null;
 }
 
-/** The engine card's words for a `loadHint`: "The forest yard's logs go on a flatbed wagon: add one to this train". */
+/** The engine card's words for a `loadHint`: "Needs a flatbed for logs: add one to this train". */
 export function loadHintText(h: LoadHint, name: string): string {
   const good = goodsWord(h.kind);
   // (`name` as the engine card names places: "the forest yard", "Ashby".)
@@ -238,7 +239,8 @@ export function loadHintText(h: LoadHint, name: string): string {
   // (Game mode's "Not dropping…" and the plan's "Not picking up…" words, turned round.)
   if (h.why === "not-stop") return `Not picking up ${good}: ${the} isn't on this route. Edit the route to add a stop here`;
   if (h.why === "off") return `Not picking up ${good}: its wagons are set to Off for ${good}. Switch them on in a wagon's card`;
-  return `${the[0].toUpperCase()}${the.slice(1)}'s ${good} ${plural(h.kind) ? "go" : "goes"} on ${wagonFor(h.kind)}: add one to this train`;
+  // (Wrong wagons, plainly: "Needs a flatbed for logs". Said in both modes, on the engine card and the place's card.)
+  return `${needsWagonText(h.kind)}: add one to this train`;
 }
 
 /**

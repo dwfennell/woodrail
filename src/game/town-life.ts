@@ -14,6 +14,7 @@ import { buildOnLots, changedBuildings, lotPoint, nextLots, type Lot } from "./t
 import { dueLandmarks } from "./landmarks";
 import { hasPostOffice, mailEveryAt, POST_TECH, SANDBOX_MAIL_LEVEL } from "./post";
 import { placeOf, planDone, planLacks, townPlaces, townSmiles, type Place } from "./places";
+import { grandLacks, growthCut, stageLacks } from "./grand";
 import { housesBy, LUXURIES, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
 
@@ -46,11 +47,16 @@ export function roadBonus(world: World, townId: number): Bag {
   return out;
 }
 
-/** What counts toward a town's growth: everything it received, and its road's bonus. Its level is `townStatus` of it. */
+/**
+ * What counts toward a town's growth: everything it received, its road's bonus, and what the Great Exhibition gave it
+ * (game/grand.ts). Its level is `townStatus` of it.
+ */
 export function growthOf(world: World, townId: number): Bag {
   const received = receivedBy(world, townId);
   const bonus = roadBonus(world, townId);
   for (const k of kindsOf(bonus)) received[k] = (received[k] ?? 0) + bonus[k]!;
+  const gift = world.economy.grandGift.get(townId);
+  if (gift) for (const k of kindsOf(gift)) received[k] = (received[k] ?? 0) + gift[k]!;
   return received;
 }
 
@@ -62,7 +68,7 @@ export function smilesOf(world: World, townId: number): number {
 
 /** Where a town stands now: what counts toward its growth, less what its places cut (`townStatus`). */
 export function statusOf(world: World, townId: number): TownStatus {
-  return townStatus(growthOf(world, townId), smilesOf(world, townId));
+  return townStatus(growthOf(world, townId), smilesOf(world, townId), growthCut(world));
 }
 
 /** The badge a town's sign shows in Game mode: the first thing it still wants, and how far along it is. */
@@ -115,6 +121,8 @@ export interface TownLifeEvents {
   placeBuilt?(town: Town, place: Place, at: { x: number; z: number }): void;
   /** A place's goods are all in but there's no lot for it yet: it waits (told once per place). */
   placeStuck?(town: Town, place: Place): void;
+  /** Goods went into a city's grand project (game/grand.ts): its stage may be done. Told once an update. */
+  grandGoods?(): void;
 }
 
 /** A town's place under way and its goods: what it still lacks of `kind` (0: none, or no place under way). */
@@ -141,6 +149,8 @@ export class TownLife {
   private stuck = new Map<number, string>();
   /** Bumped as a place goes up or opens: towns' smiles may have changed (`wants`' cache). */
   private placesVersion = 0;
+  /** Goods went into a grand project since the last update (its stage may be done). */
+  private grandIn = false;
 
   constructor(
     private readonly game: TownLifeHost,
@@ -156,7 +166,20 @@ export class TownLife {
     // (Made goods, furniture and tools, and everyday food, milk, bread and fruit, are always welcome: towns pay for
     // them, wanted or not.)
     // A school takes only what its research still lacks (`TownLifeEvents.school`; none: nothing).
-    this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind, d) : d.role !== "town" || placeLacks(this.game, d.townId, kind) > 0 || this.wants(d.townId, kind) || LUXURIES.has(kind) || !!this.events.vanTakes?.(d, kind));
+    // (And a city's grand project under way takes what its stage lacks: game/grand.ts.)
+    this.game.economy.accepts = (d, kind) =>
+      d.role === "school" ? !!this.events.school?.(kind, d) : d.role !== "town" || placeLacks(this.game, d.townId, kind) > 0 || grandLacks(this.game, d.townId, kind) > 0 || this.wants(d.townId, kind) || LUXURIES.has(kind) || !!this.events.vanTakes?.(d, kind);
+    // A grand project's goods go into its stage as they land, after the town's place under way has had its own.
+    this.game.economy.grandTake = (d, kind) => {
+      for (const [id, plan] of this.game.economy.grandPlans) {
+        if (plan.townId !== d.townId || stageLacks(id, plan, kind) <= 0) continue;
+        plan.got[kind] = (plan.got[kind] ?? 0) + 1;
+        this.grandIn = true;
+        return true;
+      }
+      return false;
+    };
+    this.grandIn = this.game.economy.grandPlans.size > 0;
     // A place under way in a town takes the goods it lacks first, as they land (game/places.ts).
     this.game.economy.placeWants = (townId, kind) => placeLacks(this.game, townId, kind);
     this.game.economy.onPlaceGoods = (d) => this.placeGoods.add(d.townId);
@@ -195,6 +218,7 @@ export class TownLife {
     this.game.economy.joinedByRoad = null;
     this.game.economy.placeWants = null;
     this.game.economy.onPlaceGoods = null;
+    this.game.economy.grandTake = null;
     // Sandbox's towns post mail too, once a post office stands (no research there): its post offices sort it.
     this.game.economy.mailEvery = (d) => mailEveryAt(true, this.game.stations.get(d.townId) === d.pieceId, hasPostOffice(this.game.economy), SANDBOX_MAIL_LEVEL);
   }
@@ -219,6 +243,10 @@ export class TownLife {
 
   /** Call each frame: cheap unless something was delivered. */
   update(): void {
+    if (this.grandIn) {
+      this.grandIn = false;
+      this.events.grandGoods?.();
+    }
     // A place whose last goods are in goes up (or waits for room).
     if (this.placeGoods.size > 0) {
       for (const townId of this.placeGoods) this.finishPlace(townId);
@@ -237,7 +265,8 @@ export class TownLife {
       const status = statusOf(this.game, town.id);
       const had = this.had.get(town.id);
       if (had) {
-        const before = townStatus(plus(had, bonus), smilesOf(this.game, town.id));
+        const gift = this.game.economy.grandGift.get(town.id);
+        const before = townStatus(gift ? plus(plus(had, bonus), gift) : plus(had, bonus), smilesOf(this.game, town.id), growthCut(this.game));
         for (const k of kindsOf(minus(received, had))) this.events.received(town, k, received[k]! - (had[k] ?? 0), before);
       }
       this.had.set(town.id, received);
@@ -333,6 +362,14 @@ export class TownLife {
     }
     if (opened.length > 0) this.placeOpened();
     return opened;
+  }
+
+  /**
+   * A grand project's reward changed what towns need or have toward growing (the Exhibition's gift, the Cathedral's
+   * cut): wants and levels are looked at again, and towns grow on the next update.
+   */
+  rewardsChanged(): void {
+    this.placeOpened();
   }
 
   /** A place stood up or opened: smiles may have changed, so wants and levels are looked at again. */

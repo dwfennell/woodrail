@@ -35,6 +35,8 @@ export const FEAT_SHED = 5;
 export const FEAT_DEPOT = 6;
 /** An old industry's ruined yard and its stub of track (owner: site id; see `MapSite`): cleared, or restored, to use. */
 export const FEAT_RUIN = 7;
+/** A secret site (owner: its id in `Landscape.secrets`; see src/landscape/secrets.ts): hidden till track is laid to it. */
+export const FEAT_SECRET = 8;
 
 /** A plot's place in the world: plot (px, pz) covers squares px·PLOT_COLS… and pz·PLOT_ROWS…. */
 export interface PlotCoord {

@@ -1,6 +1,6 @@
 import { SIGNAL_SKIN_ASSETS } from "../catalogue/shelves";
 import { describe, expect, it } from "vitest";
-import { ruleOf, THING_RULES, type ThingId } from "../game/things";
+import { isGift, ruleOf, THING_RULES, type ThingId } from "../game/things";
 import { isKit, kitForAsset, kitOf, KITS, type PieceTypeId } from "../track";
 import { DEFAULT_FAVOURITES, favouriteItems, INDUSTRY_GROUPS, propGroups, shelfItem, shownGroups, SIGNAL_ITEM, toggleFavourite, TRAY_TABS, trayKey, trayTabs, type TrayGroup, type TrayItem } from "./tray-catalogue";
 
@@ -75,7 +75,8 @@ describe("kit pieces on the catalogue shelves (Sandbox)", () => {
           if (!(item.kind === "piece" && isKit(item.type)) && item.kind !== "prop") continue;
           // Hidden till learned, and made at the workshop like any piece.
           expect(item.unlearned, trayKey(item)).toBe("hide");
-          expect(ruleOf(trayKey(item) as ThingId)?.tech, trayKey(item)).toBeTruthy();
+          // (Or a gift: Grand Central's, given by a grand project, never made or learned.)
+          expect(ruleOf(trayKey(item) as ThingId)?.tech || isGift(trayKey(item) as ThingId), trayKey(item)).toBeTruthy();
         }
     }
   });

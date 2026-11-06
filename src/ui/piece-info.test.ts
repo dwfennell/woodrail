@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canCarry, CARGO_KINDS } from "../economy/cargo";
 import { PIECE_TYPES } from "../track";
 import { DETAIL_MAX, hasOwnName, pieceInfo, placeCardInfo, recipeWords, trayInfo } from "./piece-info";
 import { TRAY_TABS, type TrayItem } from "./tray-catalogue";
@@ -44,7 +45,13 @@ describe("piece names", () => {
     const item = (label: string) => trayItems().find((i) => i.label === label)!;
     expect(trayInfo(item("Electric")).detail).toBe("Pulls 6 cars, 1.4× as fast. Needs a spark of power.");
     expect(trayInfo(item("Tank engine")).detail).toContain("Pulls 3 cars");
-    expect(trayInfo(item("Hopper")).detail).toBe("Carries grain, stone, coal and ore.");
+    expect(trayInfo(item("Hopper")).detail).toBe("Carries 🌾 grain, 🪨 stone, ⚫ coal, ⛏️ ore.");
+    // Every good a goods van carries, none left out as "more": its icons in the detail, by name on its place card.
+    expect(trayInfo(item("Goods van")).detail.split(" ")).toHaveLength(1 + CARGO_KINDS.filter((k) => canCarry("van", k)).length);
+    const names = placeCardInfo(item("Goods van")).facts.join(", ");
+    expect(names.split(", ")).toHaveLength(CARGO_KINDS.filter((k) => canCarry("van", k)).length);
+    expect(names).toContain("🍞 flour");
+    expect(names).toContain("🧸 toys");
   });
 });
 

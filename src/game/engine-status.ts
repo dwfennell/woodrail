@@ -1,9 +1,9 @@
 import { STUCK_S } from "../economy/stalls";
-import { RECIPES, type Economy } from "../economy";
+import { canCarry, RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
 import { kitOf, type Layout } from "../track";
 import { storeSkipText } from "./warehouse-text";
-import { keptText } from "./workshop-text";
+import { keptText, notLoadingText } from "./workshop-text";
 import { loadHint, loadHintText } from "./chains";
 import { RACK_WAIT } from "./engines";
 
@@ -128,14 +128,14 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const rack = sim.rackHeld(train.id);
     if (rack !== -1) return { kind: "rack", pieceId: rack };
   }
-  if (sim.atRedSignal(train.id)) {
+  // (At a red that won't clear, said stuck (a ring of signals: each train at a red for the next), the stuck card below
+  // says so and what to do, not "Waiting at a red signal". Else the player's own held signal is theirs to let go; and a
+  // red only because sections or the router keep it for another train names that train and where it's going (QA
+  // 2026-11-06: "Waiting at a red signal", its way clear, for a hopper shuttle).)
+  if (sim.atRedSignal(train.id) && !train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id))) {
     const red: TrainState = { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
-    // (The player's own signal held: theirs to let go. Else red only because sections or the router keep it for another
-    // train: that train named, and where it's going (QA 2026-11-06: "Waiting at a red signal", its way clear, for a
-    // hopper shuttle). Said stuck: that, below.)
     if (sim.redHeldByHand(train.id)) return red;
-    const stuck = train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id));
-    if (!stuck) return lineWaitFor(economy, train) ?? red;
+    return lineWaitFor(economy, train) ?? red;
   }
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   // Held a moment at its stop so its line's trains spread out.
@@ -453,12 +453,25 @@ export function engineView(
       // (Not a stop on its line: the card offers to add it, one tap. Audit F15.)
       return { status: keptText(kept.why, kept.kind, kept.depot.role, nameOf(kept.depot.id), held), blocker: null, ...(kept.why === "not-stop" ? { addStop: kept.depot.id } : {}) };
     }
-    // (Sandbox's chain hints: beside goods it won't load, because no wagon of its carries them or it doesn't stop here.)
-    if (loadHints && s.kind !== "starting") {
+    // Beside goods it won't load: no wagon of its carries them ("Needs a hopper for stone", in both modes: a player
+    // with log flatbeds at a quarry wasn't told why nothing happened), or (Sandbox's chain hints) it doesn't stop here
+    // or its wagons are set to Off for them.
+    if (s.kind !== "starting" && found.train.cars.some((c) => c.kind !== "engine")) {
       const route = economy.routeOfTrain(found.train);
       const hint = loadHint(found.train, (id) => economy.depotAtPiece(id), route ? route.stops.map((x) => x.depotId) : null, (car, kind) => economy.carTakes(car, kind));
       // (Not a stop on its line: the card offers to add it, as for "Not dropping…".)
-      if (hint) return { status: loadHintText(hint, nameOf(hint.depot.id)), blocker: null, ...(hint.why === "not-stop" ? { addStop: hint.depot.id } : {}) };
+      // (Outside the chain hints, only wrong wagons, and only for a goods train standing at an industry with nothing
+      // else to do there: not a coach train passing, nor one unloading at a town that also gives mail.)
+      const plainly = hint?.why === "wagon" && s.kind !== "running" && hint.depot.role !== "town" && found.train.cars.some((c) => canCarry(c.kind)) && !economy.hasWorkAt(found.train.id, hint.depot);
+      if (hint && (loadHints || plainly)) return { status: loadHintText(hint, nameOf(hint.depot.id)), blocker: null, ...(hint.why === "not-stop" ? { addStop: hint.depot.id } : {}) };
+    }
+    // (After the chain hints: they're about goods beside it now.)
+    // Heading for (or standing at) a stop where it won't pick up a good it could: why, from the rule that decides it
+    // (a later stop with no room, no wagon for it, none there). The user, 2026-11-06: a train passed its sawmill empty.
+    // (Not over a held-up train's "Waiting: … in the way": what holds it comes first.)
+    if (s.kind === "running" || s.kind === "slowing" || s.kind === "stopped") {
+      const not = economy.notLoadingAt(found.train.id);
+      if (not) return { status: notLoadingText(not.why, not.kind, nameOf(not.depot.id), not.taker ? nameOf(not.taker.id) : "", !!not.takerFull), blocker: null };
     }
   }
   const blocker = blockerOf(sim, economy, s);

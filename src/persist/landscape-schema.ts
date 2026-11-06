@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { FIELD_STOCK, SITE_ROLES } from "../landscape";
+import { SECRET_KINDS } from "../track/kits";
 
 /**
  * The landscape's save format, validated with Zod (see `landscape-data.ts`). Its own module, loaded with the save's
@@ -52,7 +53,7 @@ export const landscapeSchema = z.object({
         }),
       ),
       claimed: cells.optional(),
-      upgraded: z.enum(["kit-two-platform-station", "kit-grand-terminus"]).optional(),
+      upgraded: z.enum(["kit-two-platform-station", "kit-grand-terminus", "kit-grand-central-1", "kit-grand-central-2", "kit-grand-central-3"]).optional(),
     }),
   ),
   depots: z.array(z.object({ id, kind: z.enum(["forest", "sawmill"]), centre: point, piece: pose })),
@@ -79,6 +80,24 @@ export const landscapeSchema = z.object({
     .optional(),
   /** A Sandbox map: no sites, ever (`Landscape.siteless`). */
   siteless: z.boolean().optional(),
+  /** Where the map's secrets go (`Landscape.secretPlan`); missing on a map from before them, or with none. */
+  secretPlan: z.array(z.object({ kind: z.enum(SECRET_KINDS), px: z.number().int().min(-30000).max(30000), pz: z.number().int().min(-30000).max(30000), alt: z.number().int().min(1).max(9).optional() })).optional(),
+  /** The secret sites placed so far (`Landscape.secrets`). */
+  secrets: z
+    .array(
+      z.object({
+        id,
+        kind: z.enum(SECRET_KINDS),
+        piece: pose,
+        plot: z.object({ px: z.number().int().min(-30000).max(30000), pz: z.number().int().min(-30000).max(30000) }),
+        found: z.boolean().optional(),
+        trips: z.number().int().min(0).optional(),
+        fares: z.number().min(0).finite().optional(),
+        from: z.record(z.string(), z.number().int().min(0)).optional(),
+        year: z.tuple([z.number().int(), z.number().int().min(0)]).optional(),
+      }),
+    )
+    .optional(),
   /** The first train's marker (`Landscape.firstTrain`); null: none ever; missing: none yet. */
   firstTrain: z.object({ x: z.number().finite(), z: z.number().finite(), heading: z.number().finite() }).nullable().optional(),
 });
