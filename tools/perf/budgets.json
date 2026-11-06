@@ -39,7 +39,7 @@
   "budgets": {
     "bundle.jsKB": {
       "kind": "size",
-      "max": 3120
+      "max": 3000
     },
     "bundle.entryJsKB": {
       "kind": "size",

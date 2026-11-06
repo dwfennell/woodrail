@@ -42,10 +42,14 @@ const pos = new Vector3();
 const one = new Vector3(1, 1, 1);
 const sized = new Vector3();
 
-const START_INSTANCES = 64;
-const START_VERTICES = 1 << 15;
+/** A batch's first size: instances, vertices and indices (it grows by half again when it's full). */
+export interface BatchStart {
+  instances: number;
+  vertices: number;
+  indices: number;
+}
 /** (Welded: about six indices a vertex.) */
-const START_INDICES = 1 << 17;
+const DEFAULT_START: BatchStart = { instances: 64, vertices: 1 << 15, indices: 1 << 17 };
 
 /**
  * Draws the props: one `BatchedMesh` per material (a handful in all), holding every model's part in that material once
@@ -61,7 +65,14 @@ export class PropsView {
   /** Models asked for and not yet loaded. */
   private readonly waiting = new Set<string>();
 
-  constructor(private readonly library: PropLibrary) {
+  /**
+   * `start`: each batch's first size. The default has room for a world of props; a view that only ever holds a few
+   * models (the secret sites) starts small, so it doesn't hold megabytes of empty buffers (it grows as needed).
+   */
+  constructor(
+    private readonly library: PropLibrary,
+    private readonly start: BatchStart = DEFAULT_START,
+  ) {
     this.group.name = "props";
   }
 
@@ -244,13 +255,14 @@ export class PropsView {
   private batchFor(material: Material): Batch {
     let batch = this.batches.get(material);
     if (!batch) {
-      const mesh = new BatchedMesh(START_INSTANCES, START_VERTICES, START_INDICES, material);
+      const { instances, vertices, indices } = this.start;
+      const mesh = new BatchedMesh(instances, vertices, indices, material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.sortObjects = material.transparent;
       mesh.name = "props";
       this.group.add(mesh);
-      batch = { mesh, geometryOf: new Map(), propOf: new Map(), farOf: new Map(), room: { vertices: START_VERTICES, indices: START_INDICES } };
+      batch = { mesh, geometryOf: new Map(), propOf: new Map(), farOf: new Map(), room: { vertices, indices } };
       this.batches.set(material, batch);
     }
     return batch;
