@@ -832,7 +832,7 @@ export const handRunBoxedIn: Scenario = {
  * never did again till that one got somewhere, which it couldn't. All three stood for good, said stuck (seed 142:
  * 82 stops all hand-run, 8 with the route). And the points thrown for it, never gone over, were left thrown for good
  * (the `restore` invariant; fuzz seed 95's break on cf529c9a). Now they go back once the road hasn't taken
- * (`Router.gaveWayTaken`), and a train that gave way by a road and still stands in the ring turns round at the next try.
+ * (`Router.thrownTaken`), and a train that gave way by a road and still stands in the ring turns round at the next try.
  */
 export const handRunRoadHeld: Scenario = {
   name: "a hand-run train given way by a road that didn't take",
@@ -859,8 +859,37 @@ export const handRunRoadHeld: Scenario = {
   },
 };
 
+/**
+ * Points thrown at a dead end's mouth for a train standing in it (fuzz seed 77, small). A line `⊐ A ══ ══ (loop, its side
+ * road a stop) ══ ══ ══ ══ B ⊐`, the loop's far points lying for its side road. A routed train runs A ⇄ B; two hand-run
+ * ones shuttle, one in the dead end by A. Standing there, held by sections, its look throws the loop's near points for
+ * the road clear of the train facing it (`Router.outOfDeadEnd`), but a standing train locks nothing, so they stayed
+ * thrown with no train on them or coming (seed 77: "points 5 left at 1 (default 0)" at 131.4 s, for 2.9 s, till it
+ * went). Now points so thrown, not locked in half a second, go back, and aren't thrown for it again while it stands.
+ */
+export const deadEndMouthThrown: Scenario = {
+  name: "points thrown at a dead end's mouth for a train standing in it",
+  seconds: 150,
+  build: (layout) => {
+    const [a, w1, w2] = chain(layout, [STOP, S, S]);
+    appendPiece(layout, BUFFER, false, connectorRef(a, 0));
+    const l = loopOn(layout, connectorRef(w2, 1), [S, S], [STOP]);
+    const m = chain(layout, [S, S], connectorRef(l.s2, 0));
+    const [e1, , b] = chain(layout, [S, S, STOP], connectorRef(m[1], 1));
+    appendPiece(layout, BUFFER, false, connectorRef(b, 1));
+    layout.setSwitchState(l.s2, 1);
+    return {
+      trains: [
+        { pieceId: w1, reversed: true, cars: CARS },
+        { pieceId: m[0], stops: [a, b], cars: CARS },
+        { pieceId: e1, cars: CARS },
+      ],
+    };
+  },
+};
+
 /** Giving way's cases. */
-export const GIVE_WAY: readonly Scenario[] = [routedMeetsHandRun, routedHeadOnRing, handRunBoxedIn, handRunRoadHeld];
+export const GIVE_WAY: readonly Scenario[] = [routedMeetsHandRun, routedHeadOnRing, handRunBoxedIn, handRunRoadHeld, deadEndMouthThrown];
 
 // ── Seeded fuzz over the loop fixtures ──────────────────────────────────────────────────────────────────────────────
 

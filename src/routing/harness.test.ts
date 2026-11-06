@@ -350,6 +350,15 @@ const GIVE_WAY: Case[] = [
       "the hand-run ones keep going: 5+ turns at the buffers each": (r) => r.turns.slice(1).forEach((t) => expect(t.buffer).toBeGreaterThanOrEqual(5)),
     },
   },
+  {
+    // (Points a standing train's look threw at its dead end's mouth go back: `restore` holds, as every case's. Before:
+    // "131.4 s: points 5 left at 1 (default 0), no train on them".)
+    scenario: S.deadEndMouthThrown,
+    checks: {
+      "payoff: the routed train 3+ stops": (r) => expect(r.arrivals[1]).toBeGreaterThanOrEqual(3),
+      "never stuck": noStall,
+    },
+  },
 ];
 
 /**

@@ -34,7 +34,7 @@ import { CHECK_TICKS, type Sections } from "./sections";
  * has got somewhere (come to its next stop, or turned at the end of the line): boxed in, it would only come back to it
  * (a hand-run train between a buffer and the train whose stop is behind it). A ring then is broken by another of its
  * trains, or said stuck as before. (Except a train that gave way by another road and still stands there, its way on held
- * all the same: it turns round at the next try, the points going back (`Router.gaveWayTaken`). Fuzz seed 142.) A ring nobody can break (single track, no way round, no room to turn) is said stuck, as
+ * all the same: it turns round at the next try, the points going back (`Router.thrownTaken`). Fuzz seed 142.) A ring nobody can break (single track, no way round, no room to turn) is said stuck, as
  * before; so is one through signals (adding a signal is the fix) and a parked train's (the player's).
  *
  * Cost: nothing per frame. Every `CHECK_TICKS`, with two or more trains, each standing train's chain is followed (each
