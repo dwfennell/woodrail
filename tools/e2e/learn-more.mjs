@@ -99,6 +99,36 @@ const state = () =>
   }));
 /** The sheet showing `id` (or closed: null), waited for a moment (it's loaded the first time it's opened). */
 const sheetIs = (id) => p.waitForFunction((id) => window.woodrail.hud.explainerShown === id, id, { timeout: 15000 }).catch(() => {});
+/** The open sheet done popping in: no animation running on it or its scrim, and its box the same two frames running. */
+const sheetSettled = () =>
+  p
+    .waitForFunction(
+      () => {
+        const e = document.querySelector(".explainer-sheet:not([hidden])");
+        if (!e) return true;
+        const r = e.getBoundingClientRect();
+        const k = `${r.x.toFixed(1)},${r.y.toFixed(1)},${r.width.toFixed(1)}`;
+        const busy = document.getAnimations().some((a) => a.playState === "running" && /explainer/.test(a.effect?.target?.className ?? ""));
+        const same = window.__sheetBox === k;
+        window.__sheetBox = k;
+        return !busy && same;
+      },
+      null,
+      { timeout: 10000, polling: "raf" },
+    )
+    .catch(() => {});
+/**
+ * A tap on the sheet's `sel` (✕) once it has settled, tapped again if the sheet is still up: a tap that came while it
+ * was popping in (the ✕ moving under the finger) was missed now and then.
+ */
+const tapToClose = async (sel) => {
+  for (let i = 0; i < 3; i++) {
+    await sheetSettled();
+    await tapSel(sel);
+    await sheetIs(null);
+    if ((await state()).sheet === null) return;
+  }
+};
 const idleFrames = () =>
   p.evaluate(async () => {
     const w = window.woodrail;
@@ -218,8 +248,7 @@ check("3. More about routes opens Routes", s.sheet === "routes", JSON.stringify(
 await tapSel(".explainer-sheet .explainer-back");
 s = await state();
 check("3. Back goes back to Signals", s.sheet === "signals", JSON.stringify(s));
-await tapSel(".explainer-sheet .explainer-x");
-await p.waitForTimeout(200);
+await tapToClose(".explainer-sheet .explainer-x");
 s = await state();
 check("3. ✕ closes it: the Signal tool still on, its card still up", s.sheet === null && s.tool && s.card === "signal", JSON.stringify(s));
 await tapSel(".place-card .learn-more");
@@ -264,7 +293,7 @@ if (marks1.length) {
   await sheetIs("signals");
   s = await state();
   check("4. …it opens the Signals sheet", s.sheet === "signals", JSON.stringify(s));
-  await tapSel(".explainer-sheet .explainer-x");
+  await tapToClose(".explainer-sheet .explainer-x");
   const still = await p.evaluate(() => !document.querySelector(".piece-card").hidden);
   s = await state();
   check("4. ✕ closes it, the signal's card still open", s.sheet === null && still, JSON.stringify({ ...s, still }));
