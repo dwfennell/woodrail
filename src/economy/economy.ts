@@ -1,5 +1,9 @@
 import { getPieceDef, isKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, SIM_DT, SIM_HZ, type Cursor, type Sim, type Train } from "../sim";
+import { LineTally } from "./line-tally";
+
+/** A game month in sim ticks (calendar.ts's `MONTH_S`, 120 s): the span the Lines list counts a line's loads over. */
+export const LINE_TALLY_TICKS = 120 * SIM_HZ;
 import { CARGO, CARGO_KINDS, CARGO_SLOTS, canCarry, POSTAL, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import { Spacing } from "./spacing";
@@ -2548,6 +2552,8 @@ export class Economy {
       for (let n = 0; n < loads; n++) {
         if (this.canUnload(d, s.carId)) {
           this.events.push({ kind: "unloaded", depotId: d.id, cargo: this.cargoOf(s.carId).kind! });
+          const lineId = this.lineOfTrain(train);
+          if (lineId !== -1) this.lineLoads.add(lineId, this.ticksRun);
           this.unloadOne(d, s.carId);
         } else if (this.loadKind(d, s.carId) !== null) {
           this.events.push({ kind: "loaded", depotId: d.id, cargo: this.loadKind(d, s.carId)! });
@@ -2777,8 +2783,23 @@ export class Economy {
 
   /** Ticks run (sim time: a pause stops it), for spacing the trains on a line (`spacing`). */
   private ticksRun = 0;
+
+  /** The line a train runs (its engine's, the first engine on one), or −1. */
+  private lineOfTrain(train: Train): number {
+    for (const car of train.cars) {
+      const id = this.lineIdOf.get(car.id);
+      if (id !== undefined) return id;
+    }
+    return -1;
+  }
   /** Auto-spacing of the trains on a line (see spacing.ts). */
   readonly spacing = new Spacing();
+  /** Goods unloaded from each line's trains over the last game month (the Lines list's "loads a month"). */
+  readonly lineLoads = new LineTally(LINE_TALLY_TICKS);
+  /** Loads unloaded from line `lineId`'s trains in the last game month. */
+  lineLoadsLately(lineId: number): number {
+    return this.lineLoads.count(lineId, this.ticksRun);
+  }
 
   /**
    * Trains called home by a signal box's Telegraph (game/telegraph.ts): engine → its home depot. Each stops there, its
@@ -2977,6 +2998,7 @@ export class Economy {
     const run = new Set(this.lineIdOf.values());
     for (const [id, line] of this.lines) if (line.transient && !run.has(id)) this.lines.delete(id);
     this.spacing.prune(run, new Set(this.lineIdOf.keys()));
+    this.lineLoads.prune(new Set(this.lines.keys()));
     this.sections.prune(new Set(this.lineIdOf.keys()));
     this.stalls.prune();
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);

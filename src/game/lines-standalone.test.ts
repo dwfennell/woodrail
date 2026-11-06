@@ -200,3 +200,32 @@ describe("saving lines with no train", () => {
     expect(reload(world).economy.lines.size).toBe(0);
   });
 });
+
+describe("what a line carries", () => {
+  it("counts the loads its trains unload over the last month (the Lines list's loads a month)", async () => {
+    const { CARGO, PILE_CAP } = await import("../economy");
+    const { SIM_HZ } = await import("../sim");
+    const layout = new Layout();
+    const ids = (["depot-forest", "straight-216", "straight-216", "straight-216", "depot-sawmill"] as const).map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const forest = economy.addDepot("forest", ids[0], 0);
+    const mill = economy.addDepot("sawmill", ids[4], 0).id;
+    const r = sim.addTrain(["engine", "timber"], { pieceId: ids[2], pathIndex: 0, reversed: true, s: 100 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    const line = startLine(economy, engine, [{ depotId: forest.id, action: "auto" }, { depotId: mill, action: "auto" }]);
+    sim.setLever(engine, sim.getTrain(r.trainId)!.cars[0].facing);
+    let unloaded = 0;
+    for (let i = 0; i < 90 * SIM_HZ; i++) {
+      forest.piles[CARGO.log.index] = PILE_CAP;
+      sim.tick();
+      economy.tick();
+      for (const ev of economy.drainEvents()) if (ev.kind === "unloaded") unloaded++;
+    }
+    expect(unloaded).toBeGreaterThan(0);
+    expect(economy.lineLoadsLately(line.id)).toBe(unloaded);
+    // A line no train runs carries nothing.
+    expect(economy.lineLoadsLately(createLine(economy, [{ depotId: mill, action: "auto" }]).id)).toBe(0);
+  });
+});
