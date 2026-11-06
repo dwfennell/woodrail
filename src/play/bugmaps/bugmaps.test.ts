@@ -71,6 +71,13 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] 
   // map's one big section, it was the end of the line for every move through it, on the way or not. Now a train
   // standing off a way isn't in it (`Sections.ask`, `heldIn`). Stuck 295 s of 300 with no stop, it's now 0 s, 8 stops.)
   { file: "far-train.txt", seconds: 300, arrivals: 6, what: "issue #29: a train held by an engine parked across the map" },
+  // (QA 2026-11-06, docs/agents/qa/maps/2026-11-06-signals-mill-wait.txt: engine 44 (Yellow, the mill and three towns)
+  // stood for good at the path signal by the mill, its way clear, held by sections for engine 48 (Green, a hopper
+  // shuttle farm ⇄ mill), which always ran on part of its way. Sections took 44's way on past the mill as the points
+  // lay, into the shuttle's loop, not toward its next town; and Green, with signals' waiting points only, wasn't
+  // managed: never asked to wait, it never gave a turn. Now the way goes on toward the stop after, and a one-train
+  // line of signals sharing a network takes its turns (`Sections.line`). Stuck 300 s with no stop; now 8 stops.)
+  { file: "signals-mill-wait.txt", seconds: 300, arrivals: 4, what: "QA: a towns line held at the mill by a hopper shuttle sharing its track" },
 ];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {
@@ -81,7 +88,8 @@ describe("bug maps: copied maps replayed with the invariants on", () => {
       expect(r.first && describeBreak(r.first)).toBeNull();
       expect(r.seconds).toBe(m.seconds);
       expect(r.arrivals.size).toBeGreaterThan(0);
-      for (const [engine, n] of r.arrivals) expect(n, `engine ${engine}`).toBeGreaterThanOrEqual(m.arrivals);
+      // (Every routed train, one that came to none too: it isn't in `arrivals`, and a train stood for good is the bug.)
+      for (const engine of new Set([...world.economy.lineIdOf.keys(), ...r.arrivals.keys()])) expect(r.arrivals.get(engine) ?? 0, `engine ${engine}`).toBeGreaterThanOrEqual(m.arrivals);
     }, 60_000);
 
   it("route-stuck.txt: the route planned again as the player did (Mill, then Farm yard): it heads for the farm yard, ahead of it, and its way there keeps off the middle line", async () => {

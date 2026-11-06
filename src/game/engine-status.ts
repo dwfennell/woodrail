@@ -59,6 +59,13 @@ export type TrainState =
   | { kind: "stuck"; why: "signals"; by: number }
   /** Standing with its lever on, for want of anything better known: `by`, the train the sim or sections say it's behind. */
   | { kind: "held-up"; by?: number }
+  /**
+   * Held at a red signal (or short of points) only because sections or the router keep it for another train: `by` (its
+   * first engine or car), till that one has cleared the line toward `to` (its next stop's depot; −1: not known). Said
+   * "Waiting for Bramble (hopper train) to clear the line to the mill" (`trainLabel`, `placeLabel`). `signalId`: the red
+   * signal it stands at, when it does (as `red-signal`'s).
+   */
+  | { kind: "line-wait-for"; by: number; to: number; holder: "sections" | "router"; signalId?: number }
   | { kind: "starting" }
   | { kind: "running" };
 
@@ -123,9 +130,16 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     if (rack !== -1) return { kind: "rack", pieceId: rack };
   }
   // (At a red that won't clear, said stuck (a ring of signals: each train at a red for the next), the stuck card below
-  // says so and what to do, not "Waiting at a red signal".)
-  if (sim.atRedSignal(train.id) && !train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id)))
-    return { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
+  // says so and what to do, not "Waiting at a red signal". Else the player's own held signal is theirs to let go; and a
+  // red only because sections or the router keep it for another train names that train and where it's going (QA
+  // 2026-11-06: "Waiting at a red signal", its way clear, for a hopper shuttle).)
+  if (sim.atRedSignal(train.id) && !train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id))) {
+    const red: TrainState = { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
+    if (sim.redHeldByHand(train.id)) return red;
+    // (The signal it stands at kept, for the card's Show of it.)
+    const held = lineWaitFor(economy, train);
+    return held?.kind === "line-wait-for" ? { ...held, signalId: red.signalId } : red;
+  }
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   // Held a moment at its stop so its line's trains spread out.
   for (const car of train.cars) {
@@ -245,6 +259,65 @@ export interface Blocker {
   line: string;
 }
 
+/** Held only for another train by sections or the router (a wait naming it): `line-wait-for`, else null. */
+function lineWaitFor(economy: Economy, train: Train): TrainState | null {
+  for (const car of train.cars) {
+    if (car.kind !== "engine") continue;
+    const w = economy.sectionWait(car.id);
+    const by = w && "engine" in w && w.engine >= 0 ? w.engine : -1;
+    const r = by === -1 ? economy.router.waitOf(car.id) : null;
+    const rb = r && r.kind === "points" ? r.by : -1;
+    if (by === -1 && rb === -1) continue;
+    return { kind: "line-wait-for", by: by !== -1 ? by : rb, to: nextStopOf(economy, car.id), holder: by !== -1 ? "sections" : "router" };
+  }
+  return null;
+}
+
+/** The depot a routed engine heads for next (its stop, not one it's at); −1: none. */
+function nextStopOf(economy: Economy, engineCarId: number): number {
+  const r = economy.routeOf(engineCarId);
+  if (!r || r.stops.length === 0) return -1;
+  let i = r.next % r.stops.length;
+  if (r.at) i = (i + 1) % r.stops.length;
+  return r.stops[i].depotId;
+}
+
+/** What a train is, after its wagons: a car kind's word. */
+const TRAIN_WORDS: Partial<Record<string, string>> = {
+  hopper: "hopper train",
+  passenger: "passenger train",
+  timber: "timber train",
+  van: "goods train",
+  tanker: "tanker train",
+  oiltank: "oil train",
+  reefer: "cold-goods train",
+  carrier: "car carrier",
+  mailvan: "mail train",
+  sortvan: "mail train",
+  crane: "breakdown crane",
+  cleaner: "track cleaner",
+  cage: "animal train",
+};
+
+/**
+ * A train as the card names it: its engine's name and what it is, "Bramble (hopper train)" (an engine alone: "Bramble
+ * (engine)"); with no engine, "the hopper train". Never an id. For any status reason that names another train.
+ */
+export function trainLabel(sim: Sim, carId: number): string {
+  const t = sim.findCar(carId)?.train;
+  if (!t) return "another train";
+  const engine = t.cars.find((c) => c.kind === "engine");
+  const wagon = t.cars.find((c) => c.kind !== "engine" && c.kind !== "caboose");
+  const what = wagon ? (TRAIN_WORDS[wagon.kind] ?? "train") : "engine";
+  const name = engine ? sim.nameOf(engine.id) : "";
+  return name ? `${name} (${what})` : `the ${what}`;
+}
+
+/** A place as the card names it ("the mill", "Elderwick station"): the card's own naming of a depot; "" when −1. */
+export function placeLabel(nameOf: (depotId: number) => string, depotId: number): string {
+  return depotId < 0 ? "" : nameOf(depotId);
+}
+
 /** The car a train is named by in waits (as sections and stalls name trains): its first engine, or its first car. */
 function carNameOf(t: Train): number {
   return t.cars.find((c) => c.kind === "engine")?.id ?? t.cars[0].id;
@@ -276,6 +349,7 @@ export function blockerOf(sim: Sim, economy: Economy, s: TrainState): Blocker | 
     case "needs-loop":
     case "full-wait":
     case "held-up":
+    case "line-wait-for":
       return blockerAt(sim, economy, s.by);
     case "stuck":
       return s.why === "too-many" ? null : blockerAt(sim, economy, s.by);
@@ -501,6 +575,10 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? (s.other ? OR_MOVE_OTHER : OR_MOVE) : OR_REMOVE}`;
     case "held-up":
       return who ? `Waiting: ${inTheWay(who, place)}` : "Waiting: something's in the way";
+    case "line-wait-for": {
+      const to = placeLabel(nameOf, s.to);
+      return `Waiting for ${trainLabel(sim, s.by)} to clear the line${to ? ` to ${to}` : ""}`;
+    }
     case "running": {
       const route = economy.routeOf(engineCarId);
       if (!route || route.stops.length === 0) return "Running";
