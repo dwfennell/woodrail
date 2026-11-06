@@ -1473,7 +1473,8 @@ function mapHelpers(p) {
     await p.waitForFunction((sel) => { const b = document.querySelector(sel); return !!b && b.offsetParent !== null; }, sel, { timeout: 30000 });
     // (A stop's chip scrolled out of the strip (it shows whole chips from the start of the one in view) is swiped into
     // view first, as a player does.)
-    await p.evaluate((sel) => { const b = document.querySelector(sel); if (b.closest(".route-stops")) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }, sel);
+    // (So is a row scrolled out of the line sheet's list or the Lines list.)
+    await p.evaluate((sel) => { const b = document.querySelector(sel); if (b.closest(".route-stops, .ls-body, .lines-list")) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }, sel);
     await frames(p);
     await p.waitForTimeout(250);
     const [x, y] = await p.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);

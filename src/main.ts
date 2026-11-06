@@ -6602,6 +6602,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     if (e.key === "Escape" && mapView.open) closeMap(true, true);
     if (e.key === "Escape" && board.open) setBoardOpen(false);
+    // (A line sheet with no train's card under it: Esc closes it, as it closes a card. A train's planning ends as its
+    // card closes.)
+    if (e.key === "Escape" && planning && sheetEngine === -1) setPlanning(false);
     if (e.key === " " && !title.shown && tag !== "BUTTON") {
       e.preventDefault();
       game.paused = !game.paused;

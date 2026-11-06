@@ -216,7 +216,14 @@ export class LineSheet {
     // The open stop (else the last, just added while planning) scrolled into the sheet's view.
     const target = body.querySelector<HTMLElement>(".ls-stop.open, .ls-via.open");
     // (Its top: an open stop can be taller than the sheet, and its name says which it is.)
-    if (target) requestAnimationFrame(() => target.isConnected && target.scrollIntoView({ block: target.offsetHeight > body.clientHeight ? "start" : "nearest" }));
+    // (Where the sheet is short, on a phone on its side: then its ticks, the stop's controls, in view too.)
+    if (target)
+      requestAnimationFrame(() => {
+        if (!target.isConnected) return;
+        target.scrollIntoView({ block: target.offsetHeight > body.clientHeight ? "start" : "nearest" });
+        const ticks = target.querySelector(".ls-ticks");
+        if (ticks && ticks.getBoundingClientRect().bottom > body.getBoundingClientRect().bottom) ticks.scrollIntoView({ block: "nearest" });
+      });
   }
 
   /** A model's key without what changes as trains run (statuses, where free trains are, loads): its shape. */
