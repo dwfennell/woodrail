@@ -35,7 +35,7 @@ describe("which wagon carries which goods (the cards' and tray's words)", () => 
   it("a wagon's tray card lists everything it carries, with icons", () => {
     expect(carriesLine("hopper")).toBe("🌾 grain, 🪨 stone, ⚫ coal, ⛏️ ore");
     // The goods van's dozen, all of them (its short detail names only a few).
-    expect(carriesLine("van").split(", ")).toHaveLength(13);
+    expect(carriesLine("van").split(", ")).toHaveLength(CARGO_KINDS.filter((k) => canCarry("van", k)).length);
     expect(carriesLine("passenger")).toBe("");
   });
 });
