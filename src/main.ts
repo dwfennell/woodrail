@@ -794,6 +794,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
+  // (An open signal card says what the signal shows now, as its aspect changes.)
+  game.onMarksChanged = () => interaction?.marksChanged();
   game.keysTaken = () => interaction.piecesTakeKeys;
   interaction.onArmed = (item, carried) => hud.setArmed(item ? trayKey(item) : null, carried);
   interaction.onPlaced = (snapped) => {

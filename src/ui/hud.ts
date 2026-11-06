@@ -2053,6 +2053,7 @@ export class Hud {
     this.pieceTitle.textContent = title;
     this.pieceDetail.textContent = detail;
     this.pieceDetail.hidden = detail === "";
+    this.pieceDetail.classList.remove("warn");
     this.flipBtn.hidden = !canFlip;
     this.rotateBtn.hidden = !canRotate;
     this.flipBtn.disabled = !flippable;
@@ -2076,6 +2077,16 @@ export class Hud {
    * On the open piece card (a signal box or lever frame's): the points and signals near it, each a chip saying which
    * way it's set; a tap throws it (`onThrow` with its index). An empty list says there are none near.
    */
+  /** The open piece card's title, changed in place (a signal's: what it shows now, as its aspect changes). */
+  setPieceTitle(title: string): void {
+    this.pieceTitle.textContent = title;
+  }
+
+  /** The open piece card's detail line said as a warning (`warn-ink`: a signal too short to wait at). */
+  setPieceDetailWarn(warn: boolean): void {
+    this.pieceDetail.classList.toggle("warn", warn);
+  }
+
   /** The open piece card's delete button said otherwise (a signal's: "Remove signals"); `showPieceCard` sets it back. */
   setDeleteLabel(label: string, title: string): void {
     this.deleteBtn.textContent = label;
@@ -2095,6 +2106,9 @@ export class Hud {
         lamps.append(...m.lamps.map((c) => el("span", `signal-lamp ${c}`)));
         b.append(lamps, el("span", "signal-mode-name", m.label));
         b.setAttribute("aria-pressed", String(i === on));
+        // (Said by its name, as it reads, its description after: WCAG 2.5.3.)
+        b.setAttribute("aria-label", m.label);
+        b.setAttribute("aria-description", m.title);
         b.dataset.mode = String(i);
         return b;
       }),

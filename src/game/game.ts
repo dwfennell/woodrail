@@ -1190,6 +1190,9 @@ export class Game {
     });
   }
 
+  /** Signal marks or their aspects changed (the marks' view drew them again): an open signal card follows. */
+  onMarksChanged: (() => void) | null = null;
+
   private frame(): void {
     const elapsed = this.clock.getDelta();
     const dt = Math.min(elapsed * this.e2eSpeed, this.maxFrameDt);
@@ -1213,7 +1216,11 @@ export class Game {
     }
     // A signal changed aspect: its arm moves (nothing else is redrawn).
     // Signal marks: worked out again only when a mark, the track or an aspect changed.
-    if (this.marksView.sync()) this.invalidate();
+    if (this.marksView.sync()) {
+      this.invalidate();
+      // (An open signal card says what it shows now: told only on a change.)
+      this.onMarksChanged?.();
+    }
     if (this.sim.signalsVersion !== this.signalsShown) {
       this.signalsShown = this.sim.signalsVersion;
       this.trackView.syncSwitches();

@@ -953,22 +953,16 @@ export class Interaction {
     return g.marksView.pick(x - r.left, y - r.top, g.camera, r.width, r.height, touch ? 20 : 8);
   }
 
-  /** A tap on a signal: held at red (Always red), or let go (Auto) (the toy: signals spec §4, the user's decision 1). */
+  /**
+   * A tap on a signal opens its card, as a tap on any piece does (signals audit U5: a tap used to hold it at red, and its
+   * card, with its modes and Remove, took a long press nobody found: "no way to remove signals"). Holding it at red is
+   * the card's Always red.
+   */
   private tapMark(id: number): void {
     if (!this.game.layout.getSignal(id)) return;
-    this.game.sim.toggleMark(id);
-    // (Once a session: what a tap did, and where the rest is. A long press was the only way to its card, Remove too.)
-    if (!this.markTapHinted && this.selectedMark !== id) {
-      this.markTapHinted = true;
-      const held = !!this.game.layout.getSignal(id)?.held;
-      this.hud.toast(`${held ? "Held at red" : "Let go"} · press and hold a signal for its card: modes, Remove`, false, 4200);
-    }
-    this.onSwitched?.();
+    this.selectMark(id);
     this.game.invalidate();
-    if (this.selectedMark === id) this.showMarkCard();
   }
-
-  private markTapHinted = false;
 
   /** Open a signal's card, its blocks tinted. */
   selectMark(id: number): void {
@@ -984,7 +978,7 @@ export class Interaction {
   /** A signal's modes on its card, in `SIGNAL_MODES`' order. */
   private static readonly MODES: readonly { label: string; title: string; lamps: readonly ("red" | "green")[] }[] = [
     { label: "Auto", title: "Red while a train is on the line ahead, else green", lamps: ["red", "green"] },
-    { label: "Always red", title: "Stop every train here (a tap on the signal does too)", lamps: ["red"] },
+    { label: "Always red", title: "Stop every train here", lamps: ["red"] },
     { label: "Always green", title: "Let trains past whatever is ahead. They still keep their distance and never bump", lamps: ["green"] },
   ];
 
@@ -998,7 +992,10 @@ export class Interaction {
       this.hud.hideCards();
       return;
     }
-    this.hud.showPieceCard(false, "Signal: guards this way →", false, false, false, this.markWaits(m.at) ? "" : "Too short for a train to wait here");
+    // (Which way it guards is the chevron on the ground by its post, lit as it is; the title says what it shows now.)
+    const waits = this.markWaits(m.at);
+    this.hud.showPieceCard(false, this.markTitle(id), false, false, false, waits ? "" : "Too short for a train to wait here");
+    this.hud.setPieceDetailWarn(!waits);
     // Remove, said plainly (the user: "there doesn't seem to be a way to remove signals"): the set, one undo step.
     const pair = !!g.layout.signalPartner(id);
     this.hud.setDeleteLabel(pair ? "Remove signals" : "Remove signal", pair ? "Take this signal and the one facing the other way off the track (Del)" : "Take this signal off the track (Del)");
@@ -1012,7 +1009,7 @@ export class Interaction {
     this.hud.showLevers(
       [
         { label: "Turn round", title: "Guard trains going the other way" },
-        { label: `Style: ${Interaction.STYLE_NAMES[m.style]}`, title: "Lamps, semaphore or colour light" },
+        { label: `Look: ${Interaction.STYLE_NAMES[m.style]} ▸`, title: "Lamps, semaphore or colour light: a tap shows the next" },
       ],
       (i) => {
         if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
@@ -1024,6 +1021,30 @@ export class Interaction {
       },
     );
     this.showTint(m.at);
+  }
+
+  /** A signal card's title: red or green now, and why (signals audit U6), from the sim (`Sim.markWhy`). */
+  private markTitle(id: number): string {
+    const w = this.game.sim.markWhy(id);
+    switch (w.why) {
+      case "held":
+        return "Signal · red: held here";
+      case "forced":
+        return "Signal · green: always";
+      case "train":
+        return "Signal · red: a train is on the line ahead";
+      case "turn":
+        return "Signal · red: a train waits here for its turn";
+      case "points":
+        return "Signal · red: a train's way through the points isn't set";
+      default:
+        return "Signal · green: the line ahead is clear";
+    }
+  }
+
+  /** Signals or their aspects changed: an open signal card's title follows (only then: never per frame). */
+  marksChanged(): void {
+    if (this.selectedMark !== -1 && this.game.layout.getSignal(this.selectedMark)) this.hud.setPieceTitle(this.markTitle(this.selectedMark));
   }
 
   /**
