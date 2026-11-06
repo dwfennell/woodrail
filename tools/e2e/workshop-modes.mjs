@@ -58,6 +58,10 @@ const enterGame = async () => {
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
   await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  // (The tray's start-up pictures all drawn first: on a new page they're drawn a batch at a time, each about 4 s of
+  // SwiftShader read-back, and a card opened during one pops in seconds late, under a tap aimed before it: the 360 px
+  // loop's missed "Takes all planks" on batch P, whose tray has more to draw. The game's own wait for e2e tests.)
+  await p.evaluate(() => Promise.race([window.woodrail.trayThumbnailsSaved(), new Promise((r) => setTimeout(r, 120000))]));
   await settle();
   await p.keyboard.press("Escape");
 };
