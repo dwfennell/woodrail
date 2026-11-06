@@ -69,6 +69,7 @@ export const SUITES = {
   clockmaker: { script: "e2e:clockmaker", minutes: 4 },
   power: { script: "e2e:power", minutes: 6 },
   radio: { script: "e2e:radio", minutes: 6 },
+  secrets: { script: "e2e:secrets", minutes: 6 },
   crane: { script: "e2e:crane", minutes: 4 },
   tunnels: { script: "e2e:tunnels", minutes: 6 },
   rack: { script: "e2e:rack", minutes: 3 },
@@ -298,6 +299,8 @@ export const RULES = [
   [["src/game/circus.ts", "src/game/passengers.ts", "src/game/rewards.ts", "src/game/progress.ts", "src/catalogue/assets/circus-cage.ts", "src/main.ts"], ["circus"]],
   // Time control (late-game spec, Clockmaker CA).
   [["src/game/time-scale.ts", "src/game/game.ts", "src/ui/hud.ts", "src/main.ts"], ["clockmaker"]],
+  // Secrets on the map: placed with the land, found by laying track to them, their halts, cards, trips and stickers.
+  [["src/landscape/secrets.ts", "src/catalogue/secret-frame.ts", "src/catalogue/assets/secrets.ts", "src/catalogue/build-parts.ts", "src/game/secrets.ts", "src/ui/secret-card.ts", "src/ui/secret-controls.ts", "src/render/secrets-view.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/stickers.ts", "src/landscape/clearance.ts", "src/track/kits.ts", "src/persist/landscape-data.ts", "src/main.ts", "src/game/interaction.ts"], ["secrets"]],
   // The radio mast (the user's pick: a powered mast brings a town more riders).
   [["src/game/radio.ts", "src/game/power.ts", "src/game/passengers.ts", "src/main.ts", "src/game/interaction.ts"], ["radio"]],
   // Water transport: the landing, boats, cargo ships, the lighthouse, the ferry, the yards.

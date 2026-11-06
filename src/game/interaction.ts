@@ -35,7 +35,7 @@ import type { Game } from "./game";
 import { pointsSetFor } from "./engine-status";
 import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
-import { secretAt, secretOfPiece } from "./secrets";
+import { haltName, secretAt, secretOfPiece } from "./secrets";
 import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
 import { callHome, calledLine, trainsInReach } from "./telegraph";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
@@ -3854,7 +3854,10 @@ export class Interaction {
   }
 
   /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
-  private fixedLabel(pieceId: number): string | null {
+  fixedLabel(pieceId: number): string | null {
+    // (A found secret's halt: the game laid it, where the secret is.)
+    const secret = secretOfPiece(this.game.world, pieceId);
+    if (secret) return haltName(secret);
     for (const [siteId, id] of this.game.ruins) {
       const site = this.game.landscape.sites?.[siteId];
       if (id === pieceId && site) return `Old ${SITE_NAMES[site.role]}`;

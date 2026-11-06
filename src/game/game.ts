@@ -624,6 +624,8 @@ export class Game {
    * when the land or the land around changes, a secret is found, or midsummer comes or goes: never per frame.
    */
   syncSecrets(force = false): void {
+    // (Not yet made: the ruins are first drawn as the game is put together.)
+    if (!this.secretsView) return;
     const shown: ShownSecret[] = [];
     for (const site of this.landscape.secrets ?? []) shown.push({ site, midsummer: this.midsummer });
     for (const a of this.around) for (const site of a.land.secrets ?? []) shown.push({ site });

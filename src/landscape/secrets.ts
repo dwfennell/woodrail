@@ -306,9 +306,20 @@ export function placeSecret(land: Landscape, region: Region, kind: SecretKind, p
       const s = Math.sin(heading);
       const f: SiteFrame = { x: (col + 0.5) * CELL + HALT_Z * s, z: (row + 0.5) * CELL - HALT_Z * c, heading };
       if (fits(f, false)) frames.push(f);
-      if (frames.length >= 3) break;
+      if (frames.length >= CHOICES) break;
     }
   }
+  // Its halt opening toward the way a line will come: the nearest town, else the start's middle. (Best first: the way in
+  // nearer it than the site's middle is.)
+  const toward = (f: SiteFrame) => {
+    const m = frameToWorld(f, MIDDLE.fx, MIDDLE.fz);
+    let t = { x: 0, z: 0 };
+    let best = Infinity;
+    for (const c of towns) if (Math.hypot(c.x - m.x, c.z - m.z) < best) [t, best] = [c, Math.hypot(c.x - m.x, c.z - m.z)];
+    const a = frameToWorld(f, JOIN.x - 2 * CELL, HALT_Z);
+    return Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(m.x - t.x, m.z - t.z);
+  };
+  frames.sort((a, b) => toward(a) - toward(b));
   for (const f of frames) {
     const keep = snapshotRegion(land);
     const secrets = (land.secrets ??= []);
@@ -332,6 +343,9 @@ export function placeSecret(land: Landscape, region: Region, kind: SecretKind, p
   }
   return null;
 }
+
+/** Places an inland site is tried in (the first that fit), the best way round of them taken (`toward`). */
+const CHOICES = 16;
 
 /** How far (squares) the shore may wander in under the shipwreck's width: its sea there is filled with sand. */
 const WANDER = 2;
