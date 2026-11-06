@@ -4,6 +4,7 @@ import { MAX_SMILES, townPlaces, townSmiles } from "./places";
 import { fixedPieces, type World } from "./world";
 import { largestNetwork, running } from "./goals";
 import type { DepotRole } from "../economy";
+import { earned as grandEarned, GRANDS } from "./grand";
 
 /**
  * Stickers: the open-ended layer on top of the goals (spec 2026-10-31-achievements.md). Broad, optional, collected in
@@ -25,9 +26,9 @@ export interface StickerContext {
  * `depKeys`). "pieces": the track (`Layout.piecesVersion`, `jointsVersion`); "towns": what the towns have received; "coins"; "counts";
  * "learned"; "goals" (how many are done); "land": the squares, roads among them (the grid's revision); "sea": goods
  * sold to and bought from harbour boats (the counts "exported" and "imported", which change only when a boat trades);
- * "trains": how many are running.
+ * "trains": how many are running; "grand": the grand projects' stages done (game/grand.ts).
  */
-export type StickerDep = "pieces" | "towns" | "coins" | "counts" | "learned" | "goals" | "land" | "sea" | "trains";
+export type StickerDep = "pieces" | "towns" | "coins" | "counts" | "learned" | "goals" | "land" | "sea" | "trains" | "grand";
 
 export type StickerTheme = "building" | "trains" | "towns" | "economy";
 
@@ -271,6 +272,10 @@ export const STICKERS: readonly Sticker[] = [
     deps: ["towns"],
     check: (w) => w.landscape.towns.some((t) => CIVIC_PRIDE.every((id) => townPlaces(t).has(id))),
   },
+  // Grand projects (game/grand.ts): a sticker for each one finished.
+  ...GRANDS.map(
+    (g): Sticker => ({ id: `grand-${g.id}`, title: g.name, how: `Finish the ${g.name}, a grand project in a City ★`, icon: g.icon, theme: "towns", deps: ["grand"], check: (w) => grandEarned(w, g.id) }),
+  ),
 ];
 
 /** Civic pride's four places. */
@@ -296,6 +301,7 @@ export function depKeys(w: World, ctx: StickerContext, goalsDone: number): Recor
     land: String(w.landscape.grid.revision),
     sea: `${exported(ctx)}:${imported(ctx)}`,
     trains: String(running(w).length),
+    grand: [...w.economy.grandPlans].map(([id, p]) => `${id}${p.stage}`).join(","),
   };
 }
 

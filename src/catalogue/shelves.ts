@@ -66,6 +66,8 @@ export const PROP_TABS: readonly PropTab[] = [
         label: "Farm & industry",
         assets: ["bldg-farmhouse", "bldg-red-barn", "bldg-silo", "bldg-windmill", "bldg-watermill", "bldg-dairy", "bldg-sawmill", "bldg-factory", "bldg-warehouse"],
       },
+      // Grand projects (spec 2026-11-05): each at every build stage. In Game mode they're built from a City ★'s card.
+      { label: "Grand projects", assets: ([["grand-exhibition", 4], ["grand-cathedral", 4], ["grand-royal-train", 3], ["grand-central", 3], ["grand-ferris-wheel", 3]] as const).flatMap(([p, n]) => Array.from({ length: n + 1 }, (_, i) => `${p}-${i}`)) },
     ],
   },
   {

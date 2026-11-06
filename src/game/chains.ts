@@ -23,6 +23,7 @@ export const MAKER_LABEL: Partial<Record<DepotRole, string>> = {
   jamworks: "Jam kitchen",
   flowerfield: "Flower field",
   dyeworks: "Dye works",
+  glassworks: "Glassworks",
   toyworks: "Toy workshop",
   quarry: "Quarry",
   mine: "Mine",

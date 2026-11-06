@@ -2,7 +2,7 @@
    (scripts/icon-font.py, which also writes this unicode-range). Each draws the character it stands for (🪙, 📘, ⏱, the
    goods; planks have no emoji, so they're U+E000), so strings keep their emoji and screen readers their words. Listed
    first wherever a font is named, it draws only these characters; everything else is Nunito's. */
-@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26BD, U+26CF, U+26F0, U+26F2, U+26F3, U+26F5, U+2709, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F333, U+1F337, U+1F33C, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F36B, U+1F36C, U+1F37D, U+1F381, U+1F393, U+1F39F, U+1F3A0, U+1F3A8, U+1F3AC, U+1F3AD, U+1F3AF, U+1F3D6, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3DF, U+1F3E1, U+1F3E5, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4A7, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F4EE, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5BC, U+1F5FA, U+1F60A, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6DD, U+1F6E2, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9F8, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5, U+1FAD8, U+1FAD9; font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26BD, U+26CF, U+26EA, U+26F0, U+26F2, U+26F3, U+26F5, U+2709, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F333, U+1F337, U+1F33C, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F36B, U+1F36C, U+1F37D, U+1F381, U+1F393, U+1F39F, U+1F3A0, U+1F3A1, U+1F3A8, U+1F3AC, U+1F3AD, U+1F3AF, U+1F3D6, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3DF, U+1F3E1, U+1F3E5, U+1F3ED, U+1F41E, U+1F41F, U+1F451, U+1F49B, U+1F4A1, U+1F4A7, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F4EE, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5BC, U+1F5FA, U+1F60A, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6DD, U+1F6E2, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9F8, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FA9F, U+1FAA8, U+1FAB5, U+1FAD8, U+1FAD9; font-weight: 100 900; font-display: block; }
 :root {
   --ink: #2b2118;
   --paper: #f6efe3;
@@ -690,6 +690,32 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .sticker-name { overflow-wrap: anywhere; }
 .sticker-ticket { margin: 0 2px; min-height: 2.6em; font-size: 13px; line-height: 1.3; color: #6a5340; }
 .sticker-ticket b { color: #3a2a1c; }
+/* Achievements (the grand projects, src/game/grand.ts): a row each, its stage pips, reward and what's next. */
+.ach-pane { display: flex; flex-direction: column; gap: 6px; }
+.ach-pane[hidden] { display: none; }
+.ach-item { border-radius: 12px; background: rgba(255, 250, 240, 0.6); box-shadow: inset 0 0 0 2px #e2d3b8; }
+.ach-item.got { background: #fff1cf; box-shadow: inset 0 0 0 2px #e2b860; }
+.ach-row { display: flex; gap: 10px; align-items: flex-start; width: 100%; min-height: 44px; padding: 8px 10px; border: 0; background: none; font: inherit; text-align: left; color: #3a2a1c; cursor: pointer; }
+.ach-icon { flex: none; font-size: 28px; line-height: 34px; }
+.ach-item:not(.got) .ach-icon { filter: grayscale(0.7); opacity: 0.75; }
+.ach-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ach-name { font-size: 14.5px; font-weight: 800; }
+.ach-earned { font-size: 12px; font-weight: 800; color: #3f7a2c; white-space: nowrap; }
+.ach-pips { font-size: 13px; letter-spacing: 2px; color: #b07a2c; }
+.ach-reward { font-size: 12.5px; font-weight: 700; line-height: 1.3; color: #6b5038; }
+.ach-line { font-size: 12.5px; font-weight: 800; color: #7a5a3a; }
+.ach-stages { margin: 0 10px 6px 48px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: #6b5038; }
+.ach-stages li.done { color: #3f7a2c; }
+.ach-stages li.now { color: #7a3d10; }
+.ach-show { margin: 0 10px 10px 48px; }
+/* Narrow phones: the tab is its trophy alone, so the four tabs and ✕ fit. */
+@media (max-width: 420px) { .goals-tab .tab-word { display: none; } }
+/* A city's Grand projects row (on its card). */
+.grand-pips { font-size: 13px; letter-spacing: 2px; color: #b07a2c; }
+.grand-tile .grand-stage { padding: 6px 8px; font-size: 12.5px; }
+.grand-tile.earned { background: #fff1cf; border-color: #e2b860; }
+.grand-tile.building { background: #eef6e6; border-color: #9cc48a; }
+.grand-show { margin-top: auto; }
 /* Phones: the open Journal is a bottom sheet, like the Blueprints ticket (the chip stays at the top). */
 @media (max-width: 560px), (max-height: 520px) {
   .goals:not(.collapsed) .goals-body { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: min(62dvh, 520px); overflow-y: auto; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 -8px 26px rgba(60, 40, 20, 0.28); }

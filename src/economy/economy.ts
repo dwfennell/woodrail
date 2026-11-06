@@ -51,7 +51,7 @@ interface Service {
   turnAt?: number;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | "postoffice" | "landing" | "slip" | "boatyard" | "shipyard" | "airport" | "mast" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "glassworks" | "toyworks" | "postoffice" | "landing" | "slip" | "boatyard" | "shipyard" | "airport" | "mast" | KitDepotRole;
 
 /** Most riders waiting in an airport's lounge for a plane (Game mode: src/game/airports.ts). Full, coaches keep them. */
 export const AIRPORT_LOUNGE = 12;
@@ -128,7 +128,7 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
   // A town also posts mail (Game mode, once Post office is learned: `Economy.mailEvery`) and takes the sorted post.
-  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "chocolate", "flowers", "paint", "toys", "post"], gives: ["mail"], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "chocolate", "flowers", "paint", "toys", "glass", "post"], gives: ["mail"], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
   // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
@@ -171,6 +171,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   chocworks: { takes: ["cocoa", "milk"], gives: ["chocolate"], cycle: { uses: { cocoa: 1, milk: 1 }, makes: { chocolate: 1 }, seconds: 14 } },
   flowerfield: { takes: [], gives: ["flowers"], cycle: { uses: {}, makes: { flowers: 1 }, seconds: 12 } },
   dyeworks: { takes: ["flowers"], gives: ["paint"], cycle: { uses: { flowers: 1 }, makes: { paint: 1 }, seconds: 10 } },
+  // A glassworks (grand projects, src/game/grand.ts): coal fires its furnace; its sand is dug from the pit beside it
+  // (a beach, a riverbank or plain ground: any map has some), so coal is all a train brings.
+  glassworks: { takes: ["coal"], gives: ["glass"], cycle: { uses: { coal: 1 }, makes: { glass: 1 }, seconds: 12 } },
   toyworks: { takes: ["planks", "paint"], gives: ["toys"], cycle: { uses: { planks: 1, paint: 1 }, makes: { toys: 1 }, seconds: 14 } },
   // Made goods: a carpenter's yard makes furniture of planks, a smithy tools of iron.
   carpenter: { takes: ["planks"], gives: ["furniture"], cycle: { uses: { planks: 3 }, makes: { furniture: 1 }, seconds: 12 } },
@@ -559,6 +562,19 @@ export class Economy {
   placeWants: ((townId: number, kind: CargoKind) => number) | null = null;
   /** A unit went into a town's place under way. */
   onPlaceGoods: ((d: DepotState) => void) | null = null;
+  /**
+   * Grand projects started on this map (Game mode, game/grand.ts), by project id: the city it's in, its stages done,
+   * the goods its stage under way has had, its site's prop. Saved (`grandPlans`).
+   */
+  readonly grandPlans = new Map<string, { townId: number; stage: number; got: Bag; prop: number }>();
+  /** Town id → what the Great Exhibition gave it toward its growth when it opened (game/grand.ts). Saved. */
+  readonly grandGift = new Map<number, Bag>();
+  /**
+   * A unit of `kind` lands at town station `d`: does its city's grand project under way take it for its stage (Game
+   * mode: `GrandWorks`, which counts it in; null: never)? Taken, it goes into the project (unpaid, not toward growth),
+   * after the town's place under way has had what it wants.
+   */
+  grandTake: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
   private readonly services = new Map<number, Service>();
   /** Each stop list's `Later`s (see `laterOf`), and the counters they're keyed on. */
   private readonly laterCache = new WeakMap<readonly RouteStopDef[], LaterCache>();
@@ -1492,6 +1508,11 @@ export class Economy {
           this.onPlaceGoods?.(d);
           return;
         }
+      }
+      // Goods for the city's grand project under way (game/grand.ts): into its stage, as a place's are.
+      if (d.role === "town" && this.grandTake?.(d, kind)) {
+        this.wantsStamp++;
+        return;
       }
       // Goods for a station's delivery van (roads spec D5): onto its yard, for a town off the line (not this one).
       if (d.role === "town" && this.toVan?.(d, kind)) {

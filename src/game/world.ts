@@ -68,6 +68,7 @@ export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = {
   chocworks: "Chocolate factory",
   flowerfield: "Flower field",
   dyeworks: "Dye works",
+  glassworks: "Glassworks",
   toyworks: "Toy workshop",
   postoffice: "Post office",
   // Water transport (kit pieces): a landing on a river bank, a ferry slip on the shore.
@@ -116,6 +117,7 @@ export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
   "depot-chocolate": "chocworks",
   "depot-flowers": "flowerfield",
   "depot-dyeworks": "dyeworks",
+  "depot-glassworks": "glassworks",
   "depot-toyworks": "toyworks",
   "depot-postoffice": "postoffice",
   "depot-airport": "airport",

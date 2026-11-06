@@ -17,12 +17,14 @@ import { METRO_QUARTERS, METRO_SLOWER } from "./metro";
  */
 
 /** Seats in a coach, by its look. */
-export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 4, "double-decker": 8, "first-class": 3, observation: 3, metro: 8 };
+export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 4, "double-decker": 8, "first-class": 3, observation: 3, metro: 8, royal: 4 };
 
 /** A first-class coach's riders pay this many times the fare. */
 export const FIRST_CLASS = 2;
 /** A train with a dining car: every rider on it pays this many times the fare. */
 export const DINING = 1.5;
+/** Riders on the Royal Train (a royal saloon in it: the grand project's reward, src/game/grand.ts) pay this many times the fare. */
+export const ROYAL_FARE = 2;
 /** A sleeper coach's riders pay this many times the fare on a long trip (`SLEEPER_TRIP` or more, as the crow flies). */
 export const SLEEPER = 2.5;
 /** How far a ride must go for a sleeper's fare (mm): 40 squares, from one end of a map's towns toward the other. */
@@ -159,6 +161,7 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (look === "sleeper" && far >= SLEEPER_TRIP) fare *= SLEEPER;
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
     if (world.economy.ridersOf(carId).scenic && hasObservation(world, found.train.cars)) fare *= OBSERVATION;
+    if (look === "royal") fare *= ROYAL_FARE;
   }
   if (from.role === "airport") fare *= VISITOR_BONUS;
   // Getting off at a town with a leisure place, from another town: a visitor, who pays more.

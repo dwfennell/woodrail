@@ -29,7 +29,7 @@ const AUTO_PITCH = 26;
 
 /** How far apart units of a sack-sized kind stack. */
 function sackPitch(kind: CargoKind): number {
-  return kind === "furniture" || kind === "milk" || kind === "bread" || kind === "fruit" || kind === "juice" || kind === "cheese" || kind === "icecream" || kind === "fish" || kind === "autos" || kind === "oil" || kind === "water" || kind === "jam" || kind === "chocolate" || kind === "flowers" || kind === "paint" || kind === "toys" || kind === "post" ? CRATE_HEIGHT : kind === "tools" ? TOOLBOX_PITCH : kind === "stone" || kind === "coal" || kind === "ore" || kind === "bricks" ? STONE_HEIGHT : SACK_HEIGHT;
+  return kind === "furniture" || kind === "milk" || kind === "bread" || kind === "fruit" || kind === "juice" || kind === "cheese" || kind === "icecream" || kind === "fish" || kind === "autos" || kind === "oil" || kind === "water" || kind === "jam" || kind === "chocolate" || kind === "flowers" || kind === "paint" || kind === "toys" || kind === "glass" || kind === "post" ? CRATE_HEIGHT : kind === "tools" ? TOOLBOX_PITCH : kind === "stone" || kind === "coal" || kind === "ore" || kind === "bricks" ? STONE_HEIGHT : SACK_HEIGHT;
 }
 
 export interface Slot {

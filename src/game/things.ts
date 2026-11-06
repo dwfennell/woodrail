@@ -81,6 +81,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // its entrance on the town's ground) and the metro train (its motor car and two cars, besides the cars themselves).
   "piece:kit-metro-stop": { label: "Metro stop", cost: { planks: 10, iron: 25 }, coins: 600, tech: "metro" },
   "look:metro": { label: "Metro train", cost: { planks: 6, iron: 15 }, coins: 400, tech: "metro" },
+  // The Royal Train: given when its grand project is finished (src/game/grand.ts), never made. One.
+  "look:royal": { label: "Royal Train", cost: {}, gift: true },
   "piece:tunnel-mouth": { label: "Tunnel mouth", cost: { planks: 2 }, coins: 30, tech: "tunnels" },
   "car:engine": { label: "Engine", cost: { planks: 6 } },
   "car:timber": { label: "Flatbed wagon", cost: { planks: 3 } },
@@ -124,6 +126,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-chocolate": { label: "Chocolate factory", cost: { planks: 12 }, coins: 380, tech: "chocolate" },
   "piece:depot-flowers": { label: "Flower field", cost: { planks: 6 }, coins: 150, tech: "paint" },
   "piece:depot-dyeworks": { label: "Dye works", cost: { planks: 10 }, coins: 240, tech: "paint" },
+  // Grand projects (src/game/grand.ts): glass for the Cathedral's stained glass, of coal.
+  "piece:depot-glassworks": { label: "Glassworks", cost: { planks: 10, stone: 6 }, coins: 300, tech: "glassworks" },
   "piece:depot-toyworks": { label: "Toy workshop", cost: { planks: 14 }, coins: 440, tech: "toys" },
   "piece:depot-airport": { label: "Airport", cost: { planks: 16, iron: 8 }, coins: 450, tech: "airport" },
   "piece:depot-mast": { label: "Airship mast", cost: { planks: 8, iron: 4 }, coins: 250, tech: "airship" },

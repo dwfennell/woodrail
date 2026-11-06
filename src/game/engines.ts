@@ -31,6 +31,8 @@ export const ENGINES: Partial<Record<CarLook, EngineKind>> = {
   rack: { label: "rack engine", pulls: 2, speed: 0.7, quick: 1.5, rack: true },
   // The metro train's motor car (src/game/metro.ts): quick, electric, two cars of its own.
   metro: { label: "metro train", pulls: 2, speed: 1.3, quick: 1.5, electric: true },
+  // The Royal Train's engine (a grand project's reward): an express's numbers, in claret and gold.
+  royal: { label: "royal engine", pulls: 4, speed: 1.5, quick: 1 },
 };
 
 const engineOf = (world: World, carId: number): EngineKind => ENGINES[world.sim.lookOf(carId)] ?? ENGINES.classic!;

@@ -353,6 +353,16 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 60,
   },
+  // A glassworks (grand projects): coal in, glass out, under a jib; its furnace and sand pit at the far end.
+  glassworks: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      coal: { t: 46, l: 64, y: YARD, across: 3, axis: "t" },
+      glass: { t: 74, l: 64, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
   toyworks: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -901,6 +911,11 @@ export class DepotView {
         [new RoundedBoxGeometry(SACK_LENGTH, 1.6, SACK_WIDTH, 1, 0.4).translate(0, -CRATE_HEIGHT / 2 + 0.8, 0), mats.naturalWood],
         [mergeGeometries([-1, 0, 1].map((i) => nonIndexed(new CylinderGeometry(3.2, 3.2, CRATE_HEIGHT - 3.4, 12).translate((i * SACK_LENGTH) / 3.3, -0.1, 0))))!, mats.lacquer("#cfd3d6")],
         ...(["#c8442f", "#e6b52c", "#2f6db5"] as const).map((c, i): [BufferGeometry, Material] => [new CylinderGeometry(3.3, 3.3, 1.2, 12).translate(((i - 1) * SACK_LENGTH) / 3.3, CRATE_HEIGHT / 2 - 1.5, 0), mats.lacquer(c)]),
+      ],
+      // a crate of glass: panes standing on edge in a beech crate, pale blue;
+      glass: [
+        [new RoundedBoxGeometry(SACK_LENGTH, CRATE_HEIGHT - 5, SACK_WIDTH, 1, 0.8).translate(0, -2.5, 0), mats.naturalWood],
+        [mergeGeometries([-1, 0, 1].map((i) => nonIndexed(new BoxGeometry(SACK_LENGTH - 3, CRATE_HEIGHT - 1, 0.8).translate(0, 0.5, (i * SACK_WIDTH) / 4))))!, mats.lacquer("#bcdcea")],
       ],
       // a toy box: an open blue crate, a teddy (brown, a round head and ears) and a red ball in it.
       toys: [
@@ -1613,6 +1628,15 @@ export class DepotView {
         b.add(mats.naturalWood, place(new CylinderGeometry(7, 7.5, 12, 14), t, 96, PAD_H + 6));
         b.add(mats.lacquer(c), place(new CylinderGeometry(6.2, 6.2, 1, 14), t, 96, PAD_H + 12.2));
       }
+      return true;
+    }
+    if (role === "glassworks") {
+      // A brick furnace house with a tall cone and a glow at its mouth, and a sand pit by the yard's end.
+      b.add(mats.lacquer("#b5532f"), place(new RoundedBoxGeometry(44, 26, 36, 2, 3), 184, 94, PAD_H + 13));
+      b.add(mats.lacquer("#8a3a22"), place(new CylinderGeometry(6, 13, 34, 14), 184, 94, PAD_H + 43));
+      b.add(mats.lacquer("#e6b52c"), place(new RoundedBoxGeometry(12, 8, 2, 1, 0.8), 162, 94, PAD_H + 9));
+      b.add(mats.naturalWood, place(new RoundedBoxGeometry(34, 4, 26, 1, 1.5), 122, 98, PAD_H + 2));
+      b.add(mats.lacquer("#e8d39a"), place(new SphereGeometry(13, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.2, 0.5, 0.9), 122, 98, PAD_H + 4));
       return true;
     }
     if (role === "toyworks") {
