@@ -58,6 +58,7 @@ import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
 import { createLine, deleteLine, editLine, editLineById, isRingLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, stopLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { PlaceRings } from "./render/place-rings";
 import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui/line-sheet";
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
 import { HEALTH_WORDS, lineHealth, type LineHealth } from "./game/line-health";
@@ -412,7 +413,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     ed.onRoutesChange = () => {
       stopPicked = -1;
       viaPicked = null;
-      leaveAsked = -1;
       linesChanged();
       showRoute();
       hud.setHistory(ed.canUndo, ed.canRedo);
@@ -3956,9 +3956,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let routeShown = "";
   /** Planning the open engine's line: taps on places add them as stops. */
   let planning = false;
-  /** The engine whose card's Leave was tapped once (asking before the line it's the last on goes), or −1. */
-  let leaveAsked = -1;
-  /** How long (ms) "Forget …?" waits for its second tap. */
+  /** How long (ms) Delete in the line sheet waits for its second tap. */
   const LEAVE_ASK_MS = 4000;
   /** The stop whose chip was tapped (its actions shown), or −1. */
   let stopPicked = -1;
@@ -5014,10 +5012,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       routeShown = "";
       nextDrawn = { carId: -1, next: -1 };
       setPlanning(false);
-      // (The card closed: a stop or via picked, or a Leave asking, is let go; it opens again on the route as a whole.)
+      // (The card closed: a stop or via picked is let go; it opens again on the route as a whole.)
       stopPicked = -1;
       viaPicked = null;
-      leaveAsked = -1;
       stopDragging = false;
       return;
     }
@@ -5034,7 +5031,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     const riders = line ? trainsOn(game.economy, line.id).length : 0;
     const others = line ? "" : [...game.economy.lines.values()].map((l) => `${l.id}${l.colour}${l.name}`).join(",");
-    const key = `${carId}:${leaveAsked}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${game.economy.plansVersion}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}:${viaAsked}:${wayNote.carId === carId && performance.now() < wayNote.until}:${viewAddStop}`;
+    const key = `${carId}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${game.economy.plansVersion}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}:${viaAsked}:${wayNote.carId === carId && performance.now() < wayNote.until}:${viewAddStop}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -5082,43 +5079,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       any.textContent = "Goes anywhere, works at every stop";
       head.append(any);
     }
-    // Edit (or Plan a route) at the head; editing, Done goes to the foot (with Take off line), where a thumb finishes.
-    if (!planning) head.append(button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)));
-    // Editing a line, this train can be taken off it (it goes anywhere again; the line stays for its other trains): at
-    // the foot, away from Go and Leave now, worded so it can't be read as setting off (the user read "Leave" beside Edit
-    // as "leave the stop"). The last train taken off a line asks first, whatever its name (the line goes with it, its
-    // stops and via points: audit F3): a second tap within LEAVE_ASK_MS.
-    const foot = document.createElement("div");
-    foot.className = "route-foot";
-    if (line && planning) {
-      const asks = riders === 1;
-      const leave = button(leaveAsked === carId ? `Forget “${line.name}”?` : "Take off line", "route-leave", riders > 1 ? "Take this train off its line (its other trains keep running it)" : "Take this train off its line: it goes anywhere again", () => {
-        if (asks && leaveAsked !== carId) {
-          leaveAsked = carId;
-          routeShown = "";
-          showRoute();
-          window.setTimeout(() => {
-            if (leaveAsked !== carId) return;
-            leaveAsked = -1;
-            routeShown = "";
-          }, LEAVE_ASK_MS);
-          return;
-        }
-        leaveAsked = -1;
-        routeEdit(() => stopLine(game.economy, carId));
-        // (Off its line, there's nothing left to edit: back to the card.)
-        donePlanning();
-        showRoute();
-        routeChanged();
-        scheduleSave();
-      });
-      leave.classList.toggle("asking", leaveAsked === carId);
-      foot.append(leave);
-    }
-    if (planning) foot.append(button("Done", "route-plan on", "Finish planning the route", () => donePlanning()));
+    // Edit (or Plan a route): the line sheet, where its stops and trains are changed (and a train taken off it).
+    head.append(button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)));
     box.append(head);
-    // Asking: what a second tap does, in words (the button only says "Forget …?").
-    const leaveAsk = line && planning && leaveAsked === carId ? Object.assign(document.createElement("div"), { className: "route-warn route-leave-ask", textContent: `Tap again to forget ${line.name} and its stops` }) : null;
     // On no line, with lines on the map: run one of them (a tap), as well as planning its own.
     if (!line && !planning && game.economy.lines.size > 0) {
       const join = document.createElement("div");
@@ -5341,8 +5304,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         box.append(warn);
       }
     }
-    if (leaveAsk) box.append(leaveAsk);
-    if (foot.childElementCount > 0) box.append(foot);
   }
 
   /**
@@ -5466,6 +5427,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }
       : null;
     interaction.onLeavePlanning = on ? () => setPlanning(false) : null;
+    // A town with no station, an old industry's ruin: said, short.
+    interaction.onNoStation = on ? (text) => hud.toast(text, false, 2500) : null;
     // Plain track tapped: a via point on the way from the last stop to the next (one already on that way tapped again:
     // picked; one on another leg is added again for this one, so a line can go by the same track both ways).
     const addVia = (pieceId: number): boolean => {
@@ -5681,7 +5644,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let ribbonKey = "";
   /** How far ahead "where the switches send it" is drawn (mm). */
   const AHEAD = 700;
+  /** While planning, a ring round each place a tap can add (not those already its stops: they have their discs). */
+  const placeRings = new PlaceRings();
+  game.scene.add(placeRings.group);
+  let ringsKey = "";
+  function showRings(): void {
+    const stops = planning ? (game.economy.lines.get(sheetLine)?.stops ?? []) : [];
+    const key = planning ? `${game.trackVersion}|${game.economy.allDepots().length}|${stops.map((st) => st.depotId).join(",")}` : "";
+    if (key === ringsKey) return;
+    ringsKey = key;
+    const on = new Set(stops.map((st) => st.depotId));
+    if (placeRings.show(planning ? game.depotView.placeSpots().filter((p) => !on.has(p.depotId)) : [])) game.invalidate();
+  }
+
   function showRibbon(): void {
+    showRings();
     // The sheet open on a line no train of its own runs: the line alone.
     if (planning && sheetEngine === -1) {
       showLineAlone();
@@ -7017,7 +6994,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints });
   // (Its code is loaded the first time it's shown.)
   const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m))) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));

@@ -164,7 +164,8 @@ export class LineSheet {
     if (sameLine) body.scrollTop = scroll;
     // The open stop (else the last, just added while planning) scrolled into the sheet's view.
     const target = body.querySelector<HTMLElement>(".ls-stop.open, .ls-via.open");
-    if (target) requestAnimationFrame(() => target.isConnected && target.scrollIntoView({ block: "nearest" }));
+    // (Its top: an open stop can be taller than the sheet, and its name says which it is.)
+    if (target) requestAnimationFrame(() => target.isConnected && target.scrollIntoView({ block: target.offsetHeight > body.clientHeight ? "start" : "nearest" }));
   }
 
   private button(text: string, cls: string, tip: string, fn: () => void): HTMLButtonElement {
@@ -392,7 +393,7 @@ export class LineSheet {
       const moveTo = (y: number) => {
         row.style.transform = `translateY(${y - y0}px)`;
         slot = mids.filter((mid) => mid < y).length;
-        const at = slot < rows.length ? rows[slot].getBoundingClientRect().top - listTop + (rows[slot] === row ? 0 : 0) : rows.at(-1)!.getBoundingClientRect().bottom - listTop;
+        const at = slot < rows.length ? rows[slot].getBoundingClientRect().top - listTop : rows.at(-1)!.getBoundingClientRect().bottom - listTop;
         bar.style.top = `${at - 2}px`;
       };
       moveTo(top + (e.clientY - top));
