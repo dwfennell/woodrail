@@ -98,10 +98,10 @@ for (const q of plan) {
   const at = await p.evaluate(async (id) => {
     const { frameOf, frameToWorld } = await import("/src/landscape/secrets.ts");
     const s = window.woodrail.landscape.secrets[id];
-    return { mid: frameToWorld(frameOf(s.piece), 0, 10), halt: frameToWorld(frameOf(s.piece), 0, 170), heading: s.piece.heading };
+    return { mid: frameToWorld(frameOf(s.piece), 0, 60), halt: frameToWorld(frameOf(s.piece), 0, 170), heading: s.piece.heading };
   }, site.id);
   await p.waitForFunction((k) => (window.woodrail.invalidate(), !!window.woodrail.propLibrary.model(`secret-${k}-hidden`)), site.kind, { timeout: 60000, polling: 500 });
-  await look(at.mid.x, at.mid.z, 760, 0.9);
+  await look(at.mid.x, at.mid.z, 1000, 0.85);
   await shot(`secret-${site.kind}-hidden`);
   // Found, its line, a train at its halt.
   const made = await p.evaluate(async (id) => {
@@ -126,7 +126,7 @@ for (const q of plan) {
   }, site.id);
   console.log(site.kind, JSON.stringify(made));
   await p.waitForFunction((k) => (window.woodrail.invalidate(), !!window.woodrail.propLibrary.model(`kit:kit-secret-${k}`)), site.kind, { timeout: 60000, polling: 500 });
-  await look(at.mid.x, at.mid.z, 760, 0.9);
+  await look(at.mid.x, at.mid.z, 1000, 0.85);
   await shot(`secret-${site.kind}-found`);
 }
 
