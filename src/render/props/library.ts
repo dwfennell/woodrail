@@ -16,12 +16,24 @@ import { CLOCK_ASSETS, HAND_NAMES, type ClockHand, type ClockHands } from "../cl
  * Models with a part that spins in the game, drawn on its own (`TurbinesView`): the part's name. The prop is drawn bare
  * of it (`drawnKey`), and the part is kept apart, in its own frame (`PropLibrary.spinner`).
  */
-export const SPINNERS: Readonly<Record<string, string>> = { "mech-wind-turbine": "rotor" };
+export const SPINNERS: Readonly<Record<string, string>> = { "mech-wind-turbine": "rotor", "grand-ferris-wheel-3": "wheel" };
+
+/**
+ * Parts that ride a spinner round but stay upright (a wheel's gondolas), by the spinner's asset: their nodes' name.
+ * Drawn apart too, one copy per node, each at its place on the turning spinner.
+ */
+export const RIDERS: Readonly<Record<string, string>> = { "grand-ferris-wheel-3": "gondola" };
 
 /** A model's spinning part (see `SPINNERS`): its parts in its own frame, and where that frame stands in the model's. */
 export interface Spinner {
   readonly parts: { geometry: BufferGeometry; material: Material }[];
   readonly base: Matrix4;
+  /**
+   * Its riders (`RIDERS`): one's parts, in its own frame, and where each rides in the spinner's frame (at rest). Riders
+   * of their own colours (`userData.tint` on each, its tinted parts marked too) are baked with those parts white, and
+   * `tints` has each one's colour, for its instance (the painted part's `instanceColor`: no more draws).
+   */
+  readonly riders?: { readonly parts: { geometry: BufferGeometry; material: Material }[]; readonly at: readonly Vector3[]; readonly tints?: readonly Color[] };
 }
 
 /** A catalogue model baked for drawing many copies: a few merged parts, and its size on the ground. */
@@ -133,9 +145,9 @@ export class PropLibrary {
           // A model with a spinning part: also baked bare of it (what's drawn), and the part on its own.
           const spins = SPINNERS[assetId];
           if (spins && !floors) {
-            const spinner = spinnerOf(built, spins, this.mats);
+            const spinner = spinnerOf(built, spins, this.mats, RIDERS[assetId]);
             if (spinner) {
-              this.models.set(key + BARE, { name: asset.name, ...bake(built, this.mats, { without: new Set([spins]) }) });
+              this.models.set(key + BARE, { name: asset.name, ...bake(built, this.mats, { without: new Set([spins, ...(RIDERS[assetId] ? [RIDERS[assetId]] : [])]) }) });
               this.spinners.set(key, spinner);
             }
           }
@@ -281,22 +293,43 @@ export function drawnKey(asset: string, variant?: number, storeys?: number): str
 }
 
 /** A model's part named `name` baked on its own, in its own frame, and where that frame stands in the model's. */
-function spinnerOf(root: Object3D, name: string, mats: Materials): Spinner | null {
+function spinnerOf(root: Object3D, name: string, mats: Materials, riderName?: string): Spinner | null {
   root.updateMatrixWorld(true);
   let node: Object3D | undefined;
+  const riders: Object3D[] = [];
   root.traverse((o) => {
     if (!node && o.name === name) node = o;
+    if (riderName && o.name === riderName) riders.push(o);
   });
   if (!node) return null;
   const base = root.matrixWorld.clone().invert().multiply(node.matrixWorld);
-  // Its own copy, at its own origin: baked there.
+  // Its riders: where each is in the spinner's frame, and one of them baked at its own origin.
+  let rode: Spinner["riders"];
+  if (riders.length > 0) {
+    const inv = node.matrixWorld.clone().invert();
+    const at = riders.map((r) => new Vector3().setFromMatrixPosition(r.matrixWorld).applyMatrix4(inv));
+    const tinted = riders.every((r) => typeof r.userData.tint === "string");
+    const template = riders[0].clone();
+    if (tinted) {
+      const white = mats.lacquer("#ffffff");
+      template.traverse((o) => {
+        if ((o as Mesh).isMesh && o.userData.tint) (o as Mesh).material = white;
+      });
+    }
+    rode = { parts: bakeAlone(template, mats), at, ...(tinted ? { tints: riders.map((r) => new Color(r.userData.tint as string)) } : {}) };
+  }
+  return { parts: bakeAlone(node, mats), base, ...(rode ? { riders: rode } : {}) };
+}
+
+/** A node baked on its own, at its own origin (a copy: the model keeps its own). */
+function bakeAlone(node: Object3D, mats: Materials): { geometry: BufferGeometry; material: Material }[] {
   const alone = node.clone();
   alone.position.set(0, 0, 0);
   alone.quaternion.identity();
   alone.scale.set(1, 1, 1);
   const holder = new Group();
   holder.add(alone);
-  return { parts: bake(holder, mats).parts, base };
+  return bake(holder, mats).parts;
 }
 
 /** How many colour variants there are (besides the model's own colours): towns pick among them. */

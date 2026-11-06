@@ -1470,6 +1470,9 @@ function mapHelpers(p) {
   };
   const tapButton = async (sel) => {
     await p.waitForFunction((sel) => { const b = document.querySelector(sel); return !!b && b.offsetParent !== null; }, sel, { timeout: 30000 });
+    // (A stop's chip scrolled out of the strip (it shows whole chips from the start of the one in view) is swiped into
+    // view first, as a player does.)
+    await p.evaluate((sel) => { const b = document.querySelector(sel); if (b.closest(".route-stops")) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }, sel);
     await frames(p);
     await p.waitForTimeout(250);
     const [x, y] = await p.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);
@@ -4218,10 +4221,10 @@ async function routeUx(ctx, p) {
   await tapOn({ engine: setup.engine });
   await tapButton(".engine-extra .route-plan");
   const empty = await texts(".engine-extra .route-hint");
-  check("route-ux: planning, no stops yet: \"Tap stations and depots, in order\"", empty.includes("Tap stations and depots, in order"), JSON.stringify(empty));
+  check("route-ux: planning, no stops yet: \"Tap stations and depots on the map, in the order …\"", empty.includes("Tap stations and depots on the map, in the order the train should visit them"), JSON.stringify(empty));
   await tapOn({ depot: setup.places[0] });
   const one = await p.evaluate(() => ({ hint: document.querySelector(".engine-extra .route-plan-hint")?.textContent, via: document.querySelector(".engine-extra .route-add-via")?.getBoundingClientRect().height ?? 0 }));
-  check("route-ux (F6): with a stop, the hint says track goes that way, and a \"+ via\" chip 44 px or more", one.hint === "Tap places to add stops, or track to go that way" && one.via >= 44, JSON.stringify(one));
+  check("route-ux (F6): with a stop, the hint says track goes that way, and a \"+ via\" chip 44 px or more", one.hint === "Tap a place on the map to add it as a stop. Tap track to make the train go that way." && one.via >= 44, JSON.stringify(one));
   await tapOn({ depot: setup.places[1] });
   const two = await route();
   // F5: the view close in on the second forest, then it's tapped: the whole route is framed above the bar.
@@ -4270,7 +4273,7 @@ async function routeUx(ctx, p) {
   // F6: "+ via", then a tap on the track: a via point.
   await tapButton(".engine-extra .route-add-via");
   const asked = await p.evaluate(() => ({ hint: document.querySelector(".engine-extra .route-plan-hint")?.textContent, on: document.querySelector(".engine-extra .route-add-via")?.getAttribute("aria-pressed") }));
-  check("route-ux (F6): \"+ via\" tapped: \"Now tap the track to go by\"", asked.hint === "Now tap the track to go by" && asked.on === "true", JSON.stringify(asked));
+  check("route-ux (F6): \"+ via\" tapped: \"Now tap the track the train should go by\"", asked.hint === "Now tap the track the train should go by" && asked.on === "true", JSON.stringify(asked));
   await tapOn({ piece: setup.track });
   const withVia = await route();
   check("route-ux (F6): the track tapped: a via point after the last stop", withVia.stops[2].via.includes(setup.track), JSON.stringify(withVia));
@@ -4404,11 +4407,13 @@ async function routeUx(ctx, p) {
   await tapUndo();
   const back = await route();
   check("route-ux (F1): Undo brings the sawmill back as a stop, Only drop", back.stops.length === 3 && back.stops[1].d === setup.places[1] && back.stops[1].a === "drop" && back.stops.every((s) => s.via.length === 0), JSON.stringify(back));
-  // F3: Leave asks first (a default-named line too); the second tap forgets it; Undo brings it back.
+  // F3: Take off line (in the line's edit view: Edit first) asks first (a default-named line too); the second tap
+  // forgets it; Undo brings it back.
+  await tapButton(".engine-extra .route-plan:not(.on)");
   await tapButton(".engine-extra .route-leave");
   const ask = await p.evaluate(() => ({ text: document.querySelector(".engine-extra .route-leave")?.textContent, asking: document.querySelector(".engine-extra .route-leave")?.classList.contains("asking"), says: document.querySelector(".engine-extra .route-leave-ask")?.textContent }));
   const still1 = await route();
-  check("route-ux (F3): Leave on the line's only train asks first (\"Forget …?\"), the line kept", /^Forget “.+ line”\?$/.test(ask.text ?? "") && ask.asking && /^Tap again to forget .+ line and its stops$/.test(ask.says ?? "") && still1.stops.length === 3 && still1.lines === 1, JSON.stringify({ ask, still1 }));
+  check("route-ux (F3): Take off line on the line's only train asks first (\"Forget …?\"), the line kept", /^Forget “.+ line”\?$/.test(ask.text ?? "") && ask.asking && /^Tap again to forget .+ line and its stops$/.test(ask.says ?? "") && still1.stops.length === 3 && still1.lines === 1, JSON.stringify({ ask, still1 }));
   // (The second press straight on the button, a click as its tap makes: "Forget …?" waits 4 s, and on the full run's
   // busy page a touch's click can come later than that. The first press above was a real tap.)
   await p.evaluate(() => document.querySelector(".engine-extra .route-leave.asking")?.click());

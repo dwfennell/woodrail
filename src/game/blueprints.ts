@@ -279,6 +279,8 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   // The toy chain (2026-11-04): a flower field (a new kind of field) -> flowers -> dye works -> paint; then planks +
   // paint -> toys, the very top of the made goods, studied at a University.
   row({ id: "paint", label: "Dye works", branch: "craft", tier: 2, needs: ["farming"], price: { planks: 8, coins: 120 }, requires: [CITY], blurb: "Flower fields grow flowers, and a dye works boils them into bright paint. Towns buy both.", brings: "Flower field, dye works" }),
+  // Grand projects (src/game/grand.ts): glass for the Cathedral's windows. After the brickworks' kiln, by a City ★.
+  row({ id: "glassworks", label: "Glassworks", branch: "craft", tier: 3, needs: ["brickworks"], price: { planks: 12, coins: 200 }, requires: [CITY_STAR], blurb: "A furnace fired with coal melts sand from its own pit into glass: the Cathedral's stained glass, and windows towns pay well for.", brings: "Glassworks" }),
   row({ id: "toys", label: "Toy workshop", branch: "craft", tier: 3, school: "university", needs: ["carpentry", "paint"], price: { planks: 12, coins: 260 }, requires: [delivered("furniture", 20)], blurb: "Planks and paint make toys. Towns pay more for them than for any made good but cars.", brings: "Toy workshop" }),
   row({ id: "scenery", label: "Scenery kit", branch: "craft", tier: 1, needs: ["carpentry"], price: { planks: 5 }, blurb: "Sights for the line (a castle gate, a train wash, a weighbridge, a track cleaner) and furniture beside it (clocks, whistle posts).", brings: "Castle gate, train wash, weighbridge, track cleaner, lineside furniture" }),
   // Your own colours (the user's ask, 2026-11-05): after the Dye works, a pot of paint a coat.

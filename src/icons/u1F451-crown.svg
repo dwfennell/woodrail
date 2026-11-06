@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Crown</title>
+<polygon points="1.4,6.2 7,12 12,3.6 17,12 22.6,6.2 20.6,19.4 3.4,19.4" fill="#7a4f12"/>
+<polygon points="3.2,9 7.2,13.4 12,5.8 16.8,13.4 20.8,9 19.4,18 4.6,18" fill="#e3b23c"/>
+<rect x="3.2" y="18.4" width="17.6" height="3.6" rx="1.2" fill="#7a1f2e"/>
+<rect x="4.2" y="19.2" width="15.6" height="2" rx="0.8" fill="#b0283a"/>
+<circle cx="12" cy="13.6" r="1.8" fill="#2f5fb5"/>
+<circle cx="7.4" cy="15.4" r="1.2" fill="#2d8a55"/>
+<circle cx="16.6" cy="15.4" r="1.2" fill="#2d8a55"/>
+<circle cx="1.6" cy="5.8" r="1.4" fill="#e3b23c"/>
+<circle cx="12" cy="3" r="1.4" fill="#e3b23c"/>
+<circle cx="22.4" cy="5.8" r="1.4" fill="#e3b23c"/>
+</svg>

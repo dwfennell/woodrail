@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Suitcase</title>
+<path d="M8.4 7.4 V4.6 Q8.4 2.6 10.4 2.6 H13.6 Q15.6 2.6 15.6 4.6 V7.4 H13.8 V4.4 H10.2 V7.4 Z" fill="#3a2a1c"/>
+<rect x="1.4" y="6.4" width="21.2" height="15.4" rx="2.6" fill="#3a2a1c"/>
+<rect x="2.6" y="7.6" width="18.8" height="13" rx="1.8" fill="#b5793f"/>
+<rect x="6" y="7.6" width="1.6" height="13" fill="#7a4a2a"/>
+<rect x="16.4" y="7.6" width="1.6" height="13" fill="#7a4a2a"/>
+<rect x="5.6" y="12.6" width="2.4" height="2" rx="0.5" fill="#e6b52c"/>
+<rect x="16" y="12.6" width="2.4" height="2" rx="0.5" fill="#e6b52c"/>
+<circle cx="11.4" cy="11" r="2.2" fill="#2f6fb5"/>
+<circle cx="11.4" cy="11" r="1" fill="#f6dfb4"/>
+<rect x="9.4" y="15" width="4.6" height="3.2" rx="0.6" fill="#8fd08a"/>
+<rect x="10.2" y="15.8" width="3" height="0.8" rx="0.4" fill="#2d6b3f"/>
+<polygon points="20.2,9 21.4,11.8 18.6,12.6" fill="#c8442f"/>
+<polygon points="3.4,15.8 5.2,17.6 3.4,19.4" fill="#f6efe3"/>
+</svg>

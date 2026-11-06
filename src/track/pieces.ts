@@ -129,6 +129,7 @@ export type PieceTypeId =
   | "depot-chocolate"
   | "depot-flowers"
   | "depot-dyeworks"
+  | "depot-glassworks"
   | "depot-toyworks"
   | "depot-postoffice"
   | "depot-airport"
@@ -705,6 +706,7 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "depot-chocolate": straight("depot-chocolate", 216),
   "depot-flowers": straight("depot-flowers", 216),
   "depot-dyeworks": straight("depot-dyeworks", 216),
+  "depot-glassworks": straight("depot-glassworks", 216),
   "depot-toyworks": straight("depot-toyworks", 216),
   "depot-postoffice": straight("depot-postoffice", 216),
   "depot-airport": straight("depot-airport", 216),

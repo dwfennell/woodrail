@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Cathedral</title>
+<rect x="11.2" y="0.6" width="1.6" height="4.4" fill="#e6b52c"/>
+<rect x="9.8" y="1.8" width="4.4" height="1.4" fill="#e6b52c"/>
+<polygon points="12,3.6 16.6,10.4 7.4,10.4" fill="#3a2a1c"/>
+<polygon points="12,5.4 15,9.6 9,9.6" fill="#556a80"/>
+<rect x="7.4" y="10" width="9.2" height="12.4" fill="#3a2a1c"/>
+<rect x="8.6" y="10.8" width="6.8" height="11" fill="#ded3bd"/>
+<polygon points="1.4,12.4 7.4,9.4 7.4,12.4" fill="#3a2a1c"/>
+<polygon points="22.6,12.4 16.6,9.4 16.6,12.4" fill="#3a2a1c"/>
+<rect x="1.4" y="12" width="6.2" height="10.4" fill="#3a2a1c"/>
+<rect x="16.4" y="12" width="6.2" height="10.4" fill="#3a2a1c"/>
+<rect x="2.6" y="13" width="4.2" height="8.6" fill="#ded3bd"/>
+<rect x="17.2" y="13" width="4.2" height="8.6" fill="#ded3bd"/>
+<circle cx="12" cy="13.8" r="2.2" fill="#b0283a"/>
+<circle cx="12" cy="13.8" r="1" fill="#2f5fb5"/>
+<path d="M10.2 21.8 L10.2 18.6 C10.2 17.2 13.8 17.2 13.8 18.6 L13.8 21.8 Z" fill="#7a4f12"/>
+<rect x="3.8" y="15" width="1.8" height="3.4" rx="0.9" fill="#2d8a55"/>
+<rect x="18.4" y="15" width="1.8" height="3.4" rx="0.9" fill="#e3a92c"/>
+<rect x="0.8" y="21.8" width="22.4" height="1.6" rx="0.6" fill="#3a2a1c"/>
+</svg>

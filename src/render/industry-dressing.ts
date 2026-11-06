@@ -57,6 +57,7 @@ export const PILE_TAG: Record<CargoKind, string> = {
   flowers: "#d9559a",
   paint: "#7b4fa0",
   toys: "#2f6db5",
+  glass: "#8fc3d9",
   mail: "#f6f3ec",
   post: "#c8442f",
 };

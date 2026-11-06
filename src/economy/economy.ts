@@ -1,4 +1,4 @@
-import { getPieceDef, isKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { getPieceDef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, CARGO_SLOTS, canCarry, POSTAL, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
@@ -51,7 +51,7 @@ interface Service {
   turnAt?: number;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "toyworks" | "postoffice" | "landing" | "slip" | "boatyard" | "shipyard" | "airport" | "mast" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | "dairy" | "bakery" | "orchard" | "juicer" | "creamery" | "icecream" | "brickworks" | "carworks" | "oilwell" | "waterpump" | "beetfield" | "jamworks" | "chocworks" | "flowerfield" | "dyeworks" | "glassworks" | "toyworks" | "postoffice" | "landing" | "slip" | "boatyard" | "shipyard" | "airport" | "mast" | KitDepotRole;
 
 /** Most riders waiting in an airport's lounge for a plane (Game mode: src/game/airports.ts). Full, coaches keep them. */
 export const AIRPORT_LOUNGE = 12;
@@ -128,7 +128,7 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
   // A town also posts mail (Game mode, once Post office is learned: `Economy.mailEvery`) and takes the sorted post.
-  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "chocolate", "flowers", "paint", "toys", "post"], gives: ["mail"], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "chocolate", "flowers", "paint", "toys", "glass", "post"], gives: ["mail"], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   // Stone only while a harbour's price still needs some at the workshop (`owed`, `Economy.owes`): it isn't a building
   // good, so it isn't kept for its own sake, and doesn't take the towns' stone.
@@ -171,6 +171,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   chocworks: { takes: ["cocoa", "milk"], gives: ["chocolate"], cycle: { uses: { cocoa: 1, milk: 1 }, makes: { chocolate: 1 }, seconds: 14 } },
   flowerfield: { takes: [], gives: ["flowers"], cycle: { uses: {}, makes: { flowers: 1 }, seconds: 12 } },
   dyeworks: { takes: ["flowers"], gives: ["paint"], cycle: { uses: { flowers: 1 }, makes: { paint: 1 }, seconds: 10 } },
+  // A glassworks (grand projects, src/game/grand.ts): coal fires its furnace; its sand is dug from the pit beside it
+  // (a beach, a riverbank or plain ground: any map has some), so coal is all a train brings.
+  glassworks: { takes: ["coal"], gives: ["glass"], cycle: { uses: { coal: 1 }, makes: { glass: 1 }, seconds: 12 } },
   toyworks: { takes: ["planks", "paint"], gives: ["toys"], cycle: { uses: { planks: 1, paint: 1 }, makes: { toys: 1 }, seconds: 14 } },
   // Made goods: a carpenter's yard makes furniture of planks, a smithy tools of iron.
   carpenter: { takes: ["planks"], gives: ["furniture"], cycle: { uses: { planks: 3 }, makes: { furniture: 1 }, seconds: 12 } },
@@ -559,6 +562,19 @@ export class Economy {
   placeWants: ((townId: number, kind: CargoKind) => number) | null = null;
   /** A unit went into a town's place under way. */
   onPlaceGoods: ((d: DepotState) => void) | null = null;
+  /**
+   * Grand projects started on this map (Game mode, game/grand.ts), by project id: the city it's in, its stages done,
+   * the goods its stage under way has had, its site's prop. Saved (`grandPlans`).
+   */
+  readonly grandPlans = new Map<string, { townId: number; stage: number; got: Bag; prop: number; riders?: number }>();
+  /** Town id → what the Great Exhibition gave it toward its growth when it opened (game/grand.ts). Saved. */
+  readonly grandGift = new Map<number, Bag>();
+  /**
+   * A unit of `kind` lands at town station `d`: does its city's grand project under way take it for its stage (Game
+   * mode: `GrandWorks`, which counts it in; null: never)? Taken, it goes into the project (unpaid, not toward growth),
+   * after the town's place under way has had what it wants.
+   */
+  grandTake: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
   private readonly services = new Map<number, Service>();
   /** Each stop list's `Later`s (see `laterOf`), and the counters they're keyed on. */
   private readonly laterCache = new WeakMap<readonly RouteStopDef[], LaterCache>();
@@ -1297,7 +1313,8 @@ export class Economy {
   isLookout(d: DepotState | undefined): boolean {
     if (!d || d.role !== "town") return false;
     const type = this.layout.getPiece(d.pieceId)?.type;
-    return type === LOOKOUT_KIT || type === OBSERVATORY_KIT;
+    // (And a found secret's halt: the lookout's kind of stop, for tourists. src/game/secrets.ts.)
+    return type === LOOKOUT_KIT || type === OBSERVATORY_KIT || (!!type && isSecretKit(type));
   }
 
   /** Is this a metro stop's depot (`METRO_KIT`): a quarter of its town of its own? */
@@ -1493,6 +1510,11 @@ export class Economy {
           return;
         }
       }
+      // Goods for the city's grand project under way (game/grand.ts): into its stage, as a place's are.
+      if (d.role === "town" && this.grandTake?.(d, kind)) {
+        this.wantsStamp++;
+        return;
+      }
       // Goods for a station's delivery van (roads spec D5): onto its yard, for a town off the line (not this one).
       if (d.role === "town" && this.toVan?.(d, kind)) {
         const yard = this.vanYard.get(d.id) ?? {};
@@ -1673,6 +1695,72 @@ export class Economy {
       if (kept) return { depot: d, ...kept };
     }
     return null;
+  }
+
+  /**
+   * Why a routed train won't pick up a good at a stop of its line, the first such from the one it's heading for (or
+   * standing at) on round, from the same rules that
+   * decide it (`picksAt`, `roomAhead`, `carTakes`), or null: it will, or there's nothing it could want there. For its
+   * engine card ("Not loading planks at the sawmill: the workshop doesn't need any yet"; the user, 2026-11-06: a train
+   * passed its sawmill empty with nothing said). Each good the stop's place gives, in its order; the first with a reason:
+   * - "no-room": a later stop takes it, but none has room for more than the train has on board now (`roomAhead`):
+   *   `taker` is the first later stop that would take it, `takerFull` whether it's full (else it doesn't need any yet);
+   * - "no-wagon": a later stop takes it, but no wagon of the train carries it (or each is set to Off for it);
+   * - "none": it would load it, but the place has none (and isn't making any).
+   * Not said: goods no later stop takes (the line isn't for them), a stop set to Only drop, wagons already full.
+   * Cheap: a route walk per good, asked while its card is open.
+   */
+  notLoadingAt(trainId: number): { depot: DepotState; kind: CargoKind; why: "no-room" | "no-wagon" | "none"; taker?: DepotState; takerFull?: boolean } | null {
+    const train = this.sim.getTrain(trainId);
+    const route = train && this.routeOfTrain(train);
+    if (!train || !route || route.stops.length === 0) return null;
+    const n = route.stops.length;
+    const first = Number.isInteger(route.next) ? route.next % n : 0;
+    // From the stop it's heading for on round the line: the first stop where it won't load a good it could (heading for
+    // the workshop past a sawmill it skipped, it's the sawmill it says).
+    for (let k = 0; k < n; k++) {
+      const not = this.notLoadingAtStop(train, route.stops, (first + k) % n);
+      if (not) return not;
+    }
+    return null;
+  }
+
+  /** `notLoadingAt` for stop `i` of a train's route. */
+  private notLoadingAtStop(train: Train, stops: readonly RouteStopDef[], i: number): { depot: DepotState; kind: CargoKind; why: "no-room" | "no-wagon" | "none"; taker?: DepotState; takerFull?: boolean } | null {
+    const stop = stops[i];
+    const d = stop && this.depots[stop.depotId];
+    if (!d || !d.auto || stop.action === "drop" || !this.layout.getPiece(d.pieceId)) return null;
+    const r = RECIPES[d.role];
+    const later = this.laterOf(stops, i);
+    for (const kind of r.gives) {
+      const bit = 1 << CARGO[kind].index;
+      if (!storeLetsOut(d, kind) || !((r.routedOnly ? later.uses : later.takes) & bit)) continue;
+      const carriers = train.cars.filter((c) => canCarry(c.kind, kind) && this.carTakes(c.id, kind));
+      if (carriers.length === 0) {
+        // (No wagon could take it: said only where none carries it at all, not where its wagons are set to Off for it,
+        // and only to a goods train: an engine alone, or coaches, aren't for goods.)
+        if (!train.cars.some((c) => canCarry(c.kind, kind)) && train.cars.some((c) => canCarry(c.kind))) return { depot: d, kind, why: "no-wagon" };
+        continue;
+      }
+      if (stop.action !== "pick" && !this.roomAhead(stops, i, kind, train)) {
+        const taker = this.takerAfter(stops, i, kind);
+        return { depot: d, kind, why: "no-room", ...(taker ? { taker, takerFull: this.takesNow(taker, kind) } : {}) };
+      }
+      if (!r.endless && d.piles[CARGO[kind].index] <= 0 && !this.working(d)) return { depot: d, kind, why: "none" };
+    }
+    return null;
+  }
+
+  /** The first stop after stop `i` (round the line) that takes `kind` at all, as its kind of place does, or undefined. */
+  private takerAfter(stops: readonly RouteStopDef[], i: number, kind: CargoKind): DepotState | undefined {
+    for (let k = 1; k < stops.length; k++) {
+      const s = stops[(i + k) % stops.length];
+      const d = this.depots[s.depotId];
+      if (!d || s.depotId === stops[i].depotId || s.action === "pick" || !this.layout.getPiece(d.pieceId)) continue;
+      const r = RECIPES[d.role];
+      if (r.takes.includes(kind) || r.owed?.includes(kind)) return d;
+    }
+    return undefined;
   }
 
   /** Give this engine's train a route (null or no stops: none; it's served wherever it goes). */
@@ -2158,16 +2246,31 @@ export class Economy {
   }
 
   /**
-   * Leave now (its engine's card): a train waiting for a full load (`waitingToFill`) goes with what it has. Only this
-   * visit is let off (`skipVisit`): at its next stop that stop's own settings apply again, waiting to fill included.
-   * Nothing is saved or undone: a train reloaded mid-wait waits again, as it would have. False if it wasn't waiting.
+   * The depot where this train stands at a stop, halted under its crane (being loaded or unloaded, waiting its turn for
+   * the crane, or waiting to fill): where its engine card's Leave now goes on at once. Null if it isn't (on its way in,
+   * crawling to the crane, lever off, or gone on). Cheap: its service, asked while the card is open.
+   */
+  atStop(trainId: number): DepotState | null {
+    const s = this.services.get(trainId);
+    if (!s || s.phase !== HALTED) return null;
+    const d = this.depots[s.depotId];
+    return d && d.auto ? d : null;
+  }
+
+  /**
+   * Leave now (its engine's card): a train standing at a stop (`atStop`: being worked, or waiting to fill) goes on now
+   * with what it has. Only this visit is let off: at its next stop that stop's own settings apply again, waiting to fill
+   * included. The crane drops what it was about to move (a unit moves whole, so nothing is lost) and turns to the next
+   * train. Nothing is saved or undone: a train reloaded mid-visit is worked again, as it would have been. False if it
+   * wasn't at a stop.
    */
   leaveNow(trainId: number): boolean {
     const train = this.sim.getTrain(trainId);
-    if (!train || !this.waitingToFill(trainId)) return false;
-    // (As `skipVisit`, at the depot it's waiting at: every car done there, the crane lets it go.)
+    if (!train || !this.atStop(trainId)) return false;
     const s = this.service(trainId);
+    this.letCraneGo(s);
     s.phase = NONE;
+    s.ticks = 0;
     for (const car of train.cars) s.done.add(car.id);
     return true;
   }

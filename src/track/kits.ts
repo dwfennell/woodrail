@@ -192,6 +192,32 @@ const bufferTrack = (type: PieceTypeId): PieceDef => ({
 /** Roads side by side along +t, `ROADS` apart, the first on the piece's own line (l 0), the rest to its left. */
 const sideBySide = (n: number): Pose[] => Array.from({ length: n }, (_, i) => pose(0, i * ROADS, 0));
 
+/**
+ * Grand Central at build stage `n` (its model `grand-central-<n>`: src/catalogue/assets/grand.ts, its tracks 72 apart,
+ * `CENTRAL_TRACKS`): three through roads, its model's middle on the middle road, its building past the third road (the
+ * side away from the town's houses: a city has no room on its own side). Its platforms run past the roads' ends.
+ */
+function grandCentral(n: 1 | 2 | 3): KitDef {
+  const type = `kit-grand-central-${n}` as const;
+  return {
+    asset: `grand-central-${n}`,
+    name: "Grand Central",
+    track: roads(type, sideBySide(3), 216, false),
+    rails: "track",
+    place: { t: 108, l: ROADS },
+    footprint: [
+      // The near platform and the shed's brick wall behind it (the town's side: as narrow as a plain station's).
+      { t: 108, l: -40, w: 216, d: 40 },
+      // The islands between the roads.
+      { t: 108, l: ROADS / 2, w: 216, d: 26 },
+      { t: 108, l: ROADS * 1.5, w: 216, d: 26 },
+      // The far platform, the station building and its clock tower, the forecourt before it (past the last road).
+      { t: 108, l: 2 * ROADS + 76, w: 222, d: 112 },
+    ],
+    stop: { at: 150, seconds: 4, who: "passengers" },
+  };
+}
+
 /** A roundhouse's stall roads: from the rim of a turntable's pit (radius 92), fanned an eighth of a turn apart. */
 const PIT = 92;
 const stalls = (angles: readonly number[]): Pose[] => angles.map((a) => pose(-PIT + PIT * Math.cos(a), PIT * Math.sin(a), a));
@@ -275,6 +301,45 @@ function liftBridge(type: PieceTypeId): PieceDef {
 }
 
 /** Every kit, by piece type. */
+/** The secret sites (src/game/secrets.ts), by kind: the name of each one's asset and kit is `secret-<kind>`. */
+export const SECRET_KINDS = ["lost-mine", "castle", "lake", "shipwreck", "stones", "footprint"] as const;
+export type SecretKind = (typeof SECRET_KINDS)[number];
+
+/** What each secret is called once found (its halt is "<name> halt"); and before, a guess at what's in the mist. */
+export const SECRET_NAMES: Readonly<Record<SecretKind, { name: string; hidden: string }>> = {
+  "lost-mine": { name: "Lost mine", hidden: "Old mine" },
+  castle: { name: "Castle", hidden: "Ruined castle" },
+  lake: { name: "Hidden lake", hidden: "Misty hollow" },
+  shipwreck: { name: "Shipwreck", hidden: "Wreck on the beach" },
+  stones: { name: "Standing stones", hidden: "Fallen stones" },
+  footprint: { name: "Giant's footprint", hidden: "Strange pond" },
+};
+
+/** A found secret's kit: its halt's straight, the site's found model beside it (src/catalogue/assets/secrets.ts). */
+export const secretKitOf = (kind: SecretKind): KitTypeId => `kit-secret-${kind}`;
+
+/**
+ * A found secret site as a kit piece (src/game/secrets.ts): its halt's 216 mm straight, the open end the site frame's
+ * x −108 (`SECRET_HALT.joins`), and the site's found model standing beside it (the track on the frame's z 170: so its
+ * origin is 108 along and 170 to the −l side). A passenger stop as the lookout is (riders from any town). Never on the
+ * tray: the game lays it when the site is found, and it's fixed there like a station.
+ */
+function secretKit(kind: SecretKind): KitDef {
+  return {
+    asset: `secret-${kind}`,
+    name: "halt",
+    track: straight(secretKitOf(kind), 216),
+    rails: "track",
+    place: { t: 108, l: -SECRET_TRACK_Z },
+    // The site, all of it on the platform's side of the track (its frame's bounds, `SITE_BOUNDS`: x ±158, z −176…149).
+    footprint: [{ t: 108, l: -SECRET_TRACK_Z - 13.5, w: 316, d: 325 }],
+    stop: PASSENGERS,
+  };
+}
+
+/** Where a secret site's halt runs in its frame (`HALT_Z` in src/catalogue/secret-frame.ts). */
+const SECRET_TRACK_Z = 170;
+
 export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
   // A 216 straight with the furnished platform along its left (+l) side: passenger trains stop at it for 4 s.
   "kit-platform-furnished": {
@@ -404,6 +469,13 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     ],
     stop: { at: 190, seconds: 4, who: "passengers" },
   },
+  // Grand Central (a grand project, src/game/grand.ts): a city's station upgraded in place to three through roads
+  // under a glass train shed, a stop on each, the station building alongside on the town's side. One kit per build
+  // stage (platforms laid, half built, finished), the same roads in each, so the station is retyped stage by stage with
+  // its trains, joints and routes kept.
+  "kit-grand-central-1": grandCentral(1),
+  "kit-grand-central-2": grandCentral(2),
+  "kit-grand-central-3": grandCentral(3),
   // Somewhere to park engines: two roads into a shed, ending at buffers. Its doors open as a train comes in and close
   // behind it.
   "kit-engine-shed": {
@@ -865,6 +937,7 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     splices: true,
     moves: "occupied",
   },
+  ...(Object.fromEntries(SECRET_KINDS.map((k) => [secretKitOf(k), secretKit(k)])) as Record<KitTypeId, KitDef>),
 };
 
 const byType = new Map<string, KitDef>(Object.entries(KITS));
@@ -874,6 +947,12 @@ export const kitOf = (type: PieceTypeId): KitDef | undefined => byType.get(type)
 
 /** Is this piece type a train lift (its track a `lift`)? */
 export const isLift = (type: PieceTypeId): boolean => !!byType.get(type)?.track.lift;
+
+/** Is this piece type a found secret site's kit (`secretKit`)? */
+export const isSecretKit = (type: PieceTypeId): boolean => type.startsWith("kit-secret-");
+
+/** The secret kind a kit piece type is (`secretKitOf`), or null. */
+export const secretKindOf = (type: PieceTypeId): SecretKind | null => (isSecretKit(type) ? (type.slice("kit-secret-".length) as SecretKind) : null);
 
 /** Is this piece type a kit? */
 export const isKit = (type: PieceTypeId): type is KitTypeId => byType.has(type);
@@ -886,7 +965,8 @@ const byAsset = new Map<string, KitTypeId>();
 // (The first kit of an asset: the lookout halt wears the mountain station's chalet, and the catalogue's chalet is still
 // the mountain station.)
 // (The metro stop's ticket booth is its entrance only: the catalogue's booth stays a prop.)
-for (const t of KIT_TYPES) if (!byAsset.has(KITS[t].asset) && t !== METRO_KIT) byAsset.set(KITS[t].asset, t);
+// (A secret's found model is a prop in Sandbox's tray: its kit is laid only by the game, when the site is found.)
+for (const t of KIT_TYPES) if (!byAsset.has(KITS[t].asset) && t !== METRO_KIT && !isSecretKit(t)) byAsset.set(KITS[t].asset, t);
 export const kitForAsset = (asset: string): KitTypeId | undefined => byAsset.get(asset);
 
 /** Where a kit's model stands in its piece's frame (see `KitDef.place`). */

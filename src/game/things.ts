@@ -81,6 +81,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // its entrance on the town's ground) and the metro train (its motor car and two cars, besides the cars themselves).
   "piece:kit-metro-stop": { label: "Metro stop", cost: { planks: 10, iron: 25 }, coins: 600, tech: "metro" },
   "look:metro": { label: "Metro train", cost: { planks: 6, iron: 15 }, coins: 400, tech: "metro" },
+  // The Royal Train: given when its grand project is finished (src/game/grand.ts), never made. One.
+  "look:royal": { label: "Royal Train", cost: {}, gift: true },
   "piece:tunnel-mouth": { label: "Tunnel mouth", cost: { planks: 2 }, coins: 30, tech: "tunnels" },
   "car:engine": { label: "Engine", cost: { planks: 6 } },
   "car:timber": { label: "Flatbed wagon", cost: { planks: 3 } },
@@ -124,6 +126,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-chocolate": { label: "Chocolate factory", cost: { planks: 12 }, coins: 380, tech: "chocolate" },
   "piece:depot-flowers": { label: "Flower field", cost: { planks: 6 }, coins: 150, tech: "paint" },
   "piece:depot-dyeworks": { label: "Dye works", cost: { planks: 10 }, coins: 240, tech: "paint" },
+  // Grand projects (src/game/grand.ts): glass for the Cathedral's stained glass, of coal.
+  "piece:depot-glassworks": { label: "Glassworks", cost: { planks: 10, stone: 6 }, coins: 300, tech: "glassworks" },
   "piece:depot-toyworks": { label: "Toy workshop", cost: { planks: 14 }, coins: 440, tech: "toys" },
   "piece:depot-airport": { label: "Airport", cost: { planks: 16, iron: 8 }, coins: 450, tech: "airport" },
   "piece:depot-mast": { label: "Airship mast", cost: { planks: 8, iron: 4 }, coins: 250, tech: "airship" },
@@ -188,6 +192,11 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // Big stations: passenger stops of their own (looks only for now: not a town's halt).
   "piece:kit-two-platform-station": { label: "Two-platform station", cost: { planks: 10 }, tech: "big-stations" },
   "piece:kit-grand-terminus": { label: "Grand terminus", cost: { planks: 14 }, tech: "big-stations" },
+  // Grand Central (a grand project, src/game/grand.ts): given as it's started in a City ★, never made; a kit per
+  // build stage, the one placed retyped (and the toy box's count moved along) as each stage is done.
+  "piece:kit-grand-central-1": { label: "Grand Central", cost: {}, gift: true },
+  "piece:kit-grand-central-2": { label: "Grand Central", cost: {}, gift: true },
+  "piece:kit-grand-central-3": { label: "Grand Central", cost: {}, gift: true },
   // Fun track.
   "piece:kit-train-lift": { label: "Train lift", cost: { planks: 10 }, tech: "fun-track" },
   // Tech tree 5: the line over a river at the ground, its span lifting for boats. Iron for the towers, and coins.

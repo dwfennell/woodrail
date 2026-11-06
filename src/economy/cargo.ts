@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish" | "oil" | "water" | "sugar" | "jam" | "cocoa" | "chocolate" | "flowers" | "paint" | "toys" | "mail" | "post";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools" | "milk" | "bread" | "fruit" | "juice" | "cheese" | "icecream" | "bricks" | "autos" | "fish" | "oil" | "water" | "sugar" | "jam" | "cocoa" | "chocolate" | "flowers" | "paint" | "toys" | "glass" | "mail" | "post";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys", "mail", "post"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools", "milk", "bread", "fruit", "juice", "cheese", "icecream", "bricks", "autos", "fish", "oil", "water", "sugar", "jam", "cocoa", "chocolate", "flowers", "paint", "toys", "glass", "mail", "post"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -48,6 +48,9 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   flowers: { index: 25, label: "Flowers" },
   paint: { index: 26, label: "Paint" },
   toys: { index: 27, label: "Toys" },
+  // Glass from a glassworks, of coal and the sand dug beside it: panes in a crate (for the Cathedral's stained glass,
+  // src/game/grand.ts, and towns' windows).
+  glass: { index: 28, label: "Glass" },
   // The post (Post office): sacks of letters a town posts, and the post a post office sorts of them for towns. (From
   // 30, the coordinator's range for it: 28-29 are unused.)
   mail: { index: 30, label: "Mail" },
@@ -104,6 +107,8 @@ export const GOODS_ICON: Record<CargoKind, string> = {
   flowers: "🌷",
   paint: "🎨",
   toys: "🧸",
+  // (src/icons/u1FA9F-window.)
+  glass: "🪟",
   // The post's goods (src/icons/u2709-letter, u1F4EE-post).
   mail: "✉️",
   post: "📮",
@@ -121,7 +126,7 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   // Vans: sacks and crates (flour, made goods, bread, crates of juice bottles, cheeses). Milk goes in a tank wagon.
   // Fish, in crates on ice, ride in vans or cold vans.
   // The goods chains': sacks of sugar and cocoa, jars of jam, boxes of chocolate, tins of paint, boxes of toys.
-  van: ["flour", "furniture", "tools", "bread", "juice", "cheese", "fish", "sugar", "jam", "cocoa", "chocolate", "paint", "toys"],
+  van: ["flour", "furniture", "tools", "bread", "juice", "cheese", "fish", "sugar", "jam", "cocoa", "chocolate", "paint", "toys", "glass"],
   tanker: ["milk"],
   // The cold van: cheese (which a van carries too) and, the only wagon it rides in, ice cream.
   // (Chocolate keeps best cold too.)

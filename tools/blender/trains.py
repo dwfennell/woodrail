@@ -317,12 +317,46 @@ def hopper():
     moving(lumps("coal", (0, 0, TOP + h - 1.5), (inner - 10, W - 10, 8), count=110, lump=4.6, seed=7, name="coal_lumps", subdivisions=0))
 
 
-def coach(color, h, windows, roof_color, L=88):
+def clerestory(roof_color, h, length, x=0.0, pane=PANE, raised=True):
+    """
+    A coach's clerestory: a raised strip along the middle of its arched roof (whose eaves are at TOP + h), in the roof's
+    colour, glazed along its top and with a row of small panes down each side, and a row of round dark vents down each
+    side of the roof. It's what makes a coach a coach from above, where the roof is nearly all that shows: a light
+    stripe along it in the panes' colour, which isn't repainted with the coach's livery (a goods van's roof is dark,
+    with beech ribs across it). Not `raised` (the double-decker, as tall as a car may be to pass under a bridge): only
+    the glazing, laid on the roof, and the vents.
+    """
+    span = W + 5  # the arched roof's (see `coach`)
+    crown = TOP + h - 0.5 + 3 + 3  # its top, on its middle line
+    sw = 15.0 if raised else 10.0
+    if raised:
+        sh = 5.0
+        strip = box(paint(roof_color), (length, sw, sh + 1), (x, 0, crown + sh / 2 - 0.5), r=1.6)
+        n = max(2, int(length // 11))
+        pitch = length / n
+        side_windows(strip, [(x - length / 2 + pitch * (i + 0.5), crown + sh / 2 - 0.3, pitch - 4, 2.4) for i in range(n)], sw / 2, depth=0.6, color=pane)
+        # The glazed top: a pane set into it, its face a little proud.
+        recess(strip, cutter_boxes([((length - 5, sw - 5, 2), (x, 0, crown + sh + 0.5))]))
+        box(paint(pane), (length - 5.2, sw - 5.2, 1.2), (x, 0, crown + sh - 0.1), r=0)
+    else:
+        box(paint(pane), (length - 5.2, sw - 2, 1.2), (x, 0, crown - 0.4), r=0)
+    vents = max(2, int(length // 16))
+    vy = sw / 2 + 3.4 if raised else 11.0
+    # (Each vent stands on the roof's curve, a little sunk into it.)
+    vz = crown - 3 * (2 * vy / span) ** 2 + 0.3
+    for i in range(vents):
+        vx = x - length / 2 + length / vents * (i + 0.5)
+        for s in (-1, 1):
+            cylinder("metal", 1.7, 2.2, (vx, s * vy, vz), "Z", 8, 0.6)
+
+
+def coach(color, h, windows, roof_color, L=88, strip=None, raised=True):
     running_gear(L, 18)
     bl = L - 12
     body = box(paint(color), (bl, W, h), (0, 0, TOP + h / 2), r=3)
     side_windows(body, windows, W / 2)
     arch_roof(paint(roof_color), bl + 8, W + 5, 3, 3, (0, 0, TOP + h - 0.5))
+    clerestory(roof_color, h, *(strip or (bl - 18,)), raised=raised)
     return body, bl
 
 
@@ -339,7 +373,7 @@ def passenger_dining():
     wins = [(i * bl / 3, TOP + 18, bl / 3 - 9, 9) for i in (-1, 0, 1)]
     for s in (-1, 1):
         box(paint(CREAM), (bl - 4, 0.8, 13), (0, s * (W / 2 + 0.1), TOP + 18), r=0.4, seg=1)
-    _, _ = coach(CLARET, 30, [], CREAM)
+    _, _ = coach(CLARET, 30, [], CREAM, strip=(bl - 30, 6))
     # Windows over the cream band: set into the band's face.
     for x, z, w, hh in wins:
         for s in (-1, 1):
@@ -361,7 +395,7 @@ def passenger_double_decker():
     bl = 76
     h = 44
     wins = [(-bl / 2 + bl / 4 * (i + 0.5), TOP + h * y, bl / 4 - 6, 9) for y in (0.33, 0.75) for i in range(4)]
-    coach(GREEN, h, wins, CREAM)
+    coach(GREEN, h, wins, CREAM, raised=False)
     for s in (-1, 1):
         box(paint(CREAM), (bl - 2, 0.8, 2.2), (0, s * (W / 2 + 0.1), TOP + h * 0.54), r=0.3, seg=1)
 
@@ -376,6 +410,7 @@ def passenger_first_class():
     bl, h = 76, 30
     body = box(paint(MAROON), (bl, W, h), (0, 0, TOP + h / 2), r=3)
     arch_roof(paint(MAROON_ROOF), bl + 8, W + 5, 3, 3, (0, 0, TOP + h - 0.5))
+    clerestory(MAROON_ROOF, h, bl - 22, pane=LIT)
     for s in (-1, 1):
         y = s * (W / 2 + 0.1)
         box(paint(CREAM), (bl - 18, 0.8, 13), (0, y, TOP + 19), r=0.4, seg=1)
@@ -445,15 +480,20 @@ def timber():
 def van():
     """
     A closed goods van (flour, later toys): the timber wagon's length and running gear, a box body in the slot "body"
-    under a cream arched roof, and a cream sliding door on each side (moving parts "door_0" at -y and "door_1" at +y,
-    which slide along x) under a dark rail.
+    under a low dark roof with beech ribs across it, and a cream sliding door on each side (moving parts "door_0" at -y
+    and "door_1" at +y, which slide along x) under a dark rail. The roof is the coaches' opposite from above, painted or
+    not (neither the roof nor its ribs take a livery): dark and barred across where theirs has a light stripe along.
     """
     L = 84
     running_gear(L, 18)
     bl, h = L - 12, 28
     body = paint("slot body")
     box(body, (bl, W, h), (0, 0, TOP + h / 2), r=3)
-    arch_roof(paint(CREAM), bl + 8, W + 5, 3, 3, (0, 0, TOP + h - 0.5))
+    arch_roof("metal", bl + 6, W + 4, 1.4, 2.4, (0, 0, TOP + h - 0.5))
+    ribs = 7
+    for i in range(ribs):
+        x = -(bl + 6) / 2 + 4 + (bl - 2) / (ribs - 1) * i
+        arch_roof("wood", 3.2, W + 4.6, 1.4, 1.8, (x, 0, TOP + h + 1.0), r=0.6, seg=6, name="rib")
     for i, s in enumerate((-1, 1)):
         y = s * (W / 2 + 0.9)
         # The rail the door hangs from, and the door: one cream panel, its own node so it can slide along x.

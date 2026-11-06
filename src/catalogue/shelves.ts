@@ -66,6 +66,8 @@ export const PROP_TABS: readonly PropTab[] = [
         label: "Farm & industry",
         assets: ["bldg-farmhouse", "bldg-red-barn", "bldg-silo", "bldg-windmill", "bldg-watermill", "bldg-dairy", "bldg-sawmill", "bldg-factory", "bldg-warehouse"],
       },
+      // Grand projects (spec 2026-11-05): each at every build stage. In Game mode they're built from a City ★'s card.
+      { label: "Grand projects", assets: ([["grand-exhibition", 4], ["grand-cathedral", 4], ["grand-royal-train", 3], ["grand-central", 3], ["grand-ferris-wheel", 3]] as const).flatMap(([p, n]) => Array.from({ length: n + 1 }, (_, i) => `${p}-${i}`)) },
     ],
   },
   {
@@ -92,6 +94,8 @@ export const PROP_TABS: readonly PropTab[] = [
       { label: "Rocks & water", assets: ["scene-rocks", "scene-mountain", "scene-cliff", "scene-waterfall", "scene-lily-pond", "scene-river-bend", "scene-beach"] },
       { label: "Farm", assets: ["scene-crop-rows", "scene-haystacks", "scene-scarecrow", "scene-beehives"] },
       { label: "Outdoors", assets: ["scene-big-top", "scene-tent", "scene-campfire", "scene-picnic", "scene-snowman"] },
+      // The secret sites (Game mode hides them on the map): each before it's found and after.
+      { label: "Secrets", assets: [...["secret-lost-mine", "secret-castle", "secret-lake", "secret-shipwreck", "secret-stones", "secret-footprint"].flatMap((id) => [`${id}-hidden`, id]), "secret-stones-midsummer"] },
     ],
   },
   {

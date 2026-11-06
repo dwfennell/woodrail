@@ -573,13 +573,22 @@ suite.add("tight-curves", async () => {
   const tight = async () => {
     const find = () => p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]'); if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
     let at = await find();
-    if (!at) {
+    // (The Curve shelf by a click, as a player opens it. Measured and clicked again if the shelf didn't open: on a slow
+    // machine the tray can be drawn again between the measure and the click, so the click lands on the tray as it was.)
+    let under = null;
+    for (let k = 0; k < 3 && !at; k++) {
+      await p.waitForFunction(() => [...document.querySelectorAll(".scroller .tray-group .label")].some((l) => l.textContent === "Curve") || !!document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]'), null, { timeout: 10000 }).catch(() => {});
+      at = await find();
+      if (at) break;
       const shelf = await p.evaluate(() => { const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Curve"); if (!g) return null; g.scrollIntoView({ inline: "center" }); const q = g.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
-      if (shelf) await p.mouse.click(shelf[0], shelf[1]);
+      if (!shelf) continue;
       await frames(p);
+      under = await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? `${e.tagName}.${e.className}` : null; }, shelf);
+      await p.mouse.click(shelf[0], shelf[1]);
+      await p.waitForFunction(() => !!document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]'), null, { timeout: 5000 }).catch(() => {});
       at = await find();
     }
-    if (!at) throw new Error("no tight curve in the tray");
+    if (!at) throw new Error("no tight curve in the tray (under the Curve shelf's click: " + under + "): " + JSON.stringify(await p.evaluate(() => [...document.querySelectorAll(".scroller > *")].map((e) => e.className.split(" ")[0] + ":" + (e.dataset.key ?? e.querySelector(".label")?.textContent ?? "")))));
     return at;
   };
   const curves = (before) => p.evaluate((before) => {
@@ -965,6 +974,9 @@ try {
     const where = () => p.waitForFunction((sel) => { const e = document.querySelector(sel); if (!e || e.offsetParent === null) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel, { timeout: 30000 }).then((h) => h.jsonValue());
     // (Clicked once it holds still: the card's tap guard drops a click on a button that moved within 150 ms, and a
     // change before, such as Only drop, resizes the card.)
+    // (A stop's chip scrolled out of the strip is scrolled into view first, as a player scrolls it.)
+    await p.waitForFunction((sel) => !!document.querySelector(sel), sel, { timeout: 30000 }).catch(() => {});
+    await p.evaluate((sel) => { const b = document.querySelector(sel); if (b?.closest(".route-stops")) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }, sel);
     let [x, y] = await where();
     for (let k = 0; k < 20; k++) {
       await frames(p);
@@ -1006,6 +1018,8 @@ try {
   // moved, and the card's status line above can change its height at any moment.)
   // (Its "Forget …?" lasts 4 s: read at once, not after a frame. The oval's forest works in Sandbox (anywhere), so its
   // axe swings and every frame is drawn: two took 4.8 s at 1280×800 under software GL, past the ask.)
+  // (Take off line is in the line's edit view: Edit first.)
+  await clickButton(".engine-extra .route-plan:not(.on)");
   for (let k = 0; k < 3 && !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-leave.asking"))); k++) await clickButton(".engine-extra .route-leave:not(.asking)", false);
   // (The second click at once, where it is: "Forget …?" waits 4 s, and on a busy page waiting for it to hold still
   // takes longer. It doesn't move.)
@@ -1022,7 +1036,7 @@ try {
   const text = ask.text;
   const asked = { lines: ask.lines };
   const gone = await route();
-  check("desktop (F3): Leave asks first (\"Forget …?\"), the second click forgets the line", asked.lines === 1 && /^Forget/.test(text ?? "") && gone.lines === 0 && gone.stops.length === 0, JSON.stringify({ asked, text, gone }));
+  check("desktop (F3): Take off line asks first (\"Forget …?\"), the second click forgets the line", asked.lines === 1 && /^Forget/.test(text ?? "") && gone.lines === 0 && gone.stops.length === 0, JSON.stringify({ asked, text, gone }));
   await p.keyboard.press("Control+z");
   await frames(p);
   const back = await route();

@@ -1,4 +1,5 @@
-import { CARGO, CARRIES, type CargoKind } from "../economy/cargo";
+import { CARGO, CARRIES, GOODS_ICON, type CargoKind } from "../economy/cargo";
+import { carriesLine } from "../economy/wagons";
 import { RECIPES, type DepotRole } from "../economy/economy";
 import type { Bag } from "../economy/goods";
 import { ENGINES, type EngineKind } from "../game/engines";
@@ -6,7 +7,7 @@ import { speedWord } from "../game/train-summary";
 import { LIFT_NAME } from "../game/lift-notice";
 import { INDUSTRY_ROLE } from "../game/world";
 import type { CarKind, CarLook } from "../sim";
-import { isFit, isJoin, isKit, KITS, type KitTypeId, type PieceTypeId } from "../track";
+import { isFit, isJoin, isKit, KITS, SECRET_KINDS, SECRET_NAMES, secretKitOf, type KitTypeId, type PieceTypeId } from "../track";
 import type { TrayItem } from "./tray-catalogue";
 
 /**
@@ -104,6 +105,7 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   "depot-chocolate": p("Chocolate factory", "Makes chocolate from cocoa and milk."),
   "depot-flowers": p("Flower field", "Rows of flowers, picked into crates for flatbeds."),
   "depot-dyeworks": p("Dye works", "Boils flowers into bright paint, in tins."),
+  "depot-glassworks": p("Glassworks", "Melts sand from its own pit with coal into panes of glass."),
   "depot-toyworks": p("Toy workshop", "Makes toys from planks and paint."),
   "depot-airport": p("Airport", "Planes call by themselves: trains bring riders to fly."),
   "depot-mast": p("Airship mast", "Riders brought here fly a tour over your railway."),
@@ -121,12 +123,17 @@ const KIT_INFO: Record<string, ItemInfo> = {
   "kit-lookout": p("Lookout halt", "On a hilltop: riders come for the view, at twice the fare."),
   "kit-observatory": p("Observatory", "On a hilltop: stargazers come by train, at three times the fare."),
   "kit-harbour-station": p("Harbour station", "A station by the water."),
+  // The secrets' halts (src/game/secrets.ts): laid by the game when a secret is found.
+  ...Object.fromEntries(SECRET_KINDS.map((k) => [secretKitOf(k), p(`${SECRET_NAMES[k].name} halt`, "A secret found: tourists ride out at twice the fare.")])),
   "kit-landing": p("River landing", "Trains and barges leave goods here for each other."),
   "kit-ferry-slip": p("Ferry slip", "Trains ride the ferry abroad from here."),
   "kit-boatyard": p("Boatyard", "Builds tugs and barges from goods trains bring."),
   "kit-shipyard": p("Shipyard", "Builds cargo ships and ferries from goods trains bring."),
   "kit-two-platform-station": p("Two-platform station", "A station on two lines."),
   "kit-grand-terminus": p("Grand terminus", "A big station at the end of the line."),
+  "kit-grand-central-1": p("Grand Central", "Grand Central going up: three roads through, a stop on each."),
+  "kit-grand-central-2": p("Grand Central", "Grand Central going up: its train shed half built."),
+  "kit-grand-central-3": p("Grand Central", "Three roads under a glass shed: three trains stop at once."),
   "kit-engine-shed": p("Engine shed", "A home for engines to rest in."),
   "kit-roundhouse-segment": p("Roundhouse", "A shed bay for engines, round a turntable."),
   "kit-water-tower": p("Water tower", "Steam engines stop here for water."),
@@ -223,6 +230,7 @@ const LOOK_DETAIL: Partial<Record<CarLook, string>> = {
   "double-decker": "Two floors of passengers.",
   "first-class": "Comfy seats for passengers.",
   "bay-window": "Goes at the back. Its windows look out to the sides.",
+  royal: "The Royal Train's saloon: its riders pay double.",
 };
 
 /** An engine's numbers, kid-clear: how many cars it pulls, how fast, and what it needs. */
@@ -244,9 +252,9 @@ export function trayInfo(item: TrayItem): ItemInfo {
       const look = item.looks?.[0] ?? "classic";
       if (kind === "engine") return p(item.label, engineDetail(look));
       const carries = CARRIES[kind];
-      // (A van carries a dozen goods since the goods chains: too long to list, it names a few.)
-      if (carries && carries.length > 7) return p(item.label, `Carries sacks and crates: ${listed([...carries.slice(0, 3).map((c) => CARGO[c].label.toLowerCase()), "more"])}.`);
-      if (carries) return p(item.label, `Carries ${listed(carries.map((c) => CARGO[c].label.toLowerCase()))}.`);
+      // What it carries, every good with its icon (the player asked which wagon a quarry's stone needs: the tray says
+      // it too, all of a goods van's dozen, not "and more").
+      if (carries) return p(item.label, carriesDetail(kind));
       return p(item.label, LOOK_DETAIL[look] ?? CAR_DETAIL[kind]);
     }
     case "road":
@@ -300,8 +308,33 @@ export function recipeWords(role: DepotRole): string {
   return `Makes ${makes}${uses ? ` from ${uses}` : ""} · every ${c.seconds} s`;
 }
 
+/**
+ * A wagon's line of what it carries: every good, its icon and name, when that fits a detail ("Carries 🌾 grain, 🪨
+ * stone, ⚫ coal, ⛏️ ore."); else their icons ("Carries 🪵  🔩 🍎 🧱 🌷."), the names on its place card
+ * (`carriesFacts`).
+ */
+function carriesDetail(kind: CarKind): string {
+  const full = `Carries ${carriesLine(kind)}.`;
+  return full.length <= DETAIL_MAX ? full : `Carries ${(CARRIES[kind] ?? []).map((k) => GOODS_ICON[k]).join(" ")}.`;
+}
+
+/** A wagon whose detail is only icons: its goods by name, with icons, in lines that fit (its place card's facts). */
+function carriesFacts(kind: CarKind): string[] {
+  if (`Carries ${carriesLine(kind)}.`.length <= DETAIL_MAX) return [];
+  const lines: string[] = [];
+  for (const k of CARRIES[kind] ?? []) {
+    const word = `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`;
+    const last = lines.length - 1;
+    if (last >= 0 && `${lines[last]}, ${word}`.length <= DETAIL_MAX) lines[last] = `${lines[last]}, ${word}`;
+    else lines.push(word);
+  }
+  return lines;
+}
+
 export function placeCardInfo(item: TrayItem): PlaceCardInfo {
   const info = trayInfo(item);
+  // A wagon: every good it carries, by name (its detail may have room only for their icons).
+  if (item.kind === "train" && item.cars.length === 1 && CARRIES[item.cars[0]]) return { ...info, facts: carriesFacts(item.cars[0]) };
   if (item.kind === "train" && item.cars.length === 1 && item.cars[0] === "engine") {
     const e = ENGINES[item.looks?.[0] ?? "classic"] ?? ENGINES.classic!;
     const stat = engineKeyStat(e);

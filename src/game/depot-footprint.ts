@@ -1,5 +1,5 @@
 import type { DepotRole } from "../economy";
-import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
+import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SECRET, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
 import { footprintCorners, footprintsOverlap, inFootprint, scaleFootprint, standsAside, type Footprint } from "../props/placement";
 import type { Prop, PropStore } from "../props/store";
 import { DEPOT_LAYOUT } from "../render/depot-view";
@@ -291,6 +291,7 @@ const WHAT = {
   station: "a station",
   depot: "a depot",
   ruin: "an old yard",
+  secret: "something hidden",
   river: "the river",
   sea: "the sea",
   town: "the town",
@@ -324,7 +325,7 @@ function groundWhy(land: Landscape, hills: ReturnType<typeof hillsOf>, x: number
   if (f === FEAT_BUILDING) return found(WHAT.house, "ground");
   if (f === FEAT_SHED) return found(WHAT.shed, "ground");
   if (f === FEAT_FIELD) return found(WHAT.field, "ground");
-  if ((f === FEAT_STATION || f === FEAT_DEPOT || f === FEAT_RUIN) && onFixedSite(land, cell, x, z)) return found(f === FEAT_STATION ? WHAT.station : f === FEAT_RUIN ? WHAT.ruin : WHAT.depot, "ground");
+  if ((f === FEAT_STATION || f === FEAT_DEPOT || f === FEAT_RUIN || f === FEAT_SECRET) && onFixedSite(land, cell, x, z)) return found(f === FEAT_STATION ? WHAT.station : f === FEAT_RUIN ? WHAT.ruin : f === FEAT_SECRET ? WHAT.secret : WHAT.depot, "ground");
   const surface = g.surface[cell];
   if (isWater(surface)) {
     if (!wet) return found(surface === SURF_SEA ? WHAT.sea : WHAT.river, "water");

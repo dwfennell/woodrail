@@ -5,6 +5,7 @@ import {
   FEAT_DEPOT,
   FEAT_FIELD,
   FEAT_RUIN,
+  FEAT_SECRET,
   FEAT_SHED,
   FEAT_STATION,
   LandscapeGrid,
@@ -102,6 +103,8 @@ export function serializeLandscape(land: Landscape): LandscapeData {
     corridors: [...land.corridors],
     ...(land.sites ? { sites: land.sites.map((s) => ({ ...s, centre: { ...s.centre }, piece: { ...s.piece }, plot: { ...s.plot }, fields: [...s.fields] })) } : {}),
     ...(land.siteless ? { siteless: true } : {}),
+    ...(land.secretPlan ? { secretPlan: land.secretPlan.map((p) => ({ ...p })) } : {}),
+    ...(land.secrets ? { secrets: land.secrets.map((s) => ({ ...s, piece: { ...s.piece }, plot: { ...s.plot }, ...(s.from ? { from: { ...s.from } } : {}), ...(s.year ? { year: [...s.year] as [number, number] } : {}) })) } : {}),
     ...(land.firstTrain !== undefined ? { firstTrain: land.firstTrain && { ...land.firstTrain } } : {}),
   };
 }
@@ -123,7 +126,7 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     const owner = new Int32Array(ownerBytes.buffer, 0, PLOT_CELLS);
     const base = slot * PLOT_CELLS;
     for (let k = 0; k < PLOT_CELLS; k++) {
-      if (height[k] > MAX_HEIGHT || surface[k] > SURF_SAND || feature[k] > FEAT_RUIN) return err(`plot ${p.px},${p.pz} has an unknown square`);
+      if (height[k] > MAX_HEIGHT || surface[k] > SURF_SAND || feature[k] > FEAT_SECRET) return err(`plot ${p.px},${p.pz} has an unknown square`);
     }
     grid.height.set(height, base);
     grid.surface.set(surface, base);
@@ -146,7 +149,7 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
   const n = grid.cellCount;
   const cellsOk = (list: readonly number[]) => list.every((i) => i < n);
   // Ids are places in their lists.
-  if (data.towns.some((t, i) => t.id !== i) || data.depots.some((d, i) => d.id !== i) || data.fields.some((f, i) => f.id !== i) || data.sites?.some((s, i) => s.id !== i)) return err("landscape ids out of order");
+  if (data.towns.some((t, i) => t.id !== i) || data.depots.some((d, i) => d.id !== i) || data.fields.some((f, i) => f.id !== i) || data.sites?.some((s, i) => s.id !== i) || data.secrets?.some((s, i) => s.id !== i)) return err("landscape ids out of order");
   if (data.sites?.some((s) => s.fields.some((f) => f >= data.fields.length))) return err("a site's field isn't there");
   for (const t of data.towns) if (!cellsOk(t.cells) || t.buildings.some((b) => !cellsOk(b.cells) || b.id >= data.nextBuildingId)) return err(`town ${t.id} has a bad square`);
   // A removed field keeps its place in the list (ids are places), with no squares.
@@ -154,7 +157,7 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
   if (data.shed && (data.shed.cells.length !== 4 || !cellsOk(data.shed.cells))) return err("the shed has a bad square");
   if (!cellsOk(data.corridors)) return err("a corridor has a bad square");
   // Every owner points at something that exists.
-  const limit: Record<number, number> = { [FEAT_STATION]: data.towns.length, [FEAT_DEPOT]: data.depots.length, [FEAT_FIELD]: data.fields.length, [FEAT_BUILDING]: data.nextBuildingId, [FEAT_RUIN]: data.sites?.length ?? 0 };
+  const limit: Record<number, number> = { [FEAT_STATION]: data.towns.length, [FEAT_DEPOT]: data.depots.length, [FEAT_FIELD]: data.fields.length, [FEAT_BUILDING]: data.nextBuildingId, [FEAT_RUIN]: data.sites?.length ?? 0, [FEAT_SECRET]: data.secrets?.length ?? 0 };
   for (let i = 0; i < n; i++) {
     const f = grid.feature[i];
     const o = grid.owner[i];
@@ -174,6 +177,8 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     coast: data.coast ? { ...data.coast, seed: data.seed } : null,
     ...(data.sites ? { sites: data.sites } : {}),
     ...(data.siteless ? { siteless: true } : {}),
+    ...(data.secretPlan ? { secretPlan: data.secretPlan } : {}),
+    ...(data.secrets ? { secrets: data.secrets.map((s) => ({ ...s, from: s.from ? Object.fromEntries(Object.entries(s.from).map(([k, v]) => [Number(k), v])) : undefined, year: s.year as [number, number] | undefined })) } : {}),
     ...(data.firstTrain !== undefined ? { firstTrain: data.firstTrain } : {}),
   });
 }

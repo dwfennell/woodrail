@@ -43,6 +43,7 @@ export const SUITES = {
   sites: { script: "e2e:sites", groups: true, minutes: 37 },
   "train-parts": { script: "e2e:train-parts" },
   "train-summary": { script: "e2e:train-summary", minutes: 8 },
+  "not-loading": { script: "e2e:not-loading", minutes: 3 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
   civic: { script: "e2e:civic", minutes: 5 },
   "paint-picker": { script: "e2e:paint-picker", minutes: 4 },
@@ -55,6 +56,7 @@ export const SUITES = {
   "hopper-load": { script: "e2e:hopper-load", minutes: 1.5 },
   locked: { script: "e2e:locked", minutes: 6 },
   signals: { script: "e2e:signals", minutes: 7 },
+  "learn-more": { script: "e2e:learn-more", minutes: 2 },
   life: { script: "e2e:life", minutes: 4 },
   "low-bridge": { script: "e2e:low-bridge", groups: true },
   "depot-tracks": { script: "e2e:depot-tracks", minutes: 6 },
@@ -66,9 +68,11 @@ export const SUITES = {
   airport: { script: "e2e:airport", minutes: 8 },
   airship: { script: "e2e:airship", minutes: 8 },
   circus: { script: "e2e:circus", minutes: 6 },
+  grand: { script: "e2e:grand", minutes: 6 },
   clockmaker: { script: "e2e:clockmaker", minutes: 4 },
   power: { script: "e2e:power", minutes: 6 },
   radio: { script: "e2e:radio", minutes: 6 },
+  secrets: { script: "e2e:secrets", minutes: 6 },
   crane: { script: "e2e:crane", minutes: 4 },
   tunnels: { script: "e2e:tunnels", minutes: 6 },
   rack: { script: "e2e:rack", minutes: 3 },
@@ -176,7 +180,7 @@ export const RULES = [
   [["src/landscape/clearance.ts", "src/landscape/support.ts"], ["low-bridge"]],
   ["src/roads/**", ["roads"]],
   ["src/roads/place.ts", ["low-bridge"]],
-  ["src/economy/**", ["crane", "depot-tracks", "sandbox-chains", TOUCH_ROUTES, "click:routes", "warehouse", "train-summary", "workshop", "big-stations", "station-touches", "kits-game", "research", "school", "growth"]],
+  ["src/economy/**", ["crane", "depot-tracks", "sandbox-chains", TOUCH_ROUTES, "click:routes", "warehouse", "train-summary", "not-loading", "workshop", "big-stations", "station-touches", "kits-game", "research", "school", "growth"]],
   ["src/props/**", [...TOWNS, "click:model-train"]],
   ["src/persist/**", ["cloud", "copy-map", "joints", "engine-names", "touch:defaults"]],
   ["src/persist/bug-map.ts", ["copy-map", "touch:feedback", "click:feedback"]],
@@ -227,6 +231,7 @@ export const RULES = [
   ["src/ui/**", [...SMOKE, TOUCH_UI, "click:touch-tray"]],
   [["src/ui/hud.ts", "src/ui/tray-catalogue.ts"], ["names", "locked", "focus-ring", "research", "tray", "sandbox-chains", "touch:tabs-reach"]],
   ["src/ui/prefs.ts", ["sandbox-chains"]],
+  [["src/ui/explainers.ts", "src/ui/explainer-sheet.ts", "src/ui/hud.ts", "src/style.css"], ["learn-more"]],
   [["src/ui/blueprint-board.ts", "src/ui/cost-tag.ts"], ["research", "locked"]],
   ["src/ui/feedback-sheet.ts", ["touch:feedback", "click:feedback"]],
   [["src/ui/controls-tutorial.ts", "src/ui/title.ts"], ["tutorial"]],
@@ -255,7 +260,7 @@ export const RULES = [
   ["src/game/underpass-dig.ts", ["low-bridge"]],
   ["src/game/chains.ts", ["sandbox-chains"]],
   [["src/game/route-*", "src/game/lines.ts", "src/game/continue-on.ts", "src/game/switch-pin.ts"], [TOUCH_ROUTES, "click:routes", "signals"]],
-  [["src/game/engine-status.ts", "src/game/engines.ts", "src/game/train-summary.ts", "src/game/decouple-words.ts", "src/game/empty-words.ts"], ["touch:train-card,blocker", "train-summary", "train-parts", "engine-names"]],
+  [["src/game/engine-status.ts", "src/game/engines.ts", "src/game/train-summary.ts", "src/game/decouple-words.ts", "src/game/empty-words.ts"], ["touch:train-card,blocker", "train-summary", "not-loading", "train-parts", "engine-names"]],
   ["src/game/signal-place.ts", ["signals"]],
   // The breakdown crane (claude/tank-crane): its system, words and model.
   [["src/economy/breakdown.ts", "src/game/crane-text.ts", "src/catalogue/assets/breakdown-crane.ts", "src/game/engine-status.ts"], ["crane"]],
@@ -294,10 +299,15 @@ export const RULES = [
   [["src/game/airship.ts", "src/game/passengers.ts", "src/render/airship-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airship"]],
   // The airport (late-game spec A1).
   [["src/game/airports.ts", "src/game/passengers.ts", "src/render/planes-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airport"]],
+  // Grand projects as achievements (spec 2026-11-05-character-and-goals.md): the projects, the city's card, the
+  // Journal's Achievements tab, the stage models, rewards toward growth, and the site's prop.
+  [["src/game/grand.ts", "src/ui/grand-row.ts", "src/ui/goals-panel.ts", "src/catalogue/assets/grand.ts", "src/catalogue/build-parts.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/game/stickers.ts", "src/game/interaction.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/economy/economy.ts", "src/main.ts"], ["grand"]],
   // The touring circus (late-game spec K1).
   [["src/game/circus.ts", "src/game/passengers.ts", "src/game/rewards.ts", "src/game/progress.ts", "src/catalogue/assets/circus-cage.ts", "src/main.ts"], ["circus"]],
   // Time control (late-game spec, Clockmaker CA).
   [["src/game/time-scale.ts", "src/game/game.ts", "src/ui/hud.ts", "src/main.ts"], ["clockmaker"]],
+  // Secrets on the map: placed with the land, found by laying track to them, their halts, cards, trips and stickers.
+  [["src/landscape/secrets.ts", "src/catalogue/secret-frame.ts", "src/catalogue/assets/secrets.ts", "src/catalogue/build-parts.ts", "src/game/secrets.ts", "src/ui/secret-card.ts", "src/ui/secret-controls.ts", "src/render/secrets-view.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/stickers.ts", "src/landscape/clearance.ts", "src/track/kits.ts", "src/persist/landscape-data.ts", "src/main.ts", "src/game/interaction.ts"], ["secrets"]],
   // The radio mast (the user's pick: a powered mast brings a town more riders).
   [["src/game/radio.ts", "src/game/power.ts", "src/game/passengers.ts", "src/main.ts", "src/game/interaction.ts"], ["radio"]],
   // Water transport: the landing, boats, cargo ships, the lighthouse, the ferry, the yards.

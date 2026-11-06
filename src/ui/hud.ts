@@ -21,6 +21,8 @@ export { trayKey, type TrayItem } from "./tray-catalogue";
 import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
 import { CreditsSheet } from "./credits-sheet";
+import type { ExplainerSheet } from "./explainer-sheet";
+import { EXPLAINER_TITLES, explainerIdFor, type ExplainerId } from "./explainer-keys";
 
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
@@ -190,7 +192,8 @@ const SWAP_TITLE = "Move the engine to the other end of its train";
 const ENGINE_DECOUPLE_TITLE = "Uncouple the engine from its cars";
 const CAR_DECOUPLE_TITLE = "Uncouple this wagon (and those behind it) from the cars on the engine's side";
 const EMPTY_CAR_TITLE = "Tip this wagon's goods out (they're thrown away)";
-const EMPTY_TRAIN_TITLE = "Tip out every wagon's goods (they're thrown away)";
+const EMPTY_TRAIN_TITLE = "Throw away every wagon's goods (they're gone: not unloaded anywhere). Tap, then tap again";
+const EMPTY_TRAIN_LABEL = "🗑 Throw away";
 
 /**
  * Grey a button that would only be refused now (`why` says why, as its tooltip), or bring it back (`why` ""). It stays
@@ -287,6 +290,8 @@ export class Hud {
   private readonly leverList = el("div", "card-row lever-list");
   /** A signal's card: how it works, Auto, Always red or Always green, one pressed (see `showSignalModes`). */
   private readonly signalModes = el("div", "card-row signal-modes");
+  /** On a signal's card, under its modes: Learn more (the Signals explainer). */
+  private readonly signalLearn = el("button", "learn-more card-learn", "Learn more about signals");
   /** A signal box's card with the Telegraph: the trains in its reach, each with Call home (see `showReachTrains`). */
   private readonly reachList = el("div", "card-row reach-list");
   private readonly doneBtn: HTMLButtonElement;
@@ -306,6 +311,8 @@ export class Hud {
   /** Room on the engine card for Game mode's own rows (where the train delivers), filled by main. */
   readonly engineExtra = el("div", "engine-extra");
   /** The train summary under the status: cars, speed, line; and what's on board (two lines, each cut with "…"). */
+  /** The load row under the engine's name: the summary and Throw away. */
+  private readonly engineLoad = el("div", "engine-load");
   private readonly engineSummary = el("div", "engine-summary");
   private readonly summaryAbout = el("div", "summary-about");
   private readonly summaryLoad = el("div", "summary-load");
@@ -341,6 +348,8 @@ export class Hud {
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
   private readonly depotStock = el("div", "depot-stock");
+  /** What the depot card's goods line last drew (`updateDepotCard`). */
+  private depotStockKey = "";
   /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
   private readonly depotHelp = el("div", "card-hint depot-help");
   /** What the crane's toggles do now, in words (their tooltips never show on a phone). */
@@ -422,6 +431,8 @@ export class Hud {
   private readonly reportCard = el("div", "card report-card");
   /** ☰ Credits (made the first time it's opened). */
   private credits: CreditsSheet | null = null;
+  /** The "Learn more" sheet (explainers.ts), made the first time one is opened. */
+  private explainers: ExplainerSheet | null = null;
   /** The menu's "Copy map for a bug report" (with "Report a bug or give feedback" before it, in a build that can send). */
   private readonly copyMapItem = button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
     this.menu.hidden = true;
@@ -667,20 +678,27 @@ export class Hud {
     this.followBtn = button("", "Follow this train with the camera", h.follow, "corner follow");
     this.followBtn.innerHTML = CAMERA_ICON;
     this.engineCard.append(this.followBtn);
-    this.engineStatus.setAttribute("aria-live", "polite");
-    this.engineCard.appendChild(this.engineStatus);
-    this.emptyTrainBtn = button("Empty all", EMPTY_TRAIN_TITLE, h.emptyTrain, "chip text empty-all");
+    // Top to bottom by purpose (impeccable critique of 2026-11-05, the user's layout B): what it carries, a line under
+    // its name; what it's doing and the fix for it; Go or Stop, Leave now and the way; its line; the train's own tools.
+    // What it carries, in one line, and Throw away beside it (two taps: the goods are gone, not unloaded anywhere).
+    this.emptyTrainBtn = button(EMPTY_TRAIN_LABEL, EMPTY_TRAIN_TITLE, () => this.askEmpty(h.emptyTrain), "chip text empty-all");
     this.emptyTrainBtn.hidden = true;
-    // (Beside both lines, not under them: the card doesn't grow as a crane loads the train. See style.css.)
-    this.engineSummary.append(this.summaryAbout, this.summaryLoad, this.emptyTrainBtn);
+    this.engineSummary.append(this.summaryAbout, this.summaryLoad);
     this.engineSummary.hidden = true;
-    this.engineCard.appendChild(this.engineSummary);
+    this.engineLoad.hidden = true;
+    this.engineLoad.append(this.engineSummary, this.emptyTrainBtn);
+    this.engineCard.appendChild(this.engineLoad);
+    // What it's doing, and beside it the fix (Show who's in the way, Send the crane): a row a thumb tall, so the card
+    // keeps its height as the train goes from moving to stuck to waiting.
+    this.engineStatus.setAttribute("aria-live", "polite");
     this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
     this.sendCraneBtn = button("Send the crane", "The breakdown crane drives out and lifts the train in the way off the line", h.sendCrane, "chip text send-crane");
     this.sendCraneBtn.hidden = true;
     this.blockerRow.append(this.showBlockerBtn, this.sendCraneBtn);
     this.blockerRow.hidden = true;
-    this.engineCard.appendChild(this.blockerRow);
+    const statusRow = el("div", "engine-status-row");
+    statusRow.append(this.engineStatus, this.blockerRow);
+    this.engineCard.appendChild(statusRow);
     const controls = el("div", "engine-controls");
     // One big button: Go (the way the arrow shows) or Stop.
     // (Held at its stop for spacing: "Go now" sends it on with one tap, the lever as it is.)
@@ -692,20 +710,22 @@ export class Hud {
       else this.drawEngine();
     }, "chip way");
     this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
+    // Setting off: beside Go or Stop, where departing belongs (the row keeps its height; Go makes room).
     this.continueBtn = button("Continue ▸", "Turn round now and go on to the next stop, engine first", h.continueOn, "chip text primary continue");
     this.continueBtn.hidden = true;
-    this.leaveNowBtn = button("Leave now ▸", "Stop waiting for a full load and go on with what it has (this stop only)", h.leaveNow, "chip text primary leave-now");
+    this.leaveNowBtn = button("Leave now ▸", "Go on from this stop now, with what it has (this stop only)", h.leaveNow, "chip text primary leave-now");
     this.leaveNowBtn.hidden = true;
-    // Swap ends, Decouple and Remove, always shown (they were behind a ⋯, a tap more than a player wanted): under Go and
-    // the arrow, or beside them on a phone on its side (style.css).
+    // Swap ends, Decouple, Paint and Remove, always shown (they were behind a ⋯, a tap more than a player wanted): a
+    // quieter row of their own under the line, Remove last and set apart.
     this.swapBtn = button("Swap ends", SWAP_TITLE, h.swapEnds, "chip text swap-ends");
     this.engineDecoupleBtn = button("Decouple", ENGINE_DECOUPLE_TITLE, h.decouple, "chip text decouple");
     const engineActions = el("div", "engine-actions");
     engineActions.append(
       this.swapBtn,
       this.engineDecoupleBtn,
-      (this.engineRemoveBtn = button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove")),
       this.paintBtn,
+      el("i", "engine-actions-gap"),
+      (this.engineRemoveBtn = button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove")),
     );
     this.paintBtn.type = "button";
     this.paintBtn.textContent = "🎨 Paint";
@@ -715,10 +735,11 @@ export class Hud {
       e.stopPropagation();
       h.paint?.();
     });
-    controls.append(this.goBtn, this.wayBtn, this.continueBtn, this.leaveNowBtn, engineActions);
+    controls.append(this.goBtn, this.continueBtn, this.leaveNowBtn, this.wayBtn);
     this.engineCard.appendChild(controls);
     this.engineExtra.hidden = true;
     this.engineCard.appendChild(this.engineExtra);
+    this.engineCard.appendChild(engineActions);
     this.engineCard.appendChild(button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.engineCard);
 
@@ -768,7 +789,14 @@ export class Hud {
     this.signalModes.hidden = true;
     this.signalModes.setAttribute("role", "group");
     this.signalModes.setAttribute("aria-label", "How this signal works");
-    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.signalModes, this.leverList, this.reachList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
+    this.signalLearn.type = "button";
+    this.signalLearn.hidden = true;
+    this.signalLearn.dataset.explainer = "signals";
+    this.signalLearn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.showExplainer("signals");
+    });
+    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.signalModes, this.signalLearn, this.leverList, this.reachList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
     // Depot card: what's on its piles, and how it treats trains.
@@ -1824,6 +1852,7 @@ export class Hud {
     if (!this.engineNameInput.hidden) this.engineNameInput.blur();
     this.setEngineName(name);
     this.hideCards();
+    this.stopEmptyAsk();
     this.engineCard.hidden = false;
     this.root.classList.add("card-open");
     this.shownStatus = "";
@@ -1995,15 +2024,46 @@ export class Hud {
     if (this.summaryAbout.textContent !== about) this.summaryAbout.textContent = about;
     if (this.summaryLoad.textContent !== load) this.summaryLoad.textContent = load;
     this.summaryLoad.hidden = !load;
+    this.engineLoad.hidden = this.engineSummary.hidden && this.emptyTrainBtn.hidden;
+  }
+
+  /** Throw away asking ("Throw away? Tap again"), and the timer that stops it asking. */
+  private emptyAsk = 0;
+  /**
+   * Throw away (the engine card): the first tap asks, a second while it asks throws the goods away (`act`). As New game
+   * and the line's Forget ask: the goods are gone, and there's no undo for them.
+   */
+  private askEmpty(act: () => void): void {
+    const b = this.emptyTrainBtn;
+    if (!b.classList.contains("asking")) {
+      b.classList.add("asking");
+      b.textContent = "Throw away? Tap again";
+      window.clearTimeout(this.emptyAsk);
+      this.emptyAsk = window.setTimeout(() => this.stopEmptyAsk(), ASK_MS);
+      return;
+    }
+    this.stopEmptyAsk();
+    act();
+  }
+
+  private stopEmptyAsk(): void {
+    window.clearTimeout(this.emptyAsk);
+    const b = this.emptyTrainBtn;
+    if (!b.classList.contains("asking")) return;
+    b.classList.remove("asking");
+    b.textContent = EMPTY_TRAIN_LABEL;
   }
 
   /**
-   * Empty (the wagon card) and Empty all (the engine card): shown while there are goods to tip out, greyed with `why`
+   * Empty (the wagon card) and Throw away (the engine card): shown while there are goods to tip out, greyed with `why`
    * ("Stop the train first") while they'd be refused, "" for not. Main sets it only when that changes.
    */
   setEmpty(car: { shown: boolean; why: string }, train: { shown: boolean; why: string }): void {
     if (this.emptyCarBtn.hidden === car.shown) this.emptyCarBtn.hidden = !car.shown;
     if (this.emptyTrainBtn.hidden === train.shown) this.emptyTrainBtn.hidden = !train.shown;
+    // (Asking stops when there's nothing left to throw away, or it would be refused now: the train set off.)
+    if (!train.shown || train.why) this.stopEmptyAsk();
+    this.engineLoad.hidden = this.engineSummary.hidden && this.emptyTrainBtn.hidden;
     setRefused(this.emptyCarBtn, car.why, EMPTY_CAR_TITLE);
     setRefused(this.emptyTrainBtn, train.why, EMPTY_TRAIN_TITLE);
   }
@@ -2070,6 +2130,7 @@ export class Hud {
     this.leverList.hidden = true;
     this.reachList.hidden = true;
     this.signalModes.hidden = true;
+    this.signalLearn.hidden = true;
     this.pieceCard.classList.remove("group");
   }
 
@@ -2114,6 +2175,7 @@ export class Hud {
       }),
     );
     this.signalModes.hidden = false;
+    this.signalLearn.hidden = false;
   }
 
   showLevers(levers: readonly { label: string; title: string }[], onThrow: (i: number) => void): void {
@@ -2418,9 +2480,36 @@ export class Hud {
    * where it doesn't apply (a depot that gives nothing). `idle`: a school with nothing to research (its line in amber,
    * and a button for the picker).
    */
-  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = "", idle = false, help = ""): void {
-    const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
-    if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
+  updateDepotCard(piles: { label: string; count: number; cap: number; wagon?: string }[], auto: boolean, waitFull: boolean | null, note = "", idle = false, help = "", warn = ""): void {
+    // Each good with the wagon that carries it ("🪨 Stone 3/12 · 🚃 Hopper"), kept together on a line; then the note,
+    // and (a train standing here with the wrong wagons) what it needs, in amber. Redrawn only when the words change.
+    const key = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}|${p.wagon ?? ""}`), note, warn].join("\u0001");
+    if (this.depotStockKey !== key) {
+      this.depotStockKey = key;
+      const parts: Node[] = [];
+      const sep = () => parts.push(document.createTextNode("   ·   "));
+      for (const p of piles) {
+        if (parts.length) sep();
+        const good = el("span", "depot-good");
+        good.textContent = `${p.label} ${p.count}/${p.cap}`;
+        if (p.wagon) {
+          const w = el("span", "depot-wagon");
+          w.textContent = p.wagon;
+          good.append(" ", w);
+        }
+        parts.push(good);
+      }
+      if (note) {
+        if (parts.length) sep();
+        parts.push(document.createTextNode(note));
+      }
+      if (warn) {
+        const n = el("span", "depot-needs");
+        n.textContent = warn;
+        parts.push(n);
+      }
+      this.depotStock.replaceChildren(...parts);
+    }
     if (this.depotHelp.textContent !== help) this.depotHelp.textContent = help;
     this.depotHelp.hidden = !help;
     this.depotStock.classList.toggle("idle", idle);
@@ -2650,9 +2739,34 @@ export class Hud {
       d.textContent = text;
       return d;
     };
-    const lines = [line("pc-name", info.name), line("pc-what", info.detail), ...info.facts.map((f) => line("pc-fact", f))];
+    const lines: HTMLElement[] = [line("pc-name", info.name), line("pc-what", info.detail), ...info.facts.map((f) => line("pc-fact", f))];
     // What it does in Game mode (a caboose: makes its train a bit faster).
     if (item.kind === "train" && this.trayMode === "game" && item.gameDetail) lines.push(line("pc-fact", item.gameDetail));
+    // Learn more, for an item with an explainer (a signal): a short sheet on how it works. Placing goes on after.
+    const more = explainerIdFor(item);
+    if (more) {
+      const b = el("button", "learn-more pc-learn", "Learn more");
+      b.type = "button";
+      b.dataset.explainer = more;
+      b.setAttribute("aria-label", `Learn more about ${EXPLAINER_TITLES[more].toLowerCase()}`);
+      b.addEventListener("pointerdown", (e) => e.stopPropagation());
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // (Put by while its sheet is open, and back after, over its item, if it's still that item's: placing goes on.
+        // A moment's card has its moment again.)
+        clearTimeout(card.timer);
+        const key = card.key;
+        card.el!.hidden = true;
+        this.showExplainer(more, () => {
+          if (card.key === null || card.key !== key) return;
+          const at = this.tray.querySelector<HTMLElement>(`.tray-item[data-key="${CSS.escape(card.key)}"]`);
+          if (at) this.placeCardAt(at);
+          else this.hidePlaceCard();
+          if (card.timed) card.timer = window.setTimeout(() => this.hidePlaceCard(), Hud.PLACE_CARD_MS);
+        });
+      });
+      lines.push(b);
+    }
     card.el.replaceChildren(...lines);
     this.hideLockNote();
     this.tray.querySelector(".tray-item.has-card")?.classList.remove("has-card");
@@ -2695,6 +2809,20 @@ export class Hud {
   /** Something from the tray was put down: the item's card has said its piece (the next goes down without it). */
   trayPlaced(): void {
     if (this.placeCard.key !== null && !this.placeCard.timed) this.hidePlaceCard();
+  }
+
+  /** Open the "Learn more" sheet for explainer `id` (`onClose` once it's closed). */
+  showExplainer(id: ExplainerId, onClose?: () => void): void {
+    this.tips.hide();
+    const open = (sheet: ExplainerSheet) => sheet.show(id, onClose ?? (() => {}));
+    if (this.explainers) return open(this.explainers);
+    // (Its words, pictures and code are loaded the first time: nothing of them before.)
+    void import("./explainer-sheet").then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
+  }
+
+  /** The explainer open now, or null (for tests). */
+  get explainerShown(): ExplainerId | null {
+    return this.explainers?.shown ?? null;
   }
 
   /** The key of the item whose place card is up, or null (for tests). */

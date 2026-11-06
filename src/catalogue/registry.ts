@@ -12,6 +12,10 @@ const FILES = {
   water: () => import("./assets/water"),
   life: () => import("./assets/life"),
   scene: () => import("./assets/scenery"),
+  // Grand projects (spec 2026-11-05-character-and-goals.md): a city's big builds, a model per stage (src/game/grand.ts).
+  grand: () => import("./assets/grand"),
+  // The secret sites (Game mode: hidden on the map until track is laid to them; Sandbox: on the Nature tab).
+  secret: () => import("./assets/secrets"),
 } as const;
 
 export type CatalogueFile = keyof typeof FILES;

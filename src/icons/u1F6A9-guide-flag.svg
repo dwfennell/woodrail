@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Guide's flag</title>
+<rect x="4.4" y="2.6" width="3" height="20" rx="1.4" fill="#3a2a1c"/>
+<rect x="5.3" y="3.6" width="1.2" height="18" rx="0.6" fill="#d9b98c"/>
+<circle cx="5.9" cy="2.6" r="2" fill="#3a2a1c"/>
+<circle cx="5.9" cy="2.6" r="1.1" fill="#e6b52c"/>
+<polygon points="7,3.4 22.4,8.2 7,13" fill="#3a2a1c"/>
+<polygon points="7.6,4.8 19.2,8.2 7.6,11.6" fill="#c8442f"/>
+<polygon points="7.6,7.3 16.3,7.3 19.2,8.2 16.3,9.1 7.6,9.1" fill="#e6b52c"/>
+<circle cx="5.9" cy="19" r="2.8" fill="#3a2a1c"/>
+<circle cx="5.9" cy="19" r="1.8" fill="#e3bf8c"/>
+</svg>

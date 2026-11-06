@@ -49,13 +49,14 @@ export interface TownStatus {
 }
 
 /**
- * What a town wants for level `n` with `smiles` (game/places.ts): each 😊 a twentieth less of every good, rounded up,
- * never less than one.
+ * What a town wants for level `n` with `smiles` (game/places.ts): each 😊 a twentieth less of every good, and `cut` a
+ * share less again (the Cathedral's: game/grand.ts), rounded up, never less than one.
  */
-export function wantsWith(n: number, smiles = 0): Bag {
+export function wantsWith(n: number, smiles = 0, cut = 0): Bag {
   const wants = townLevel(n).wants;
-  if (smiles <= 0) return wants;
-  const share = smileShare(smiles);
+  if (smiles <= 0 && cut <= 0) return wants;
+  // (A grand project's cut, the Cathedral's tenth, adds to the smiles': game/grand.ts.)
+  const share = smileShare(smiles) - cut;
   const out: Bag = {};
   for (const k of Object.keys(wants) as (keyof Bag)[]) out[k] = Math.max(1, Math.ceil(wants[k]! * share - 1e-9));
   return out;
@@ -65,11 +66,11 @@ export function wantsWith(n: number, smiles = 0): Bag {
  * Where a town stands, from everything it has received (and its smiles: what its places cut from each level's
  * wants). Pure: a save holds only what was received; smiles are read from the buildings standing.
  */
-export function townStatus(received: Bag, smiles = 0): TownStatus {
+export function townStatus(received: Bag, smiles = 0, cut = 0): TownStatus {
   let level = 0;
   let spent: Bag = {};
   for (;;) {
-    const wants = wantsWith(level, smiles);
+    const wants = wantsWith(level, smiles, cut);
     const next = plus(spent, wants);
     if (!covers(received, next)) {
       const got: Bag = {};
@@ -90,7 +91,7 @@ export function housesBy(level: number): number {
 }
 
 /** Coins a town pays for one unit of each good it takes (the full price for what it wants now, half otherwise). */
-export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5, juice: 11, cheese: 13, icecream: 20, bricks: 12, autos: 24, fish: 7, oil: 7, water: 4, sugar: 4, jam: 14, chocolate: 18, flowers: 4, paint: 8, toys: 22, post: 8 };
+export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5, juice: 11, cheese: 13, icecream: 20, bricks: 12, autos: 24, fish: 7, oil: 7, water: 4, sugar: 4, jam: 14, chocolate: 18, flowers: 4, paint: 8, toys: 22, glass: 16, post: 8 };
 
 /**
  * Everyday food a town always wants (the dairy chain, the orchard, the juice works, the creamery, the ice cream factory, the harbours' fish, and the goods chains' sugar, jam and
@@ -104,7 +105,7 @@ export const FOODS: ReadonlySet<CargoKind> = new Set(["milk", "bread", "fruit", 
  * Goods a town always buys at the full price, at any level, and never needs to grow: everyday food, building goods
  * (bricks), new cars, oil and water (Tank wagons), the toy chain's flowers, paint and toys (2026-11-04), and the post. The town card's "Always buys …" line, the News's first-of-a-good milestone and pay read this.
  */
-export const FULL_PAY: ReadonlySet<CargoKind> = new Set([...FOODS, "bricks", "autos", "oil", "water", "flowers", "paint", "toys", "post"]);
+export const FULL_PAY: ReadonlySet<CargoKind> = new Set([...FOODS, "bricks", "autos", "oil", "water", "flowers", "paint", "toys", "glass", "post"]);
 
 /** Goods a town always takes (and pays for), wanted for growth or not: made goods (treats) and the full-pay goods. */
 export const LUXURIES: ReadonlySet<CargoKind> = new Set(["furniture", "tools", ...FULL_PAY]);
