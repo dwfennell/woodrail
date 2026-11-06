@@ -723,13 +723,22 @@ if (!setup.error) {
     // (Clear put away, then Undo: a player's pause between taps.)
     await p.waitForTimeout(600);
     // (Clear put away by a tap on it, again if the first didn't take, as a player would see it still lit.)
+    // (Each measured afresh: the tray and bar can move while Clear is on.)
+    const at = (sel) => p.evaluate((sel) => {
+      const e = document.querySelector(sel);
+      if (!e || !e.getBoundingClientRect().width) return null;
+      const r = e.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2];
+    }, sel);
     for (let k = 0; k < 2 && (await p.evaluate(() => window.woodrail.interaction.isErasing)); k++) {
-      await tapAt(...clearBtn);
+      const c = await at(".tray-erase");
+      if (c) await tapAt(...c);
       await p.waitForTimeout(600);
     }
     const before = await p.evaluate(() => ({ erasing: window.woodrail.interaction.isErasing, mode: window.woodrail.interaction.mode.kind }));
     check("4. Clear put away", !before.erasing, JSON.stringify(before));
-    await tapAt(...undoBtn);
+    const u = await at('button[aria-label="Undo (Ctrl+Z)"]');
+    if (u) await tapAt(...u);
     await p.waitForTimeout(600);
     const g4 = await gone();
     if (!g4.here) console.log("(after Clear's Undo:", JSON.stringify({ before, mode: await p.evaluate(() => window.woodrail.interaction.mode.kind), history: await p.evaluate(() => document.querySelector('button[aria-label="Undo (Ctrl+Z)"]')?.disabled) }), ")");
