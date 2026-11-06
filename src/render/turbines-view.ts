@@ -174,6 +174,14 @@ export class TurbinesView {
     }
     for (const mesh of kind.meshes) mesh.count = n;
     for (const mesh of kind.riderMeshes) mesh.count = n * perRiders;
+    // Riders of their own colours: each instance of the painted part tinted (its white parts take it), set once here.
+    if (riders?.tints) {
+      for (const mesh of kind.riderMeshes) {
+        if (!(mesh.material as Material & { vertexColors?: boolean }).vertexColors) continue;
+        for (let i = 0; i < n; i++) for (let j = 0; j < perRiders; j++) mesh.setColorAt(i * perRiders + j, riders.tints[j]);
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      }
+    }
     this.pose(kind);
   }
 

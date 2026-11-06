@@ -28,8 +28,12 @@ export const RIDERS: Readonly<Record<string, string>> = { "grand-ferris-wheel-3"
 export interface Spinner {
   readonly parts: { geometry: BufferGeometry; material: Material }[];
   readonly base: Matrix4;
-  /** Its riders (`RIDERS`): one's parts, in its own frame, and where each rides in the spinner's frame (at rest). */
-  readonly riders?: { readonly parts: { geometry: BufferGeometry; material: Material }[]; readonly at: readonly Vector3[] };
+  /**
+   * Its riders (`RIDERS`): one's parts, in its own frame, and where each rides in the spinner's frame (at rest). Riders
+   * of their own colours (`userData.tint` on each, its tinted parts marked too) are baked with those parts white, and
+   * `tints` has each one's colour, for its instance (the painted part's `instanceColor`: no more draws).
+   */
+  readonly riders?: { readonly parts: { geometry: BufferGeometry; material: Material }[]; readonly at: readonly Vector3[]; readonly tints?: readonly Color[] };
 }
 
 /** A catalogue model baked for drawing many copies: a few merged parts, and its size on the ground. */
@@ -304,7 +308,15 @@ function spinnerOf(root: Object3D, name: string, mats: Materials, riderName?: st
   if (riders.length > 0) {
     const inv = node.matrixWorld.clone().invert();
     const at = riders.map((r) => new Vector3().setFromMatrixPosition(r.matrixWorld).applyMatrix4(inv));
-    rode = { parts: bakeAlone(riders[0], mats), at };
+    const tinted = riders.every((r) => typeof r.userData.tint === "string");
+    const template = riders[0].clone();
+    if (tinted) {
+      const white = mats.lacquer("#ffffff");
+      template.traverse((o) => {
+        if ((o as Mesh).isMesh && o.userData.tint) (o as Mesh).material = white;
+      });
+    }
+    rode = { parts: bakeAlone(template, mats), at, ...(tinted ? { tints: riders.map((r) => new Color(r.userData.tint as string)) } : {}) };
   }
   return { parts: bakeAlone(node, mats), base, ...(rode ? { riders: rode } : {}) };
 }

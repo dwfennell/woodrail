@@ -743,7 +743,11 @@ function ferrisWheel(k: Kit, stage: Stage): Object3D {
       const a = (i / SPOKES) * Math.PI * 2;
       const pod = named(new Group(), "gondola");
       pod.position.set(Math.cos(a) * R, HUB + Math.sin(a) * R, 0);
-      pod.add(k.box(k.paint(colors[i % colors.length]), 16, 12, 18, 2, 0, -16, 0), k.box(k.paint(TOY.cream), 18, 3, 20, 1.2, 0, -5, 0));
+      const body = k.box(k.paint(colors[i % colors.length]), 16, 12, 18, 2, 0, -16, 0);
+      // (Its colour marked: the game draws every gondola from one, each tinted its own: render/turbines-view.ts.)
+      body.userData.tint = true;
+      pod.userData.tint = colors[i % colors.length];
+      pod.add(body, k.box(k.paint(TOY.cream), 18, 3, 20, 1.2, 0, -5, 0));
       pod.add(stick(k, k.metal, 1, 6, 1, 0, -5, 0));
       g.add(pod);
     }
