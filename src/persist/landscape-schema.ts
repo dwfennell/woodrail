@@ -52,7 +52,7 @@ export const landscapeSchema = z.object({
         }),
       ),
       claimed: cells.optional(),
-      upgraded: z.enum(["kit-two-platform-station", "kit-grand-terminus"]).optional(),
+      upgraded: z.enum(["kit-two-platform-station", "kit-grand-terminus", "kit-grand-central-1", "kit-grand-central-2", "kit-grand-central-3"]).optional(),
     }),
   ),
   depots: z.array(z.object({ id, kind: z.enum(["forest", "sawmill"]), centre: point, piece: pose })),

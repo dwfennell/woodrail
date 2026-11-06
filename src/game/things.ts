@@ -192,6 +192,11 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // Big stations: passenger stops of their own (looks only for now: not a town's halt).
   "piece:kit-two-platform-station": { label: "Two-platform station", cost: { planks: 10 }, tech: "big-stations" },
   "piece:kit-grand-terminus": { label: "Grand terminus", cost: { planks: 14 }, tech: "big-stations" },
+  // Grand Central (a grand project, src/game/grand.ts): given as it's started in a City ★, never made; a kit per
+  // build stage, the one placed retyped (and the toy box's count moved along) as each stage is done.
+  "piece:kit-grand-central-1": { label: "Grand Central", cost: {}, gift: true },
+  "piece:kit-grand-central-2": { label: "Grand Central", cost: {}, gift: true },
+  "piece:kit-grand-central-3": { label: "Grand Central", cost: {}, gift: true },
   // Fun track.
   "piece:kit-train-lift": { label: "Train lift", cost: { planks: 10 }, tech: "fun-track" },
   // Tech tree 5: the line over a river at the ground, its span lifting for boats. Iron for the towers, and coins.

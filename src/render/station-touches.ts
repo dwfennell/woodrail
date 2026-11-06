@@ -23,7 +23,7 @@ import type { Materials } from "./materials";
  */
 
 /** The big stations: a guard and a departure board each. */
-export const BIG_STATIONS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["kit-two-platform-station", "kit-grand-terminus"]);
+export const BIG_STATIONS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["kit-two-platform-station", "kit-grand-terminus", "kit-grand-central-1", "kit-grand-central-2", "kit-grand-central-3"]);
 
 /** Where on a big station (its piece's frame: `t` along, `l` across, `y` up from the rails) the guard and board stand. */
 const BIG_SPOTS: Readonly<Record<string, { guard: [number, number, number]; board: [number, number, number, number] }>> = {
@@ -32,6 +32,8 @@ const BIG_SPOTS: Readonly<Record<string, { guard: [number, number, number]; boar
   "kit-two-platform-station": { guard: [34, -27, 10], board: [22, 110, 10, Math.PI] },
   // The guard on the first island platform, the board on the concourse facing down the roads (−t: turned −π/2).
   "kit-grand-terminus": { guard: [150, 36, 10], board: [238, 72, 10, -Math.PI / 2] },
+  // Grand Central (a grand project): the guard on the first island, the board on the second, facing the first road.
+  ...Object.fromEntries([1, 2, 3].map((n) => [`kit-grand-central-${n}`, { guard: [60, 36, 10] as [number, number, number], board: [180, 108, 10, Math.PI] as [number, number, number, number] }])),
 };
 
 /** Most people turning to a train at once (the top of the queue: they get on first). */

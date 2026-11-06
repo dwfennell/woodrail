@@ -48,7 +48,7 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, isGift, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltTown, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
@@ -104,7 +104,7 @@ import { PaintSheet } from "./ui/paint-sheet";
 import { paintable } from "./render/train-models";
 import { ownColoursOpen, paint, paintOpen, paintOwn, paintPots } from "./game/paint-shop";
 import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
-import { achievements, advanceGrands, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, siteAsset, siteSpot, startGrand, unionFootprint, type GrandId } from "./game/grand";
+import { achievements, advanceGrands, centralPiece, centralWhy, countRider, fairTown, moveCentralKit, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, siteAsset, siteSpot, startGrand, unionFootprint, type GrandId } from "./game/grand";
 import { drawGrandRow } from "./ui/grand-row";
 import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
@@ -2822,9 +2822,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     attachPassengers(
       game.world,
       () => progress,
-      () => {
+      (_fare, from, to) => {
         hud.setCoins(progress.coins);
         scheduleSave("progress");
+        // (A rider through a city building Grand Central counts toward its last stage: src/game/grand.ts.)
+        if (game.economy.grandPlans.size > 0 && countRider(game.world, from.townId, to.townId)) advanceGrand();
       },
       // (Visitors' seasons go by the railway's calendar.)
       () => dateOf(game.simSeconds).month,
@@ -3086,6 +3088,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return;
     }
     const level = statusOf(game.world, town.id).level;
+    // Grand Central: a station of its own, its kit given into the toy box for the player to put on a line by the city.
+    if (g.kits) {
+      const kit = g.kits[0];
+      const r = startGrand(game.world, progress, town, level, id, () => ({ ...town.station, y: 0 }), () => {
+        progress.add(`piece:${kit}`, 1);
+        hud.refreshTrayBadges();
+        return -1;
+      });
+      if (r !== "started") return audio.refuse();
+      grandStarted(town, id);
+      hud.toast(`🚉 Grand Central is in your toy box (Industries tab, Stations): put it on a line by ${town.name}, and lay track to its three roads`, true, 6000);
+      return;
+    }
     const fps = Array.from({ length: g.stages.length + 1 }, (_, i) => game.propLibrary.footprint(siteAsset(g, i)));
     const fp = unionFootprint(fps, g.scale);
     const r = startGrand(
@@ -3107,6 +3122,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return;
     }
     if (r === "not-now") return audio.refuse();
+    grandStarted(town, id);
+  }
+
+  /** A grand project started in `town`: coins shown, the toast and News, saved. */
+  function grandStarted(town: Town, id: GrandId): void {
+    const g = grandOf(id)!;
     hud.setCoins(progress.coins);
     hud.toast(`${g.icon} The ${g.name} is planned for ${town.name}! Trains bring each stage's goods to its station`, true, 4200, () => showGrandSite(id));
     note({ kind: "milestone", text: `${g.icon} ${town.name} starts the ${g.name}`, place: grandPlace(id) ?? undefined }, 4200, true);
@@ -3122,6 +3143,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const plan = game.economy.grandPlans.get(id);
     const p = plan ? game.props.get(plan.prop) : undefined;
     if (p) return { x: p.x, z: p.z };
+    // (Grand Central: its kit, once it's on a line; till then, its city.)
+    const station = plan && grandOf(id)?.kits ? game.layout.getPiece(centralPiece(game.world)) : undefined;
+    if (station) return { x: station.pose.x, z: station.pose.z };
     const t = plan && game.landscape.towns.find((x) => x.id === plan.townId);
     return t ? { x: t.centre.x, z: t.centre.z } : null;
   }
@@ -3161,6 +3185,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     for (const e of events) {
       const g = grandOf(e.id)!;
       const plan = game.economy.grandPlans.get(e.id)!;
+      // Grand Central's stage: its kit moves on (the placed one retyped: the same roads, its trains and routes kept).
+      const kit = g.kits?.[plan.stage];
+      if (kit) {
+        moveCentralKit(game.world, progress, kit);
+        hud.refreshTrayBadges();
+        if (centralPiece(game.world) >= 0) {
+          void game.kitView.load(kit).then(() => game.syncKits(true));
+          industriesChanged();
+          game.trackChanged();
+        }
+      }
       const town = game.landscape.towns.find((t) => t.id === plan.townId);
       const at = grandPlace(e.id) ?? undefined;
       if (e.kind === "stage") {
@@ -6040,6 +6075,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         ? (type, pose, ignoreId, y) =>
             siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id)), plantedCells(game.landscape, game.world.props)) ??
             haltWhy(game.landscape, type, pose) ??
+            // (Grand Central stands by the city that's building it: src/game/grand.ts.)
+            centralWhy(game.world, type, haltTown(game.landscape, pose)) ??
             // (Two levels under a town: the digging's paid for as it goes down, and refused if the coins are short.)
             (y !== undefined ? digWhy(game.world, progress, type, pose, y) : null)
         : null;

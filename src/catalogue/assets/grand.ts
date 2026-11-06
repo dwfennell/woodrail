@@ -503,10 +503,12 @@ function royalTrain(k: Kit, stage: Stage): Object3D {
  * The tracks' centres across the shed (z), 60 apart: real track runs through along x (the model leaves room for it:
  * nothing stands within 24 mm of a centre below the shed's springing), so trains drive in one end and out the other.
  */
-export const CENTRAL_TRACKS = [-60, 0, 60] as const;
+export const CENTRAL_TRACKS = [-72, 0, 72] as const;
 /** The shed's length along x, and how far its platforms run past it either end. */
-const SHED = 260;
-const PLAT = 340;
+// (Compact, as the game's kit stands it in a city, src/track/kits.ts: its platforms the kit's own length, 216, a shed
+// within them, the canopies at their ends.)
+const SHED = 150;
+const PLAT = 216;
 /** Platform tops: the town platforms' height (bldg_parts.py `platform`, 13 above the felt). */
 const PLAT_H = 14;
 
@@ -598,21 +600,21 @@ function grandCentral(k: Kit, stage: Stage): Object3D {
   const iron = k.paint(IRON);
   const brick = k.paint("#a8553a");
   const SPRING = 62; // the shed's sides: trains (about 50 tall) run under its ends' glass screens
-  const SW = 210; // the shed's span across z
+  const SW = 234; // the shed's span across z (three roads 72 apart: the game's kit, src/track/kits.ts)
   const BZ = SW / 2 + 22; // the building's middle (z), alongside the shed
   // The ground: a stone step under the whole of it, the forecourt beyond the building.
-  g.add(k.box(k.paint(STONE), PLAT + 20, 2, SW + 150, 0.8, 0, 0, 40));
+  g.add(k.box(k.paint(STONE), PLAT, 2, SW + 90, 0.8, 0, 0, 30));
   // Platforms between and beside the tracks (none on a track: they stop 21 short of each centre).
-  const platZ = [-90.5, -30, 30, 90.5];
-  const platW = [19, 18, 18, 19];
+  const platZ = [-102.5, -36, 36, 102.5];
+  const platW = [19, 30, 30, 19];
   platZ.forEach((z, i) => g.add(k.box(trim, PLAT, PLAT_H - 2, platW[i], 1, 0, 2, z), k.box(k.paint("#f2d34a"), PLAT, 0.6, 1.4, 0, 0, PLAT_H, z + (z < 0 ? platW[i] / 2 - 1.6 : -(platW[i] / 2 - 1.6)))));
   if (stage === 1) {
     // The platforms laid, the shed's columns started, the building's footings; a fence round the building side.
     for (let i = 0; i <= 8; i++) for (const s of [-1, 1]) g.add(k.box(iron, 4, i % 2 ? 30 : 14, 4, 0, -SHED / 2 + (SHED * i) / 8, PLAT_H, s * (SW / 2 - 4)));
-    g.add(k.box(k.paint(STONE), 230, 8, 46, 1, 0, 2, BZ + 4));
-    g.add(siteFence(k, 250, 80, 0, BZ + 14));
-    g.add(goodsStacks(k, -60, BZ + 70), goodsStacks(k, 60, BZ + 70), siteHut(k, 120, BZ + 70));
-    g.add(towerCrane(k, 160, 140, -150, BZ + 40, 0));
+    g.add(k.box(k.paint(STONE), 196, 8, 46, 1, 0, 2, BZ + 4));
+    g.add(siteFence(k, 206, 80, 0, BZ + 14));
+    g.add(goodsStacks(k, -50, BZ + 34), goodsStacks(k, 40, BZ + 34), siteHut(k, 70, BZ + 30));
+    g.add(towerCrane(k, 160, 140, -80, BZ + 40, 0));
     g.add(k.peg(TOY.orange, TOY.yellow, 20, 2, BZ + 4), k.peg(TOY.orange, TOY.yellow, -30, 2, BZ + 10));
     return g;
   }
@@ -629,7 +631,7 @@ function grandCentral(k: Kit, stage: Stage): Object3D {
   roof.position.y = SPRING + 2;
   g.add(roof);
   // The station building alongside, facing +z: stone, two storeys of windows, a cornice and a balustrade.
-  const BW = 240;
+  const BW = 200;
   const BH = stage >= 3 ? 64 : 34;
   g.add(k.box(stone, BW, BH, 40, 3, 0, 2, BZ));
   const front = BZ + 20;
@@ -642,7 +644,7 @@ function grandCentral(k: Kit, stage: Stage): Object3D {
   if (stage === 2) {
     g.add(scaffold(k, 120, 52, 70, 40, BZ));
     g.add(scaffold(k, 46, 46, 110, 0, BZ));
-    g.add(towerCrane(k, 180, 150, -150, BZ + 50, 0), goodsStacks(k, 80, BZ + 66), siteHut(k, -100, BZ + 66));
+    g.add(towerCrane(k, 180, 150, -80, BZ + 50, 0), goodsStacks(k, 70, BZ + 34), siteHut(k, -60, BZ + 30));
     return g;
   }
   g.add(k.box(trim, BW + 4, 4, 44, 1, 0, 2 + BH, BZ));
@@ -667,24 +669,25 @@ function grandCentral(k: Kit, stage: Stage): Object3D {
   for (const fx of [-BW / 2 + 10, -70, 70, BW / 2 - 10]) g.add(pennant(k, fx < 0 ? TOY.red : TOY.blue, 20, fx, 14 + BH, front - 4));
   // Canopies over the platforms' ends outside the shed, with benches, a departure board, passengers.
   for (const end of [-1, 1]) {
-    const ex = end * (SHED / 2 + 36);
+    const ex = end * (SHED / 2 + 17);
     platZ.forEach((z, i) => {
       const w = platW[i];
-      for (const px of [-20, 20]) g.add(k.box(iron, 2, 24, 2, 0, ex + px, PLAT_H, z));
-      g.add(k.box(iron, 52, 2, 2, 0, ex, PLAT_H + 23, z));
-      g.add(k.roof(k.paint(i % 2 ? TOY.red : TOY.green), 58, w + 8, 6, ex, PLAT_H + 24, z, 2));
+      for (const px of [-12, 12]) g.add(k.box(iron, 2, 24, 2, 0, ex + px, PLAT_H, z));
+      g.add(k.box(iron, 30, 2, 2, 0, ex, PLAT_H + 23, z));
+      g.add(k.roof(k.paint(i % 2 ? TOY.red : TOY.green), 34, w + 8, 6, ex, PLAT_H + 24, z, 2));
     });
   }
-  g.add(departures(k, 0, PLAT_H, -30), departures(k, 0, PLAT_H, 30));
-  for (const [x, z] of [[-60, -30], [60, -30], [-60, 30], [60, 30], [-90, 90.5], [90, -90.5]] as const) g.add(bench(k, x, PLAT_H, z + (z > 0 ? -3 : 3), z > 0 ? 0 : Math.PI));
+  g.add(departures(k, 0, PLAT_H, -36), departures(k, 0, PLAT_H, 36));
+  for (const [x, z] of [[-60, -36], [60, -36], [-60, 36], [60, 36], [-90, 102.5], [90, -102.5]] as const) g.add(bench(k, x, PLAT_H, z + (z > 0 ? -3 : 3), z > 0 ? 0 : Math.PI));
   const coats = [TOY.red, TOY.blue, TOY.yellow, TOY.purple, TOY.green, TOY.pink, TOY.orange];
-  [[-40, -32], [40, 28], [46, 33], [100, 90], [-20, -29]].forEach(([x, z], i) => g.add(k.peg(coats[i % coats.length], i % 3 === 0 ? TOY.black : null, x, PLAT_H, z)));
+  [[-40, -38], [40, 34], [46, 39], [100, 102], [-20, -35]].forEach(([x, z], i) => g.add(k.peg(coats[i % coats.length], i % 3 === 0 ? TOY.black : null, x, PLAT_H, z)));
   // The forecourt: paving, lamp posts, cabs waiting, people coming and going.
-  const FZ = front + 40;
-  g.add(k.box(k.paint("#d9cdb6"), 200, 1, 50, 0.4, 0, 2, FZ));
-  for (const lx of [-90, -45, 45, 90]) g.add(lampPost(k, lx, 2, FZ + 22));
-  g.add(cab(k, -70, FZ + 6, 0), cab(k, -30, FZ + 6, 0), cab(k, 66, FZ + 6, Math.PI));
-  g.add(k.peg(TOY.blue, TOY.black, 8, 2, FZ - 10), k.peg(TOY.pink, null, -8, 2, FZ - 4));
+  // (A narrow one: in the game it stands in a city, its houses close by.)
+  const FZ = front + 14;
+  g.add(k.box(k.paint("#d9cdb6"), 200, 1, 24, 0.4, 0, 2, FZ));
+  for (const lx of [-90, -45, 45, 90]) g.add(lampPost(k, lx, 2, FZ + 8));
+  g.add(cab(k, -70, FZ, 0));
+  g.add(k.peg(TOY.blue, TOY.black, 8, 2, FZ - 4), k.peg(TOY.pink, null, -8, 2, FZ + 2));
   return g;
 }
 
@@ -802,7 +805,7 @@ const SITES: Record<string, readonly [number, number, number, number]> = {
   "grand-exhibition": EXHIBITION_SITE,
   "grand-cathedral": [-216, 207, -135, 139],
   "grand-royal-train": [-156, 156, -20, 61],
-  "grand-central": [-196, 196, -140, 220],
+  "grand-central": [-112, 110, -132, 202],
   "grand-ferris-wheel": [-120, 120, -70, 64],
 };
 

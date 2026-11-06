@@ -178,7 +178,7 @@ export function serializeWorld(world: World): SaveData {
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
     ...(world.economy.placePlans.size > 0 ? { placePlans: [...world.economy.placePlans].map(([townId, p]) => [townId, p.id, { ...p.got }] as [number, string, Record<string, number>]) } : {}),
-    ...(world.economy.grandPlans.size > 0 ? { grandPlans: [...world.economy.grandPlans].map(([id, p]) => [id, p.townId, p.stage, { ...p.got }, p.prop] as [string, number, number, Record<string, number>, number]) } : {}),
+    ...(world.economy.grandPlans.size > 0 ? { grandPlans: [...world.economy.grandPlans].map(([id, p]) => (p.riders ? [id, p.townId, p.stage, { ...p.got }, p.prop, p.riders] : [id, p.townId, p.stage, { ...p.got }, p.prop]) as [string, number, number, Record<string, number>, number, number?]) } : {}),
     ...(world.economy.grandGift.size > 0 ? { grandGift: [...world.economy.grandGift].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
     ...(lines.length > 0 ? { lines } : {}),
     ...boatsOf(world, renumbered),
@@ -440,11 +440,11 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     for (const k of CARGO_KINDS) if (bag[k]) got[k] = bag[k];
     economy.placePlans.set(townId, { id, got });
   }
-  for (const [id, townId, stage, bag, prop] of save.grandPlans ?? []) {
+  for (const [id, townId, stage, bag, prop, riders] of save.grandPlans ?? []) {
     if (!landscape.towns.some((t) => t.id === townId)) continue;
     const got: Bag = {};
     for (const k of CARGO_KINDS) if (bag[k]) got[k] = bag[k];
-    economy.grandPlans.set(id, { townId, stage, got, prop });
+    economy.grandPlans.set(id, { townId, stage, got, prop, ...(riders ? { riders } : {}) });
   }
   for (const [townId, bag] of save.grandGift ?? []) {
     if (!landscape.towns.some((t) => t.id === townId)) continue;

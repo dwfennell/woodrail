@@ -566,7 +566,7 @@ export class Economy {
    * Grand projects started on this map (Game mode, game/grand.ts), by project id: the city it's in, its stages done,
    * the goods its stage under way has had, its site's prop. Saved (`grandPlans`).
    */
-  readonly grandPlans = new Map<string, { townId: number; stage: number; got: Bag; prop: number }>();
+  readonly grandPlans = new Map<string, { townId: number; stage: number; got: Bag; prop: number; riders?: number }>();
   /** Town id → what the Great Exhibition gave it toward its growth when it opened (game/grand.ts). Saved. */
   readonly grandGift = new Map<number, Bag>();
   /**

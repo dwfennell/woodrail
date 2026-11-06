@@ -71,7 +71,7 @@ export interface Town {
    * Its station upgraded in place to a big station's kit (Game mode, src/game/station-upgrade.ts): the kit's model is
    * drawn instead of the station house and its sign.
    */
-  upgraded?: "kit-two-platform-station" | "kit-grand-terminus";
+  upgraded?: "kit-two-platform-station" | "kit-grand-terminus" | "kit-grand-central-1" | "kit-grand-central-2" | "kit-grand-central-3";
 }
 
 export type DepotKind = "forest" | "sawmill";

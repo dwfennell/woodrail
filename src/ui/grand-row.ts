@@ -42,6 +42,12 @@ function tile(t: GrandTile, on: GrandActions): HTMLElement {
   if (t.stage) {
     const s = el("div", "place-plan grand-stage");
     s.append(el("b", "place-plan-name", `Stage ${t.stage.n} of ${t.stage.of}: ${t.stage.name}`), goodsSpan(t.stage.goods, t.stage.got));
+    // (Grand Central's last: riders carried through the station, a count, not goods.)
+    if (t.stage.riders) {
+      const r = el("span", "place-good", `${Math.min(t.stage.riders.got, t.stage.riders.want)}/${t.stage.riders.want} 🧑 riders through it`);
+      if (t.stage.riders.got >= t.stage.riders.want) r.classList.add("done");
+      s.append(r);
+    }
     box.append(s);
   }
   if (t.state === "build") {

@@ -345,7 +345,7 @@ function branches(layout: Layout, pieceId: number): boolean {
 function isStopPiece(layout: Layout, pieceId: number): boolean {
   const t = layout.getPiece(pieceId)?.type ?? "";
   // (A town's station upgraded in place is a big station's kit: still a stop.)
-  return t.startsWith("depot") || t.startsWith("station") || t === "kit-two-platform-station" || t === "kit-grand-terminus";
+  return t.startsWith("depot") || t.startsWith("station") || t === "kit-two-platform-station" || t === "kit-grand-terminus" || t.startsWith("kit-grand-central-");
 }
 
 function buildTopology(layout: Layout, minRoad: number): Topology {
