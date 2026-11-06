@@ -50,6 +50,9 @@ export class LinesView {
   private readonly list = document.createElement("div");
   private readonly count = document.createElement("span");
   private shownKey = "";
+  /** A finger down on the list: it isn't built again under it (its tap's click would be lost); caught up after. */
+  private pressing = false;
+  private pending: readonly LineRow[] | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -83,6 +86,18 @@ export class LinesView {
     this.list.className = "lines-list";
     this.root.append(head, this.list);
     parent.appendChild(this.root);
+    this.root.addEventListener("pointerdown", () => (this.pressing = true));
+    const up = () => {
+      if (!this.pressing) return;
+      window.setTimeout(() => {
+        this.pressing = false;
+        const rows = this.pending;
+        this.pending = null;
+        if (rows) this.show(rows);
+      }, 60);
+    };
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
   }
 
   get open(): boolean {
@@ -100,6 +115,10 @@ export class LinesView {
     const sorted = sortRows(rows);
     const key = JSON.stringify(sorted);
     if (key === this.shownKey) return;
+    if (this.pressing) {
+      this.pending = rows;
+      return;
+    }
     this.shownKey = key;
     const trains = rows.reduce((n, r) => n + r.trains, 0);
     this.count.textContent = rows.length === 0 ? "" : `${rows.length} ${rows.length === 1 ? "line" : "lines"} · ${trains} ${trains === 1 ? "train" : "trains"}`;

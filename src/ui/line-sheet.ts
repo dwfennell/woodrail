@@ -119,6 +119,10 @@ export class LineSheet {
   private shownKey = "";
   /** A stop's handle held: the sheet holds still till it's let go. */
   private dragging = false;
+  /** A finger (or the mouse) down on the sheet: it isn't built again under it (its tap's click would be lost). */
+  private pressing = false;
+  /** The model that came while pressing, shown once the press is over (after its click). */
+  private pending: SheetModel | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -128,7 +132,22 @@ export class LineSheet {
     this.root.setAttribute("role", "dialog");
     this.root.setAttribute("aria-label", "Line");
     // (Taps on the sheet are the sheet's, not the map's below it.)
-    this.root.addEventListener("pointerdown", (e) => e.stopPropagation());
+    this.root.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      this.pressing = true;
+    });
+    const up = () => {
+      if (!this.pressing) return;
+      // (After the click that ends the press: a rebuild then can't take it.)
+      window.setTimeout(() => {
+        this.pressing = false;
+        const m = this.pending;
+        this.pending = null;
+        if (m && !this.root.hidden) this.show(m);
+      }, 60);
+    };
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
     parent.appendChild(this.root);
   }
 
@@ -146,6 +165,10 @@ export class LineSheet {
     const key = JSON.stringify(m);
     this.root.hidden = false;
     if (key === this.shownKey || this.dragging) return;
+    if (this.pressing) {
+      this.pending = m;
+      return;
+    }
     // Only the trains' doings changed (they run on): those words updated in place, not the sheet built again, so a tap
     // on a button isn't lost to a rebuild under the finger.
     if (this.shownKey !== "" && this.shape(key) === this.shape(this.shownKey)) {
