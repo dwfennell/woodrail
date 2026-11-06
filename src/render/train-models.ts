@@ -69,7 +69,8 @@ export const WAGON_SLOTS: Readonly<Partial<Record<CarKind, Partial<Record<CarLoo
   },
   caboose: { classic: { body: ["#c8442f"], trim: ["#f0ebe0"] }, "bay-window": { body: ["#e6b52c"], trim: ["#7a4a2a"] } },
   timber: { classic: { body: ["#c8442f"], trim: [] } },
-  van: { classic: { body: ["#2f6db5"], trim: ["#f0ebe0"] } },
+  // (The van's body is a slot, "lacquer slot body": painted, the livery's body; its cream doors and roof ribs take the trim.)
+  van: { classic: { body: ["#7a4a2a"], trim: ["#f0ebe0"] } },
 };
 
 /** Can a car of `kind` and `look` be painted (an engine, or a wagon with its colours in `WAGON_SLOTS`)? */
@@ -173,7 +174,8 @@ export function addStripes(root: Object3D, mats: Materials, body: readonly Mater
 }
 
 /** Colours of a car's slots (the van's body). */
-const CAR_SLOTS: Partial<Record<CarKind, Record<string, string>>> = { van: { body: "#2f6db5" } };
+/** The van's body: goods brown, as its dark ribbed roof is (the coaches are lacquered, under a light clerestory roof). */
+const CAR_SLOTS: Partial<Record<CarKind, Record<string, string>>> = { van: { body: "#7a4a2a" } };
 
 /** Car facing +x, centred on its two axles, y = 0 at the track base. The models must be loaded (loadBlenderModels). */
 export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic", loaded = false, livery?: { body: string; trim: string; stripes?: readonly string[] }): CarModel {

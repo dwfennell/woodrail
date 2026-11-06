@@ -73,7 +73,7 @@ const CAR_COLORS: Record<CarKind, [string, string]> = {
   passenger: ["#2f6db5", "#f0ebe0"],
   caboose: ["#c8442f", "#f0ebe0"],
   timber: ["#e3bf8c", "#c8442f"],
-  van: ["#2f6db5", "#f0ebe0"],
+  van: ["#7a4a2a", "#f0ebe0"],
   cleaner: ["#e6b52c", "#2a2a2a"],
   tanker: ["#f6f3ec", "#2f6db5"],
   reefer: ["#f6f3ec", "#2f6db5"],
