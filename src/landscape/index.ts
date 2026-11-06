@@ -13,3 +13,4 @@ export * from "./cuttings";
 export * from "./edges";
 export * from "./edit";
 export * from "./coast";
+export * from "./secrets";

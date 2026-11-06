@@ -1,0 +1,111 @@
+import { Box3, Color, Mesh, MeshStandardMaterial, type Object3D } from "three";
+import { describe, expect, it } from "vitest";
+import type { Materials } from "../../render/materials";
+import { Kit } from "../kit";
+import { fileOf } from "../registry";
+import { PROP_TABS } from "../shelves";
+import { SITE_BOUNDS } from "../secret-frame";
+import { ASSETS as secrets, SECRET_HALT, SHIPWRECK_SEA_Z } from "./secrets";
+
+/** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
+function stubMaterials(): Materials {
+  const m = (c = "#ffffff") => new MeshStandardMaterial({ color: new Color(c) });
+  const lacquer = (c: string) => m(c);
+  return new Proxy({ lacquer } as unknown as Materials, { get: (t, k) => (k in t ? t[k as keyof Materials] : m()) });
+}
+
+/** Triangles in a built model, as the props draw it (`PROP_DETAIL` 0.5; underlays left out, as `bake` does). */
+function triangles(root: Object3D): number {
+  let n = 0;
+  root.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    for (let p: Object3D | null = mesh; p; p = p.parent) if (p.userData.underlay) return;
+    const g = mesh.geometry;
+    n += (g.index ? g.index.count : g.getAttribute("position").count) / 3;
+  });
+  return n;
+}
+
+/**
+ * Triangle budgets for the design assets (spec 2026-11-05), as props are drawn: a grand project is one per map, big
+ * on screen; a secret site (with its halt's platform) or a path landmark a few per map. For scale, built the same way: the bandstand
+ * is about 2,100, the playground 2,200, the fountain 1,200.
+ */
+const BUDGET = 8000;
+
+const kit = new Kit(stubMaterials(), 0.5);
+const listed = new Set(PROP_TABS.flatMap((t) => t.shelves).flatMap((s) => s.assets));
+
+describe("secret sites", () => {
+  {
+    for (const a of secrets) {
+      it(`${a.id} builds under ${BUDGET} triangles, loads by its file, is on a Sandbox shelf and stands inside the site's bounds`, () => {
+        const root = a.build(kit);
+        const tris = triangles(root);
+        expect(tris, a.id).toBeGreaterThan(50);
+        expect(tris, a.id).toBeLessThan(BUDGET);
+        expect(fileOf(a.id)).toBe("secret");
+        expect(listed.has(a.id), a.id).toBe(true);
+        a.animate?.(root, 2);
+        // (The game keeps the site's squares from its bounds: nothing of it may stand outside them.)
+        const box = new Box3();
+        root.updateMatrixWorld(true);
+        root.traverse((o) => {
+          const m = o as Mesh;
+          if (!m.isMesh) return;
+          for (let p: Object3D | null = m; p; p = p.parent) if (p.userData.underlay) return;
+          box.union(new Box3().setFromObject(m));
+        });
+        expect(box.min.x, a.id).toBeGreaterThanOrEqual(SITE_BOUNDS.x0);
+        expect(box.max.x, a.id).toBeLessThanOrEqual(SITE_BOUNDS.x1);
+        expect(box.min.z, a.id).toBeGreaterThanOrEqual(SITE_BOUNDS.z0);
+        expect(box.max.z, a.id).toBeLessThanOrEqual(SITE_BOUNDS.z1);
+      });
+    }
+  }
+
+  it("every secret has its hidden and found states", () => {
+    for (const a of secrets.filter((s) => !s.id.endsWith("-hidden") && s.id !== "secret-stones-midsummer")) expect(secrets.some((s) => s.id === `${a.id}-hidden`), a.id).toBe(true);
+  });
+
+  it("the shipwreck stands on a beach: its sand runs to its straight seaward edge, nothing solid past it", () => {
+    for (const id of ["secret-shipwreck", "secret-shipwreck-hidden"]) {
+      const root = secrets.find((a) => a.id === id)!.build(kit);
+      root.updateMatrixWorld(true);
+      let sandToEdge = false;
+      root.traverse((o) => {
+        const m = o as Mesh;
+        if (!m.isMesh) return;
+        for (let p: Object3D | null = m; p; p = p.parent) if (p.userData.underlay || p.name === "mist") return;
+        const box = new Box3().setFromObject(m);
+        if (Math.abs(box.min.z - SHIPWRECK_SEA_Z) < 1 && box.max.x - box.min.x > 280 && box.max.y < 4) sandToEdge = true;
+        expect(box.min.z, `${id}: a part past the sea's edge`).toBeGreaterThan(SHIPWRECK_SEA_Z - 1);
+      });
+      expect(sandToEdge, id).toBe(true);
+    }
+  });
+
+  it("every secret site's halt is a straight beside its platform and a buffer, the open end joining the network", () => {
+    const [straight, buffer] = SECRET_HALT.pieces;
+    expect(straight.type).toBe("straight-216");
+    expect(buffer.type).toBe("buffer");
+    // The buffer on the straight's far end, in line with it; the line joins at the straight's start.
+    expect(buffer.x - straight.x).toBe(216);
+    expect(buffer.z).toBe(straight.z);
+    expect(SECRET_HALT.joins).toMatchObject({ x: straight.x, z: straight.z });
+    // Nothing of a found site's model on the track (40 wide) from the join to the buffer, so the pieces lay clear.
+    for (const a of secrets) {
+      const root = a.build(kit);
+      root.updateMatrixWorld(true);
+      const box = new Box3();
+      root.traverse((o) => {
+        const m = o as Mesh;
+        if (!m.isMesh) return;
+        box.setFromObject(m);
+        const onTrack = box.max.z > straight.z - 20 && box.min.z < straight.z + 20 && box.max.x > straight.x && box.min.x < buffer.x + 40 && box.max.y > 1;
+        expect(onTrack, `${a.id}: a part over the halt's track`).toBe(false);
+      });
+    }
+  });
+});

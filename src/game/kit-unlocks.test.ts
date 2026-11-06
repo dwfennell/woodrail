@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
-import { appendPiece, connectorRef, isKit, kitOf, KITS, type PieceTypeId } from "../track";
+import { appendPiece, connectorRef, isKit, isSecretKit, kitOf, KITS, type PieceTypeId } from "../track";
 import { GAME_KIT_GROUPS, GAME_TRACK_KITS } from "../ui/tray-catalogue";
 import { BLUEPRINTS } from "./blueprints";
 import { craftNow, Crafting, lacking, workshopStock } from "./crafting";
@@ -86,6 +86,11 @@ describe("railway kits in Game mode", () => {
   it("every Sandbox kit is in Game mode now, behind its blueprint, on a tray shelf", () => {
     const tray = new Set([GAME_TRACK_KITS, ...GAME_KIT_GROUPS].flatMap((g) => g.items.map((i) => (i.kind === "piece" ? i.type : ""))));
     for (const type of Object.keys(KITS) as PieceTypeId[]) {
+      // (A secret's halt is the game's to lay, when the secret's found: never on the tray, src/game/secrets.ts.)
+      if (isSecretKit(type)) {
+        expect(tray.has(type), type).toBe(false);
+        continue;
+      }
       expect(ruleOf(pieceThing(type))?.tech, type).toBeDefined();
       // (Not the signal skins: a Signal's styles now, signals spec §4. Old saves' pieces still load and work.)
       if (SIGNAL_SKINS.includes(type)) {

@@ -1,4 +1,9 @@
 import {
+  addPlotSecret,
+  addStartSecret,
+  planSecrets,
+  ringOf,
+  type SecretPlan,
   addTrackPoints,
   adoptRegion,
   CELL,
@@ -27,12 +32,12 @@ import {
 } from "../landscape";
 import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
-import { kitOf, Layout, LOOKOUT_KIT, METRO_KIOSK, METRO_KIT, OBSERVATORY_KIT, RISER_HEIGHT, type PieceTypeId } from "../track";
+import { isSecretKit, kitOf, Layout, LOOKOUT_KIT, METRO_KIOSK, METRO_KIT, OBSERVATORY_KIT, RISER_HEIGHT, SECRET_KINDS, secretKitOf, type PieceTypeId } from "../track";
 
 export { LOOKOUT_KIT, METRO_KIT, OBSERVATORY_KIT };
 import { PropStore } from "../props/store";
 import { isTownLot, SCHOOL_REACH } from "./town-lots";
-import { addPlotExtras, addStartSites, type Extra } from "./map-sites";
+import { addPlotExtras, addStartSites, starterKeepOff, type Extra } from "./map-sites";
 import { addTownProps } from "../props/towns";
 
 export const depotPieceType = (kind: DepotKind): PieceTypeId => (kind === "forest" ? "depot-forest" : "depot-sawmill");
@@ -238,10 +243,15 @@ export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
   "kit-observatory",
   // A metro stop: a stop of the town over it (`metroTown`), its riders a quarter of their own (passengers.ts).
   "kit-metro-stop",
+  // A found secret's halt (src/game/secrets.ts): the lookout's kind of stop, for tourists.
+  ...SECRET_KINDS.map(secretKitOf),
 ]);
 
-/** Stops on a hilltop where no one lives (riders only get off there): the lookout halt and the observatory. */
-export const isSightStop = (type: PieceTypeId): boolean => type === LOOKOUT_KIT || type === OBSERVATORY_KIT;
+/**
+ * Stops where no one lives (riders only get off there, from any town): the lookout halt and the observatory, on
+ * hilltops; and a found secret's halt (src/game/secrets.ts), where the secret is.
+ */
+export const isSightStop = (type: PieceTypeId): boolean => type === LOOKOUT_KIT || type === OBSERVATORY_KIT || isSecretKit(type);
 
 /**
  * The lookout halt (Mountain railway): stands only on a hilltop `LOOKOUT_HEIGHT` up or more. No one lives there, so no
@@ -277,6 +287,8 @@ export const HALT_TOO_FAR = `Build halts within ${Math.round(HALT_REACH / CELL)}
 
 /** Game mode's rule for a halt's place (`Interaction.siteRule`): near a town, or why not. */
 export function haltWhy(land: Landscape, type: PieceTypeId, pose: { x: number; z: number; heading: number }): string | null {
+  // (A secret's halt is laid by the game, where its secret is.)
+  if (isSecretKit(type)) return null;
   if (isSightStop(type)) return onHilltop(land, pose) ? null : type === LOOKOUT_KIT ? LOOKOUT_LOW : OBSERVATORY_LOW;
   if (type === METRO_KIT) return metroTown(land, pose) ? null : METRO_ENTRANCE;
   return HALT_KITS.has(type) && !haltTown(land, pose) ? HALT_TOO_FAR : null;
@@ -360,9 +372,14 @@ export interface World {
 /** The ruins' stub of track: a plain 216 mm straight (step 2's Restore swaps it for the industry's piece in place). */
 export const RUIN_STUB: PieceTypeId = "straight-216";
 
-/** The pieces that are the map's own and can't be moved or taken up: stations, depots and ruins' stubs. */
-export function fixedPieces(w: Pick<World, "stations" | "depots" | "ruins">): Set<number> {
-  return new Set([...w.stations.values(), ...w.depots.values(), ...w.ruins.values()]);
+/**
+ * The pieces that are the map's own and can't be moved or taken up: stations, depots and ruins' stubs; and, with the
+ * layout, found secrets' halts (laid by the game: src/game/secrets.ts).
+ */
+export function fixedPieces(w: Pick<World, "stations" | "depots" | "ruins"> & { layout?: Layout }): Set<number> {
+  const out = new Set([...w.stations.values(), ...w.depots.values(), ...w.ruins.values()]);
+  if (w.layout) for (const id of w.layout.pieceIds()) if (isSecretKit(w.layout.getPiece(id)!.type)) out.add(id);
+  return out;
 }
 
 /** Where a town station's goods crane stops wagons: near its socket end, by the plank pile. */
@@ -410,6 +427,10 @@ export function createWorld(seed: number, starter = false, extras = true, sites 
 export function startLand(seed: number, starter = false, coast = true): Landscape {
   const land = generateLandscape(seed, { starter, coast });
   addStartSites(land);
+  // The map's secrets: where they'll go (saved with it), and the start's one if it has one.
+  land.secretPlan = planSecrets(seed, land.coast ?? null);
+  land.secrets = [];
+  addStartSecret(land, land.secretPlan, { keepOff: starterKeepOff(land) });
   return land;
 }
 
@@ -474,6 +495,9 @@ const forSale = new WeakMap<Landscape, Map<number, { part: Landscape; extras: bo
 export function plotLand(seed: number, px: number, pz: number, coast: Landscape["coast"]): Landscape {
   const part = generatePlot(seed, px, pz, coast ?? null);
   addPlotExtras(part, px, pz);
+  // (Its secret, if the plan puts one here: as a first choice, as an alternate only if the plot before it had no room.)
+  const plan = planSecrets(seed, coast ?? null);
+  addPlotSecret(part, plan, px, pz, (p) => p.px !== px || p.pz !== pz ? (ringOf(p.px, p.pz) > 0 && !!plotLand(seed, p.px, p.pz, coast).secrets?.some((s) => s.kind === p.kind)) : false);
   return part;
 }
 
@@ -498,9 +522,21 @@ export function prepareLandForSale(land: Landscape, px: number, pz: number): boo
   }
   if (!have.extras) {
     addPlotExtras(have.part, px, pz, !land.siteless);
+    // (Its secret, if the map's plan puts one here: `planSecrets`.)
+    if (land.secretPlan) addPlotSecret(have.part, land.secretPlan, px, pz, (p) => secretPlaced(land, p));
     have.extras = true;
   }
   return false;
+}
+
+/**
+ * Did a plot the secrets' plan names get its secret (`SecretPlan`): on land the map has, by the secrets placed there;
+ * on land for sale, by its land as made (made now if it isn't yet). For an alternate's turn (`addPlotSecret`).
+ */
+function secretPlaced(land: Landscape, p: SecretPlan): boolean {
+  const start = ringOf(p.px, p.pz) === 0;
+  if (start || land.grid.hasPlot(p.px, p.pz)) return (land.secrets ?? []).some((s) => s.kind === p.kind && (start ? ringOf(s.plot.px, s.plot.pz) === 0 : s.plot.px === p.px && s.plot.pz === p.pz));
+  return (landForSale(land, p.px, p.pz).secrets ?? []).some((s) => s.kind === p.kind);
 }
 
 /** Has this plot's land been made already, extras and all (see `landForSale`)? */

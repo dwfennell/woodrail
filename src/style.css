@@ -2,7 +2,7 @@
    (scripts/icon-font.py, which also writes this unicode-range). Each draws the character it stands for (🪙, 📘, ⏱, the
    goods; planks have no emoji, so they're U+E000), so strings keep their emoji and screen readers their words. Listed
    first wherever a font is named, it draws only these characters; everything else is Nunito's. */
-@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26BD, U+26CF, U+26F0, U+26F2, U+26F3, U+26F5, U+2709, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F333, U+1F337, U+1F33C, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F36B, U+1F36C, U+1F37D, U+1F381, U+1F393, U+1F39F, U+1F3A0, U+1F3A8, U+1F3AC, U+1F3AD, U+1F3AF, U+1F3D6, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3DF, U+1F3E1, U+1F3E5, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4A7, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F4EE, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5BC, U+1F5FA, U+1F60A, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6DD, U+1F6E2, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9F8, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5, U+1FAD8, U+1FAD9; font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26BD, U+26CF, U+26F0, U+26F2, U+26F3, U+26F5, U+2709, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F333, U+1F337, U+1F33C, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F36B, U+1F36C, U+1F37D, U+1F381, U+1F393, U+1F39F, U+1F3A0, U+1F3A8, U+1F3AB, U+1F3AC, U+1F3AD, U+1F3AF, U+1F3D6, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3DF, U+1F3E1, U+1F3E5, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4A7, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F4EE, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5BC, U+1F5FA, U+1F60A, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6A9, U+1F6AB, U+1F6DD, U+1F6E2, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9F3, U+1F9F8, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5, U+1FAD8, U+1FAD9; font-weight: 100 900; font-display: block; }
 :root {
   --ink: #2b2118;
   --paper: #f6efe3;
@@ -202,6 +202,32 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card .reach-call { flex: 0 0 auto; min-height: 44px; }
 .piece-card .reach-list .card-hint { margin-top: 0; text-align: left; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
+/* A secret site (src/ui/secret-card.ts): in the mist, a guess and how to find it; found, its halt's tourist trips. */
+.secret-card { gap: 8px; width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - 300px); overflow-y: auto; overscroll-behavior: contain; }
+.secret-card > .card-title { padding: 0 34px; font-size: 17px; color: #4a3220; text-align: center; }
+.secret-hint { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 300px; }
+.secret-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.secret-chip { font-size: 13px; font-weight: 800; padding: 5px 10px; border-radius: 999px; }
+.secret-chip.found-chip { background: #dff0d8; color: #3f6b32; }
+.secret-chip.fare-chip { background: #f6e3c6; color: #8a5a22; }
+.secret-count { display: flex; align-items: baseline; gap: 8px; justify-content: center; }
+.secret-trips { font-size: 40px; font-weight: 900; color: #3a2a1c; line-height: 1; font-variant-numeric: tabular-nums; }
+.secret-trips-label { font-size: 16px; font-weight: 800; color: #6a4a2c; }
+.secret-year { font-size: 13px; font-weight: 700; color: #8a6a4a; margin-top: -4px; }
+.secret-tier { align-self: stretch; background: #fffaf1; border-radius: 14px; padding: 8px 12px; box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.1); display: flex; flex-direction: column; gap: 6px; }
+.secret-tier-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 800; }
+.secret-tier-name { color: #4a3220; }
+.secret-tier-count { color: #a0661e; font-variant-numeric: tabular-nums; }
+.secret-bar, .secret-town-bar { height: 8px; border-radius: 99px; background: #eadfcd; overflow: hidden; }
+.secret-bar-fill { height: 100%; border-radius: 99px; background: #e4a43a; }
+.secret-tier-next { font-size: 12px; font-weight: 800; color: #8a6a4a; }
+.secret-towns { align-self: stretch; display: flex; flex-direction: column; gap: 4px; }
+.secret-town { display: grid; grid-template-columns: minmax(0, 7.5em) 1fr 2.5em; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; color: #4a3220; }
+.secret-town-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.secret-town-fill { height: 100%; border-radius: 99px; background: #8ccf86; }
+.secret-town-n { text-align: right; font-variant-numeric: tabular-nums; }
+.secret-foot { font-size: 12px; font-weight: 600; color: #6a4a2c; text-align: center; max-width: 320px; }
+.secret-note { font-size: 13px; font-weight: 800; color: #a0472e; text-align: center; }
 /* An old industry's ruin: what's around it, what opens it (the lock line the boldest), and that you needn't use it. */
 .ruin-card { gap: 8px; }
 .ruin-card > .card-title { padding: 0 34px; }

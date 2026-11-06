@@ -1,4 +1,4 @@
-import { getPieceDef, isKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { getPieceDef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, CARGO_SLOTS, canCarry, POSTAL, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
@@ -1297,7 +1297,8 @@ export class Economy {
   isLookout(d: DepotState | undefined): boolean {
     if (!d || d.role !== "town") return false;
     const type = this.layout.getPiece(d.pieceId)?.type;
-    return type === LOOKOUT_KIT || type === OBSERVATORY_KIT;
+    // (And a found secret's halt: the lookout's kind of stop, for tourists. src/game/secrets.ts.)
+    return type === LOOKOUT_KIT || type === OBSERVATORY_KIT || (!!type && isSecretKit(type));
   }
 
   /** Is this a metro stop's depot (`METRO_KIT`): a quarter of its town of its own? */

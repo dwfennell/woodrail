@@ -12,6 +12,8 @@ const FILES = {
   water: () => import("./assets/water"),
   life: () => import("./assets/life"),
   scene: () => import("./assets/scenery"),
+  // The secret sites (Game mode: hidden on the map until track is laid to them; Sandbox: on the Nature tab).
+  secret: () => import("./assets/secrets"),
 } as const;
 
 export type CatalogueFile = keyof typeof FILES;

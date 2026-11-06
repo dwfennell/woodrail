@@ -9,7 +9,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type LeverPost, t
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { METRO_KIT, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { METRO_KIT, isSecretKit, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, placeGhost } from "../render/signal-marks-view";
@@ -35,6 +35,7 @@ import type { Game } from "./game";
 import { pointsSetFor } from "./engine-status";
 import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
+import { secretAt, secretOfPiece } from "./secrets";
 import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
 import { callHome, calledLine, trainsInReach } from "./telegraph";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
@@ -205,7 +206,9 @@ type Press =
   /** A road piece the player laid (on square `cell`). */
   | { kind: "road"; cell: number }
   /** A signal mark's post (signals spec §4): a tap holds it at red or lets it go, a long press opens its card. */
-  | { kind: "signal"; markId: number };
+  | { kind: "signal"; markId: number }
+  /** A secret site not yet found, in its mist (its id in `Landscape.secrets`): a tap opens its card. */
+  | { kind: "secret"; secretId: number };
 
 /** A car held in the hand: what it is, which way it faces, its lever, and (when picked up) its id and load. */
 type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; look?: CarLook; cargo?: { kind: CargoKind; count: number } };
@@ -2687,6 +2690,20 @@ export class Interaction {
 
   private tap(p: Press, add = false): void {
     const g = this.game;
+    if (p.kind === "secret") {
+      this.clearSelection();
+      this.onSecretTap?.(p.secretId);
+      return;
+    }
+    // A found secret's halt (the site and its track): its card.
+    if (p.kind === "piece" && !this.picking && !add && this.onSecretTap) {
+      const site = secretOfPiece(g.world, p.pieceId);
+      if (site) {
+        this.clearSelection();
+        this.onSecretTap(site.id);
+        return;
+      }
+    }
     if (p.kind === "signal") {
       this.tapMark(p.markId);
       return;
@@ -2833,6 +2850,9 @@ export class Interaction {
    * bought isn't: a tap there is the land's.
    */
   onRuinTap: ((siteId: number) => void) | null = null;
+
+  /** A secret site tapped (in its mist, or found: its halt or the site): the game opens its card (by its id). */
+  onSecretTap: ((secretId: number) => void) | null = null;
 
   /** The standing ruin (site id) drawn at this screen point, or −1: what the ray meets first of the ruins, if anything. */
   ruinAtScreen(x: number, y: number): number {
@@ -6209,7 +6229,7 @@ export class Interaction {
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)
     // (The loop-the-loops' shows': a tap on an engine's copy running the loop is a tap on the engine.)
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group, g.ruinsView.group], true);
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group, g.ruinsView.group, g.secretsView.group], true);
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
       const shown = g.loopShow.engineAt(h.object as Object3D);
@@ -6257,6 +6277,8 @@ export class Interaction {
         if (role === "landing" || role === "slip" || role === "boatyard" || role === "shipyard") return { kind: "piece", pieceId: kitPiece };
         // (A metro stop's entrance is all there is of it to see: a tap on it is a tap on the stop.)
         if (g.layout.getPiece(kitPiece)?.type === METRO_KIT) return { kind: "piece", pieceId: kitPiece };
+        // (A found secret: the whole site is its halt's, whose card a tap opens.)
+        if (isSecretKit(g.layout.getPiece(kitPiece)?.type ?? "straight-216")) return { kind: "piece", pieceId: kitPiece };
         continue;
       }
       // A level crossing's style (its barriers or gates) is its prop's.
@@ -6267,6 +6289,12 @@ export class Interaction {
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
       if (pieceId !== -1 && this.onSpan(pieceId, h.point.x, h.point.z)) return { kind: "piece", pieceId, deck: true, at: { x: h.point.x, z: h.point.z } };
       if (pieceId !== -1) return { kind: "piece", pieceId, at: { x: h.point.x, z: h.point.z } };
+      // A secret site not yet found, in its mist, on the land (one on land not yet bought: passed through, to the ground).
+      if (g.secretsView.holds(h.object)) {
+        const site = secretAt(g.landscape, h.point.x, h.point.z);
+        if (site) return { kind: "secret", secretId: site.id };
+        continue;
+      }
       // An old industry's ruin: its stub's (a tap opens its card; it stays put). One on land not yet bought: passed
       // through, to the ground.
       if (g.ruinsView.isRuin(h.object)) {

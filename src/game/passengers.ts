@@ -7,6 +7,7 @@ import { CELL } from "../landscape/grid";
 import type { Progress } from "./progress";
 import { statusOf } from "./town-life";
 import type { World } from "./world";
+import { noteTrip } from "./secrets";
 import { visitorFactor } from "./places";
 import { METRO_QUARTERS, METRO_SLOWER } from "./metro";
 
@@ -198,22 +199,23 @@ export function noteViews(world: World): void {
   }
 }
 
-/** Someone got off: pay their fare and count them. Returns the coins paid. */
-export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number, month?: number): number {
+/** Someone got off: pay their fare and count them (at a secret's halt, a tourist trip: `noteTrip`). Returns the coins paid. */
+export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number, month?: number, year = 0): number {
   // (The circus's town pays double: src/game/circus.ts.)
   const fare = fareFor(world, from, to, carId, month) * circusFare(p, to);
   p.coins += fare;
   p.riders++;
   // (Visitors counted, for the Day out sticker.)
   if (visitorsFor(world, from, to, month) > 1) p.counts.set("visitors", (p.counts.get("visitors") ?? 0) + 1);
+  if (world.economy.isLookout(to)) noteTrip(world, p, from, to, fare, year);
   return fare;
 }
 
 /** Put Game mode's passengers into the world's economy (seats and fares). */
-export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void, month?: () => number): void {
+export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void, month?: () => number, year?: () => number): void {
   world.economy.seatsOf = (carId) => seatsIn(world, carId);
   world.economy.onAlight = (from, to, carId) => {
-    const fare = payFare(world, p(), from, to, carId, month?.());
+    const fare = payFare(world, p(), from, to, carId, month?.(), year?.());
     paid?.(fare, from, to);
   };
 }

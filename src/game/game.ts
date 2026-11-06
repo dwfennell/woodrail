@@ -66,6 +66,7 @@ import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
 import { DepotView, inStationFootprint } from "../render/depot-view";
 import { RuinsView, type ShownRuin } from "../render/ruins-view";
+import { SecretsView, type ShownSecret } from "../render/secrets-view";
 import type { RuinOnMap } from "./map-markers";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
 import { inTunnel, setTunnels, tunnelsOn, archFloors, bridgeLevels, plinthLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
@@ -253,6 +254,8 @@ export class Game {
   /** Road vehicles' trips: their ways out and back, cached, and checked again after a road or track edit. */
   readonly vans: Vans;
   readonly propsView: PropsView;
+  /** Secret sites not yet found, in their mist (src/game/secrets.ts); a found one is its halt's kit piece. */
+  readonly secretsView: SecretsView;
   /** The kit pieces' models, drawn where their pieces stand (see `KitView`). */
   readonly kitView: KitView;
   /** The loop-the-loops' shows: a toy copy of an engine crossing one runs its loop (see `LoopShowView`). */
@@ -443,6 +446,8 @@ export class Game {
     this.scene.add(this.marksView.group, this.blockTint.mesh);
     this.propsView = new PropsView(this.propLibrary);
     this.scene.add(this.propsView.group);
+    this.secretsView = new SecretsView(this.propLibrary);
+    this.scene.add(this.secretsView.group);
     this.kitView = new KitView(this.propLibrary);
     // Signal skins show their signals' aspects (a bit for each road at red).
     this.kitView.signalState = (id) => this.sim.redSignals(id);
@@ -461,6 +466,7 @@ export class Game {
     // A model arriving (its code fetched and built) draws the props (and kits) that were waiting for it.
     this.propLibrary.onLoaded = (key) => {
       if (key.startsWith("kit:")) this.syncKits(true);
+      else if (SecretsView.draws(key)) this.syncSecrets(true);
       else {
         this.propsView.sync(this.shownProps(), this.hiddenProp, true);
         this.clockView.sync(this.props, this.hiddenProp, true);
@@ -598,6 +604,7 @@ export class Game {
       this.invalidate();
       if (this.ruinsView.lastBuilt > 0) console.info(`Woodrail: ruins built (${this.ruinsView.lastBuilt} tile(s), last ${this.ruinsView.lastBuildMs.toFixed(1)} ms)`);
     }
+    this.syncSecrets();
     // (The map view's ruin markers are made again only when the ruins shown change: `ruinsVersion`.)
     // (The markers copy what they show of a site, so the same ruins in a new world, the same places, are the same.)
     this.ruinsShown = shown.map((r) => ({ site: r.site, around: r.stub }));
@@ -606,6 +613,21 @@ export class Game {
       this.ruinsSig = sig;
       this.ruinsVersion++;
     }
+  }
+
+  /** Midsummer (June, by the railway's calendar): found standing stones wear their garlands. Set by the game's clock. */
+  midsummer = false;
+
+  /**
+   * Draw the secret sites not yet found, on the land and on the land around now shown, and found stones' midsummer
+   * dressing. Built again only when what's shown changes (`SecretsView.sync`), or with `force` (a model arrived). Call
+   * when the land or the land around changes, a secret is found, or midsummer comes or goes: never per frame.
+   */
+  syncSecrets(force = false): void {
+    const shown: ShownSecret[] = [];
+    for (const site of this.landscape.secrets ?? []) shown.push({ site, midsummer: this.midsummer });
+    for (const a of this.around) for (const site of a.land.secrets ?? []) shown.push({ site });
+    if (this.secretsView.sync(shown, force)) this.invalidate();
   }
 
   private ruinsSig = "";
@@ -1430,6 +1452,7 @@ export class Game {
     const pxScale = (this.canvas.clientHeight * Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio)) / (2 * Math.tan((this.camera.fov * Math.PI) / 360));
     updateFarDetail(this.camera.position, pxScale, moved);
     this.propsView.setDetail(this.camera.position, pxScale, moved);
+    this.secretsView.setDetail(this.camera.position, pxScale, moved);
     this.kitView.setDetail(this.camera.position, pxScale, moved);
     this.stage.update(this.camera);
     pulseBeacons(this.mats, now);
