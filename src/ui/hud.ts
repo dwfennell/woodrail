@@ -20,7 +20,7 @@ import { pillCount, pillText, type PillView } from "../game/research-text";
 export { trayKey, type TrayItem } from "./tray-catalogue";
 import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
-import { CreditsSheet } from "./credits-sheet";
+import type { CreditsSheet } from "./credits-sheet";
 import type { ExplainerSheet } from "./explainer-sheet";
 import { EXPLAINER_TITLES, explainerIdFor, type ExplainerId } from "./explainer-keys";
 
@@ -654,7 +654,9 @@ export class Hud {
       }, "menu-item"),
       button("Credits", "What Woodrail is made with, and their licences", () => {
         this.menu.hidden = true;
-        (this.credits ??= new CreditsSheet(this.root)).show();
+        // (Its code is loaded the first time it opens.)
+        if (this.credits) this.credits.show();
+        else void import("./credits-sheet").then(({ CreditsSheet }) => (this.credits ??= new CreditsSheet(this.root)).show());
       }, "menu-item credits-item-btn"),
       sep(),
       button("Title screen", "Save and go back to the title screen", () => {
