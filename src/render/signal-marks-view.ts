@@ -39,27 +39,26 @@ const LENS_TILT = Math.PI / 6;
 /**
  * The lamp on top of the head: a dome lit with the aspect shown, the head's own knob made a lamp (signals audit U1:
  * from the high angle a phone is held at, the lenses on the head's face were edge on and the aspect couldn't be seen).
- * Half again the old knob's width, so it reads zoomed out. Part of the lit lens's geometry: no draw of its own.
+ * Nearly twice the old knob's width, so it reads zoomed out. Part of the lit lens's geometry: no draw of its own.
  */
-const TOP_LAMP_R = 3.9;
+const TOP_LAMP_R = 4.8;
 /**
- * The chevron on the ground before the post, pointing the way the signal guards, lit with its aspect (signals audit
- * U2: a pair was two dark boxes, and which faced which way couldn't be told). Its length, width and how far before the
- * post it lies (mm). Part of the lit lamp's geometry too.
+ * The chevron on the ground by the post's foot, on its far side from the track, pointing the way the signal guards, lit
+ * with its aspect (signals audit U2: a pair was two dark boxes, and which faced which way couldn't be told). Its
+ * length and width, how far its tip is past the post along the track, and how far out from the post (mm): out from
+ * the track, not before the post along it, where on a curve it went under the track. Part of the lit lamp's geometry.
  */
-const CHEVRON_L = 9;
-const CHEVRON_W = 10;
-const CHEVRON_BACK = 13;
+const CHEVRON_L = 12;
+const CHEVRON_W = 13;
+const CHEVRON_TIP = 7;
+const CHEVRON_OUT = 15;
 
-/** A flat chevron (a V) pointing +x, its tip at x = 0, lying on the ground. */
+/** A flat arrowhead pointing +x (a filled wedge, notched at its back: a V read as a tick), its tip at x = 0, lying on the ground. */
 function chevron(): BufferGeometry {
-  const t = 3;
   const sh = new Shape();
   sh.moveTo(0, 0);
   sh.lineTo(-CHEVRON_L, CHEVRON_W / 2);
-  sh.lineTo(-CHEVRON_L - t, CHEVRON_W / 2);
-  sh.lineTo(-t, 0);
-  sh.lineTo(-CHEVRON_L - t, -CHEVRON_W / 2);
+  sh.lineTo(-CHEVRON_L * 0.7, 0);
   sh.lineTo(-CHEVRON_L, -CHEVRON_W / 2);
   sh.closePath();
   // (Shape in x/y, laid flat: y becomes z, extruded 1 mm up.)
@@ -157,7 +156,7 @@ function toyLight(mats: Materials): Part[] {
   // (A lit lamp: its lens and the dome on top, one geometry, so the aspect shows from above and from the side in one draw.)
   const dome = () => new SphereGeometry(TOP_LAMP_R, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, TOY_HEIGHT, 0);
   const lamp = (y: number) => {
-    const arrow = chevron().translate(-CHEVRON_BACK, 0, 0);
+    const arrow = chevron().translate(CHEVRON_TIP, 0, CHEVRON_OUT);
     const g = mergeGeometries([lens(LENS_R + 0.3, y, headX - 1.2).toNonIndexed(), dome().toNonIndexed(), arrow.toNonIndexed()]);
     if (!g) throw new Error("signal lamp: geometries don't merge");
     return g;
