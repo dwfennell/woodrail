@@ -4335,8 +4335,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (sheetLine !== -1 && !line) sheetLine = -1;
     const engines = line ? trainsOn(game.economy, line.id) : [];
     const now = performance.now();
-    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}`;
-    if (key === sheetKey && now - sheetAt < 250) return;
+    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}|${engines.length > 0 ? game.economy.routeOf(engines[0])?.next : ""}`;
+    // (Built again on a change, and, on the Trains tab while the game runs, 4 times a second: the trains' doings.)
+    if (key === sheetKey && (sheetTab !== "trains" || game.paused || now - sheetAt < 250)) return;
     sheetKey = key;
     sheetAt = now;
     const names = routeStops(game.world);
