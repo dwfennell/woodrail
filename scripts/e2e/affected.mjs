@@ -66,6 +66,7 @@ export const SUITES = {
   airport: { script: "e2e:airport", minutes: 8 },
   airship: { script: "e2e:airship", minutes: 8 },
   circus: { script: "e2e:circus", minutes: 6 },
+  grand: { script: "e2e:grand", minutes: 6 },
   clockmaker: { script: "e2e:clockmaker", minutes: 4 },
   power: { script: "e2e:power", minutes: 6 },
   radio: { script: "e2e:radio", minutes: 6 },
@@ -294,6 +295,9 @@ export const RULES = [
   [["src/game/airship.ts", "src/game/passengers.ts", "src/render/airship-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airship"]],
   // The airport (late-game spec A1).
   [["src/game/airports.ts", "src/game/passengers.ts", "src/render/planes-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airport"]],
+  // Grand projects as achievements (spec 2026-11-05-character-and-goals.md): the projects, the city's card, the
+  // Journal's Achievements tab, the stage models, rewards toward growth, and the site's prop.
+  [["src/game/grand.ts", "src/ui/grand-row.ts", "src/ui/goals-panel.ts", "src/catalogue/assets/grand.ts", "src/catalogue/build-parts.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/game/stickers.ts", "src/game/interaction.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/economy/economy.ts", "src/main.ts"], ["grand"]],
   // The touring circus (late-game spec K1).
   [["src/game/circus.ts", "src/game/passengers.ts", "src/game/rewards.ts", "src/game/progress.ts", "src/catalogue/assets/circus-cage.ts", "src/main.ts"], ["circus"]],
   // Time control (late-game spec, Clockmaker CA).

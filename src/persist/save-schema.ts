@@ -146,6 +146,10 @@ export const saveSchema = z.object({
   roadGot: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
   /** Each town's place under way (game/places.ts): town id, the place's id, and the goods it has had. Absent: none. */
   placePlans: z.array(z.tuple([z.number().int().min(0), z.string().max(40), z.record(z.string(), z.number().int().min(0))])).optional(),
+  /** Grand projects started (game/grand.ts): the project's id, its city's town id, stages done, its stage's goods so far, its site's prop id. Absent: none. */
+  grandPlans: z.array(z.tuple([z.string().max(40), z.number().int().min(0), z.number().int().min(0).max(10), z.record(z.string(), z.number().int().min(0)), z.number().int().min(-1)])).optional(),
+  /** What the Great Exhibition gave each town toward its growth, by kind. Absent: none. */
+  grandGift: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
   /** Lines: a colour, a name, and stops (depot indices in `depots`, what's done there, wait there to fill). */
   lines: z
     .array(

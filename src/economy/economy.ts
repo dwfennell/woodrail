@@ -559,6 +559,19 @@ export class Economy {
   placeWants: ((townId: number, kind: CargoKind) => number) | null = null;
   /** A unit went into a town's place under way. */
   onPlaceGoods: ((d: DepotState) => void) | null = null;
+  /**
+   * Grand projects started on this map (Game mode, game/grand.ts), by project id: the city it's in, its stages done,
+   * the goods its stage under way has had, its site's prop. Saved (`grandPlans`).
+   */
+  readonly grandPlans = new Map<string, { townId: number; stage: number; got: Bag; prop: number }>();
+  /** Town id → what the Great Exhibition gave it toward its growth when it opened (game/grand.ts). Saved. */
+  readonly grandGift = new Map<number, Bag>();
+  /**
+   * A unit of `kind` lands at town station `d`: does its city's grand project under way take it for its stage (Game
+   * mode: `GrandWorks`, which counts it in; null: never)? Taken, it goes into the project (unpaid, not toward growth),
+   * after the town's place under way has had what it wants.
+   */
+  grandTake: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
   private readonly services = new Map<number, Service>();
   /** Each stop list's `Later`s (see `laterOf`), and the counters they're keyed on. */
   private readonly laterCache = new WeakMap<readonly RouteStopDef[], LaterCache>();
@@ -1492,6 +1505,11 @@ export class Economy {
           this.onPlaceGoods?.(d);
           return;
         }
+      }
+      // Goods for the city's grand project under way (game/grand.ts): into its stage, as a place's are.
+      if (d.role === "town" && this.grandTake?.(d, kind)) {
+        this.wantsStamp++;
+        return;
       }
       // Goods for a station's delivery van (roads spec D5): onto its yard, for a town off the line (not this one).
       if (d.role === "town" && this.toVan?.(d, kind)) {

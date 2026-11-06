@@ -49,13 +49,14 @@ export interface TownStatus {
 }
 
 /**
- * What a town wants for level `n` with `smiles` (game/places.ts): each 😊 a twentieth less of every good, rounded up,
- * never less than one.
+ * What a town wants for level `n` with `smiles` (game/places.ts): each 😊 a twentieth less of every good, and `cut` a
+ * share less again (the Cathedral's: game/grand.ts), rounded up, never less than one.
  */
-export function wantsWith(n: number, smiles = 0): Bag {
+export function wantsWith(n: number, smiles = 0, cut = 0): Bag {
   const wants = townLevel(n).wants;
-  if (smiles <= 0) return wants;
-  const share = smileShare(smiles);
+  if (smiles <= 0 && cut <= 0) return wants;
+  // (A grand project's cut, the Cathedral's tenth, adds to the smiles': game/grand.ts.)
+  const share = smileShare(smiles) - cut;
   const out: Bag = {};
   for (const k of Object.keys(wants) as (keyof Bag)[]) out[k] = Math.max(1, Math.ceil(wants[k]! * share - 1e-9));
   return out;
@@ -65,11 +66,11 @@ export function wantsWith(n: number, smiles = 0): Bag {
  * Where a town stands, from everything it has received (and its smiles: what its places cut from each level's
  * wants). Pure: a save holds only what was received; smiles are read from the buildings standing.
  */
-export function townStatus(received: Bag, smiles = 0): TownStatus {
+export function townStatus(received: Bag, smiles = 0, cut = 0): TownStatus {
   let level = 0;
   let spent: Bag = {};
   for (;;) {
-    const wants = wantsWith(level, smiles);
+    const wants = wantsWith(level, smiles, cut);
     const next = plus(spent, wants);
     if (!covers(received, next)) {
       const got: Bag = {};

@@ -1919,7 +1919,8 @@ export class Interaction {
       else hit = null;
     }
     // (In Game mode, the town's houses only to move them about their town: a landmark not at all.)
-    if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || !this.propWithinReach(hit.propId))) hit = null;
+    // (A grand project's site neither: it stays where its city put it.)
+    if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || this.grandSite(hit.propId) || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     // By a free end, on nothing that can be taken hold of from here after all: it draws straight away.
@@ -2759,7 +2760,7 @@ export class Interaction {
     }
     if (p.kind === "prop") {
       // (A town's house in Game mode isn't selected: a tap there opens its town's card.)
-      if (this.townHouse(p.propId)) {
+      if (this.townHouse(p.propId) || this.grandSite(p.propId)) {
         const station = this.townStation(p.propId);
         if (station !== -1 && this.townCard) this.openDepot(station);
         else {
@@ -3597,8 +3598,21 @@ export class Interaction {
     const g = this.game;
     const building = g.props.get(propId)?.building;
     const found = building === undefined ? null : findBuilding(g.landscape, building);
-    const piece = found ? g.stations.get(found.town.id) : undefined;
+    // (A grand project's site: its city's.)
+    const site = this.grandSite(propId) ? (this.siteTown?.(propId) ?? -1) : -1;
+    const piece = found ? g.stations.get(found.town.id) : site >= 0 ? g.stations.get(site) : undefined;
     return piece === undefined ? -1 : (g.economy.depotAtPiece(piece)?.id ?? -1);
+  }
+
+  /**
+   * The town a grand project's site stands for (Game mode, src/game/grand.ts: set by main), or −1 for any other prop.
+   * Such a site is the city's: never lifted or taken up, and a tap opens its city's card.
+   */
+  siteTown: ((propId: number) => number) | null = null;
+
+  /** Is this prop a grand project's site in Game mode? */
+  private grandSite(propId: number): boolean {
+    return !this.propsEditable && (this.siteTown?.(propId) ?? -1) >= 0;
   }
 
   /** Is this prop a town's building in Game mode (moved only about its town: see town-moves.ts)? */
@@ -4023,6 +4037,7 @@ export class Interaction {
     } else if (hit.kind === "prop") {
       if (m.props.has(hit.propId)) return;
       if (this.townHouse(hit.propId)) note("house", "The town's houses stay");
+      else if (this.grandSite(hit.propId)) note("house", "Grand projects stay");
       else m.props.add(hit.propId);
     } else if (hit.kind === "depot") note("station", "Stations and depots stay");
     else if (hit.kind === "car") note("train", "Trains stay: take one off from its card");

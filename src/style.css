@@ -685,6 +685,32 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .sticker-name { overflow-wrap: anywhere; }
 .sticker-ticket { margin: 0 2px; min-height: 2.6em; font-size: 13px; line-height: 1.3; color: #6a5340; }
 .sticker-ticket b { color: #3a2a1c; }
+/* Achievements (the grand projects, src/game/grand.ts): a row each, its stage pips, reward and what's next. */
+.ach-pane { display: flex; flex-direction: column; gap: 6px; }
+.ach-pane[hidden] { display: none; }
+.ach-item { border-radius: 12px; background: rgba(255, 250, 240, 0.6); box-shadow: inset 0 0 0 2px #e2d3b8; }
+.ach-item.got { background: #fff1cf; box-shadow: inset 0 0 0 2px #e2b860; }
+.ach-row { display: flex; gap: 10px; align-items: flex-start; width: 100%; min-height: 44px; padding: 8px 10px; border: 0; background: none; font: inherit; text-align: left; color: #3a2a1c; cursor: pointer; }
+.ach-icon { flex: none; font-size: 28px; line-height: 34px; }
+.ach-item:not(.got) .ach-icon { filter: grayscale(0.7); opacity: 0.75; }
+.ach-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ach-name { font-size: 14.5px; font-weight: 800; }
+.ach-earned { font-size: 12px; font-weight: 800; color: #3f7a2c; white-space: nowrap; }
+.ach-pips { font-size: 13px; letter-spacing: 2px; color: #b07a2c; }
+.ach-reward { font-size: 12.5px; font-weight: 700; line-height: 1.3; color: #6b5038; }
+.ach-line { font-size: 12.5px; font-weight: 800; color: #7a5a3a; }
+.ach-stages { margin: 0 10px 6px 48px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: #6b5038; }
+.ach-stages li.done { color: #3f7a2c; }
+.ach-stages li.now { color: #7a3d10; }
+.ach-show { margin: 0 10px 10px 48px; }
+/* Narrow phones: the tab is its trophy alone, so the four tabs and ✕ fit. */
+@media (max-width: 420px) { .goals-tab .tab-word { display: none; } }
+/* A city's Grand projects row (on its card). */
+.grand-pips { font-size: 13px; letter-spacing: 2px; color: #b07a2c; }
+.grand-tile .grand-stage { padding: 6px 8px; font-size: 12.5px; }
+.grand-tile.earned { background: #fff1cf; border-color: #e2b860; }
+.grand-tile.building { background: #eef6e6; border-color: #9cc48a; }
+.grand-show { margin-top: auto; }
 /* Phones: the open Journal is a bottom sheet, like the Blueprints ticket (the chip stays at the top). */
 @media (max-width: 560px), (max-height: 520px) {
   .goals:not(.collapsed) .goals-body { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: min(62dvh, 520px); overflow-y: auto; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 -8px 26px rgba(60, 40, 20, 0.28); }

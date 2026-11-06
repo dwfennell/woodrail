@@ -76,6 +76,7 @@
     "e2e:airport": "node scripts/e2e/lib/run.mjs tools/e2e/airport.mjs",
     "e2e:airship": "node scripts/e2e/lib/run.mjs tools/e2e/airship.mjs",
     "e2e:circus": "node scripts/e2e/lib/run.mjs tools/e2e/circus.mjs",
+    "e2e:grand": "node scripts/e2e/lib/run.mjs tools/e2e/grand.mjs",
     "e2e:clockmaker": "node scripts/e2e/lib/run.mjs tools/e2e/clockmaker.mjs",
     "e2e:power": "node scripts/e2e/lib/run.mjs tools/e2e/power.mjs",
     "e2e:radio": "node scripts/e2e/lib/run.mjs tools/e2e/radio.mjs",

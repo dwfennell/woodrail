@@ -1,0 +1,318 @@
+// End-to-end grand projects as achievements in Game mode (`npm run e2e:grand [-- <out dir>]`), on a phone at 390×844
+// with touch (spec 2026-11-05-character-and-goals.md, "Grand projects are achievements with a reward"):
+//  1. Larkfield a City ★ and the other towns smaller (deliveries written as trains would bring them: a setup shortcut,
+//     as e2e:civic). The Journal has an Achievements tab (🏆): the Great Exhibition, its reward said before it starts.
+//  2. Larkfield's card has Grand projects: a tap on Build pays its coins, and its plot goes up on clear land by the
+//     city (a prop of the map). The tab says stage 1 of 4, in Larkfield.
+//  3. Each stage's goods by train to Larkfield's station (wagons standing at its crane): each stage moves the project
+//     on, its site's model swapped (foundations, the iron hall, the stands, opening day), the goods not paid for or
+//     counted toward growth. A picture of each stage.
+//  4. The payoff: finished, it's earned (✓ in the tab, a sticker), and every town grows a step: the smaller towns a
+//     level each, Larkfield a quarter of its next star.
+//  5. 0 frames idle with the finished hall in view; then a reload: the hall, the achievement and the growth all kept.
+//
+// Usage: npm run e2e:grand [-- <out dir>]   (default out: e2e-out/grand)
+import { existsSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright-core";
+import { createServer } from "vite";
+import { pinClocksIn } from "../../scripts/e2e/pin-clocks.mjs";
+
+const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const OUT = process.argv[2] ?? "e2e-out/grand";
+mkdirSync(OUT, { recursive: true });
+const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5402, strictPort: false }, logLevel: "error" });
+await server.listen();
+const PAGE = server.resolvedUrls.local[0];
+const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
+const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+// (Clocks held still: this counts idle frames, and a clock in view draws one at each minute.)
+pinClocksIn(b);
+const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+const p = await ctx.newPage();
+const errors = [];
+p.on("pageerror", (e) => errors.push(e.message));
+p.on("console", (m) => {
+  if (m.type() === "error") errors.push(`console: ${m.text()}`);
+});
+await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+let failures = 0;
+let checks = 0;
+const check = (what, ok, detail = "") => {
+  checks++;
+  if (!ok) failures++;
+  console.log(ok ? "PASS" : "FAIL", what, detail);
+};
+const shot = (n) => p.screenshot({ path: `${OUT}/${n}.jpg`, type: "jpeg", quality: 82, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
+const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+
+/** Tap the middle of the first visible element matching `selector` (scrolled into view first). */
+const tap = async (selector) => {
+  const at = await p.evaluate((selector) => {
+    const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
+    if (!el) return null;
+    el.scrollIntoView({ block: "center" });
+    return true;
+  }, selector);
+  if (!at) return false;
+  await p.waitForTimeout(250);
+  const again = await p.evaluate((selector) => {
+    const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  }, selector);
+  await p.touchscreen.tap(again.x, again.y);
+  await p.waitForTimeout(600);
+  return true;
+};
+
+const openGame = async () => {
+  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  await settle();
+  await p.keyboard.press("Escape");
+  await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
+};
+
+/** Close whatever a growth put up (its reward cards). */
+const closeSheets = () => p.evaluate(() => document.querySelectorAll(".growth-sheet:not([hidden]) .close").forEach((x) => x.click()));
+
+await p.goto(PAGE);
+await openGame();
+
+// ---- 1. Larkfield a City ★; the Journal's Achievements tab --------------------------------------------------------
+const town = await p.evaluate(() => {
+  const w = window.woodrail;
+  const t = w.world.landscape.towns[0];
+  return { id: t.id, name: t.name, station: w.world.stations.get(t.id), depot: w.world.economy.depotAtPiece(w.world.stations.get(t.id)).id };
+});
+for (let level = 1; level <= 4; level++) {
+  await p.evaluate(
+    async ({ level, id }) => {
+      const { townLevel } = await import("/src/game/towns.ts");
+      const w = window.woodrail;
+      const bag = {};
+      for (let k = 0; k < level; k++) for (const [g, n] of Object.entries(townLevel(k).wants)) bag[g] = (bag[g] ?? 0) + n;
+      w.economy.delivered.set(id, bag.planks ?? 0);
+      w.economy.deliveredGoods.set(id, bag);
+      w.invalidate();
+    },
+    { level, id: town.id },
+  );
+  await p.waitForFunction((l) => window.woodrail.progress().bestLevel >= l, level, { timeout: 30000 }).catch(() => console.log(`(level ${level} not seen)`));
+  await p.waitForTimeout(1000);
+  await closeSheets();
+}
+await p.evaluate(() => {
+  const w = window.woodrail;
+  const pr = w.progress();
+  pr.coins = 1000;
+  w.hud.setCoins(pr.coins);
+});
+await p.waitForTimeout(1500);
+await p.keyboard.press("Escape");
+const levels = () =>
+  p.evaluate(async () => {
+    const { statusOf } = await import("/src/game/town-life.ts");
+    const w = window.woodrail;
+    return w.world.landscape.towns.map((t) => ({ id: t.id, level: statusOf(w.world, t.id).level, fill: statusOf(w.world, t.id).fill }));
+  });
+const levels0 = await levels();
+check("1. Larkfield is a City ★", levels0.find((t) => t.id === town.id)?.level === 4, JSON.stringify(levels0));
+
+// The Journal: open it, then its 🏆 tab.
+const openJournal = async () => {
+  if (await p.evaluate(() => document.querySelector(".goals")?.classList.contains("collapsed"))) await tap(".goals-top > button");
+};
+await openJournal();
+const tabShown = await p.evaluate(() => [...document.querySelectorAll(".goals-tab")].some((t) => t.getAttribute("aria-label") === "Achievements" && !t.hidden));
+check("1. the Journal has an Achievements tab", tabShown);
+await tap('.goals-tab[aria-label="Achievements"]');
+const row = () => p.evaluate(() => {
+  const r = document.querySelector('.ach-row[data-id="exhibition"]');
+  return r ? { text: r.textContent, got: r.closest(".ach-item").classList.contains("got"), pips: r.querySelector(".ach-pips")?.textContent } : null;
+});
+const r1 = await row();
+check("1. it lists the Great Exhibition with its reward, to start from a City ★'s card", !!r1 && /Great Exhibition/.test(r1.text) && /Every town grows a step/.test(r1.text) && /City ★'s card/.test(r1.text), JSON.stringify(r1));
+const tabsFit = await p.evaluate(() => {
+  const tabs = document.querySelector(".goals-tabs").getBoundingClientRect();
+  return [...document.querySelectorAll(".goals-tabs > *")].filter((e) => !e.hidden).every((e) => e.getBoundingClientRect().right <= tabs.right + 1 && e.getBoundingClientRect().height >= 40);
+});
+check("1. the Journal's tabs fit at 390 px, 44 px tall", tabsFit);
+await tap('.ach-row[data-id="exhibition"]');
+check("1. a tap on it shows its four stages and their goods", (await p.evaluate(() => document.querySelectorAll(".ach-item.open .ach-stages li").length)) === 4);
+await shot("1-achievements");
+await p.evaluate(() => document.querySelector(".goals-close")?.click());
+
+// ---- 2. Build it from Larkfield's card ----------------------------------------------------------------------------
+const openCard = () => p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
+await openCard();
+await p.waitForTimeout(900);
+const tileState = () => p.evaluate(() => [...(document.querySelector('.grand-tile[data-grand="exhibition"]')?.classList ?? [])].find((c) => !["place-tile", "grand-tile"].includes(c)) ?? null);
+check("2. Larkfield's card offers the Great Exhibition", (await tileState()) === "build", String(await tileState()));
+await shot("2-card");
+const coins0 = await p.evaluate(() => window.woodrail.progress().coins);
+await tap('.grand-tile[data-grand="exhibition"] .place-btn');
+await p.waitForFunction(() => window.woodrail.world.economy.grandPlans.has("exhibition"), null, { timeout: 30000 }).catch(() => {});
+const started = await p.evaluate(() => {
+  const w = window.woodrail;
+  const plan = w.world.economy.grandPlans.get("exhibition");
+  const prop = plan ? w.world.props.get(plan.prop) : null;
+  return { plan: plan ? { ...plan } : null, prop: prop ? { asset: prop.asset, x: prop.x, z: prop.z, scale: prop.scale } : null, coins: w.progress().coins };
+});
+check("2. Build: it's under way in Larkfield, its 400 coins paid", started.plan?.townId === town.id && started.plan?.stage === 0 && started.coins === coins0 - 400, JSON.stringify(started));
+check("2. its plot stands on the map by the city", started.prop?.asset === "grand-exhibition-0", JSON.stringify(started.prop));
+const site = { x: started.prop?.x ?? 0, z: started.prop?.z ?? 0 };
+await p.waitForTimeout(600);
+check("2. the card says stage 1 of 4", /Stage 1 of 4/.test(await p.evaluate(() => document.querySelector('.grand-tile[data-grand="exhibition"]')?.textContent ?? "")));
+
+/** The camera on the site, from the south-east, a little above. */
+const lookAtSite = async (dist = 1100) => {
+  await p.evaluate(() => window.woodrail.hud.hideCards?.());
+  await p.evaluate(([v, dist]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, 0, v.z), dist, { duration: 0.2, phi: 0.95, theta: 0.7 }), [site, dist]);
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+  await settle();
+  await p.waitForTimeout(1200);
+};
+await lookAtSite();
+await shot("3-stage-0");
+
+// ---- 3. Each stage's goods by train ---------------------------------------------------------------------------------
+/**
+ * Bring `n` of `kind` to Larkfield's station by train: a train of the wagons that carry it driven in along a short line
+ * laid behind the station (laid once: setup), halting there to be unloaded by the station's crane, then put back in the
+ * box. The game's own sim and economy, ticked here with the game paused (as e2e:civic: SwiftShader draws too few
+ * frames to run them in real time).
+ */
+const bring = async (kind, n) =>
+  p.evaluate(
+    async ({ station, kind, n }) => {
+      const { CARRIES } = await import("/src/economy/cargo.ts");
+      const { WAGON_CAPACITY } = await import("/src/economy/constants.ts");
+      const w = window.woodrail;
+      const at = w.layout.getPiece(station).pose;
+      const c = Math.cos(at.heading);
+      const s = Math.sin(at.heading);
+      const along = (k) => ({ x: at.x + c * 216 * k, z: at.z + s * 216 * k, heading: at.heading });
+      if (window.__approach === undefined) {
+        const before = [-6, -5, -4, -3, -2, -1].map((k) => w.layout.addPiece("straight-216", along(k)));
+        window.__approach = before[before.length - 4];
+        w.trackChanged();
+      }
+      const wagon = Object.entries(CARRIES).find(([car, kinds]) => car !== "passenger" && kinds.includes(kind))?.[0] ?? "van";
+      const cap = WAGON_CAPACITY;
+      let brought = 0;
+      for (let left = n; left > 0; ) {
+        const take = Math.min(left, cap * 4);
+        const placed = w.sim.addTrain(["engine", ...Array(Math.ceil(take / cap)).fill(wagon)], { pieceId: window.__approach, pathIndex: 0, reversed: false, s: 150 });
+        if (placed.kind !== "placed") return { brought, why: placed.kind };
+        const train = w.sim.getTrain(placed.trainId);
+        const cars = train.cars.map((x) => x.id);
+        let k = take;
+        for (const car of train.cars.slice(1)) {
+          const m = Math.min(cap, k);
+          w.economy.setCargo(car.id, kind, m);
+          k -= m;
+        }
+        w.sim.setLever(train.cars[0].id, 1);
+        const onBoard = () => cars.reduce((m, id) => m + (w.economy.cargoOf(id).kind === kind ? w.economy.cargoOf(id).count : 0), 0);
+        w.paused = true;
+        for (let t = 0; t < 120 * 240 && onBoard() > 0; t++) {
+          w.sim.tick();
+          w.economy.tick();
+        }
+        w.paused = false;
+        brought += take - onBoard();
+        for (const id of new Set(cars.map((x) => w.sim.findCar(x)?.train.id))) if (id !== undefined) w.sim.removeTrain(id);
+        left -= take;
+      }
+      return { brought };
+    },
+    { station: town.station, kind, n },
+  );
+
+const growthNow = () =>
+  p.evaluate(async (id) => {
+    const { receivedBy } = await import("/src/game/town-life.ts");
+    return receivedBy(window.woodrail.world, id);
+  }, town.id);
+const stages = await p.evaluate(async () => {
+  const { grandOf } = await import("/src/game/grand.ts");
+  return grandOf("exhibition").stages.map((s) => ({ name: s.name, goods: s.goods }));
+});
+const levelsBefore = await levels();
+for (const [i, stage] of stages.entries()) {
+  const before = await growthNow();
+  const results = [];
+  for (const [kind, n] of Object.entries(stage.goods)) results.push({ kind, ...(await bring(kind, n)) });
+  await p.waitForFunction((s) => (window.woodrail.world.economy.grandPlans.get("exhibition")?.stage ?? 0) > s, i, { timeout: 30000 }).catch(() => console.log(`(stage ${i + 1} not done within 30 s)`));
+  await p.waitForTimeout(800);
+  await closeSheets();
+  const now = await p.evaluate(() => {
+    const w = window.woodrail;
+    const plan = w.world.economy.grandPlans.get("exhibition");
+    return { stage: plan.stage, asset: w.world.props.get(plan.prop)?.asset };
+  });
+  check(`3. trains brought ${stage.name.toLowerCase()}'s goods`, results.every((r) => r.brought === stage.goods[r.kind]), JSON.stringify(results));
+  check(`3. ${stage.name} done: stage ${i + 1} of 4, the site shows it`, now.stage === i + 1 && now.asset === `grand-exhibition-${i + 1}`, JSON.stringify(now));
+  if (i < stages.length - 1) {
+    const after = await growthNow();
+    const counted = Object.keys(stage.goods).filter((k) => (after[k] ?? 0) !== (before[k] ?? 0));
+    check(`3. ${stage.name}'s goods went into it, not toward Larkfield's growth`, counted.length === 0, `${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+  }
+  await lookAtSite();
+  await shot(`3-stage-${i + 1}`);
+}
+
+// ---- 4. The payoff: earned, and every town grows a step ---------------------------------------------------------------
+await p.waitForTimeout(2000);
+await closeSheets();
+const levels1 = await levels();
+const grew = levels1.filter((t) => t.id !== town.id).map((t) => t.level - levelsBefore.find((x) => x.id === t.id).level);
+check("4. every other town grew a level", grew.length > 0 && grew.every((d) => d === 1), JSON.stringify({ before: levelsBefore, after: levels1 }));
+const lark0 = levelsBefore.find((t) => t.id === town.id);
+const lark1 = levels1.find((t) => t.id === town.id);
+check("4. Larkfield's next star is a quarter filled (or more)", lark1.level > lark0.level || lark1.fill >= lark0.fill + 0.2, `${JSON.stringify(lark0)} → ${JSON.stringify(lark1)}`);
+const news = await p.evaluate(() => (window.woodrail.journal.toJSON().entries ?? []).map((e) => e.text).slice(0, 12));
+check("4. the News says it opened", news.some((t) => /Great Exhibition opens/.test(t)), JSON.stringify(news.slice(0, 5)));
+const sticker = await p.evaluate(() => window.woodrail.stickers().ids());
+check("4. its sticker is earned", sticker.includes("grand-exhibition"), JSON.stringify(sticker));
+await openJournal();
+await tap('.goals-tab[aria-label="Achievements"]');
+const r4 = await row();
+check("4. the Achievements tab: ✓ Earned, all four stages", !!r4 && r4.got && /Earned/.test(r4.text) && r4.pips === "●●●●", JSON.stringify(r4));
+await shot("4-earned");
+await p.evaluate(() => document.querySelector(".goals-close")?.click());
+
+// ---- 5. Idle frames, then a reload ----------------------------------------------------------------------------------
+await lookAtSite(900);
+await shot("5-finished");
+const idle = await p.evaluate(async () => {
+  const w = window.woodrail;
+  await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 20000))]);
+  const n0 = w.framesDrawn;
+  await new Promise((r) => setTimeout(r, 3000));
+  return w.framesDrawn - n0;
+});
+check("5. 0 frames drawn idle with the finished hall in view", idle === 0, `${idle} frames`);
+await p.waitForTimeout(3000); // (saved)
+await p.reload();
+await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+await settle();
+const back = await p.evaluate(async () => {
+  const w = window.woodrail;
+  const plan = w.world.economy.grandPlans.get("exhibition");
+  return { stage: plan?.stage, asset: plan ? w.world.props.get(plan.prop)?.asset : null };
+});
+const levels2 = await levels();
+check("5. after a reload: the finished hall, earned", back.stage === 4 && back.asset === "grand-exhibition-4", JSON.stringify(back));
+check("5. after a reload: the towns as big as they grew", JSON.stringify(levels2.map((t) => t.level)) === JSON.stringify(levels1.map((t) => t.level)), `${JSON.stringify(levels1)} → ${JSON.stringify(levels2)}`);
+check("no errors on the page", errors.length === 0, errors.slice(0, 3).join(" | "));
+
+console.log(`${checks - failures}/${checks} passed`);
+await b.close();
+await server.close();
+process.exit(failures > 0 ? 1 : 0);

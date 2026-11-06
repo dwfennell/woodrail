@@ -1,0 +1,288 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { loadFootprints } from "../props/footprints-testing";
+import { checkProp, TrackIndex, type Footprint } from "../props/placement";
+import { deserializeWorld, serializeWorld } from "../persist/save";
+import { CATALOGUE } from "../catalogue/assets";
+import { kindsOf, total } from "../economy/goods";
+import { advanceGrands, achievements, earned, exhibitionGift, giveExhibition, GRAND_LEVEL, grandOf, grandRow, GRANDS, growthCut, siteAsset, siteSpot, stageLacks, startGrand, unionFootprint, type GrandId } from "./grand";
+import { Progress } from "./progress";
+import { growthOf, receivedBy, statusOf, TownLife, type TownLifeHost } from "./town-life";
+import { townLevel, townStatus, wantsWith } from "./towns";
+import { buildStarterWorld, type World } from "./world";
+import { deliverByTrain } from "./workshop-testing";
+import type { Town } from "../landscape";
+
+/**
+ * Grand projects (spec 2026-11-05-character-and-goals.md): started from a City ★'s card, built in stages from goods
+ * brought by train to its station, and finished for a lasting reward. By the player's path: Build on the card
+ * (`startGrand`: coins paid, its site found by the city), each stage's goods by train (`deliverByTrain` to the city's
+ * station), its stages moving on as TownLife sees the goods in (`advanceGrands`, the site's model swapped).
+ */
+
+let footprintOf: (asset: string) => Footprint | undefined = () => undefined;
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg", "scene", "grand"]);
+}, 60_000);
+
+/** A starter world with Game mode's towns living, and what TownLife said (grand goods in, towns grown). */
+function game() {
+  const w = buildStarterWorld();
+  const said = { grand: 0, grew: [] as number[] };
+  const host: TownLifeHost = Object.assign(w, { footprintOf: (a: string) => footprintOf(a), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+  const life = new TownLife(host, { grew: (t) => said.grew.push(t.id), received: () => {}, grandGoods: () => said.grand++ });
+  life.reset();
+  const p = Progress.fresh();
+  return { w, life, p, said };
+}
+
+/** A town grown to `level` (deliveries written as trains would bring them: a setup shortcut, as places.test.ts). */
+function growTo(w: World, life: TownLife, townId: number, level: number): void {
+  const bag: Record<string, number> = {};
+  for (let k = 0; k < level; k++) for (const [g, n] of Object.entries(townLevel(k).wants)) bag[g] = (bag[g] ?? 0) + n!;
+  w.economy.delivered.set(townId, bag.planks ?? 0);
+  w.economy.deliveredGoods.set(townId, { ...bag });
+  life.update();
+}
+
+/** Every stage's footprint of a project, together (its whole site), as main finds it. */
+/** Saved and loaded again, as a reload does. */
+function reload(w: World): World {
+  const back = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+  if (!back.ok) throw new Error(back.error);
+  return back.value;
+}
+
+const siteOf = (id: GrandId) => {
+  const g = grandOf(id)!;
+  return unionFootprint(
+    Array.from({ length: g.stages.length + 1 }, (_, i) => footprintOf(siteAsset(g, i))),
+    g.scale,
+  )!;
+};
+
+/** Tap Build on a project's tile, as main does: its site found by the city, its plot put up. */
+function build(w: World, p: Progress, town: Town, id: GrandId) {
+  const level = statusOf(w, town.id).level;
+  return startGrand(w, p, town, level, id, () => siteSpot(w, town, siteOf(id), footprintOf), (asset, pose, scale) => w.props.add(asset, pose, undefined, { scale }).id);
+}
+
+/** Swap a site's model as main does (`advanceGrand`). */
+const swap = (w: World) => (prop: number, asset: string) => {
+  const p = w.props.get(prop)!;
+  w.props.remove(prop);
+  w.props.add(asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, prop, { scale: p.scale });
+};
+
+/** Bring a stage's goods by train to the city's station, kind by kind, and let TownLife and the stages see them. */
+function bringStage(w: World, life: TownLife, town: Town, id: GrandId) {
+  const plan = w.economy.grandPlans.get(id)!;
+  const stage = grandOf(id)!.stages[plan.stage];
+  for (const k of kindsOf(stage.goods)) deliverByTrain(w, w.stations.get(town.id)!, k, stage.goods[k]!);
+  life.update();
+  return advanceGrands(w, swap(w));
+}
+
+describe("the grand projects' table", () => {
+  it("each has stages of goods, a price, a reward and a model per stage (0: its plot)", () => {
+    const ids = new Set(CATALOGUE.map((a) => a.id));
+    for (const g of GRANDS) {
+      expect(g.stages.length, g.id).toBeGreaterThanOrEqual(3);
+      expect(g.coins, g.id).toBeGreaterThan(0);
+      expect(g.reward.length, g.id).toBeGreaterThan(10);
+      for (const s of g.stages) expect(total(s.goods), `${g.id} ${s.name}`).toBeGreaterThan(0);
+      for (let i = 0; i <= g.stages.length; i++) expect(ids.has(siteAsset(g, i)), siteAsset(g, i)).toBe(true);
+    }
+  });
+});
+
+describe("the City ★ card's Grand projects row", () => {
+  it("waits for a City ★, then offers Build for its coins; short of coins it says so", () => {
+    const { w, life, p } = game();
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, 3);
+    expect(grandRow(w, p, town, statusOf(w, town.id).level)[0].state).toBe("level");
+    growTo(w, life, town.id, GRAND_LEVEL);
+    p.coins = 10;
+    expect(grandRow(w, p, town, statusOf(w, town.id).level)[0].state).toBe("short");
+    p.coins = 1000;
+    const tile = grandRow(w, p, town, statusOf(w, town.id).level)[0];
+    expect(tile.state).toBe("build");
+    expect(tile.note).toContain(String(grandOf("exhibition")!.coins));
+  });
+
+  it("is one per map: started in one city, another says so", () => {
+    const { w, life, p } = game();
+    const [a, b] = w.landscape.towns;
+    growTo(w, life, a.id, GRAND_LEVEL);
+    growTo(w, life, b.id, GRAND_LEVEL);
+    p.coins = 1000;
+    expect(build(w, p, a, "exhibition")).toBe("started");
+    expect(grandRow(w, p, b, statusOf(w, b.id).level)[0].state).toBe("elsewhere");
+    expect(grandRow(w, p, a, statusOf(w, a.id).level)[0].state).toBe("building");
+    // (Tapped again: nothing.)
+    expect(build(w, p, b, "exhibition")).toBe("not-now");
+  });
+});
+
+describe("starting a grand project", () => {
+  it("pays its coins and puts its plot on clear, level land by the city: clear of track, props and the town", () => {
+    const { w, life, p } = game();
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, GRAND_LEVEL);
+    p.coins = 1000;
+    const g = grandOf("exhibition")!;
+    expect(build(w, p, town, "exhibition")).toBe("started");
+    expect(p.coins).toBe(1000 - g.coins);
+    const plan = w.economy.grandPlans.get("exhibition")!;
+    expect(plan).toMatchObject({ townId: town.id, stage: 0, got: {} });
+    const prop = w.props.get(plan.prop)!;
+    expect(prop.asset).toBe("grand-exhibition-0");
+    expect(prop.scale).toBe(g.scale);
+    // Its whole site (every stage's) was clear where it stands.
+    const c = checkProp({ land: w.landscape, track: new TrackIndex(w.layout), props: w.props, footprint: footprintOf }, siteOf("exhibition"), prop, "land", prop.id);
+    expect(c.kind).toBe("clear");
+    expect(Math.hypot(prop.x - town.centre.x, prop.z - town.centre.z)).toBeLessThan(1400);
+  });
+
+  it("with no room by the city, nothing is paid or put up", () => {
+    const { w, life, p } = game();
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, GRAND_LEVEL);
+    p.coins = 1000;
+    const props = w.props.size;
+    expect(startGrand(w, p, town, GRAND_LEVEL, "exhibition", () => null, () => -1)).toBe("no-room");
+    expect(p.coins).toBe(1000);
+    expect(w.economy.grandPlans.size).toBe(0);
+    expect(w.props.size).toBe(props);
+  });
+});
+
+describe("building it, stage by stage, by train", () => {
+  it("a stage's goods go into it at the city's station (unpaid, not toward growth), and it moves on: its model swapped", () => {
+    const { w, life, p, said } = game();
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, GRAND_LEVEL);
+    p.coins = 1000;
+    build(w, p, town, "exhibition");
+    const plan = w.economy.grandPlans.get("exhibition")!;
+    const before = receivedBy(w, town.id);
+    // Half the first stage's stone: it's had that, the city none of it.
+    const left = deliverByTrain(w, w.stations.get(town.id)!, "stone", 10);
+    expect(left).toBe(0);
+    expect(plan.got.stone).toBe(10);
+    expect(receivedBy(w, town.id).stone).toBe(before.stone);
+    expect(stageLacks("exhibition", plan, "stone")).toBe(10);
+    life.update();
+    expect(said.grand).toBeGreaterThan(0);
+    expect(advanceGrands(w, swap(w))).toEqual([]);
+    // The rest of the stage: it moves on to the iron hall, and its site shows the foundations.
+    const ev = bringStage(w, life, town, "exhibition");
+    expect(ev).toEqual([{ kind: "stage", id: "exhibition", stage: 1 }]);
+    expect(plan.stage).toBe(1);
+    expect(plan.got).toEqual({});
+    expect(w.props.get(plan.prop)!.asset).toBe("grand-exhibition-1");
+  });
+
+  it("takes only what its stage under way lacks: more of a filled good goes to the city as ever", () => {
+    const { w, life, p } = game();
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, GRAND_LEVEL);
+    p.coins = 1000;
+    build(w, p, town, "exhibition");
+    const plan = w.economy.grandPlans.get("exhibition")!;
+    const stone = receivedBy(w, town.id).stone ?? 0;
+    deliverByTrain(w, w.stations.get(town.id)!, "stone", 24);
+    expect(plan.got.stone).toBe(20);
+    expect(receivedBy(w, town.id).stone).toBe(stone + 4);
+  });
+
+  it("four stages by train: earned, an achievement in the Journal, its site the finished hall", () => {
+    const { w, life, p } = game();
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, GRAND_LEVEL);
+    p.coins = 1000;
+    build(w, p, town, "exhibition");
+    const all = [];
+    for (let i = 0; i < 4; i++) all.push(...bringStage(w, life, town, "exhibition"));
+    expect(all.map((e) => e.kind)).toEqual(["stage", "stage", "stage", "earned"]);
+    expect(earned(w, "exhibition")).toBe(true);
+    expect(w.props.get(w.economy.grandPlans.get("exhibition")!.prop)!.asset).toBe("grand-exhibition-4");
+    const view = achievements(w, true).find((a) => a.id === "exhibition")!;
+    expect(view).toMatchObject({ done: 4, of: 4, earned: true, town: town.name });
+    // Finished, it takes nothing more: stone goes to the city.
+    expect(stageLacks("exhibition", w.economy.grandPlans.get("exhibition")!, "stone")).toBe(0);
+    expect(grandRow(w, p, town, statusOf(w, town.id).level)[0].state).toBe("earned");
+  });
+});
+
+describe("the Great Exhibition's reward: every town grows a step", () => {
+  it("a town below a city is given all it lacks for its next level; a city a quarter of its next star's wants", () => {
+    expect(exhibitionGift(1, { planks: 8 }, { planks: 3 })).toEqual({ planks: 5 });
+    expect(exhibitionGift(4, { planks: 33, iron: 10 }, { planks: 30, iron: 0 })).toEqual({ planks: 3, iron: 3 });
+  });
+
+  it("given as it opens, every town below a city grows a level on the next update, and it's saved", () => {
+    const { w, life, said } = game();
+    const [city, ...rest] = w.landscape.towns;
+    growTo(w, life, city.id, GRAND_LEVEL);
+    const before = new Map(w.landscape.towns.map((t) => [t.id, statusOf(w, t.id).level]));
+    const cityFill = statusOf(w, city.id).fill;
+    giveExhibition(w, w.landscape, (id) => statusOf(w, id));
+    life.rewardsChanged();
+    said.grew.length = 0;
+    life.update();
+    for (const t of rest) expect(statusOf(w, t.id).level, t.name).toBe(before.get(t.id)! + 1);
+    expect(new Set(said.grew)).toEqual(new Set(rest.map((t) => t.id)));
+    expect(statusOf(w, city.id).level).toBe(GRAND_LEVEL);
+    expect(statusOf(w, city.id).fill).toBeGreaterThan(cityFill + 0.2);
+    // Saved with the world, and held after loading.
+    const back = reload(w);
+    for (const t of w.landscape.towns) expect(growthOf(back, t.id), t.name).toEqual(growthOf(w, t.id));
+  });
+});
+
+describe("rewards that cut what towns need (the Cathedral's tenth)", () => {
+  it("adds to the smiles' cut, rounded up, never below one; none until earned", () => {
+    expect(wantsWith(4, 0, 0.1)).toEqual(Object.fromEntries(Object.entries(townLevel(4).wants).map(([k, n]) => [k, Math.ceil(n! * 0.9 - 1e-9)])));
+    expect(wantsWith(0, 2, 0.1).planks).toBe(Math.ceil(4 * 0.8 - 1e-9));
+    const { w } = game();
+    expect(growthCut(w)).toBe(0);
+    expect(townStatus({ planks: 3 }, 0, 0.25).level).toBe(1);
+  });
+});
+
+describe("saves", () => {
+  it("keep a project under way: its city, stages done, goods so far and site", () => {
+    const { w, life, p } = game();
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, GRAND_LEVEL);
+    p.coins = 1000;
+    build(w, p, town, "exhibition");
+    bringStage(w, life, town, "exhibition");
+    deliverByTrain(w, w.stations.get(town.id)!, "iron", 5);
+    const plan = w.economy.grandPlans.get("exhibition")!;
+    const back = reload(w);
+    expect(back.economy.grandPlans.get("exhibition")).toEqual(plan);
+    expect(back.props.get(plan.prop)!.asset).toBe("grand-exhibition-1");
+  });
+});
+
+describe("the early game is as it was", () => {
+  it("with no project, a town's status is what it was before projects (no gift, no cut)", () => {
+    const { w, life } = game();
+    for (const t of w.landscape.towns) growTo(w, life, t.id, 2);
+    for (const t of w.landscape.towns) expect(statusOf(w, t.id)).toEqual(townStatus(growthOf(w, t.id), 0));
+    expect(w.economy.grandGift.size).toBe(0);
+    expect(achievements(w, false).every((a) => !a.earned && a.done === 0)).toBe(true);
+  });
+
+  it("no project can start below City ★: the earliest is after the bands' 180-minute window", () => {
+    const { w, life, p } = game();
+    p.coins = 10_000;
+    const town = w.landscape.towns[0];
+    for (let level = 0; level < GRAND_LEVEL; level++) {
+      growTo(w, life, town.id, level);
+      for (const g of GRANDS) expect(startGrand(w, p, town, statusOf(w, town.id).level, g.id, () => ({ x: 0, z: 0, heading: 0, y: 0 }), () => 0), `${g.id} at ${level}`).toBe("not-now");
+    }
+  });
+});
