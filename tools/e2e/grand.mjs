@@ -404,6 +404,9 @@ const royal = await p.evaluate(() => {
   return { look: pr.owned.get("look:royal") ?? 0, tile: [...document.querySelectorAll(".tray-item, .tray button")].some((e) => /Royal Train/.test(e.getAttribute("aria-label") ?? e.textContent ?? "")) };
 });
 check("6. Royal Train: finished, it's given into the toy box", royal.look === 1, JSON.stringify(royal));
+// (Its saloons are coaches: shown once coaches are known, as any coach is. A player has them long before a City ★:
+// learned here as setup.)
+await p.evaluate(() => window.woodrail.learn("passengers"));
 const royalTile = await p.evaluate(async () => {
   const { TRAIN_ITEMS } = await import("/src/ui/tray-catalogue.ts");
   const item = TRAIN_ITEMS.find((x) => x.label === "Royal Train");
