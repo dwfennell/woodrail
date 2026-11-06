@@ -5262,7 +5262,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if ((!stopHintSeen || storeHint) && stopPicked === -1 && !viaPicked && !planning) {
         const hint = document.createElement("div");
         hint.className = "route-hint";
-        hint.textContent = storeHint ? "Tap the warehouse stop to set Only drop or Only pick up" : "Tap a stop for options";
+        hint.textContent = storeHint ? "Tap the warehouse stop to set whether it drops or picks up there" : "Tap a stop for options";
         box.append(hint);
       }
       // A warehouse stop where the route would drop or pick up a good but the warehouse's own setting says no (the

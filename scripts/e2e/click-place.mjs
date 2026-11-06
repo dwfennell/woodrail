@@ -1005,42 +1005,28 @@ try {
   await p.keyboard.press("Control+z");
   await frames(p);
   const undone = await route();
-  check("desktop (F1): Ctrl+Z while planning takes the stop just added off, the train heading where it did", JSON.stringify(undone) === JSON.stringify(one) && (await p.evaluate(() => document.querySelector(".engine-extra .route-plan.on") !== null)), JSON.stringify({ undone, one }));
+  check("desktop (F1): Ctrl+Z while planning takes the stop just added off, the train heading where it did", JSON.stringify(undone) === JSON.stringify(one) && (await p.evaluate(() => document.querySelector(".line-sheet .route-plan.on") !== null)), JSON.stringify({ undone, one }));
   await still();
   await clickOn({ piece: setup.pieces[1] });
-  await clickButton(".engine-extra .route-plan.on");
+  await clickButton(".line-sheet .route-plan.on");
+  // (The stop's options are in the line sheet: its chip opens it there.)
   await clickButton('.engine-extra .route-chip[data-stop="1"]');
-  const opts = await p.evaluate(() => ({ modes: [...document.querySelectorAll(".engine-extra .route-mode")].map((b) => b.textContent), pass: !!document.querySelector(".engine-extra .route-pass") }));
-  await clickButton('.engine-extra .route-mode[data-mode="drop"]');
+  const opts = await p.evaluate(() => {
+    const open = document.querySelector(".ls-stop.open");
+    return { ticks: [...(open?.querySelectorAll(".ls-ticks .ls-tick") ?? [])].map((b) => `${b.textContent}:${b.getAttribute("aria-pressed")}`), note: open?.querySelector(".ls-note")?.textContent ?? "" };
+  });
+  await clickButton(".ls-stop.open .ls-pick");
   const dropped = await route();
-  check("desktop (F2): the stop's three modes, Only drop clicked; no Pass by with two stops", opts.modes.length === 3 && !opts.pass && dropped.stops.length === 2 && dropped.stops[1].a === "drop", JSON.stringify({ opts, dropped }));
-  // (Clicked again, up to 3 times, until it asks: the card's tap guard rightly drops a click on a button that just
-  // moved, and the card's status line above can change its height at any moment.)
-  // (Its "Forget …?" lasts 4 s: read at once, not after a frame. The oval's forest works in Sandbox (anywhere), so its
-  // axe swings and every frame is drawn: two took 4.8 s at 1280×800 under software GL, past the ask.)
-  // (Take off line is in the line's edit view: Edit first.)
-  await clickButton(".engine-extra .route-plan:not(.on)");
-  for (let k = 0; k < 3 && !(await p.evaluate(() => !!document.querySelector(".engine-extra .route-leave.asking"))); k++) await clickButton(".engine-extra .route-leave:not(.asking)", false);
-  // (The second click at once, where it is: "Forget …?" waits 4 s, and on a busy page waiting for it to hold still
-  // takes longer. It doesn't move.)
-  const ask = await p.waitForFunction(() => { const e = document.querySelector(".engine-extra .route-leave.asking"); if (!e) return null; const r = e.getBoundingClientRect(); return { text: e.textContent, lines: window.woodrail.economy.lines.size, x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, null, { timeout: 30000 }).then((h) => h.jsonValue());
-  // (Not before 300 ms: the guard drops a click on a button that came into place within 150 ms, and Forget has just
-  // replaced Leave. Again, while it still asks, if a click didn't take.)
-  for (let k = 0; k < 3; k++) {
-    await p.waitForTimeout(300);
-    const at = await p.evaluate(() => { const e = document.querySelector(".engine-extra .route-leave.asking"); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
-    if (!at || (await p.evaluate(() => window.woodrail.economy.lines.size)) === 0) break;
-    await p.mouse.click(at[0], at[1]);
-    await frames(p);
-  }
-  const text = ask.text;
-  const asked = { lines: ask.lines };
+  check("desktop (F2): the stop's ticks (Drop, Pick up), Pick up clicked off: Only drop; with two stops, it can't pass by (said)", opts.ticks.slice(0, 2).join(",") === "Drop:true,Pick up:true" && /pass by needs 3 stops/.test(opts.note) && dropped.stops.length === 2 && dropped.stops[1].a === "drop", JSON.stringify({ opts, dropped }));
+  // F3 (lines stand alone, 2026-11-06): Take off on the sheet's Trains tab takes the train off and keeps the line.
+  await clickButton(".line-sheet .ls-tab[data-tab='trains']");
+  await clickButton(".line-sheet .ls-train-off");
   const gone = await route();
-  check("desktop (F3): Take off line asks first (\"Forget …?\"), the second click forgets the line", asked.lines === 1 && /^Forget/.test(text ?? "") && gone.lines === 0 && gone.stops.length === 0, JSON.stringify({ asked, text, gone }));
+  check("desktop (F3): Take off takes the train off its line, the line kept", gone.lines === 1 && gone.stops.length === 0, JSON.stringify(gone));
   await p.keyboard.press("Control+z");
   await frames(p);
   const back = await route();
-  check("desktop (F1): Ctrl+Z brings the line back, Only drop and all", back.lines === 1 && back.stops.length === 2 && back.stops[1].a === "drop", JSON.stringify(back));
+  check("desktop (F1): Ctrl+Z puts the train back on the line, Only drop and all", back.lines === 1 && back.stops.length === 2 && back.stops[1].a === "drop", JSON.stringify(back));
   await ctx.close();
 } catch (e) {
   check("desktop routes: ran to the end", false, String(e?.message ?? e).split("\n")[0]);

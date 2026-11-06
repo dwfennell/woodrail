@@ -300,7 +300,7 @@ async function phone() {
     if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await h.tapOn({ engine });
     await h.tapButton(".engine-extra .route-plan");
     for (const d of stops) await h.tapOn({ depot: d });
-    await h.tapButton(".engine-extra .route-plan.on");
+    await h.tapButton(".line-sheet .route-plan.on");
     const got = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, engine);
     await p.keyboard.press("Escape");
     return got;
