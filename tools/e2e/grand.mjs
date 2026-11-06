@@ -216,11 +216,21 @@ const bring = async (kind, n, station = town.station) =>
           }
           return true;
         };
-        const side = clear(-1) ? -1 : 1;
-        const along = (k) => ({ x: at.x + side * c * 216 * k, z: at.z + side * s * 216 * k, heading: side < 0 ? at.heading : at.heading + Math.PI });
-        const before = [6, 5, 4, 3, 2, 1].map((k) => w.layout.addPiece("straight-216", along(k)));
-        window.__approach[station] = before[before.length - 4];
-        w.trackChanged();
+        // (Laid already, before a reload: the same line again, found where it was laid.)
+        const laidAt = (side) => {
+          const x = at.x + side * c * 216 * 4;
+          const z = at.z + side * s * 216 * 4;
+          return w.layout.pieceIds().find((id) => w.layout.getPiece(id).type === "straight-216" && Math.hypot(w.layout.getPiece(id).pose.x - x, w.layout.getPiece(id).pose.z - z) < 1);
+        };
+        const old = laidAt(-1) ?? laidAt(1);
+        if (old !== undefined) window.__approach[station] = old;
+        else {
+          const side = clear(-1) ? -1 : 1;
+          const along = (k) => ({ x: at.x + side * c * 216 * k, z: at.z + side * s * 216 * k, heading: side < 0 ? at.heading : at.heading + Math.PI });
+          const before = [6, 5, 4, 3, 2, 1].map((k) => w.layout.addPiece("straight-216", along(k)));
+          window.__approach[station] = before[before.length - 4];
+          w.trackChanged();
+        }
       }
       const wagon = Object.entries(CARRIES).find(([car, kinds]) => car !== "passenger" && kinds.includes(kind))?.[0] ?? "van";
       const cap = WAGON_CAPACITY;
@@ -365,14 +375,17 @@ const buildByTrain = async (t, id, label) => {
   const state = await p.evaluate((id) => [...(document.querySelector(`.grand-tile[data-grand="${id}"]`)?.classList ?? [])].find((c) => !["place-tile", "grand-tile"].includes(c)) ?? null, id);
   check(`${label}: ${t.name}'s card offers it`, state === "build", String(state));
   await tap(`.grand-tile[data-grand="${id}"] .place-btn`);
-  await p.waitForFunction((id) => window.woodrail.world.economy.grandPlans.has(id), id, { timeout: 30000 }).catch(() => {});
+  // (Its models are fetched before its site is found: slow on a busy machine.)
+  await p.waitForFunction((id) => window.woodrail.world.economy.grandPlans.has(id), id, { timeout: 90000 }).catch(() => {});
   const plan0 = await p.evaluate((id) => {
     const w = window.woodrail;
     const plan = w.world.economy.grandPlans.get(id);
     const prop = plan && w.world.props.get(plan.prop);
     return plan ? { town: plan.townId, asset: prop?.asset, x: prop?.x, z: prop?.z } : null;
   }, id);
-  check(`${label}: Build puts its plot up by ${t.name}`, plan0?.town === t.id && plan0?.asset === `grand-${id}-0`, JSON.stringify(plan0));
+  if (!plan0) await shot(`${id}-not-built`);
+  const said = await p.evaluate(() => [...document.querySelectorAll(".toast")].map((x) => x.textContent).join(" | "));
+  check(`${label}: Build puts its plot up by ${t.name}`, plan0?.town === t.id && plan0?.asset === `grand-${id}-0`, `${JSON.stringify(plan0)} ${said}`);
   if (!plan0) return;
   site = { x: plan0.x ?? 0, z: plan0.z ?? 0 };
   await lookAtSite(1300);
@@ -434,6 +447,25 @@ check("7. the Glassworks is on the tray", glassTile);
 // 8. The World's Fair wheel: finished, its tickets pay 60 coins as a month passes.
 const t3 = await cityStar(3);
 await buildByTrain(t3, "ferris-wheel", "8. Ferris wheel");
+// The wheel turns, slowly, while it's in view (ambient motion: frames at the ambient rate), and stands still paused.
+await lookAtSite(900);
+await shot("ferris-wheel-turning");
+const turning = await p.evaluate(async () => {
+  const w = window.woodrail;
+  w.turbinesView.calm = false;
+  const a0 = w.turbinesView.time ?? 0;
+  const n0 = w.framesDrawn;
+  await new Promise((r) => setTimeout(r, 2500));
+  const running = w.framesDrawn - n0;
+  w.paused = true;
+  await new Promise((r) => setTimeout(r, 600));
+  const n1 = w.framesDrawn;
+  await new Promise((r) => setTimeout(r, 2500));
+  const paused = w.framesDrawn - n1;
+  w.paused = false;
+  return { running, paused, turned: (w.turbinesView.time ?? 0) - a0 };
+});
+check("8. Ferris wheel: it turns in view (frames drawn), and draws nothing paused", turning.running > 0 && turning.paused === 0 && turning.turned > 0, JSON.stringify(turning));
 const coinsW0 = await p.evaluate(() => window.woodrail.progress().coins);
 await p.waitForTimeout(2500);
 await p.evaluate(async () => {
@@ -537,7 +569,8 @@ const placed = await p.evaluate(() => {
   return id === undefined ? null : { id, type: w.layout.getPiece(id).type, pose: w.layout.getPiece(id).pose, town: d?.townId ?? null, toast: document.querySelector(".toast")?.textContent ?? "" };
 });
 check("9. Grand Central: dragged from the tray, it stands by Larkfield, one of its stops", placed?.type === "kit-grand-central-1" && placed?.town === town.id, JSON.stringify(placed) + (await p.evaluate(() => document.querySelector(".toast")?.textContent ?? "")));
-if (placed) site = { x: placed.pose.x + 108, z: placed.pose.z + 72 };
+// (Its middle, the building side's: t 108 along, l 110 across, by its heading.)
+if (placed) site = { x: placed.pose.x + 108 * Math.cos(placed.pose.heading) - 110 * Math.sin(placed.pose.heading), z: placed.pose.z + 108 * Math.sin(placed.pose.heading) + 110 * Math.cos(placed.pose.heading) };
 await lookAtSite(1200);
 await shot("central-stage-0");
 const centralStages = await p.evaluate(async () => (await import("/src/game/grand.ts")).grandOf("central").stages.map((s) => ({ goods: s.goods, riders: s.riders ?? 0 })));
@@ -566,6 +599,8 @@ for (const [i, st] of centralStages.entries()) {
   });
   const want = ["kit-grand-central-2", "kit-grand-central-3", "kit-grand-central-3"][i];
   check(`9. Grand Central: stage ${i + 1} of 3 done, its kit on the map now ${want}`, now.stage === i + 1 && now.type === want, JSON.stringify(now));
+  // (The last stage's toast gone first: its day's is a long one.)
+  if (i === centralStages.length - 1) await p.waitForTimeout(6500);
   await lookAtSite(1200);
   await shot(`central-stage-${i + 1}`);
 }
