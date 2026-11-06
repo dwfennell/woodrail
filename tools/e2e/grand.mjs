@@ -374,9 +374,17 @@ const buildByTrain = async (t, id, label) => {
   await p.waitForTimeout(900);
   const state = await p.evaluate((id) => [...(document.querySelector(`.grand-tile[data-grand="${id}"]`)?.classList ?? [])].find((c) => !["place-tile", "grand-tile"].includes(c)) ?? null, id);
   check(`${label}: ${t.name}'s card offers it`, state === "build", String(state));
-  await tap(`.grand-tile[data-grand="${id}"] .place-btn`);
-  // (Its models are fetched before its site is found: slow on a busy machine.)
-  await p.waitForFunction((id) => window.woodrail.world.economy.grandPlans.has(id), id, { timeout: 90000 }).catch(() => {});
+  // (A growth's reward sheet may come up late, over the card: shut first, the card opened again; tapped again if the
+  // first tap met one.)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await closeSheets();
+    await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), t.depot);
+    await p.waitForTimeout(700);
+    await tap(`.grand-tile[data-grand="${id}"] .place-btn`);
+    // (Its models are fetched before its site is found: slow on a busy machine.)
+    const ok = await p.waitForFunction((id) => window.woodrail.world.economy.grandPlans.has(id), id, { timeout: 90000 }).then(() => true, () => false);
+    if (ok) break;
+  }
   const plan0 = await p.evaluate((id) => {
     const w = window.woodrail;
     const plan = w.world.economy.grandPlans.get(id);
