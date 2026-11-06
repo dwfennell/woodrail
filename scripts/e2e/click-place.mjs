@@ -573,13 +573,22 @@ suite.add("tight-curves", async () => {
   const tight = async () => {
     const find = () => p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]'); if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
     let at = await find();
-    if (!at) {
+    // (The Curve shelf by a click, as a player opens it. Measured and clicked again if the shelf didn't open: on a slow
+    // machine the tray can be drawn again between the measure and the click, so the click lands on the tray as it was.)
+    let under = null;
+    for (let k = 0; k < 3 && !at; k++) {
+      await p.waitForFunction(() => [...document.querySelectorAll(".scroller .tray-group .label")].some((l) => l.textContent === "Curve") || !!document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]'), null, { timeout: 10000 }).catch(() => {});
+      at = await find();
+      if (at) break;
       const shelf = await p.evaluate(() => { const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Curve"); if (!g) return null; g.scrollIntoView({ inline: "center" }); const q = g.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; });
-      if (shelf) await p.mouse.click(shelf[0], shelf[1]);
+      if (!shelf) continue;
       await frames(p);
+      under = await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? `${e.tagName}.${e.className}` : null; }, shelf);
+      await p.mouse.click(shelf[0], shelf[1]);
+      await p.waitForFunction(() => !!document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]'), null, { timeout: 5000 }).catch(() => {});
       at = await find();
     }
-    if (!at) throw new Error("no tight curve in the tray: " + JSON.stringify(await p.evaluate(() => [...document.querySelectorAll(".scroller > *")].map((e) => e.className.split(" ")[0] + ":" + (e.dataset.key ?? e.querySelector(".label")?.textContent ?? "")))));
+    if (!at) throw new Error("no tight curve in the tray (under the Curve shelf's click: " + under + "): " + JSON.stringify(await p.evaluate(() => [...document.querySelectorAll(".scroller > *")].map((e) => e.className.split(" ")[0] + ":" + (e.dataset.key ?? e.querySelector(".label")?.textContent ?? "")))));
     return at;
   };
   const curves = (before) => p.evaluate((before) => {
