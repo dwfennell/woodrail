@@ -1,6 +1,7 @@
 import { Box3, BufferAttribute, BufferGeometry, type Mesh, type Vector3 } from "three";
 import type { MeshoptSimplifier as Simplifier } from "meshoptimizer/simplifier";
 import { simplifyIndex, type FarAnswer, type FarJob } from "./far-simplify";
+import farWorkerUrl from "./far-worker.ts?worker-chunk";
 
 /**
  * Far versions of finished static meshes (towns, industries' yards, ruins, the felt, the scenery around, props): the
@@ -79,7 +80,7 @@ function farWorker(): Worker | null {
   worker = null;
   if (typeof Worker === "undefined") return null;
   try {
-    worker = new Worker(new URL("./far-worker.ts", import.meta.url), { type: "module" });
+    worker = new Worker(farWorkerUrl, { type: "module" });
     worker.onmessage = (e: MessageEvent<FarAnswer>) => {
       answers.get(e.data.id)?.(e.data.index);
       answers.delete(e.data.id);

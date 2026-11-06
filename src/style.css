@@ -198,6 +198,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card .signal-modes .signal-lamp.red { background: radial-gradient(circle at 35% 35%, #ffb3a6, #ff3a24 60%); }
 .piece-card .signal-modes .signal-lamp.green { background: radial-gradient(circle at 35% 35%, #c8ffd6, #2fd85e 60%); }
 .piece-card .signal-modes .signal-mode-name { font-size: 13px; }
+/* The mode in use: cream with a dark ring, not green (green on "Always red" read as the wrong lamp; signals audit U6). */
+.piece-card .signal-modes .signal-mode.active { background: #fbf2e2; color: #2b2118; box-shadow: inset 0 0 0 3px #3a2a1c; }
+.piece-card .signal-modes .signal-mode.active .signal-mode-name { font-weight: 900; }
+.card-hint.warn { color: var(--warn-ink); }
 .piece-card .lever-list .lever-chip { flex: 1 1 140px; height: auto; min-height: 44px; padding: 6px 10px; line-height: 1.2; white-space: normal; }
 .piece-card .lever-list .card-hint { margin-top: 0; }
 .piece-card .reach-list { flex-direction: column; align-items: stretch; gap: 6px; width: 340px; max-width: 100%; max-height: min(34vh, 220px); overflow-y: auto; overscroll-behavior: contain; }

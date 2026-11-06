@@ -159,3 +159,25 @@ describe("signals: a pair on one joint (signals audit, 2026-11-06)", () => {
     expect(sim.getTrain(t)!.bogies[0].pieceId).not.toBe(ids[1]);
   });
 });
+
+describe("signals: a path signal at rest, and what a signal's card says (signals audit U6)", () => {
+  it("a path signal rests green while its block is free (it rested red), red while a train stands on its way, and its card says why", () => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", "switch", "straight-216", "straight-216", "buffer"]);
+    const { on } = pairAt(layout, ids[1]);
+    const sim = new Sim(layout);
+    run(sim, 0.1);
+    expect(sim.signalList().find((g) => g.key === -1 - on)!.junction).toBe(true);
+    expect(sim.markClear(on)).toBe(true);
+    expect(sim.markWhy(on)).toMatchObject({ clear: true, why: "clear" });
+    const beyond = sim.addTrain(["engine"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 150 });
+    if (beyond.kind !== "placed") throw new Error();
+    run(sim, 0.1);
+    expect(sim.markClear(on)).toBe(false);
+    expect(sim.markWhy(on)).toMatchObject({ clear: false, why: "train", by: beyond.trainId });
+    // (Held: red, said so; Always green: said so.)
+    sim.setMarkMode(on, "red");
+    expect(sim.markWhy(on)).toMatchObject({ clear: false, why: "held" });
+    sim.setMarkMode(on, "green");
+    expect(sim.markWhy(on).why).toBe("forced");
+  });
+});

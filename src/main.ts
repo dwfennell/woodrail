@@ -1,6 +1,6 @@
+import { lazy } from "./lib/lazy";
 import { CRANE_TEXT } from "./game/crane-text";
 import { placeNear, type Place as NearPlace } from "./game/place-near";
-import { installDevChecks, recentBreaks } from "./game/dev-checks";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { CrossingBells } from "./audio/crossing-bell";
@@ -72,7 +72,7 @@ import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, isStore as isStoreRole, MAX_SHEDS, RECIPES, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef } from "./economy";
 import type { Stuck } from "./economy/stalls";
-import { BlueprintBoard, type Station } from "./ui/blueprint-board";
+import type { BlueprintBoard, BlueprintBoardHandlers, Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, wants as researchWants, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
@@ -103,7 +103,6 @@ import { attachSecrets, type SecretControls } from "./ui/secret-controls";
 import { secretOfStop } from "./game/secrets";
 import { isSecretKit } from "./track";
 import { drawPlaceRows } from "./ui/places-row";
-import { PaintSheet } from "./ui/paint-sheet";
 import { paintable } from "./render/train-models";
 import { ownColoursOpen, paint, paintOpen, paintOwn, paintPots } from "./game/paint-shop";
 import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
@@ -143,8 +142,6 @@ import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
 import { CloudCard } from "./ui/cloud-card";
-import { FeedbackSheet } from "./ui/feedback-sheet";
-import { StatsCard } from "./ui/stats-card";
 import { pageStats } from "./stats/stats";
 import { gpuOnlyEnabled } from "./render/gpu-only";
 import "./style.css";
@@ -335,8 +332,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.restoreInPlace = !gpuOnlyEnabled();
   // Dev builds (the dev server, or `?dev`): the train invariants checked as the game runs, a red badge when one breaks
   // (src/game/dev-checks.ts). In a production build without `?dev` they never run (8.9 KB of the bundle).
+  // (Loaded only then, on its own: not in the bundle every start fetches.)
   let devChecks: { frame(): void } | null = null;
-  if (import.meta.env.DEV || new URLSearchParams(location.search).has("dev")) devChecks = installDevChecks(game);
+  let recentBreaks = (): string[] => [];
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has("dev"))
+    void import("./game/dev-checks").then((d) => {
+      devChecks = d.installDevChecks(game);
+      recentBreaks = d.recentBreaks;
+    });
   let mode = opening.mode;
   /** The research pill as last drawn: its key (`pillKey`) and the progress it was for (a new game starts a new one). */
   let pillKeyShown = "";
@@ -533,9 +536,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       removeTrain: () => interaction.removeSelectedTrain(),
       renameEngine: (name) => interaction.renameSelectedEngine(name),
       paint: () => {
-        if (interaction.openEngineCarId !== -1) paintSheet.show(interaction.openEngineCarId);
+        if (interaction.openEngineCarId !== -1) {
+          const id = interaction.openEngineCarId;
+          paintSheet.use((s) => s.show(id));
+        }
       },
       showBlocker: () => showBlocker(),
+      showWaitSignal: () => {
+        if (viewWaitAt !== -1) interaction.showWaitSignal(viewWaitAt);
+      },
       sendCrane: () => sendCrane(),
       showPlace: (id) => showPlace(id),
       toggleChainHints: () => setChainHints(!chainHintsOn),
@@ -801,6 +810,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
+  // (An open signal card says what the signal shows now, as its aspect changes.)
+  game.onMarksChanged = () => interaction?.marksChanged();
   game.keysTaken = () => interaction.piecesTakeKeys;
   interaction.onArmed = (item, carried) => hud.setArmed(item ? trayKey(item) : null, carried);
   interaction.onPlaced = (snapped) => {
@@ -2322,8 +2333,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     return rows;
   }
-  // The Research picker: the whole tree, each blueprint researched at a school.
-  const board = new BlueprintBoard(document.body, {
+  // The Research picker: the whole tree, each blueprint researched at a school. Its code is loaded the first time it's
+  // opened (`setBoardOpen`); till then `board` stands in, shut.
+  let boardImpl: BlueprintBoard | null = null;
+  let boardLoading = false;
+  const board = {
+    get open(): boolean {
+      return boardImpl?.open ?? false;
+    },
+    pictureCame: (key: string) => boardImpl?.pictureCame(key),
+  };
+  const boardHandlers: BlueprintBoardHandlers = {
     pick: (id) => picked(id, toggleQueue),
     now: (id) => picked(id, startNow),
     close: () => setBoardOpen(false),
@@ -2340,7 +2360,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }),
         "board",
       ),
-  });
+  };
 
   /**
    * The growth menu: a bottom sheet with the first town's offer waiting ("Larkfield grew! Pick one", three cards), one
@@ -2511,9 +2531,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Open or close the Research picker; `on`: open on that card ("Show me" for a goal's research). */
   function setBoardOpen(open: boolean, on?: string): void {
+    if (open && !boardImpl) {
+      // (Its code fetched the first time, then opened as asked: a second ask while it loads waits on the first.)
+      if (boardLoading) return;
+      boardLoading = true;
+      void import("./ui/blueprint-board").then(({ BlueprintBoard }) => {
+        boardImpl = new BlueprintBoard(document.body, boardHandlers);
+        setBoardOpen(true, on);
+      });
+      return;
+    }
+    if (!boardImpl) return refreshBoard();
     if (open && mapView.open) closeMap(false);
-    board.setOpen(open);
-    if (open && on) board.focus(on);
+    boardImpl.setOpen(open);
+    if (open && on) boardImpl.focus(on);
     hud.root.classList.toggle("board-open", open);
     if (open) {
       interaction.clearSelection();
@@ -2601,7 +2632,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return { ...base, state: "locked" as const, waits, ...(gate ? { school: gate } : other ? { gate: other.kind === "delivered" && GOODS_ICON[other.good as CargoKind] ? `${GOODS_ICON[other.good as CargoKind]} ${other.n} ${other.good}` : needTag(other) } : {}) };
     }
     const focus = goalPick(progress, goalTech, school !== null);
-    board.show({
+    boardImpl?.show({
       stations,
       branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
       ...(focus ? { focus } : {}),
@@ -4160,10 +4191,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const viewBlocker: { shown: Blocker | null; next: Blocker | null } = { shown: null, next: null };
   /** A place the status shown says isn't on the train's line (it keeps goods that place takes): "Add …" offers it. */
   let viewAddStop = -1;
+  /** The red signal the open engine stands at (its joint end), shown by Signal and tinted; −1: none. */
+  let viewWaitAt = -1;
   function showEngineView(): void {
     const carId = interaction.openEngineCarId;
     if (carId === -1) {
       viewCar = -1;
+      if (viewWaitAt !== -1) {
+        viewWaitAt = -1;
+        interaction.setWaitTint(-1);
+      }
       return;
     }
     const found = game.sim.findCar(carId);
@@ -4216,6 +4253,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const b = viewBlocker.shown;
     hud.setBlocker(!!b, b && b.car < 0 ? "points" : "train");
+    // Standing at a red signal (a mark's): Signal beside it, and the line that signal guards tinted (signals audit U3).
+    const redKey = game.layout.signalCount > 0 && game.sim.atRedSignal(found.train.id) ? game.sim.redSignalKeyAhead(found.train.id) : -1;
+    const waitAt = redKey < 0 && redKey !== -1 ? (game.layout.getSignal(-1 - redKey)?.at ?? -1) : -1;
+    if (waitAt !== viewWaitAt) {
+      viewWaitAt = waitAt;
+      interaction.setWaitTint(waitAt);
+    }
+    hud.setWaitSignal(waitAt !== -1);
     // A line with a train too many: Remove beside the status (with the status it belongs to).
     if (status === latest) hud.setCrowded(!!view.crowded);
     // (A train in the way, and a crane train on the map to lift it off: Send the crane.)
@@ -4337,7 +4382,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   // The paint shop's sheet (game/paint-shop.ts): an engine painted from its card.
-  const paintSheet = new PaintSheet({
+  // (Its code is loaded the first time it opens.)
+  const paintSheet = lazy(async () => new (await import("./ui/paint-sheet")).PaintSheet({
     progress: () => progress,
     liveryOf: (id) => game.sim.liveryOf(id),
     nameOf: (id) => game.sim.nameOf(id),
@@ -4367,7 +4413,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       scheduleSave("progress");
       return true;
     },
-  });
+  }));
 
   hud.onEngineCardShown = () => {
     // The paint shop (Game mode, once a town is a Town): 🎨 on the engine's card.
@@ -6643,13 +6689,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   hud.setHistory(false, false);
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
-  const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
-  if (statsCard) hud.addStatsItem(() => statsCard.show());
+  // (Its code is loaded the first time it's shown.)
+  const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m))) : null;
+  if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
   const feedbackUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
   if (crashes) hud.addCrashItem(() => !crashReportsOff(), () => setCrashReportsOff(!crashReportsOff()));
   if (feedbackUrl) {
-    const sheet = new FeedbackSheet(hud.root, feedbackUrl, {
+    // (Its code is loaded the first time it opens.)
+    const url = feedbackUrl;
+    const sheet = lazy(async () => new (await import("./ui/feedback-sheet")).FeedbackSheet(hud.root, url, {
       map: async () => {
         save();
         return { map: await mapText(mode), mode };
@@ -6657,10 +6706,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       capture: () => game.capture(),
       info: () => ({ build: __BUILD_ID__ || "dev", badges: [...recentBreaks(), ...recentErrors()] }),
       toast: (m) => hud.toast(m),
-    });
+    }));
     hud.addFeedbackItem(() => {
       hud.hideCards();
-      sheet.show();
+      sheet.use((f) => f.show());
     });
   }
   /** The one-time "Help improve Woodrail?" question: put off while something else is being done. */
@@ -6670,7 +6719,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       statsAskTimer = window.setTimeout(askStats, 5000);
       return;
     }
-    statsCard.ask();
+    statsCard.use((c) => c.ask());
   }
   if (cloud) {
     const card = new CloudCard(hud.root, cloud, {

@@ -30,6 +30,7 @@ import { rng } from "./textures";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
 import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceFar, buildPieceShadowCaster, hasFarVersion, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
+import pieceWorkerUrl from "./piece-worker.ts?worker-chunk";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
 import { nonIndexed } from "./non-indexed";
@@ -134,7 +135,7 @@ function startWorkers(count: number): void {
   for (let i = 0; i < count && !carving.local && carving.queue.length > 0; i++) {
     let worker: Worker;
     try {
-      worker = new Worker(new URL("./piece-worker.ts", import.meta.url), { type: "module" });
+      worker = new Worker(pieceWorkerUrl, { type: "module" });
     } catch {
       // No module workers here after all.
       if (carving.running === 0) goLocal();

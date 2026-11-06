@@ -62,9 +62,10 @@ export type TrainState =
   /**
    * Held at a red signal (or short of points) only because sections or the router keep it for another train: `by` (its
    * first engine or car), till that one has cleared the line toward `to` (its next stop's depot; −1: not known). Said
-   * "Waiting for Bramble (hopper train) to clear the line to the mill" (`trainLabel`, `placeLabel`).
+   * "Waiting for Bramble (hopper train) to clear the line to the mill" (`trainLabel`, `placeLabel`). `signalId`: the red
+   * signal it stands at, when it does (as `red-signal`'s).
    */
-  | { kind: "line-wait-for"; by: number; to: number; holder: "sections" | "router" }
+  | { kind: "line-wait-for"; by: number; to: number; holder: "sections" | "router"; signalId?: number }
   | { kind: "starting" }
   | { kind: "running" };
 
@@ -135,7 +136,9 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (sim.atRedSignal(train.id) && !train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id))) {
     const red: TrainState = { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
     if (sim.redHeldByHand(train.id)) return red;
-    return lineWaitFor(economy, train) ?? red;
+    // (The signal it stands at kept, for the card's Show of it.)
+    const held = lineWaitFor(economy, train);
+    return held?.kind === "line-wait-for" ? { ...held, signalId: red.signalId } : red;
   }
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   // Held a moment at its stop so its line's trains spread out.
@@ -517,7 +520,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";
     case "red-signal":
-      return s.holding ? "Waiting at a signal you're holding. Tap it to let go" : "Waiting at a red signal";
+      return s.holding ? "Waiting at a signal you're holding at red. Tap it, then Auto" : "Waiting at a red signal";
     case "at-stop": {
       const type = economy.layout.getPiece(s.pieceId)?.type;
       return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;
