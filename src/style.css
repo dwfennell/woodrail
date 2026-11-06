@@ -256,17 +256,23 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* What it's doing, left, and the fix beside it (Show, Send the crane): always a thumb tall, so moving, stuck and waiting
    are the same height. */
 .engine-status-row { display: flex; align-items: center; gap: 8px; min-height: 44px; min-width: 0; }
-.engine-status { flex: 1 1 auto; min-width: 0; font-size: 14px; line-height: 18px; font-weight: 700; color: #6a4a2c; text-align: left; }
-.engine-blocker { display: flex; gap: 8px; flex: none; }
+.engine-status { flex: 1 1 0; min-width: 0; font-size: 13.5px; line-height: 18px; font-weight: 700; color: #6a4a2c; text-align: left; }
+.engine-blocker { display: flex; gap: 8px; flex: none; margin-left: auto; }
 .engine-blocker[hidden], .engine-blocker > [hidden] { display: none; }
-.engine-blocker .chip { height: 44px; min-width: 64px; }
+/* (Compact, so the status beside it keeps to two lines at 360 px.) */
+.engine-blocker .chip { height: 44px; min-width: 52px; padding: 0 10px; font-size: 14px; }
+/* Two fixes (Show and Send the crane) don't fit beside the status: they go under it, at the right. */
+.engine-status-row:has(.send-crane:not([hidden])) { flex-wrap: wrap; row-gap: 6px; }
+.engine-status-row:has(.send-crane:not([hidden])) > .engine-status { flex-basis: 100%; }
 /* Go or Stop, then Leave now or Continue beside it while they show (Go makes room: the row keeps its height), the way
    at the end. */
 .engine-controls { display: flex; gap: 8px; align-items: stretch; }
 .engine-controls > [hidden] { display: none; }
 .engine-controls .chip.go { flex: 1 1 0; width: auto; min-width: 0; height: 56px; }
 .engine-controls .chip.continue, .engine-controls .chip.leave-now { flex: 1 1 0; width: auto; min-width: 0; height: 56px; padding: 0 8px; font-size: 17px; }
-.engine-controls .chip.way { flex: 0 0 64px; width: 64px; height: 56px; }
+.engine-controls .chip.way { flex: 0 0 58px; width: 58px; height: 56px; }
+/* (At the end of the track Continue sets off: Leave now, which would too, isn't offered beside it.) */
+.engine-controls .chip.continue:not([hidden]) ~ .chip.leave-now { display: none; }
 /* The train's own tools: a quieter row of flat chips (Go and the line carry the weight), Remove last, apart. */
 .engine-actions { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .engine-actions > .chip { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 8px; font-size: 14px; white-space: nowrap; background: transparent; box-shadow: inset 0 0 0 2px rgba(150, 100, 50, 0.32); }
@@ -1319,6 +1325,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-plan-hint { font-size: 14px; font-weight: 700; line-height: 19px; color: var(--ink-soft); }
 .route-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .route-foot .route-plan.on { margin-left: auto; min-width: 112px; }
+/* (A card taller than its room scrolls: Done and Take off line stay pinned at its foot, in reach, as a ruin's Restore
+   does.) */
+.planning .engine-card .route-foot { position: sticky; bottom: -14px; z-index: 1; margin-bottom: -14px; padding: 6px 0 14px; background: #faf3e6; }
 .route-foot .route-leave:not(.asking) { background: transparent; color: var(--warn-ink); box-shadow: inset 0 0 0 2px rgba(176, 57, 31, 0.45); }
 .route-stops { display: flex; flex-wrap: nowrap; gap: 4px; position: relative; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .route-stops::-webkit-scrollbar { display: none; }
@@ -1534,6 +1543,12 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 @media (max-height: 520px) {
   :not(.planning) > .engine-card { width: auto; gap: 8px; padding-top: 12px; padding-bottom: 14px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); }
   :not(.planning) > .engine-card .route-head:has(.route-none:not([hidden])) :is(.engine-extra-label, .route-none) { display: none; }
+  /* (Its column a little tighter, so it all shows at 360 px tall: the rows 6 px apart, the main row 48 px, the status
+     row only as tall as it needs.) */
+  :not(.planning) > .engine-card { gap: 6px; }
+  .engine-card .engine-status-row { min-height: 0; }
+  .engine-card .engine-controls .chip:is(.go, .continue, .leave-now, .way) { height: 48px; }
+  .engine-card .engine-extra.route { padding: 0 6px 4px; }
 }
 
 /* The first-run camera tutorial (ui/controls-tutorial.ts): a small coach card, off the middle of the map. Top right

@@ -341,7 +341,10 @@ if (!setup.error) {
   const asked = await p.evaluate((id) => ({ text: document.querySelector(".engine-card .empty-all")?.textContent, asking: document.querySelector(".engine-card .empty-all")?.classList.contains("asking"), count: window.woodrail.economy.cargoOf(id).count }), wagon);
   check("Throw away: the first tap asks, and throws nothing away", asked.asking && asked.text === "Throw away? Tap again" && asked.count === 3, JSON.stringify(asked));
   await shot("4-throw-away-asks");
-  // (The second tap at once: it asks for 4 s, and the guard's settle can take longer on a busy page. It doesn't move.)
+  // (The second press straight on the button, as its tap's click: it asks for 4 s, and on a busy page a touch's click
+  // can come later than that. Not before 400 ms: the card's tap guard drops a click on a button that just changed size
+  // (asking, its words are longer), as it should a double tap.)
+  await p.waitForTimeout(400);
   await p.evaluate(() => document.querySelector(".engine-card .empty-all.asking")?.click());
   await p.waitForFunction((id) => window.woodrail.economy.cargoOf(id).count === 0, wagon, { timeout: 10000 }).catch(() => {});
   const thrown = await p.evaluate((id) => ({ count: window.woodrail.economy.cargoOf(id).count, hidden: document.querySelector(".engine-card .empty-all")?.hidden, toasts: window.woodrail.__toasts }), wagon);

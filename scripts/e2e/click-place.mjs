@@ -965,6 +965,9 @@ try {
     const where = () => p.waitForFunction((sel) => { const e = document.querySelector(sel); if (!e || e.offsetParent === null) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel, { timeout: 30000 }).then((h) => h.jsonValue());
     // (Clicked once it holds still: the card's tap guard drops a click on a button that moved within 150 ms, and a
     // change before, such as Only drop, resizes the card.)
+    // (A stop's chip scrolled out of the strip is scrolled into view first, as a player scrolls it.)
+    await p.waitForFunction((sel) => !!document.querySelector(sel), sel, { timeout: 30000 }).catch(() => {});
+    await p.evaluate((sel) => { const b = document.querySelector(sel); if (b?.closest(".route-stops")) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }, sel);
     let [x, y] = await where();
     for (let k = 0; k < 20; k++) {
       await frames(p);

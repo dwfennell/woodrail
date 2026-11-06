@@ -21,7 +21,9 @@ const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chro
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 pinClocksIn(b);
 stillIndustriesIn(b);
-const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+// (`VIEW=844x390`: another phone size, on its side say.)
+const [VW, VH] = (process.env.VIEW ?? "390x844").split("x").map(Number);
+const ctx = await b.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
 await ctx.addInitScript(() => {
   localStorage.setItem("woodrail.helpSeen", "1");
   localStorage.setItem("woodrail.favourites", "[]");
