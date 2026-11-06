@@ -2,7 +2,7 @@
    (scripts/icon-font.py, which also writes this unicode-range). Each draws the character it stands for (🪙, 📘, ⏱, the
    goods; planks have no emoji, so they're U+E000), so strings keep their emoji and screen readers their words. Listed
    first wherever a font is named, it draws only these characters; everything else is Nunito's. */
-@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26BD, U+26CF, U+26F0, U+26F2, U+26F3, U+26F5, U+2709, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F333, U+1F337, U+1F33C, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F36B, U+1F36C, U+1F37D, U+1F381, U+1F393, U+1F39F, U+1F3A0, U+1F3A8, U+1F3AC, U+1F3AD, U+1F3AF, U+1F3D6, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3DF, U+1F3E1, U+1F3E5, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4A7, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F4EE, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5BC, U+1F5FA, U+1F60A, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6DD, U+1F6E2, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9F8, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5, U+1FAD8, U+1FAD9; font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Woodrail Icons"; src: url("./assets/woodrail-icons.woff2") format("woff2"); unicode-range: U+2194, U+23F1, U+23F3, U+2601, U+2693, U+2699, U+26A0, U+26A1, U+26AB, U+26BD, U+26CF, U+26F0, U+26F2, U+26F3, U+26F5, U+2709, U+2713, U+2728, U+2754, U+2795, U+2B06, U+2B07, U+E000, U+FE0E, U+FE0F, U+1F306, U+1F309, U+1F30A, U+1F31F, U+1F333, U+1F337, U+1F33C, U+1F33E, U+1F34E, U+1F35E, U+1F366, U+1F36B, U+1F36C, U+1F37D, U+1F381, U+1F393, U+1F39F, U+1F3A0, U+1F3A8, U+1F3AC, U+1F3AD, U+1F3AF, U+1F3D6, U+1F3D7, U+1F3D9, U+1F3DA, U+1F3DB, U+1F3DF, U+1F3E1, U+1F3E5, U+1F3ED, U+1F41E, U+1F41F, U+1F49B, U+1F4A1, U+1F4A7, U+1F4D8, U+1F4DA, U+1F4E6, U+1F4EC, U+1F4EE, U+1F512, U+1F514, U+1F525, U+1F527, U+1F529, U+1F5BC, U+1F5D1, U+1F5FA, U+1F60A, U+1F682, U+1F683, U+1F689, U+1F68C, U+1F690, U+1F697, U+1F69C, U+1F69E, U+1F6A2, U+1F6A6, U+1F6A7, U+1F6AB, U+1F6DD, U+1F6E2, U+1F6E3, U+1F6E4, U+1F947, U+1F956, U+1F95B, U+1F9C0, U+1F9C3, U+1F9D1, U+1F9F0, U+1F9F1, U+1F9F8, U+1F9FD, U+1FA91, U+1FA93, U+1FA99, U+1FA9A, U+1FAA8, U+1FAB5, U+1FAD8, U+1FAD9; font-weight: 100 900; font-display: block; }
 :root {
   --ink: #2b2118;
   --paper: #f6efe3;
@@ -234,33 +234,50 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-card .engine-name:hover, .engine-card .engine-name:focus-visible { background: rgba(150, 100, 50, 0.1); }
 .engine-card .engine-name-input { margin: -12px auto; width: 11em; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid #c9a274; border-radius: 10px; background: #fffaf0; text-align: center; font-family: inherit; font-size: 16px; }
 .engine-card .engine-name-input:focus { outline: none; border-color: #8a5a2c; }
-.engine-status { min-height: 18px; font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; max-width: 260px; margin-top: -4px; }
-/* The train summary: two lines at most (each one line, cut with "…"), so the card's height stays put (#9). */
-.engine-summary { font-size: 13px; font-weight: 700; color: #7a5a3a; text-align: center; max-width: 100%; min-width: 0; align-self: stretch; line-height: 18px; margin-top: -6px; }
-.engine-summary > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.planning .engine-card .engine-summary { display: none; }
+/* Top to bottom by purpose, one column (layout B, 2026-11-05): the load under the name; the status and its fix; Go or
+   Stop, Leave now and the way; the line; the train's own tools. Groups 10 px apart, chips 8 px apart (DESIGN.md). */
+.engine-card:not([hidden]) { align-items: stretch; }
+.engine-card .engine-name { align-self: center; }
+/* What it carries, one line under the name (cut with "…"), and Throw away at its end (only while there are goods). */
+.engine-load { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; margin-top: -6px; }
+.engine-load[hidden], .engine-load > [hidden] { display: none; }
+.engine-summary { flex: 0 1 auto; min-width: 0; font-size: 13px; font-weight: 700; color: #6a4a2c; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.engine-summary > div { display: inline; }
+.engine-summary > .summary-about:not(:last-child)::after { content: " · "; }
+.engine-summary > .summary-load[hidden] { display: none; }
+.engine-load:has(> .empty-all:not([hidden])) { justify-content: space-between; }
+/* Throw away: the goods are gone (not unloaded anywhere), so it's in the warning ink and asks first. */
+.engine-load > .empty-all { flex: none; height: 44px; padding: 0 12px; font-size: 14px; background: transparent; color: var(--warn-ink); box-shadow: inset 0 0 0 2px rgba(176, 57, 31, 0.45); }
+.engine-load > .empty-all.asking { background: var(--warn-ink); color: #fff; box-shadow: none; }
 .car-load { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; margin-top: -4px; }
-/* Empty beside a wagon's load, Empty all beside the train's (shown only while there are goods on board). */
+/* Empty beside a wagon's load (shown only while there are goods on board). */
 .car-load-row { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
 .car-load-row > .chip { flex: none; }
-/* Empty all to the right of the summary's two lines, a finger's size but taking only their height (the card doesn't
-   grow when a load comes on: a phone on its side, a camera glide that framed the room above the card). */
-.engine-summary:has(> .empty-all:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center; }
-.engine-summary > div { grid-column: 1; }
-.engine-summary > .empty-all { grid-column: 2; grid-row: 1 / span 2; margin: -4px 0; }
-/* Who's in the way (a waiting or stuck train): Show, and the fix for a train left there; a thumb tall, under the status. */
-.engine-blocker { display: flex; gap: 8px; justify-content: center; margin-top: -4px; }
+/* What it's doing, left, and the fix beside it (Show, Send the crane): always a thumb tall, so moving, stuck and waiting
+   are the same height. */
+.engine-status-row { display: flex; align-items: center; gap: 8px; min-height: 44px; min-width: 0; }
+.engine-status { flex: 1 1 auto; min-width: 0; font-size: 14px; line-height: 18px; font-weight: 700; color: #6a4a2c; text-align: left; }
+.engine-blocker { display: flex; gap: 8px; flex: none; }
 .engine-blocker[hidden], .engine-blocker > [hidden] { display: none; }
-.engine-blocker .chip { height: 44px; min-width: 76px; }
-.planning .engine-card .engine-blocker { display: none; }
-/* Go (as wide as the row under it) and the arrow; Continue, when it shows, under both; then Swap ends, Decouple, Remove.
-   (DESIGN.md spacing: 8 px inside the row of chips, 10 px between the rows.) */
-.engine-controls { display: grid; grid-template-columns: minmax(150px, 1fr) auto; gap: 10px; align-items: stretch; }
-.engine-controls .chip.go { width: auto; }
-.engine-controls .chip.continue, .engine-controls .chip.leave-now { grid-column: 1 / -1; width: auto; }
-.engine-actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: center; }
+.engine-blocker .chip { height: 44px; min-width: 64px; }
+/* Go or Stop, then Leave now or Continue beside it while they show (Go makes room: the row keeps its height), the way
+   at the end. */
+.engine-controls { display: flex; gap: 8px; align-items: stretch; }
+.engine-controls > [hidden] { display: none; }
+.engine-controls .chip.go { flex: 1 1 0; width: auto; min-width: 0; height: 56px; }
+.engine-controls .chip.continue, .engine-controls .chip.leave-now { flex: 1 1 0; width: auto; min-width: 0; height: 56px; padding: 0 8px; font-size: 17px; }
+.engine-controls .chip.way { flex: 0 0 64px; width: 64px; height: 56px; }
+/* The train's own tools: a quieter row of flat chips (Go and the line carry the weight), Remove last, apart. */
+.engine-actions { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.engine-actions > .chip { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 8px; font-size: 14px; white-space: nowrap; background: transparent; box-shadow: inset 0 0 0 2px rgba(150, 100, 50, 0.32); }
+.engine-actions > .chip[hidden] { display: none; }
+.engine-actions > .chip.remove { flex: 0 0 auto; color: var(--warn-ink); box-shadow: inset 0 0 0 2px rgba(176, 57, 31, 0.5); }
+.engine-actions .engine-actions-gap { flex: 0 0 2px; height: 28px; margin: 0 2px; border-radius: 1px; background: rgba(120, 80, 40, 0.25); }
+.card .engine-actions > .chip[aria-disabled="true"] { background: transparent; box-shadow: inset 0 0 0 2px rgba(150, 100, 50, 0.18); }
+/* Editing the line: the line alone (its load, status, Go and tools go). */
+.planning .engine-card :is(.engine-load, .engine-status-row, .engine-actions) { display: none; }
 /* A line with a train too many: Remove is the quick fix the status names ("…, or remove a train"), ringed. */
-.engine-actions .chip.remove.suggested { box-shadow: 0 0 0 3px #faf3e6, 0 0 0 5px #d9634d, 0 3px 8px rgba(120, 40, 20, 0.25); }
+.engine-actions > .chip.remove.suggested { box-shadow: 0 0 0 3px #faf3e6, 0 0 0 5px #d9634d, 0 3px 8px rgba(120, 40, 20, 0.25); }
 .chip.go { width: 150px; height: 58px; font-size: 20px; font-weight: 800; gap: 8px; background: linear-gradient(180deg, #8fd47f, #5fb24f); color: #163b10; box-shadow: inset 0 -3px 0 rgba(30, 80, 20, 0.35), 0 3px 8px rgba(40, 90, 30, 0.25); }
 .chip.go.stop { background: linear-gradient(180deg, #f3a08f, #d9634d); color: #3b130b; box-shadow: inset 0 -3px 0 rgba(110, 30, 15, 0.35), 0 3px 8px rgba(120, 40, 20, 0.25); }
 .chip.go .go-icon { font-size: 16px; margin-right: 8px; }
@@ -1291,6 +1308,18 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Done: the system's go-green, dark ink (audit F18: white on #3c9a5f was 3.5:1). */
 .route-plan.on { background: linear-gradient(180deg, var(--go-green-light), var(--go-green)); color: var(--go-green-ink); }
 .route-hint { font-size: 0.85em; color: var(--ink-soft); }
+/* The line on the card: a panel of its own (its name, Edit, its stops), so it reads as one thing. */
+.engine-card .engine-extra.route { background: rgba(120, 80, 40, 0.07); border-radius: 14px; padding: 4px 8px 8px; margin-top: 0; }
+.engine-card .route-head { min-height: 44px; }
+.engine-card .route-head .engine-extra-label { padding-left: 4px; }
+.engine-card .route-hint { padding-left: 4px; }
+/* Editing: no panel (the card is the line's), the hint in plain words a line under the stops, then Take off line and
+   Done at the foot. */
+.planning .engine-card .engine-extra.route { background: transparent; padding: 0; }
+.route-plan-hint { font-size: 14px; font-weight: 700; line-height: 19px; color: var(--ink-soft); }
+.route-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.route-foot .route-plan.on { margin-left: auto; min-width: 112px; }
+.route-foot .route-leave:not(.asking) { background: transparent; color: var(--warn-ink); box-shadow: inset 0 0 0 2px rgba(176, 57, 31, 0.45); }
 .route-stops { display: flex; flex-wrap: nowrap; gap: 4px; position: relative; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .route-stops::-webkit-scrollbar { display: none; }
 /* The line's colour is the stop number's lacquer ring (filled on the next stop), not a stripe down the side (audit F11). */
@@ -1337,8 +1366,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* The stops one row, scrolled sideways if they don't fit (the card stays short); planning, a picked stop's tools compact. */
 .planning .route-tools { flex-wrap: wrap; }
 .route-stops.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
-.route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
-.route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
+/* (No fade at the start: the strip snaps to a chip's start, so the first chip shown is whole; its number says what's
+   before it.) */
+.route-stops.more-left:not(.more-right) { mask-image: none; -webkit-mask-image: none; }
+.route-stops.more-left.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
+.route-stops { scroll-snap-type: x proximity; }
+.route-stops > .route-chip { scroll-snap-align: start; }
+/* (Room at the end, so any chip can come to the start, and the last clears the fade.) */
+.route-stops::after { content: ""; flex: 0 0 var(--end, 36px); }
+.route-stops.dragging { scroll-snap-type: none; }
 .route-chip, .planning .route-tools button { flex: 0 0 auto; }
 /* Drag to reorder: a stop's chip held lifts (ringed in the line's colour, over its neighbours) and follows the finger;
    a bar shows where it goes, struck in the warning ink where it can't (the same place twice in a row). The chip
@@ -1356,7 +1392,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 44px; }
 .planning .engine-extra.route { gap: 4px; }
 /* (The tray's away: the bar sits at the bottom, full width, so the map has the rest.) */
-.planning .engine-card { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); padding: 10px 12px; }
+.planning .engine-card { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); padding: 12px 14px 14px; gap: 8px; }
 
 /* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame), in a layer over the
    canvas that clips them, so one off screen never widens the page. */

@@ -70,7 +70,7 @@ const setup = await p.evaluate(async () => {
   const mid = w.layout.getPiece(placed[4]).pose;
   w.director.glideTo(new w.controls.target.constructor(mid.x, 0, mid.z + 300), 2200, { duration: 0.1 });
   w.invalidate();
-  return { engine, places };
+  return { engine, places, pieces: placed };
 });
 await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
 // Its card, as a tap opens it.

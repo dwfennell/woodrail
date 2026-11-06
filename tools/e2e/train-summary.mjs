@@ -3,9 +3,10 @@
 // Once the forest's crane has loaded logs onto the flatbed, a tap on the train opens its engine card: the summary says
 // "1 car · steady" and the logs on board, in two lines that fit the card at 360 px, its buttons 44 px or more; it
 // follows the load as it changes, and is set only then (not per frame). A second tap, on the wagon, opens its card with
-// its load ("🪵 Logs: 3 of 3"). Empty: the engine card has Empty all beside the load; while the train moves the wagon
+// its load ("🪵 Logs: 3 of 3"). Empty: the engine card has Throw away beside the load; while the train moves the wagon
 // card's Empty is greyed ("Stop the train first") and a tap tips nothing out; stopped, the wagon card's Empty tips its logs out ("Tipped out 3 🪵"), the card
-// says "Empty" and the button goes.
+// says "Empty" and the button goes. Last, the engine card's Throw away: a first tap asks ("Throw away? Tap again") and
+// throws nothing away; a second does.
 //
 // Usage: npm run e2e:train-summary [-- <out dir>]   (default out: e2e-out/train-summary)
 import { existsSync, mkdirSync } from "node:fs";
@@ -214,7 +215,7 @@ if (!setup.error) {
       const w = window.woodrail;
       const c = w.economy.cargoOf(wagon);
       const s = document.querySelector(".engine-summary");
-      // (Its two lines: what the train is, and its load, beside which Empty all stands while there's a load.)
+      // (Its one line: what the train is, then its load, beside which Throw away stands while there's a load.)
       const lines = [s.querySelector(".summary-about"), s.querySelector(".summary-load")].filter((e) => e && getComputedStyle(e).display !== "none");
       const all = document.querySelector(".engine-card .empty-all");
       const box = document.querySelector(".engine-card").getBoundingClientRect();
@@ -228,8 +229,8 @@ if (!setup.error) {
         about: lines[0]?.textContent,
         load: lines[1]?.textContent,
         lines: lines.length,
-        clipped: lines.some((e) => e.scrollWidth > e.clientWidth + 1),
-        height: Math.max(...lines.map((e) => e.getBoundingClientRect().height)),
+        clipped: s.scrollWidth > s.clientWidth + 1,
+        height: s.getBoundingClientRect().height,
         lineHeight: parseFloat(getComputedStyle(s).lineHeight),
         emptyAll: !!all && !all.hidden,
         card: { left: box.left, right: box.right },
@@ -240,8 +241,8 @@ if (!setup.error) {
   );
   check("the engine card opens on the loaded train", card.open);
   check("the summary says the logs on board", card.about === "1 car · steady" && card.load === `🪵 ${card.count}`, JSON.stringify({ about: card.about, load: card.load, count: card.count }));
-  check("…in two lines at 360 px, neither cut short", card.lines === 2 && card.height <= 2 * card.lineHeight + 1 && !card.clipped, JSON.stringify(card));
-  check("…with Empty all beside the load", card.emptyAll, JSON.stringify(card));
+  check("…in one line at 360 px, not cut short", card.lines === 2 && card.height <= card.lineHeight + 1 && !card.clipped, JSON.stringify(card));
+  check("…with Throw away beside the load", card.emptyAll, JSON.stringify(card));
   check("…the card inside the screen", card.card.left >= 0 && card.card.right <= 360, JSON.stringify(card.card));
   check("…its buttons 44 px or more", card.small.length === 0, JSON.stringify(card.small));
   await shot("1-engine-card-loaded");
@@ -327,6 +328,24 @@ if (!setup.error) {
   check("…the card says Empty, and Empty goes", emptied.open && /^Empty/.test(emptied.text ?? "") && emptied.hidden === true, JSON.stringify(emptied));
   check("…a toast says what went", emptied.toasts.some((t) => t.startsWith(`Tipped out ${had} 🪵`)), JSON.stringify(emptied.toasts));
   await shot("3-wagon-emptied");
+
+  // 10. The engine card's Throw away: two taps. (Setup, not what's tested: logs put back on the wagon in code, and the
+  // engine's card opened as a tap on it does.)
+  await p.evaluate(({ engine, wagon }) => {
+    const w = window.woodrail;
+    w.economy.setCargo(wagon, "log", 3);
+    w.interaction.openEngineCard(engine);
+  }, { engine, wagon });
+  await p.waitForFunction(() => { const b = document.querySelector(".engine-card .empty-all"); return !!b && !b.hidden && b.getAttribute("aria-disabled") === null; }, null, { timeout: 10000 }).catch(() => {});
+  await tapButton(".engine-card .empty-all");
+  const asked = await p.evaluate((id) => ({ text: document.querySelector(".engine-card .empty-all")?.textContent, asking: document.querySelector(".engine-card .empty-all")?.classList.contains("asking"), count: window.woodrail.economy.cargoOf(id).count }), wagon);
+  check("Throw away: the first tap asks, and throws nothing away", asked.asking && asked.text === "Throw away? Tap again" && asked.count === 3, JSON.stringify(asked));
+  await shot("4-throw-away-asks");
+  // (The second tap at once: it asks for 4 s, and the guard's settle can take longer on a busy page. It doesn't move.)
+  await p.evaluate(() => document.querySelector(".engine-card .empty-all.asking")?.click());
+  await p.waitForFunction((id) => window.woodrail.economy.cargoOf(id).count === 0, wagon, { timeout: 10000 }).catch(() => {});
+  const thrown = await p.evaluate((id) => ({ count: window.woodrail.economy.cargoOf(id).count, hidden: document.querySelector(".engine-card .empty-all")?.hidden, toasts: window.woodrail.__toasts }), wagon);
+  check("…the second throws the logs away, the button goes, a toast says what went", thrown.count === 0 && thrown.hidden === true && thrown.toasts.some((t) => t.startsWith("Tipped out 3 🪵")), JSON.stringify(thrown));
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
