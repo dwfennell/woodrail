@@ -80,6 +80,18 @@ try {
   await shot("3-mill-card");
   await p.keyboard.press("Escape");
   await p.evaluate(() => window.woodrail.interaction.closeCards?.());
+  // 2b. The signal's own card: the post facing the waiting engine (piece 221, its end 1).
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.hud.hideCards?.();
+    w.interaction.selectMark(w.layout.signalAt(221 * 8 + 1).id);
+  });
+  await p.waitForTimeout(800);
+  await shot("5-signal-card");
+  await p.evaluate(() => {
+    window.woodrail.hud.hideCards?.();
+    window.woodrail.interaction.clearSelection();
+  });
   // 3. The map's pairs as a player sees them, zoomed out a little (the usual way to play on a phone).
   await look([221, 206, 124, 120, 151], 2200);
   await shot("4-pairs-zoomed-out");

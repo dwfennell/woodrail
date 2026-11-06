@@ -520,7 +520,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";
     case "red-signal":
-      return s.holding ? "Waiting at a signal you're holding. Tap it to let go" : "Waiting at a red signal";
+      return s.holding ? "Waiting at a signal you're holding at red. Tap it, then Auto" : "Waiting at a red signal";
     case "at-stop": {
       const type = economy.layout.getPiece(s.pieceId)?.type;
       return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;

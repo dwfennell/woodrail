@@ -62,6 +62,8 @@ export interface HudHandlers {
   renameEngine(name: string): string;
   /** Show (on a waiting or stuck engine's card): the camera to the train in its way, flashed (see `setBlocker`). */
   showBlocker(): void;
+  /** Signal (on the card of an engine standing at a red): the camera to that signal, its line tinted. */
+  showWaitSignal(): void;
   /** Send the breakdown crane to lift the train in the open engine's way off the line. */
   sendCrane(): void;
   /** A wagon's card: turn it round where it stands (its other magnet leads). */
@@ -377,6 +379,8 @@ export class Hud {
    */
   private readonly blockerRow = el("div", "engine-blocker");
   private readonly showBlockerBtn: HTMLButtonElement;
+  /** Signal: the red signal the open engine stands at (see `setWaitSignal`). */
+  private readonly showSignalBtn: HTMLButtonElement;
   private readonly sendCraneBtn: HTMLButtonElement;
   /** The engine card's Remove (marked as the quick fix while its line has a train too many: `setCrowded`). */
   private engineRemoveBtn!: HTMLButtonElement;
@@ -694,7 +698,10 @@ export class Hud {
     this.showBlockerBtn = button("Show", "Show the train in the way", h.showBlocker, "chip text show-blocker");
     this.sendCraneBtn = button("Send the crane", "The breakdown crane drives out and lifts the train in the way off the line", h.sendCrane, "chip text send-crane");
     this.sendCraneBtn.hidden = true;
-    this.blockerRow.append(this.showBlockerBtn, this.sendCraneBtn);
+    this.showSignalBtn = button("Signal", "Show the signal it's waiting at, and the line it guards", h.showWaitSignal, "chip text show-signal");
+    this.showSignalBtn.hidden = true;
+    this.showBlockerBtn.hidden = true;
+    this.blockerRow.append(this.showBlockerBtn, this.showSignalBtn, this.sendCraneBtn);
     this.blockerRow.hidden = true;
     const statusRow = el("div", "engine-status-row");
     statusRow.append(this.engineStatus, this.blockerRow);
@@ -1933,12 +1940,20 @@ export class Hud {
    * "points"), for its title.
    */
   setBlocker(show: boolean, what: "train" | "points" = "train"): void {
-    if (this.blockerRow.hidden === !show && this.showBlockerBtn.dataset.what === what) return;
-    this.blockerRow.hidden = !show;
+    if (this.showBlockerBtn.hidden === !show && this.showBlockerBtn.dataset.what === what) return;
+    this.showBlockerBtn.hidden = !show;
+    this.blockerRow.hidden = !show && this.showSignalBtn.hidden;
     this.showBlockerBtn.dataset.what = what;
     const title = what === "points" ? "Show the points it's waiting at" : "Show the train in the way";
     this.showBlockerBtn.title = title;
     this.showBlockerBtn.setAttribute("aria-label", title);
+  }
+
+  /** The open engine stands at a red signal: Signal shows, beside Show (signals audit U3). */
+  setWaitSignal(show: boolean): void {
+    if (this.showSignalBtn.hidden === !show) return;
+    this.showSignalBtn.hidden = !show;
+    this.blockerRow.hidden = !show && this.showBlockerBtn.hidden;
   }
 
   /** A breakdown crane could lift the train in the open engine's way off the line: Send the crane shows. */

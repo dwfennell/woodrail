@@ -761,6 +761,35 @@ export class Interaction {
     this.game.invalidate();
   }
 
+  /** The red signal an open engine card's train waits at (its joint end), whose block is tinted; −1: none. */
+  private waitTintAt = -1;
+
+  /**
+   * An open engine card's train stands at a red signal (`at`: its joint end; −1: it doesn't now): the line that signal
+   * guards is tinted while the card is open, so the player sees what it waits for (signals audit U3). Called as the
+   * card updates; does something only on a change. Not over a signal being placed or a signal's own card.
+   */
+  setWaitTint(at: number): void {
+    if (at === this.waitTintAt) return;
+    const g = this.game;
+    const free = this.selectedMark === -1 && this.mode.kind !== "drag-signal" && this.mode.kind !== "signal-run";
+    this.waitTintAt = at;
+    if (!free) return;
+    if (at === -1) {
+      if (g.blockTint.hide()) g.invalidate();
+    } else this.showTint(at);
+  }
+
+  /** Signal (the card of a train at a red): the camera glides to the signal it waits at; its line stays tinted. */
+  showWaitSignal(at: number): void {
+    const g = this.game;
+    const j = postAt(g.layout, at);
+    if (!j) return;
+    if (g.following !== -1) this.toggleFollow();
+    g.director.glideTo(g.controls.target.clone().set(j.x, j.y, j.z), 700, { duration: 0.6, inRoom: true });
+    this.showTint(at);
+  }
+
   /** The signal in the hand put away: its ghost and tint gone, a picked-up one shown again where it was. */
   private letGoSignal(m: Extract<Mode, { kind: "drag-signal" }>): void {
     const g = this.game;
@@ -2938,8 +2967,9 @@ export class Interaction {
   }
 
   clearSelection(): void {
-    if (this.selectedMark !== -1) {
+    if (this.selectedMark !== -1 || this.waitTintAt !== -1) {
       this.selectedMark = -1;
+      this.waitTintAt = -1;
       if (this.game.blockTint.hide()) this.game.invalidate();
     }
     if (this.selectedPiece !== -1 || this.picking) {

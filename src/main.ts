@@ -536,6 +536,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         if (interaction.openEngineCarId !== -1) paintSheet.show(interaction.openEngineCarId);
       },
       showBlocker: () => showBlocker(),
+      showWaitSignal: () => {
+        if (viewWaitAt !== -1) interaction.showWaitSignal(viewWaitAt);
+      },
       sendCrane: () => sendCrane(),
       showPlace: (id) => showPlace(id),
       toggleChainHints: () => setChainHints(!chainHintsOn),
@@ -4162,10 +4165,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const viewBlocker: { shown: Blocker | null; next: Blocker | null } = { shown: null, next: null };
   /** A place the status shown says isn't on the train's line (it keeps goods that place takes): "Add …" offers it. */
   let viewAddStop = -1;
+  /** The red signal the open engine stands at (its joint end), shown by Signal and tinted; −1: none. */
+  let viewWaitAt = -1;
   function showEngineView(): void {
     const carId = interaction.openEngineCarId;
     if (carId === -1) {
       viewCar = -1;
+      if (viewWaitAt !== -1) {
+        viewWaitAt = -1;
+        interaction.setWaitTint(-1);
+      }
       return;
     }
     const found = game.sim.findCar(carId);
@@ -4218,6 +4227,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const b = viewBlocker.shown;
     hud.setBlocker(!!b, b && b.car < 0 ? "points" : "train");
+    // Standing at a red signal (a mark's): Signal beside it, and the line that signal guards tinted (signals audit U3).
+    const redKey = game.layout.signalCount > 0 && game.sim.atRedSignal(found.train.id) ? game.sim.redSignalKeyAhead(found.train.id) : -1;
+    const waitAt = redKey < 0 && redKey !== -1 ? (game.layout.getSignal(-1 - redKey)?.at ?? -1) : -1;
+    if (waitAt !== viewWaitAt) {
+      viewWaitAt = waitAt;
+      interaction.setWaitTint(waitAt);
+    }
+    hud.setWaitSignal(waitAt !== -1);
     // A line with a train too many: Remove beside the status (with the status it belongs to).
     if (status === latest) hud.setCrowded(!!view.crowded);
     // (A train in the way, and a crane train on the map to lift it off: Send the crane.)
