@@ -64,7 +64,7 @@ const WAGON_WORDS: Partial<Record<CarKind, string>> = { timber: "a flatbed wagon
 /** A good's name in a sentence ("logs", "milk"). */
 export const goodsWord = (kind: CargoKind): string => CARGO[kind].label.toLowerCase();
 /** Is a good's name a plural ("logs", "planks", "tools"), for "go"/"goes" and "them"/"it"? */
-const plural = (kind: CargoKind): boolean => CARGO[kind].label.endsWith("s");
+export const plural = (kind: CargoKind): boolean => CARGO[kind].label.endsWith("s");
 
 /** One good in or out of a place: the nearest place on the map it comes from (or goes to), and how many others. */
 export interface ChainLink {

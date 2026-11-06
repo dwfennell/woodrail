@@ -1675,6 +1675,72 @@ export class Economy {
     return null;
   }
 
+  /**
+   * Why a routed train won't pick up a good at a stop of its line, the first such from the one it's heading for (or
+   * standing at) on round, from the same rules that
+   * decide it (`picksAt`, `roomAhead`, `carTakes`), or null: it will, or there's nothing it could want there. For its
+   * engine card ("Not loading planks at the sawmill: the workshop doesn't need any yet"; the user, 2026-11-06: a train
+   * passed its sawmill empty with nothing said). Each good the stop's place gives, in its order; the first with a reason:
+   * - "no-room": a later stop takes it, but none has room for more than the train has on board now (`roomAhead`):
+   *   `taker` is the first later stop that would take it, `takerFull` whether it's full (else it doesn't need any yet);
+   * - "no-wagon": a later stop takes it, but no wagon of the train carries it (or each is set to Off for it);
+   * - "none": it would load it, but the place has none (and isn't making any).
+   * Not said: goods no later stop takes (the line isn't for them), a stop set to Only drop, wagons already full.
+   * Cheap: a route walk per good, asked while its card is open.
+   */
+  notLoadingAt(trainId: number): { depot: DepotState; kind: CargoKind; why: "no-room" | "no-wagon" | "none"; taker?: DepotState; takerFull?: boolean } | null {
+    const train = this.sim.getTrain(trainId);
+    const route = train && this.routeOfTrain(train);
+    if (!train || !route || route.stops.length === 0) return null;
+    const n = route.stops.length;
+    const first = Number.isInteger(route.next) ? route.next % n : 0;
+    // From the stop it's heading for on round the line: the first stop where it won't load a good it could (heading for
+    // the workshop past a sawmill it skipped, it's the sawmill it says).
+    for (let k = 0; k < n; k++) {
+      const not = this.notLoadingAtStop(train, route.stops, (first + k) % n);
+      if (not) return not;
+    }
+    return null;
+  }
+
+  /** `notLoadingAt` for stop `i` of a train's route. */
+  private notLoadingAtStop(train: Train, stops: readonly RouteStopDef[], i: number): { depot: DepotState; kind: CargoKind; why: "no-room" | "no-wagon" | "none"; taker?: DepotState; takerFull?: boolean } | null {
+    const stop = stops[i];
+    const d = stop && this.depots[stop.depotId];
+    if (!d || !d.auto || stop.action === "drop" || !this.layout.getPiece(d.pieceId)) return null;
+    const r = RECIPES[d.role];
+    const later = this.laterOf(stops, i);
+    for (const kind of r.gives) {
+      const bit = 1 << CARGO[kind].index;
+      if (!storeLetsOut(d, kind) || !((r.routedOnly ? later.uses : later.takes) & bit)) continue;
+      const carriers = train.cars.filter((c) => canCarry(c.kind, kind) && this.carTakes(c.id, kind));
+      if (carriers.length === 0) {
+        // (No wagon could take it: said only where none carries it at all, not where its wagons are set to Off for it,
+        // and only to a goods train: an engine alone, or coaches, aren't for goods.)
+        if (!train.cars.some((c) => canCarry(c.kind, kind)) && train.cars.some((c) => canCarry(c.kind))) return { depot: d, kind, why: "no-wagon" };
+        continue;
+      }
+      if (stop.action !== "pick" && !this.roomAhead(stops, i, kind, train)) {
+        const taker = this.takerAfter(stops, i, kind);
+        return { depot: d, kind, why: "no-room", ...(taker ? { taker, takerFull: this.takesNow(taker, kind) } : {}) };
+      }
+      if (!r.endless && d.piles[CARGO[kind].index] <= 0 && !this.working(d)) return { depot: d, kind, why: "none" };
+    }
+    return null;
+  }
+
+  /** The first stop after stop `i` (round the line) that takes `kind` at all, as its kind of place does, or undefined. */
+  private takerAfter(stops: readonly RouteStopDef[], i: number, kind: CargoKind): DepotState | undefined {
+    for (let k = 1; k < stops.length; k++) {
+      const s = stops[(i + k) % stops.length];
+      const d = this.depots[s.depotId];
+      if (!d || s.depotId === stops[i].depotId || s.action === "pick" || !this.layout.getPiece(d.pieceId)) continue;
+      const r = RECIPES[d.role];
+      if (r.takes.includes(kind) || r.owed?.includes(kind)) return d;
+    }
+    return undefined;
+  }
+
   /** Give this engine's train a route (null or no stops: none; it's served wherever it goes). */
   setRoute(engineCarId: number, route: Route | null): void {
     this.stopsStamp++;
