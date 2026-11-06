@@ -4055,7 +4055,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * Empty (the wagon card) or Empty all (the engine card, `all`): tip the goods out where the train stands, thrown away
+   * Empty (the wagon card) or Throw away (the engine card, `all`): tip the goods out where the train stands, thrown away
    * (`Economy.dump`). Not undoable: undo is the track's and the land's, and no train action (Decouple, Swap ends) or
    * crane work is in it. A coach's riders stay on. The toast says what went, and a place on the map that takes it.
    */
@@ -4092,7 +4092,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * Empty and Empty all on the open card: shown while there are goods to tip out, greyed while the train moves. Keyed
+   * Empty and Throw away on the open card: shown while there are goods to tip out, greyed while the train moves. Keyed
    * by the car, the loads' stamp and whether it stands: the buttons are touched only when one changes.
    */
   let emptyKey = "";
@@ -4153,6 +4153,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let viewCar = -1;
   let viewStanding = false;
   const viewStatus = { shown: "", next: "", since: 0 };
+  /** Since when the open engine has stood at a stop (−1: it isn't): Leave now shows after LEAVE_SHOW_MS. */
+  let stopSince = -1;
+  const LEAVE_SHOW_MS = 1200;
   /** Who's in the open engine's way, with the status shown (and the latest, not shown yet): Show's and the fix's. */
   const viewBlocker: { shown: Blocker | null; next: Blocker | null } = { shown: null, next: null };
   /** A place the status shown says isn't on the train's line (it keeps goods that place takes): "Add …" offers it. */
@@ -4172,8 +4175,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
     // Waiting to turn back where the track ends: Continue sends it on now.
     hud.setContinue(canContinue(game.sim, game.economy, carId));
-    // Waiting under the crane for a full load: Leave now sends it on with what it has.
-    hud.setLeaveNow(game.economy.waitingToFill(found.train.id) !== null);
+    // Standing at a stop (worked by the crane, or waiting to fill): Leave now sends it on with what it has. Shown once
+    // it has stood there LEAVE_SHOW_MS (a crane's quick unit doesn't flash it in and out), at once while it waits to
+    // fill (the feature tip points at it).
+    const atStop = game.economy.atStop(found.train.id) !== null;
+    const clock = performance.now();
+    if (!atStop || carId !== viewCar) stopSince = atStop ? clock : -1;
+    else if (stopSince === -1) stopSince = clock;
+    hud.setLeaveNow(atStop && (clock - stopSince >= LEAVE_SHOW_MS || game.economy.waitingToFill(found.train.id) !== null));
     const opened = carId !== viewCar;
     viewCar = carId;
     // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go
@@ -4419,7 +4428,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // Its top speed by its engines, against the classic's (Sandbox's are all the classic's); too heavy to move, none said.
       const l = engineLoad(game.world, found.train);
       const speed = mode !== "game" ? 1 : l.cars > l.pulls || l.engines.length === 0 ? 0 : Math.min(...l.engines.map((e) => e.speed));
-      const s = trainSummary(cars.map(summaryCar), speed, line?.name ?? "");
+      // (Its line's name isn't said again where the card's route section says it.)
+      const s = trainSummary(cars.map(summaryCar), speed, mode === "sandbox" || progress.learned.has("routes") ? "" : (line?.name ?? ""));
       hud.setEngineSummary(s.about, s.load);
       hud.setCarGoods(null);
     } else {
@@ -4501,7 +4511,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const swatch = document.createElement("i");
       swatch.className = "route-swatch";
       swatch.style.background = line.colour;
-      label.append(swatch, Object.assign(document.createElement("span"), { className: "route-line-text", textContent: line.name }));
+      label.append(swatch, Object.assign(document.createElement("span"), { className: "route-line-text", textContent: planning ? `Editing ${line.name}` : line.name }));
       // Its trains, where it has more than this one; the name opens the Lines view (to rename it, recolour it).
       if (riders > 1) label.append(Object.assign(document.createElement("span"), { className: "route-riders", textContent: `· ${riders} trains` }));
       label.classList.add("route-line-name");
@@ -4518,17 +4528,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       any.textContent = "Goes anywhere, works at every stop";
       head.append(any);
     }
-    head.append(
-      planning
-        ? button("Done", "route-plan on", "Finish planning the route", () => donePlanning())
-        : button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)),
-    );
-    // On a line, this train can leave it (it goes anywhere again; the line stays for its other trains). The last train
-    // leaving a line asks first, whatever its name (the line goes with it, its stops and via points: audit F3): a
-    // second tap within LEAVE_ASK_MS.
-    if (line && !planning) {
+    // Edit (or Plan a route) at the head; editing, Done goes to the foot (with Take off line), where a thumb finishes.
+    if (!planning) head.append(button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)));
+    // Editing a line, this train can be taken off it (it goes anywhere again; the line stays for its other trains): at
+    // the foot, away from Go and Leave now, worded so it can't be read as setting off (the user read "Leave" beside Edit
+    // as "leave the stop"). The last train taken off a line asks first, whatever its name (the line goes with it, its
+    // stops and via points: audit F3): a second tap within LEAVE_ASK_MS.
+    const foot = document.createElement("div");
+    foot.className = "route-foot";
+    if (line && planning) {
       const asks = riders === 1;
-      const leave = button(leaveAsked === carId ? `Forget “${line.name}”?` : "Leave", "route-leave", riders > 1 ? "Take this train off its line (its other trains keep running it)" : "Take this train off its line: it goes anywhere again", () => {
+      const leave = button(leaveAsked === carId ? `Forget “${line.name}”?` : "Take off line", "route-leave", riders > 1 ? "Take this train off its line (its other trains keep running it)" : "Take this train off its line: it goes anywhere again", () => {
         if (asks && leaveAsked !== carId) {
           leaveAsked = carId;
           routeShown = "";
@@ -4542,18 +4552,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }
         leaveAsked = -1;
         routeEdit(() => stopLine(game.economy, carId));
+        // (Off its line, there's nothing left to edit: back to the card.)
+        donePlanning();
         showRoute();
         routeChanged();
         scheduleSave();
       });
       leave.classList.toggle("asking", leaveAsked === carId);
-      head.append(leave);
+      foot.append(leave);
     }
+    if (planning) foot.append(button("Done", "route-plan on", "Finish planning the route", () => donePlanning()));
     box.append(head);
     // Asking: what a second tap does, in words (the button only says "Forget …?").
-    if (line && !planning && leaveAsked === carId) {
-      box.append(Object.assign(document.createElement("div"), { className: "route-warn route-leave-ask", textContent: `Tap again to forget ${line.name} and its stops` }));
-    }
+    const leaveAsk = line && planning && leaveAsked === carId ? Object.assign(document.createElement("div"), { className: "route-warn route-leave-ask", textContent: `Tap again to forget ${line.name} and its stops` }) : null;
     // On no line, with lines on the map: run one of them (a tap), as well as planning its own.
     if (!line && !planning && game.economy.lines.size > 0) {
       const join = document.createElement("div");
@@ -4600,7 +4611,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (planning && !line) {
       const hint = document.createElement("div");
       hint.className = "route-hint";
-      hint.textContent = "Tap stations and depots, in order";
+      hint.textContent = "Tap stations and depots on the map, in the order the train should visit them";
       box.append(hint);
     }
     if (line) {
@@ -4719,14 +4730,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       };
       strip.addEventListener("scroll", edges, { passive: true });
       requestAnimationFrame(() => {
-        // The picked stop (else, planning, the last, just added; else the one it's heading for) scrolled into view.
-        const chip = (strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? strip.lastElementChild : strip.querySelector(".route-chip.next"))) as HTMLElement | null;
-        // Wholly in view, clear of the edges' fades (the strip's last chip scrolls fully to its end).
-        if (chip) {
-          const fade = 44;
-          const right = chip.offsetLeft + chip.offsetWidth;
-          if (right > strip.scrollLeft + strip.clientWidth - fade) strip.scrollLeft = Math.min(strip.scrollWidth - strip.clientWidth, right - strip.clientWidth + fade);
-          else if (chip.offsetLeft < strip.scrollLeft + fade) strip.scrollLeft = Math.max(0, chip.offsetLeft - fade);
+        // The picked stop (else, planning, the last, just added; else the one it's heading for) scrolled into view,
+        // whole, with a whole chip at the strip's start (the strip snaps to chips' starts: one cut at the start read as
+        // a stop missing, critique 2026-11-05). Heading for a stop, the one before it shows too, where it fits.
+        const chips = [...strip.querySelectorAll<HTMLElement>(".route-chip")];
+        const target = strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? chips.at(-1) : strip.querySelector<HTMLElement>(".route-chip.next")) ?? null;
+        if (target) {
+          const fade = 36;
+          // The furthest left it may start and still show the target whole, short of the right edge's fade.
+          const least = target.offsetLeft + target.offsetWidth - strip.clientWidth + fade;
+          const before = target.previousElementSibling as HTMLElement | null;
+          let left = !planning && before && before.offsetLeft >= least ? before.offsetLeft : Math.min(target.offsetLeft, Math.max(0, least));
+          // On a chip's start: the first at or after it (or the target's own).
+          left = chips[0] === target ? 0 : (chips.find((c) => c.offsetLeft >= left)?.offsetLeft ?? target.offsetLeft);
+          // (Room at the end for it, where the chips after it are too few to fill the strip: the end's blank grows.)
+          const short = left - (strip.scrollWidth - strip.clientWidth);
+          strip.style.setProperty("--end", `${36 + Math.max(0, Math.ceil(short))}px`);
+          strip.scrollLeft = left;
         }
         edges();
       });
@@ -4734,7 +4754,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (planning && stopPicked === -1 && !viaPicked) {
         const hint = document.createElement("div");
         hint.className = "route-hint route-plan-hint";
-        hint.textContent = viaAsked ? "Now tap the track to go by" : "Tap places to add stops, or track to go that way";
+        hint.textContent = viaAsked ? "Now tap the track the train should go by" : "Tap a place on the map to add it as a stop. Tap track to make the train go that way.";
         box.append(hint);
       }
       // The first time, a word on what a chip does (till one is tapped); on a line with a warehouse, till its chip is.
@@ -4931,6 +4951,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         box.append(warn);
       }
     }
+    if (leaveAsk) box.append(leaveAsk);
+    if (foot.childElementCount > 0) box.append(foot);
   }
 
   /**

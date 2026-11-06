@@ -3,7 +3,7 @@ import { canCarry, RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
 import { kitOf, type Layout } from "../track";
 import { storeSkipText } from "./warehouse-text";
-import { keptText } from "./workshop-text";
+import { keptText, notLoadingText } from "./workshop-text";
 import { loadHint, loadHintText } from "./chains";
 import { RACK_WAIT } from "./engines";
 
@@ -393,6 +393,14 @@ export function engineView(
       // else to do there: not a coach train passing, nor one unloading at a town that also gives mail.)
       const plainly = hint?.why === "wagon" && s.kind !== "running" && hint.depot.role !== "town" && found.train.cars.some((c) => canCarry(c.kind)) && !economy.hasWorkAt(found.train.id, hint.depot);
       if (hint && (loadHints || plainly)) return { status: loadHintText(hint, nameOf(hint.depot.id)), blocker: null, ...(hint.why === "not-stop" ? { addStop: hint.depot.id } : {}) };
+    }
+    // (After the chain hints: they're about goods beside it now.)
+    // Heading for (or standing at) a stop where it won't pick up a good it could: why, from the rule that decides it
+    // (a later stop with no room, no wagon for it, none there). The user, 2026-11-06: a train passed its sawmill empty.
+    // (Not over a held-up train's "Waiting: … in the way": what holds it comes first.)
+    if (s.kind === "running" || s.kind === "slowing" || s.kind === "stopped") {
+      const not = economy.notLoadingAt(found.train.id);
+      if (not) return { status: notLoadingText(not.why, not.kind, nameOf(not.depot.id), not.taker ? nameOf(not.taker.id) : "", !!not.takerFull), blocker: null };
     }
   }
   const blocker = blockerOf(sim, economy, s);
