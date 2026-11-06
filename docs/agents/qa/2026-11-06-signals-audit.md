@@ -214,3 +214,33 @@ This is spec decision 6, and it stays right for a cosy game. U3's tint on a wait
 5. **U2, a facing chevron on the sleeper.**
 6. **Realism:** path signals green at rest (recommended), or keep and explain.
 7. **U6, the card's details:** selected state, warn-ink, accessible names, and a style picker.
+
+## Built (the user's picks, 2026-11-06)
+
+The user picked U1 + U2, U5, and U3 + U6 with path signals green at rest. B5 (refusing signals in loop roads) was not
+picked; it stays open above.
+
+This branch merges `origin/main` and `claude/shared-line-turns` (d942c44). Since that merge, report 2's train goes on
+to the mill.
+
+- **U1, the lamp on top:**
+  - The toy colour light's wooden knob is replaced by a dome lit red or green (radius 4.8 mm, the knob's 2.6), and the lenses lean back 30°.
+  - The dome is part of each lit lens's geometry (`mergeGeometries`), so there are no new draws, and one fewer part.
+  - The kit looks (semaphore, colour-light kit, gantry) are unchanged: their arms and lenses come from the kit models.
+- **U2, the arrowhead:**
+  - A flat filled arrowhead lies beside the post's foot, out from the track, pointing the way the signal guards and lit with its aspect.
+  - It is in the same lit geometry.
+  - The card's screen arrow ("guards this way →") is gone.
+- **U5:** a tap on a signal opens its card. Always red holds it, Auto lets it go. A held train's card says "Waiting at a signal you're holding at red. Tap it, then Auto".
+- **U6, the card:**
+  - Its title says what it shows now and why (`Sim.markWhy`): "Signal · red: a train is on the line ahead", "· green: the line ahead is clear", "· red: held here", "· red: a train waits here for its turn", "· red: a train's way through the points isn't set". It follows aspect changes on the marks view's sync, never per frame.
+  - The selected mode is cream with a dark ring.
+  - The too-short note is in `warn-ink`.
+  - Mode chips are announced by their names, with the description as `aria-description`.
+  - "Look: Lamps ▸".
+- **Path signals green at rest:** with no train coming, a path signal shows green while no train is on its block. It's worked out in `updateSignals` on a change, not every tick.
+- **U3:**
+  - An engine standing at a red signal has Signal on its card, beside Show. It glides to that signal, and the line the signal guards is tinted while the card is open.
+  - The words are `line-wait-for`'s, from `claude/shared-line-turns`.
+
+**Pictures:** `docs/agents/shots/signals-ux-before-after-*.jpg` (main on the left, this branch on the right; 390×844 @2x from the high angle).

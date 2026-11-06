@@ -205,7 +205,7 @@ describe("why a train with its lever on isn't moving", () => {
     // Held by hand (a tap): after STUCK_S standing there, its card says so, and how to let it go (signals spec §6).
     run(sim, 6);
     expect(trainState(sim, economy, train, 1)).toEqual({ kind: "red-signal", signalId: ids[2], holding: true });
-    expect(engineStatus(sim, economy, engine, () => "?")).toBe("Waiting at a signal you're holding. Tap it to let go");
+    expect(engineStatus(sim, economy, engine, () => "?")).toBe("Waiting at a signal you're holding at red. Tap it, then Auto");
     sim.toggleSwitch(ids[2]);
     run(sim, 1);
     expect(trainState(sim, economy, train, 1).kind).toBe("running");

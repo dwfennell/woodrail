@@ -296,6 +296,8 @@ export class Sim {
   private readonly pathChoice: boolean[] = [];
   /** Path signals: what the nearest train coming to each saw this tick, and last tick (shown: `updateSignals`). */
   private junctionNear = new Map<number, boolean>();
+  /** Path signals at rest (no train coming): clear while no train is on the block, not held (`updateSignals`). */
+  private readonly pathRest = new Map<number, boolean>();
   private junctionSeen = new Map<number, boolean>();
   /**
    * The router's locks, for path signals (signals spec §3.1, §3.3): `locks` gives −2 if a train may go on over these
@@ -1775,6 +1777,26 @@ export class Sim {
     return this.aspects.get(markKey(id)) ?? true;
   }
 
+  /**
+   * Why a mark shows what it shows, for its card (signals audit U6): held at red, set Always green, a train on the line
+   * ahead (`by`: its id), a train waiting here for its turn on a line (sections' grant), waiting for a train's way
+   * through the points, or clear.
+   */
+  markWhy(id: number): { clear: boolean; why: "held" | "forced" | "train" | "turn" | "points" | "clear"; by: number } {
+    const clear = this.markClear(id);
+    const m = this.layout.getSignal(id);
+    const g = this.signalByKey.get(markKey(id));
+    if (!m || !g) return { clear, why: "clear", by: -1 };
+    if (m.held) return { clear: false, why: "held", by: -1 };
+    if (m.forced) return { clear, why: "forced", by: -1 };
+    if (clear) return { clear, why: "clear", by: -1 };
+    const by = this.blockBy.get(g.key) ?? -1;
+    if (by !== -1) return { clear, why: "train", by };
+    const gated = this.gatedFor(g);
+    if (gated !== -1) return { clear, why: "turn", by: gated };
+    return { clear, why: g.junction ? "points" : "train", by: -1 };
+  }
+
   /** Set how a mark works (its card: Auto, Always red, Always green). Shown at once (even paused). */
   setMarkMode(id: number, mode: SignalMode): void {
     if (!this.layout.getSignal(id)) return;
@@ -1851,7 +1873,8 @@ export class Sim {
     if (this.pathSignals === 0) return;
     for (const g of this.signals!) {
       if (!g.junction) continue;
-      const clear = !this.isHeld(g) && (seen.get(g.key) ?? false);
+      // (No train coming: at rest, green while its block is free: `pathRest`.)
+      const clear = !this.isHeld(g) && (seen.get(g.key) ?? this.pathRest.get(g.key) ?? false);
       if (this.aspects.get(g.key) !== clear) {
         this.aspects.set(g.key, clear);
         this.signalsVersion++;
@@ -2012,8 +2035,19 @@ export class Sim {
     }
     for (const g of list) {
       if (!this.layout.getPiece(g.pieceId) || this.layout.isLifted(g.pieceId)) continue;
-      // (A path signal's aspect is the nearest train's: `showPathSignals`.)
-      if (g.junction) continue;
+      // (A path signal's aspect is the nearest train's: `showPathSignals`. With none coming, it rests green while no
+      // train is on its block (signals audit: it rested red, beside plain signals resting green); worked out here, on a
+      // change, not every tick.)
+      if (g.junction) {
+        const by = this.isHeld(g) ? -1 : this.blockOccupant(g, -1);
+        this.blockBy.set(g.key, by);
+        this.pathRest.set(g.key, !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1);
+        if (!this.junctionSeen.has(g.key) && this.aspects.get(g.key) !== this.pathRest.get(g.key)) {
+          this.aspects.set(g.key, this.pathRest.get(g.key)!);
+          this.signalsVersion++;
+        }
+        continue;
+      }
       const by = this.isHeld(g) || this.isForced(g) ? -1 : this.blockOccupant(g, -1);
       this.blockBy.set(g.key, by);
       const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;

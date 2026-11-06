@@ -4,7 +4,8 @@
 //   1-2. The Signal dragged from the Switch shelf onto the line, along it the way trains go: the ghost snaps to a joint
 //        facing that way, the blocks are tinted (an overlay mesh shown), each pointer move costs under 1 ms (median).
 //   3. Let go: on that joint, the tint gone. A long press on its post: its card, the tint back; Turn round turns it
-//      (its post crosses the track), and back. A tap holds it at red, another lets it go. The Signal tool: tapped in
+//      (its post crosses the track), and back. A tap opens its card too (as any piece's); Always red holds it, Auto
+//      lets it go (signals audit U5: a tap used to hold it, and the card took a long press). The Signal tool: tapped in
 //      the tray, a tap on the track puts another down; tapped again, it's put away. Undo takes the last one away.
 //
 // Usage: npm run e2e:signals [-- <out dir>]   (default out: e2e-out/signals)
@@ -269,7 +270,8 @@ if (!setup.error) {
     await touch("touchEnd", 0, 0, Date.now() / 1000);
     await frames();
     const card = await p.evaluate(() => document.querySelector(".piece-card:not([hidden]) .card-title")?.textContent ?? null);
-    check("a long press on its post opens its card", card === "Signal: guards this way →", JSON.stringify(card));
+    // (Its title says what it shows now, and why: signals audit U6.)
+    check("a long press on its post opens its card", card?.startsWith("Signal · ") === true, JSON.stringify(card));
     check("…with its blocks tinted", await tintShown());
     // Its modes (the user: "auto or forced on or off"): Auto pressed; Always red holds it, Always green lets trains by.
     const modes = async () => p.evaluate((id) => ({ pressed: [...document.querySelectorAll(".piece-card:not([hidden]) .signal-mode")].map((b) => [b.querySelector(".signal-mode-name").textContent, b.getAttribute("aria-pressed")]), mode: window.woodrail.layout.getSignal(id)?.mode, clear: window.woodrail.sim.markClear(id) }), id);
@@ -392,16 +394,22 @@ if (!setup.error) {
     await frames();
     check("its card closed: the tint is gone", !(await tintShown()));
 
-    // A tap on its post holds it at red; another lets it go.
+    // A tap on its post opens its card (signals audit U5); Always red holds it at red, Auto lets it go.
     const [qx, qy] = await screenOf({ x: top0.x, y: top0.y - 20, z: top0.z });
     await tapAt(qx, qy);
     await p.waitForTimeout(500);
-    check("a tap on its post holds it at red", (await marks())[0]?.held === true && (await p.evaluate((id) => !window.woodrail.sim.markClear(id), id)));
+    const tapCard = await p.evaluate(() => document.querySelector(".piece-card:not([hidden]) .card-title")?.textContent ?? null);
+    check("a tap on its post opens its card (and holds nothing)", tapCard?.startsWith("Signal · ") === true && (await marks())[0]?.held === false, JSON.stringify(tapCard));
+    await tapChip("Always red", ".signal-mode");
+    await p.waitForTimeout(300);
+    const heldTitle = await p.evaluate(() => document.querySelector(".piece-card:not([hidden]) .card-title")?.textContent ?? null);
+    check("Always red on it holds it at red, and its title says so", (await marks())[0]?.held === true && (await p.evaluate((id) => !window.woodrail.sim.markClear(id), id)) && heldTitle === "Signal · red: held here", JSON.stringify(heldTitle));
     await shot("5-held");
-    await p.waitForTimeout(500);
-    await tapAt(qx, qy);
-    await p.waitForTimeout(500);
-    check("another tap lets it go", (await marks())[0]?.held === false);
+    await tapChip("Auto", ".signal-mode");
+    await p.waitForTimeout(300);
+    check("Auto lets it go", (await marks())[0]?.held === false);
+    await p.evaluate(() => window.woodrail.hud.hideCards?.());
+    await p.evaluate(() => window.woodrail.interaction.clearSelection());
   }
 
   // The Signal tool: tapped in the tray, a tap on the track puts one down; tapped again, it's put away.
@@ -614,7 +622,8 @@ if (!setup.error) {
   check("4. both trains deliver", (withSignal.arrived[0] ?? 0) > 0 && (withSignal.arrived[1] ?? 0) > 0, JSON.stringify(withSignal));
   await shot("10-following");
 
-  // 5. A tap on its post: held at red. The next train stops at it, its card says so, and after 5 s that it's held.
+  // 5. Held at red from its card (a tap on its post, Always red). The next train stops at it, its card says so (with
+  // Signal, the line it waits for tinted), and after 5 s that it's held.
   const markId = await p.evaluate((at) => window.woodrail.layout.signalAt(at)?.id ?? -1, line.at);
   const postScreen = async () => {
     const top = await p.evaluate((id) => window.woodrail.marksView.topOf(id), markId);
@@ -622,7 +631,10 @@ if (!setup.error) {
     return screenOf({ x: top.x, y: top.y - 20, z: top.z });
   };
   await tapAt(...(await postScreen()));
-  check("5. a tap on its post holds it at red", await p.evaluate((id) => window.woodrail.layout.getSignal(id)?.held === true, markId));
+  await tapChip("Always red", ".signal-mode");
+  check("5. a tap on its post and Always red hold it at red", await p.evaluate((id) => window.woodrail.layout.getSignal(id)?.held === true, markId));
+  await p.evaluate(() => window.woodrail.hud.hideCards?.());
+  await p.evaluate(() => window.woodrail.interaction.clearSelection());
   const stopped = await p.evaluate(() => {
     const w = window.woodrail;
     for (let s = 0; s < 120; s++) {
@@ -655,19 +667,28 @@ if (!setup.error) {
       return p.evaluate(() => document.querySelector(".engine-card .engine-status")?.textContent ?? null);
     };
     check("5. its card: waiting at a red signal", (await cardText()) === "Waiting at a red signal", await cardText());
+    // (Signal beside the status: the line that signal guards is tinted while the card is open; a tap glides there.)
+    const chip = await p.evaluate(() => {
+      const b = document.querySelector(".engine-card .show-signal");
+      return !!b && !b.hidden && b.getBoundingClientRect().width > 0;
+    });
+    check("5. its card offers Signal, and the line the signal guards is tinted", chip && (await tintShown()), JSON.stringify({ chip, tint: await tintShown() }));
     await p.evaluate(() => window.__lineRun(6));
     const held = await cardText();
-    check("5. after 5 s: waiting at a signal you're holding", held === "Waiting at a signal you're holding. Tap it to let go", held);
+    check("5. after 5 s: waiting at a signal you're holding", held === "Waiting at a signal you're holding at red. Tap it, then Auto", held);
     await p.keyboard.press("Escape");
     await p.evaluate(() => window.woodrail.hud.hideCards?.());
     await tapAt(...(await postScreen()));
+    await tapChip("Auto", ".signal-mode");
+    await p.evaluate(() => window.woodrail.hud.hideCards?.());
+    await p.evaluate(() => window.woodrail.interaction.clearSelection());
     const went = await p.evaluate((e) => {
       const w = window.woodrail;
       const t0 = w.sim.findCar(e).train.bogies[0].pieceId;
       window.__lineRun(10);
       return w.sim.findCar(e).train.bogies[0].pieceId !== t0;
     }, stopped);
-    check("5. a tap lets it go: the train goes on", went);
+    check("5. its card's Auto lets it go: the train goes on", went);
   }
 
   // 4 (on). The same layout with no signal: removed by taps (the user: "there doesn't seem to be a way to remove signals
