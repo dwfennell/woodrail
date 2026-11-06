@@ -10,7 +10,7 @@
 //  4. The payoff: finished, it's earned (✓ in the tab, a sticker), and every town grows a step: the smaller towns a
 //     level each, Larkfield a quarter of its next star.
 //  5. 0 frames idle with the finished hall in view; then a reload: the hall, the achievement and the growth all kept.
-//  6. The Royal Train in a second City ★, by taps and trains: finished, it's given into the toy box (its tray tile).
+//  6. The Royal Train in Larkfield, its Exhibition done, by taps and trains: finished, it's given into the toy box (its tray tile).
 //  7. The Cathedral in a third, glass among its goods: finished, every town needs a tenth fewer goods to grow.
 //  8. The World's Fair wheel in a fourth: finished, a month on its tickets pay 60 coins. Four achievements earned.
 //
@@ -362,7 +362,8 @@ const buildByTrain = async (t, id, label) => {
   await shot(`${id}-stage-0`);
   const stagesOf = await p.evaluate(async (id) => (await import("/src/game/grand.ts")).grandOf(id).stages.map((s) => s.goods), id);
   for (const [i, goods] of stagesOf.entries()) {
-    for (const [kind, n] of Object.entries(goods)) await bring(kind, n, t.station);
+    const got = [];
+    for (const [kind, n] of Object.entries(goods)) got.push({ kind, ...(await bring(kind, n, t.station)) });
     await p.waitForFunction(([id, s]) => (window.woodrail.world.economy.grandPlans.get(id)?.stage ?? 0) > s, [id, i], { timeout: 30000 }).catch(() => console.log(`(${id} stage ${i + 1} not done within 30 s)`));
     await p.waitForTimeout(600);
     await closeSheets();
@@ -370,7 +371,7 @@ const buildByTrain = async (t, id, label) => {
       const w = window.woodrail;
       return w.world.props.get(w.world.economy.grandPlans.get(id).prop)?.asset;
     }, id);
-    check(`${label}: stage ${i + 1} of ${stagesOf.length} done by train, the site shows it`, asset === `grand-${id}-${i + 1}`, String(asset));
+    check(`${label}: stage ${i + 1} of ${stagesOf.length} done by train, the site shows it`, asset === `grand-${id}-${i + 1}`, `${asset} ${JSON.stringify(got)}`);
     await lookAtSite(1300);
     await shot(`${id}-stage-${i + 1}`);
   }
@@ -378,8 +379,10 @@ const buildByTrain = async (t, id, label) => {
   await closeSheets();
 };
 
-// 6. The Royal Train: finished, it's in the toy box (a tray tile on the Trains tab), the only train in that look.
-const t1 = await cityStar(1);
+// 6. The Royal Train, in Larkfield again (its Exhibition's done: a city may start another): finished, it's in the toy
+//    box (a tray tile on the Trains tab), the only train in that look. (Not Elderwick: the line laid behind its station
+//    for these trains would run over the starter line to Larkfield.)
+const t1 = await cityStar(0);
 await buildByTrain(t1, "royal-train", "6. Royal Train");
 const royal = await p.evaluate(() => {
   const w = window.woodrail;
