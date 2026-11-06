@@ -823,8 +823,44 @@ export const handRunBoxedIn: Scenario = {
   },
 };
 
+/**
+ * A hand-run train given way by another road that didn't let it go (fuzz seed 142, small). A line `⊐ A ══ ══ (loop) ══ ══
+ * (siding points) ══ ══ B ⊐`, the loop's far points lying for its side road. A routed train runs B → A; two hand-run ones
+ * shuttle. The two hand-run trains meet in the loop, each on one road, and the routed one comes up and waits on them. The
+ * hand-run one it waits on gives way by throwing the points ahead of it to the free road (`Router.giveWayRoad`), but its
+ * way on is still held (the loop's roads and the line's slots): it stands, and having given way to the routed train, it
+ * never did again till that one got somewhere, which it couldn't. All three stood for good, said stuck (seed 142:
+ * 82 stops all hand-run, 8 with the route). And the points thrown for it, never gone over, were left thrown for good
+ * (the `restore` invariant; fuzz seed 95's break on cf529c9a). Now they go back once the road hasn't taken
+ * (`Router.gaveWayTaken`).
+ */
+export const handRunRoadHeld: Scenario = {
+  name: "a hand-run train given way by a road that didn't take",
+  seconds: 5 * 60,
+  build: (layout) => {
+    const [a, w1, w2] = chain(layout, [STOP, S, S]);
+    appendPiece(layout, BUFFER, false, connectorRef(a, 0));
+    const l = loopOn(layout, connectorRef(w2, 1), [S, S], [S]);
+    const m = chain(layout, [S, S], connectorRef(l.s2, 0));
+    const sw = appendPiece(layout, "switch", false, connectorRef(m[1], 1));
+    const siding = chain(layout, [C, S, S], connectorRef(sw, 2), [true]);
+    appendPiece(layout, BUFFER, false, connectorRef(siding[2], 1));
+    const [, e2, b] = chain(layout, [S, S, STOP], connectorRef(sw, 1));
+    appendPiece(layout, BUFFER, false, connectorRef(b, 1));
+    layout.setSwitchState(l.s2, 1);
+    void w1;
+    return {
+      trains: [
+        { pieceId: e2, stops: [b, a], cars: CARS },
+        { pieceId: m[1], reversed: true, cars: CARS },
+        { pieceId: w1, cars: CARS },
+      ],
+    };
+  },
+};
+
 /** Giving way's cases. */
-export const GIVE_WAY: readonly Scenario[] = [routedMeetsHandRun, routedHeadOnRing, handRunBoxedIn];
+export const GIVE_WAY: readonly Scenario[] = [routedMeetsHandRun, routedHeadOnRing, handRunBoxedIn, handRunRoadHeld];
 
 // ── Seeded fuzz over the loop fixtures ──────────────────────────────────────────────────────────────────────────────
 

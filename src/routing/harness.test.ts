@@ -335,6 +335,16 @@ const GIVE_WAY: Case[] = [
       },
     },
   },
+  {
+    // (Points thrown for a road given way that didn't take go back to the player's way: `restore` holds, as every case's.)
+    scenario: S.handRunRoadHeld,
+    checks: {
+      "a hand-run one gave way, not the routed one": (r) => {
+        expect(r.gaveWay.any).toBeGreaterThanOrEqual(1);
+        expect(r.gaveWay.routed).toBe(0);
+      },
+    },
+  },
 ];
 
 /**

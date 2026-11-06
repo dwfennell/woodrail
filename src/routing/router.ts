@@ -43,6 +43,8 @@ export const OVERLAP = 30;
 export const HAND_LOOK = 80;
 /** How far ahead (mm) a hand-run train giving way looks for points to take another road at (`giveWayRoad`). */
 export const GIVE_WAY_LOOK = 700;
+/** Points thrown for a train giving way that it hasn't locked in this many ticks (half a second) go back (`gaveWayTaken`). */
+export const GIVE_WAY_TAKE_TICKS = 60;
 
 /**
  * Why a routed train waits short of points (§3.3): they're set for (or held by) the train `by` (an engine), or pinned
@@ -174,6 +176,11 @@ export class Router {
   /** Points thrown for a hand-run train giving way (`giveWayRoad`). */
   gaveWayThrows = 0;
   /**
+   * Points thrown for a hand-run train giving way, not yet locked by it: when (sim tick). Not taken within
+   * `GIVE_WAY_TAKE_TICKS` (its way on held all the same, or it turned round instead), they go back to the player's way.
+   */
+  private readonly gaveWayAt = new Map<number, number>();
+  /**
    * Ticks counted for the looks: one count for routed and hand-run trains alike, so both look on the same tick, the
    * routed first. (Counted apart, a hand-run train's look could come a few ticks before a routed one's just started:
    * it locked the points as they lay, short of the route's road, and the two met head on beyond them.)
@@ -213,6 +220,7 @@ export class Router {
   tick(): void {
     const due = ++this.ticks % STEER_TICKS === 0;
     this.tickRouted(due);
+    if (this.gaveWayAt.size > 0) this.gaveWayTaken();
     // (Hand-run trains, with another train about: the points just ahead, a few times a second, after the routed trains'
     // look that tick. A lone train: nothing.)
     if (due && (this.host.sim.trainCount >= 2 || this.hand.size > 0)) this.steerHand();
@@ -386,6 +394,7 @@ export class Router {
     this.locks.clear();
     this.holding.clear();
     this.pending.clear();
+    this.gaveWayAt.clear();
     this.waits.clear();
     this.deferred.clear();
     this.adopt = true;
@@ -885,6 +894,7 @@ export class Router {
           this.laid();
           layout.setSwitchState(n.pieceId, pointsStateFor(layout, n.pieceId, n.entry, w.option));
           this.gaveWayThrows++;
+          this.gaveWayAt.set(n.pieceId, sim.ticks);
           this.onSwitch?.(n.pieceId);
           return true;
         }
@@ -896,6 +906,24 @@ export class Router {
       exit = ways[0].exit;
     }
     return false;
+  }
+
+  /**
+   * Points thrown for giving way (`giveWayRoad`): once the train has locked them (it goes over them as they lie), they go
+   * back as any lock's do when it's let go. Not locked within `GIVE_WAY_TAKE_TICKS`, the road didn't take (the train's
+   * way on held all the same, or it turned round, or another broke the ring): back to the player's way now. (Before,
+   * they were left thrown for good: fuzz seed 95, 2026-11-05, "points 11 left at 0 (default 1), no train on them".)
+   */
+  private gaveWayTaken(): void {
+    const { layout, sim } = this.host;
+    for (const [id, at] of this.gaveWayAt) {
+      if (!layout.getPiece(id) || this.locks.has(id)) {
+        this.gaveWayAt.delete(id);
+      } else if (sim.ticks - at >= GIVE_WAY_TAKE_TICKS) {
+        this.gaveWayAt.delete(id);
+        this.putBack(id);
+      }
+    }
   }
 
   /**
