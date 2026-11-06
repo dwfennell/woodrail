@@ -197,9 +197,12 @@ export class LineSheet {
     if (m.menu) this.root.append(this.menu(m));
     if (m.id !== -1) this.root.append(this.tabs(m));
     const body = el("div", "ls-body");
-    if (m.tab === "stops" || m.id === -1) this.stopsTab(m, body);
+    const foot = el("div", "ls-foot");
+    if (m.tab === "stops" || m.id === -1) this.stopsTab(m, body, foot);
     else this.trainsTab(m, body);
     this.root.append(body);
+    // (What a tap on the map does now, and + Pass by…: under the list, never scrolled away.)
+    if (foot.childElementCount > 0) this.root.append(foot);
     if (sameLine) body.scrollTop = scroll;
     // The open stop (else the last, just added while planning) scrolled into the sheet's view.
     const target = body.querySelector<HTMLElement>(".ls-stop.open, .ls-via.open");
@@ -313,7 +316,7 @@ export class LineSheet {
     return tabs;
   }
 
-  private stopsTab(m: SheetModel, body: HTMLElement): void {
+  private stopsTab(m: SheetModel, body: HTMLElement, foot: HTMLElement): void {
     const list = el("ol", "ls-stops");
     list.setAttribute("aria-label", "Stops, in order");
     m.stops.forEach((st, k) => {
@@ -322,15 +325,15 @@ export class LineSheet {
     });
     body.append(list);
     if (m.stops.length > 1) this.dragRows(list, m);
-    const tools = el("div", "ls-tools");
-    if (m.stops.length > 0) {
+    const hint = el("div", "ls-hint route-plan-hint", m.hint);
+    if (m.stops.length === 0) {
+      hint.classList.add("empty");
+      body.append(hint);
+    } else {
       const via = this.button(m.viaAsked ? "Tap the track…" : "+ Pass by…", `ls-add-via${m.viaAsked ? " on" : ""}`, "Go by a place or some track without stopping: then tap it on the map", () => this.h.askVia());
       via.setAttribute("aria-pressed", String(m.viaAsked));
-      tools.append(via);
+      foot.append(hint, via);
     }
-    const hint = el("div", "ls-hint route-plan-hint", m.hint);
-    if (m.stops.length === 0) hint.classList.add("empty");
-    body.append(...(m.stops.length === 0 ? [hint] : [hint, tools]));
     for (const w of m.warnings) body.append(el("div", "ls-note warn", w));
   }
 

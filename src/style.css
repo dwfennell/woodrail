@@ -1638,7 +1638,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-drop-bar { position: absolute; left: 30px; right: 0; height: 4px; border-radius: 2px; background: #3a2a1c; pointer-events: none; }
 .ls-hint { font-size: 13.5px; font-weight: 700; color: #5e4128; }
 .ls-hint.empty { padding: 12px; border-radius: 12px; border: 2px dashed #d7bf98; text-align: center; font-size: 14.5px; }
-.ls-tools { display: flex; gap: 6px; }
+.ls-foot { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding-top: 6px; border-top: 2px solid #ead8bb; }
+.ls-foot .ls-hint { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 1.25; }
+.ls-foot .ls-add-via { flex: 0 0 auto; }
 .ls-add-via.on { box-shadow: inset 0 0 0 3px #2f6fb5; }
 /* The trains on it, and free ones to add. */
 .ls-trains { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
