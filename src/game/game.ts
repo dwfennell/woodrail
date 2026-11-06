@@ -498,7 +498,7 @@ export class Game {
       () => this.crossingSquares,
     );
     this.watchRoadVehicles();
-    this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
+    this.post = createPost(this.renderer, this.scene, this.camera, this.quality, () => this.invalidate());
 
     this.landChanged();
 

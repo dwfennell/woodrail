@@ -2,7 +2,9 @@ import type { Object3D, Vector3 } from "three";
 import { frameOf, type SecretSite } from "../landscape";
 import type { Prop } from "../props/store";
 import type { PropLibrary } from "./props/library";
-import { PropsView } from "./props/props-view";
+import { PropsView, type BatchStart } from "./props/props-view";
+
+const SECRETS_START: BatchStart = { instances: 8, vertices: 1 << 12, indices: 1 << 14 };
 
 /** A secret drawn here: a hidden one (in the mist), or found stones in midsummer (their garlands and bonfire). */
 export interface ShownSecret {
@@ -32,7 +34,9 @@ export class SecretsView {
   };
 
   constructor(library: PropLibrary) {
-    this.view = new PropsView(library);
+    // A few sites, a few thousand vertices: batches start small (the default's room for a world of props was about
+    // 1.5 MB a material, empty).
+    this.view = new PropsView(library, SECRETS_START);
     this.group = this.view.group;
     this.group.name = "secrets";
   }
