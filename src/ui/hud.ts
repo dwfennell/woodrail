@@ -21,6 +21,8 @@ export { trayKey, type TrayItem } from "./tray-catalogue";
 import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
 import { CreditsSheet } from "./credits-sheet";
+import type { ExplainerSheet } from "./explainer-sheet";
+import { EXPLAINER_TITLES, explainerIdFor, type ExplainerId } from "./explainer-keys";
 
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
@@ -287,6 +289,8 @@ export class Hud {
   private readonly leverList = el("div", "card-row lever-list");
   /** A signal's card: how it works, Auto, Always red or Always green, one pressed (see `showSignalModes`). */
   private readonly signalModes = el("div", "card-row signal-modes");
+  /** On a signal's card, under its modes: Learn more (the Signals explainer). */
+  private readonly signalLearn = el("button", "learn-more card-learn", "Learn more about signals");
   /** A signal box's card with the Telegraph: the trains in its reach, each with Call home (see `showReachTrains`). */
   private readonly reachList = el("div", "card-row reach-list");
   private readonly doneBtn: HTMLButtonElement;
@@ -422,6 +426,8 @@ export class Hud {
   private readonly reportCard = el("div", "card report-card");
   /** ☰ Credits (made the first time it's opened). */
   private credits: CreditsSheet | null = null;
+  /** The "Learn more" sheet (explainers.ts), made the first time one is opened. */
+  private explainers: ExplainerSheet | null = null;
   /** The menu's "Copy map for a bug report" (with "Report a bug or give feedback" before it, in a build that can send). */
   private readonly copyMapItem = button("Copy map for a bug report", "Copy your railway to paste to us with a bug report", () => {
     this.menu.hidden = true;
@@ -768,7 +774,14 @@ export class Hud {
     this.signalModes.hidden = true;
     this.signalModes.setAttribute("role", "group");
     this.signalModes.setAttribute("aria-label", "How this signal works");
-    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.signalModes, this.leverList, this.reachList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
+    this.signalLearn.type = "button";
+    this.signalLearn.hidden = true;
+    this.signalLearn.dataset.explainer = "signals";
+    this.signalLearn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.showExplainer("signals");
+    });
+    this.pieceCard.append(this.pieceTitle, this.pieceDetail, this.groupHint, this.signalModes, this.signalLearn, this.leverList, this.reachList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
     // Depot card: what's on its piles, and how it treats trains.
@@ -2068,6 +2081,7 @@ export class Hud {
     this.leverList.hidden = true;
     this.reachList.hidden = true;
     this.signalModes.hidden = true;
+    this.signalLearn.hidden = true;
     this.pieceCard.classList.remove("group");
   }
 
@@ -2093,6 +2107,7 @@ export class Hud {
       }),
     );
     this.signalModes.hidden = false;
+    this.signalLearn.hidden = false;
   }
 
   showLevers(levers: readonly { label: string; title: string }[], onThrow: (i: number) => void): void {
@@ -2629,9 +2644,34 @@ export class Hud {
       d.textContent = text;
       return d;
     };
-    const lines = [line("pc-name", info.name), line("pc-what", info.detail), ...info.facts.map((f) => line("pc-fact", f))];
+    const lines: HTMLElement[] = [line("pc-name", info.name), line("pc-what", info.detail), ...info.facts.map((f) => line("pc-fact", f))];
     // What it does in Game mode (a caboose: makes its train a bit faster).
     if (item.kind === "train" && this.trayMode === "game" && item.gameDetail) lines.push(line("pc-fact", item.gameDetail));
+    // Learn more, for an item with an explainer (a signal): a short sheet on how it works. Placing goes on after.
+    const more = explainerIdFor(item);
+    if (more) {
+      const b = el("button", "learn-more pc-learn", "Learn more");
+      b.type = "button";
+      b.dataset.explainer = more;
+      b.setAttribute("aria-label", `Learn more about ${EXPLAINER_TITLES[more].toLowerCase()}`);
+      b.addEventListener("pointerdown", (e) => e.stopPropagation());
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // (Put by while its sheet is open, and back after, over its item, if it's still that item's: placing goes on.
+        // A moment's card has its moment again.)
+        clearTimeout(card.timer);
+        const key = card.key;
+        card.el!.hidden = true;
+        this.showExplainer(more, () => {
+          if (card.key === null || card.key !== key) return;
+          const at = this.tray.querySelector<HTMLElement>(`.tray-item[data-key="${CSS.escape(card.key)}"]`);
+          if (at) this.placeCardAt(at);
+          else this.hidePlaceCard();
+          if (card.timed) card.timer = window.setTimeout(() => this.hidePlaceCard(), Hud.PLACE_CARD_MS);
+        });
+      });
+      lines.push(b);
+    }
     card.el.replaceChildren(...lines);
     this.hideLockNote();
     this.tray.querySelector(".tray-item.has-card")?.classList.remove("has-card");
@@ -2674,6 +2714,20 @@ export class Hud {
   /** Something from the tray was put down: the item's card has said its piece (the next goes down without it). */
   trayPlaced(): void {
     if (this.placeCard.key !== null && !this.placeCard.timed) this.hidePlaceCard();
+  }
+
+  /** Open the "Learn more" sheet for explainer `id` (`onClose` once it's closed). */
+  showExplainer(id: ExplainerId, onClose?: () => void): void {
+    this.tips.hide();
+    const open = (sheet: ExplainerSheet) => sheet.show(id, onClose ?? (() => {}));
+    if (this.explainers) return open(this.explainers);
+    // (Its words, pictures and code are loaded the first time: nothing of them before.)
+    void import("./explainer-sheet").then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
+  }
+
+  /** The explainer open now, or null (for tests). */
+  get explainerShown(): ExplainerId | null {
+    return this.explainers?.shown ?? null;
   }
 
   /** The key of the item whose place card is up, or null (for tests). */

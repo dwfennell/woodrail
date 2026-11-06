@@ -71,6 +71,7 @@
     "e2e:hopper-load": "node scripts/e2e/lib/run.mjs tools/e2e/hopper-load.mjs",
     "e2e:locked": "node scripts/e2e/lib/run.mjs tools/e2e/locked-tiles.mjs",
     "e2e:signals": "node scripts/e2e/lib/run.mjs tools/e2e/signals.mjs",
+    "e2e:learn-more": "node scripts/e2e/lib/run.mjs tools/e2e/learn-more.mjs",
     "e2e:sandbox-chains": "node scripts/e2e/lib/run.mjs tools/e2e/sandbox-chains.mjs",
     "e2e:life": "node scripts/e2e/lib/run.mjs tools/e2e/life.mjs",
     "e2e:airport": "node scripts/e2e/lib/run.mjs tools/e2e/airport.mjs",

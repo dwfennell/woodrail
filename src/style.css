@@ -1601,6 +1601,32 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .place-card .pc-fact { font-size: 13px; font-weight: 700; line-height: 1.3; color: #74522f; }
 .place-card .pc-fact:first-of-type { margin-top: 3px; }
 @media (prefers-reduced-motion: reduce) { .place-card { animation: none; } }
+/* Learn more (an item with an explainer: explainers.ts): a link-like button, small to look at, a 44 px target. The
+   place card takes no pointer, but this does. */
+.learn-more { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; min-width: 44px; padding: 0 8px; border: none; background: transparent; font: inherit; font-size: 13.5px; font-weight: 800; color: #2f6a32; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-color: rgba(47, 106, 50, 0.45); cursor: pointer; border-radius: 10px; }
+.learn-more::after { content: "›"; display: inline-block; font-size: 17px; line-height: 1; text-decoration: none; }
+.learn-more:active { background: rgba(90, 163, 90, 0.16); }
+.place-card .learn-more { pointer-events: auto; align-self: flex-start; margin: -8px 0 -10px -8px; }
+.piece-card .card-learn { margin: -6px 0 -4px; }
+/* The "Learn more" sheet: a card in the middle of the screen, scrolling on a short one. */
+.explainer-scrim { position: fixed; inset: 0; z-index: 40; background: rgba(40, 28, 16, 0.32); animation: scrim-in 0.2s ease-out; }
+@keyframes scrim-in { from { opacity: 0; } }
+.explainer-sheet { top: 50%; bottom: auto; background: #faf3e6; transform: translate(-50%, -50%); width: min(400px, calc(100% - 24px)); max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)) - 12px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; align-items: stretch; gap: 8px; padding: 12px 16px 14px; animation: explainer-in 0.2s cubic-bezier(0.3, 1.3, 0.5, 1); }
+.explainer-sheet[hidden] { display: none; }
+@keyframes explainer-in { from { opacity: 0; transform: translate(-50%, -48%) scale(0.97); } }
+.explainer-sheet > .card-title { font-size: 18px; text-align: center; padding: 6px 40px 0; color: #5e4128; }
+.explainer-sheet > .explainer-x { position: absolute; top: 2px; right: 2px; }
+.explainer-body { display: flex; flex-direction: column; gap: 12px; }
+.explainer-intro { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.35; color: #74522f; text-align: center; text-wrap: pretty; }
+.explainer-section { display: flex; flex-direction: column; gap: 4px; }
+.explainer-picture { line-height: 0; border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(106, 74, 44, 0.12); }
+.explainer-picture svg { width: 100%; height: auto; display: block; }
+.explainer-heading { margin: 4px 0 0; font-size: 15px; font-weight: 800; color: #3a2a1c; }
+.explainer-text { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.4; color: #5e4128; text-wrap: pretty; }
+.explainer-more { display: flex; justify-content: center; }
+.explainer-row { justify-content: center; position: sticky; bottom: -14px; margin: 0 -16px -14px; padding: 8px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
+.explainer-back { min-width: 140px; }
+@media (prefers-reduced-motion: reduce) { .explainer-sheet, .explainer-scrim { animation: none; } }
 /* The line's way changed under a track edit (audit F14): said for a few seconds, as its ribbon flashes. */
 .route-way-changed { font-weight: 800; color: var(--ink-soft); }
 /* "Add Foxley": the status's fix, one tap (audit F15). */
