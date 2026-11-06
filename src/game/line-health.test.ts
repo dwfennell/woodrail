@@ -21,3 +21,12 @@ describe("lineHealth", () => {
     expect(order).toEqual(["stuck", "none", "waiting", "moving"]);
   });
 });
+
+describe("the Lines list's order", () => {
+  it("lists problems first: stuck, then no trains, waiting, moving; by name within each", async () => {
+    const { sortRows } = await import("../ui/lines-view");
+    const row = (id: number, name: string, health: "none" | "moving" | "waiting" | "stuck") => ({ id, name, colour: "#000000", stops: [], trains: 0, carries: "", health, healthWords: "", loads: "" });
+    const out = sortRows([row(1, "Red line", "moving"), row(2, "Blue line", "stuck"), row(3, "Alpha", "moving"), row(4, "Green line", "none"), row(5, "Teal", "waiting")]);
+    expect(out.map((r) => r.id)).toEqual([2, 4, 5, 3, 1]);
+  });
+});

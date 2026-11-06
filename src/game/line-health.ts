@@ -11,7 +11,7 @@ import type { TrainState } from "./engine-status";
 export type LineHealth = "none" | "moving" | "waiting" | "stuck";
 
 const STUCK: ReadonlySet<TrainState["kind"]> = new Set(["stuck", "derailed", "too-heavy", "no-power", "rack", "red-switch"]);
-const WAITING: ReadonlySet<TrainState["kind"]> = new Set(["red-signal", "spacing", "line-wait", "needs-loop", "full-wait", "points-wait", "held-up", "stopped", "lift-bridge", "at-stop", "lift"]);
+const WAITING: ReadonlySet<TrainState["kind"]> = new Set(["red-signal", "line-wait-for", "spacing", "line-wait", "needs-loop", "full-wait", "points-wait", "held-up", "stopped", "lift-bridge", "at-stop", "lift"]);
 
 export function lineHealth(states: readonly TrainState[]): LineHealth {
   if (states.length === 0) return "none";

@@ -1,10 +1,19 @@
-/** One line as the Lines view lists it. */
+import type { LineHealth } from "../game/line-health";
+
+/** One line as the Lines list shows it. */
 export interface LineRow {
   id: number;
   name: string;
   colour: string;
+  /** Its stops' names, in order. */
+  stops: string[];
   trains: number;
-  stops: number;
+  /** The goods it carries, as icons ("🪵"); "" for none yet. */
+  carries: string;
+  health: LineHealth;
+  healthWords: string;
+  /** "18 loads a month", or "". */
+  loads: string;
   /**
    * Why Reverse couldn't turn some of its trains round on a ring (they keep their way, the long way round to each
    * stop), said under the row with a Turn round to try again; none when all were turned.
@@ -13,44 +22,37 @@ export interface LineRow {
 }
 
 export interface LinesViewHandlers {
-  /** A line's name changed (typed and confirmed). */
-  rename(id: number, name: string): void;
-  /** A line's colour picked from the palette. */
-  recolour(id: number, colour: string): void;
-  /** Frame a line's places on the map. */
-  show(id: number): void;
-  /** Edit a line's stops: its train's card, planning (audit F12). */
-  edit(id: number): void;
-  /** Put another train on a line: the nearest free one that track leads from to it. */
-  addTrain(id: number): void;
-  /** A copy of a line (its stops, in a new colour), run by the nearest free train that track leads from to it. */
-  copy(id: number): void;
-  /** A line's stops the other way round (its via points with them). */
-  reverse(id: number): void;
+  /** A line tapped: its sheet (stops and trains). */
+  open(id: number): void;
   /** Try again to turn round the trains Reverse couldn't on a ring line (`LineRow.note`). */
   turnRound(id: number): void;
-  /** A new line: the nearest free train's card, planning. */
+  /** A new line: the sheet with no line yet, made at the first place tapped (no train needed). */
   newLine(): void;
   close(): void;
 }
 
+/** The order rows are listed in: lines that need the player first (stuck, no trains), then waiting, then moving. */
+const ORDER: Readonly<Record<LineHealth, number>> = { stuck: 0, none: 1, waiting: 2, moving: 3 };
+
+/** Rows in the list's order: problems first, then by name. */
+export function sortRows(rows: readonly LineRow[]): LineRow[] {
+  return [...rows].sort((a, b) => ORDER[a.health] - ORDER[b.health] || a.name.localeCompare(b.name) || a.id - b.id);
+}
+
 /**
- * The Lines view: every line in a list (its colour, its name, its trains and stops), over the map with every line's
- * ribbon drawn. A line's swatch opens a row of colours to pick from; its name is edited in place. A sheet at the bottom,
- * like the cards, for one thumb. Built only when what it lists changes (`show` compares a key).
+ * The Lines list (☰ Lines, or a train card's line name): every line as a row to tap (its colour, name, a small line
+ * diagram of its stops, its trains, what it carries, how it's doing, loads a month), problems first, over the map with
+ * every line's ribbon drawn. A row opens the line's sheet. A sheet at the bottom, like the cards, for one thumb. Built
+ * only when what it lists changes (`show` compares a key).
  */
 export class LinesView {
   readonly root = document.createElement("div");
   private readonly list = document.createElement("div");
+  private readonly count = document.createElement("span");
   private shownKey = "";
-  /** The line whose palette is open, or −1. */
-  private picking = -1;
-  private rows: readonly LineRow[] = [];
 
   constructor(
     parent: HTMLElement,
-    private readonly palette: readonly { colour: string; name: string }[],
-    private readonly nameMax: number,
     private readonly handlers: LinesViewHandlers,
   ) {
     this.root.className = "lines-view card";
@@ -59,24 +61,25 @@ export class LinesView {
     head.className = "lines-head";
     const title = document.createElement("b");
     title.textContent = "Lines";
+    this.count.className = "lines-count";
+    const add = document.createElement("button");
+    add.className = "chip text lines-new";
+    add.textContent = "+ New line";
+    add.title = "Make a line: tap its places on the map, then put trains on it";
+    add.addEventListener("click", (e) => {
+      e.stopPropagation();
+      handlers.newLine();
+    });
     const close = document.createElement("button");
-    close.className = "chip text";
-    close.textContent = "Done";
+    close.className = "close lines-close";
+    close.textContent = "✕";
+    close.setAttribute("aria-label", "Close the lines");
     close.title = "Close the lines";
     close.addEventListener("click", (e) => {
       e.stopPropagation();
       handlers.close();
     });
-    // (A new line from here, not only from a train's card: audit F12.)
-    const add = document.createElement("button");
-    add.className = "chip text lines-new";
-    add.textContent = "+ New line";
-    add.title = "Plan a new line for a train that runs none";
-    add.addEventListener("click", (e) => {
-      e.stopPropagation();
-      handlers.newLine();
-    });
-    head.append(title, add, close);
+    head.append(title, this.count, add, close);
     this.list.className = "lines-list";
     this.root.append(head, this.list);
     parent.appendChild(this.root);
@@ -88,127 +91,111 @@ export class LinesView {
 
   setOpen(on: boolean): void {
     this.root.hidden = !on;
-    if (!on) this.picking = -1;
     this.shownKey = "";
   }
 
   /** List these lines (only redrawn when they've changed). */
   show(rows: readonly LineRow[]): void {
     if (this.root.hidden) return;
-    const key = `${this.picking}|${rows.map((r) => `${r.id}:${r.name}:${r.colour}:${r.trains}:${r.stops}:${r.note ?? ""}`).join("|")}`;
+    const sorted = sortRows(rows);
+    const key = JSON.stringify(sorted);
     if (key === this.shownKey) return;
-    // (Not while a name is being typed: it would lose the caret.)
-    if (this.list.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === "INPUT") return;
     this.shownKey = key;
-    this.rows = rows;
+    const trains = rows.reduce((n, r) => n + r.trains, 0);
+    this.count.textContent = rows.length === 0 ? "" : `${rows.length} ${rows.length === 1 ? "line" : "lines"} · ${trains} ${trains === 1 ? "train" : "trains"}`;
     this.list.innerHTML = "";
     if (rows.length === 0) {
       const none = document.createElement("div");
       none.className = "lines-none";
-      none.textContent = "No lines yet: tap + New line, or a train and Plan a route";
+      none.textContent = "No lines yet. Tap + New line, then the places it should stop at";
       this.list.append(none);
       return;
     }
-    for (const r of rows) this.list.append(this.row(r));
+    for (const r of sorted) this.list.append(this.row(r));
   }
 
   private row(r: LineRow): HTMLElement {
-    const row = document.createElement("div");
-    row.className = "lines-row";
-    const swatch = document.createElement("button");
-    swatch.className = "lines-swatch";
-    swatch.style.background = r.colour;
-    swatch.title = "Change its colour";
-    swatch.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.picking = this.picking === r.id ? -1 : r.id;
-      this.show(this.rows);
-    });
-    const name = document.createElement("input");
-    name.className = "lines-name";
-    name.value = r.name;
-    name.maxLength = this.nameMax;
-    name.setAttribute("aria-label", "Line name");
-    name.enterKeyHint = "done";
-    const commit = () => {
-      if (name.value.trim() && name.value.trim() !== r.name) this.handlers.rename(r.id, name.value);
-      else name.value = r.name;
-    };
-    name.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") name.blur();
-      if (e.key === "Escape") {
-        name.value = r.name;
-        name.blur();
-      }
-      e.stopPropagation();
-    });
-    name.addEventListener("blur", commit);
-    const info = document.createElement("span");
-    info.className = "lines-info";
-    info.textContent = `${r.trains} ${r.trains === 1 ? "train" : "trains"} · ${r.stops} ${r.stops === 1 ? "stop" : "stops"}`;
-    const show = document.createElement("button");
-    show.className = "chip text lines-show";
-    show.textContent = "Show";
-    show.title = "Show this line's places on the map";
-    show.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.handlers.show(r.id);
-    });
-    const main = document.createElement("div");
-    main.className = "lines-main";
-    main.append(name, info);
-    row.append(swatch, main, show);
-    // Under it, what to do with the line: edit its stops, put another train on it.
-    const acts = document.createElement("div");
-    acts.className = "lines-actions";
-    const act = (text: string, tip: string, fn: () => void) => {
-      const b = document.createElement("button");
-      b.className = "chip text";
-      b.textContent = text;
-      b.title = tip;
-      b.addEventListener("click", (e) => {
-        e.stopPropagation();
-        fn();
-      });
-      return b;
-    };
-    acts.append(act("Edit stops", "Change this line's stops (all its trains run them)", () => this.handlers.edit(r.id)), act("+ Train", "Put another train on this line", () => this.handlers.addTrain(r.id)));
-    // (Copy: the same stops for another train set, a line of its own; Reverse: its stops the other way round. A line of
-    // one stop has no way round to turn.)
-    acts.append(act("Copy", "A new line with the same stops, for a free train", () => this.handlers.copy(r.id)));
-    if (r.stops > 1) acts.append(act("Reverse", "Run its stops the other way round", () => this.handlers.reverse(r.id)));
     const wrap = document.createElement("div");
     wrap.className = "lines-row-wrap";
+    const row = document.createElement("button");
+    row.className = `lines-row ${r.health}`;
+    row.dataset.line = String(r.id);
+    row.style.setProperty("--line", r.colour);
+    row.title = `${r.name}: its stops and trains`;
+    row.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.handlers.open(r.id);
+    });
+    const top = document.createElement("span");
+    top.className = "lines-top";
+    const dot = document.createElement("i");
+    dot.className = "lines-dot";
+    const name = document.createElement("span");
+    name.className = "lines-name";
+    name.textContent = r.name;
+    const chev = document.createElement("span");
+    chev.className = "lines-chev";
+    chev.textContent = "›";
+    chev.setAttribute("aria-hidden", "true");
+    top.append(dot, name, chev);
+    // The line drawn small: its ends named, a dot a stop between ("+3" beyond five).
+    const diag = document.createElement("span");
+    diag.className = "lines-diag";
+    diag.setAttribute("aria-label", `Stops: ${r.stops.join(", ")}`);
+    const shown = r.stops.length <= 5 ? r.stops : [r.stops[0], r.stops[1], "", r.stops[r.stops.length - 2], r.stops[r.stops.length - 1]];
+    shown.forEach((s, i) => {
+      const stop = document.createElement("span");
+      stop.className = `lines-stop${s === "" ? " more" : ""}`;
+      const label = document.createElement("span");
+      label.className = "lines-stop-name";
+      // (Only the ends named: between them, names would run into each other on a phone.)
+      label.textContent = s === "" ? `+${r.stops.length - 4}` : i === 0 || i === shown.length - 1 ? s : "";
+      stop.append(label);
+      diag.append(stop);
+    });
+    const meta = document.createElement("span");
+    meta.className = "lines-meta";
+    const trains = document.createElement("span");
+    trains.className = "lines-trains";
+    trains.textContent = `🚂 ${r.trains}`;
+    trains.setAttribute("aria-label", `${r.trains} ${r.trains === 1 ? "train" : "trains"}`);
+    meta.append(trains);
+    if (r.carries) {
+      const goods = document.createElement("span");
+      goods.className = "lines-goods";
+      goods.textContent = r.carries;
+      meta.append(goods);
+    }
+    const pill = document.createElement("span");
+    pill.className = `lines-pill ${r.health}`;
+    pill.append(document.createElement("i"), r.healthWords);
+    meta.append(pill);
+    if (r.loads) {
+      const loads = document.createElement("span");
+      loads.className = "lines-loads";
+      loads.textContent = r.loads;
+      meta.append(loads);
+    }
+    row.append(top, diag, meta);
+    wrap.append(row);
     // (Reversed on a ring, a train that couldn't be turned round: why, and Turn round to try again.)
-    let note: HTMLElement | null = null;
     if (r.note) {
-      note = document.createElement("div");
+      const note = document.createElement("div");
       note.className = "lines-note";
       note.setAttribute("role", "status");
       const text = document.createElement("span");
       text.textContent = r.note;
-      note.append(text, act("Turn round", "Try again to turn these trains round, so they run the line's new way", () => this.handlers.turnRound(r.id)));
-    }
-    if (this.picking !== r.id) {
-      wrap.append(row, ...(note ? [note] : []), acts);
-      return wrap;
-    }
-    const colours = document.createElement("div");
-    colours.className = "lines-palette";
-    for (const c of this.palette) {
-      const b = document.createElement("button");
-      b.className = "lines-swatch";
-      b.style.background = c.colour;
-      b.title = c.name;
-      b.classList.toggle("on", c.colour === r.colour);
-      b.addEventListener("click", (e) => {
+      const again = document.createElement("button");
+      again.className = "chip text";
+      again.textContent = "Turn round";
+      again.title = "Try again to turn these trains round, so they run the line's new way";
+      again.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.picking = -1;
-        this.handlers.recolour(r.id, c.colour);
+        this.handlers.turnRound(r.id);
       });
-      colours.append(b);
+      note.append(text, again);
+      wrap.append(note);
     }
-    wrap.append(row, ...(note ? [note] : []), colours, acts);
     return wrap;
   }
 }
