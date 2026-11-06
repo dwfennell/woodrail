@@ -4,9 +4,10 @@
  * out again only when the marks, the track or an aspect changed (`sync` returns true then: the caller redraws). And the
  * block tint shown while a signal is held or its card is open: one mesh, built when its joint changes.
  */
-import { BoxGeometry, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DoubleSide, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Object3D, SphereGeometry, Vector3, type Camera, type Material } from "three";
+import { BoxGeometry, ExtrudeGeometry, Shape, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DoubleSide, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Object3D, SphereGeometry, Vector3, type Camera, type Material } from "three";
 import { createSample, getPieceDef, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceTypeId } from "../track";
 import { jointPose, postAt, type Block, type JointPose } from "../game/signal-place";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { kitModelKey } from "./props/library";
 import type { Materials } from "./materials";
 
@@ -33,6 +34,36 @@ const HEAD_W = 11;
 const LENS_R = 3.6;
 const RED_Y = TOY_HEIGHT - 6;
 const GREEN_Y = TOY_HEIGHT - 16;
+/** The lenses lean back this far (rad) toward the sky, so a camera above sees into them (signals audit U1). */
+const LENS_TILT = Math.PI / 6;
+/**
+ * The lamp on top of the head: a dome lit with the aspect shown, the head's own knob made a lamp (signals audit U1:
+ * from the high angle a phone is held at, the lenses on the head's face were edge on and the aspect couldn't be seen).
+ * Nearly twice the old knob's width, so it reads zoomed out. Part of the lit lens's geometry: no draw of its own.
+ */
+const TOP_LAMP_R = 4.8;
+/**
+ * The chevron on the ground by the post's foot, on its far side from the track, pointing the way the signal guards, lit
+ * with its aspect (signals audit U2: a pair was two dark boxes, and which faced which way couldn't be told). Its
+ * length and width, how far its tip is past the post along the track, and how far out from the post (mm): out from
+ * the track, not before the post along it, where on a curve it went under the track. Part of the lit lamp's geometry.
+ */
+const CHEVRON_L = 12;
+const CHEVRON_W = 13;
+const CHEVRON_TIP = 7;
+const CHEVRON_OUT = 15;
+
+/** A flat arrowhead pointing +x (a filled wedge, notched at its back: a V read as a tick), its tip at x = 0, lying on the ground. */
+function chevron(): BufferGeometry {
+  const sh = new Shape();
+  sh.moveTo(0, 0);
+  sh.lineTo(-CHEVRON_L, CHEVRON_W / 2);
+  sh.lineTo(-CHEVRON_L * 0.7, 0);
+  sh.lineTo(-CHEVRON_L, -CHEVRON_W / 2);
+  sh.closePath();
+  // (Shape in x/y, laid flat: y becomes z, extruded 1 mm up.)
+  return new ExtrudeGeometry(sh, { depth: 1, bevelEnabled: false }).rotateX(Math.PI / 2).translate(0, 1.2, 0);
+}
 /** The lit lamps: unlit by the sun, so they glow (one shader for both, as the block tint's). */
 const LIT_RED = new MeshBasicMaterial({ color: "#ff3a24" });
 const LIT_GREEN = new MeshBasicMaterial({ color: "#3dff6e" });
@@ -120,18 +151,25 @@ function toyLight(mats: Materials): Part[] {
   const at = new Matrix4().makeTranslation(PIECE_LENGTH - 20, 0, TOY_SIDE);
   const fixed = (geometry: BufferGeometry, material: Material, shadow = true): Part => ({ geometry, material, frame: at, role: "fixed", shadow });
   const lit = (geometry: BufferGeometry, material: Material, role: "red" | "green"): Part => ({ geometry, material, frame: at, role, shadow: false });
-  // (A lens: a short disc, its face toward −x, where trains come from.)
-  const lens = (r: number, y: number, x: number) => new CylinderGeometry(r, r, 1.6, 16).rotateZ(Math.PI / 2).translate(x, y, 0);
+  // (A lens: a short disc, its face toward −x, where trains come from, leaning back toward the sky.)
+  const lens = (r: number, y: number, x: number) => new CylinderGeometry(r, r, 1.6, 16).rotateZ(Math.PI / 2).rotateZ(-LENS_TILT).translate(x, y, 0);
+  // (A lit lamp: its lens and the dome on top, one geometry, so the aspect shows from above and from the side in one draw.)
+  const dome = () => new SphereGeometry(TOP_LAMP_R, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, TOY_HEIGHT, 0);
+  const lamp = (y: number) => {
+    const arrow = chevron().translate(CHEVRON_TIP, 0, CHEVRON_OUT);
+    const g = mergeGeometries([lens(LENS_R + 0.3, y, headX - 1.2).toNonIndexed(), dome().toNonIndexed(), arrow.toNonIndexed()]);
+    if (!g) throw new Error("signal lamp: geometries don't merge");
+    return g;
+  };
   const headX = -HEAD_D / 2;
   return [
     fixed(new CylinderGeometry(5, 6, 3, 16).translate(0, 1.5, 0), mats.naturalWood),
     fixed(new CylinderGeometry(1.8, 2, TOY_HEIGHT - HEAD_H, 10).translate(0, (TOY_HEIGHT - HEAD_H) / 2, 0), mats.lacquer("#f6f1e6")),
     fixed(new BoxGeometry(HEAD_D, HEAD_H, HEAD_W).translate(0, TOY_HEIGHT - HEAD_H / 2, 0), mats.lacquer("#2e2a27")),
-    fixed(new SphereGeometry(2.6, 14, 10).translate(0, TOY_HEIGHT + 1, 0), mats.naturalWood),
     fixed(lens(LENS_R, RED_Y, headX - 0.4), mats.lacquer("#5b1d16"), false),
     fixed(lens(LENS_R, GREEN_Y, headX - 0.4), mats.lacquer("#1b4424"), false),
-    lit(lens(LENS_R + 0.3, RED_Y, headX - 1.2), LIT_RED, "red"),
-    lit(lens(LENS_R + 0.3, GREEN_Y, headX - 1.2), LIT_GREEN, "green"),
+    lit(lamp(RED_Y), LIT_RED, "red"),
+    lit(lamp(GREEN_Y), LIT_GREEN, "green"),
   ];
 }
 
@@ -143,8 +181,8 @@ export class SignalMarksView {
   private shown: MarkShown[] = [];
   private byId = new Map<number, MarkShown>();
   private key = "";
-  /** A mark not drawn (picked up, in the hand). */
-  hidden = -1;
+  /** Marks not drawn (picked up, in the hand: a signal and its set partner). */
+  hidden: readonly number[] = [];
   /** Loads asked for (a look's model is fetched once). */
   private readonly asked = new Set<Look>();
 
@@ -234,13 +272,13 @@ export class SignalMarksView {
    */
   sync(): boolean {
     const L = this.layout;
-    const key = `${L.signalsVersion}:${L.revision}:${this.sim.signalsVersion}:${this.hidden}:${L.signalCount}`;
+    const key = `${L.signalsVersion}:${L.revision}:${this.sim.signalsVersion}:${this.hidden.join(",")}:${L.signalCount}`;
     if (key === this.key) return false;
     this.key = key;
     const was = this.byId;
     this.shown = [];
     this.byId = new Map();
-    const marks = [...L.signals()].filter((m) => m.id !== this.hidden && !L.isLifted(pieceOfRef(m.at)));
+    const marks = [...L.signals()].filter((m) => !this.hidden.includes(m.id) && !L.isLifted(pieceOfRef(m.at)));
     const poses = new Map<number, JointPose>();
     for (const m of marks) {
       const j = jointPose(L, m.at);
@@ -420,6 +458,32 @@ export function markGhost(mats: Materials): Group {
   arrow.renderOrder = 3;
   g.add(arrow);
   return g;
+}
+
+/**
+ * A signal set in the hand (the user: "the preview when moving and placing should always include both"): two marks'
+ * ghosts, the second for the partner on the joint's other end (`placeSetGhost`).
+ */
+export function markSetGhost(mats: Materials): Group {
+  const g = new Group();
+  const a = markGhost(mats);
+  a.name = "post0";
+  const b = markGhost(mats);
+  b.name = "post1";
+  g.add(a, b);
+  return g;
+}
+
+/**
+ * Stand a set's ghost on a joint: its first post at joint end `at`, the second (when `both`) at the joint's other end,
+ * facing the other way. False if `at` is no joint end.
+ */
+export function placeSetGhost(ghost: Object3D, layout: Layout, at: number, both: boolean): boolean {
+  const [a, b] = [ghost.getObjectByName("post0"), ghost.getObjectByName("post1")];
+  if (!a || !b || !placeGhost(a, layout, at)) return false;
+  const other = both ? layout.joinedConnector(at) : -1;
+  b.visible = other !== -1 && placeGhost(b, layout, other);
+  return true;
 }
 
 /** Stand a mark's ghost at a joint end (its post on the right of the way it guards, the arrow on the track). */

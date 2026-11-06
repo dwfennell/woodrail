@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
-import { appendPiece, connectorRef, isKit, kitOf, KITS, type PieceTypeId } from "../track";
+import { appendPiece, connectorRef, isKit, isSecretKit, kitOf, KITS, type PieceTypeId } from "../track";
 import { GAME_KIT_GROUPS, GAME_TRACK_KITS } from "../ui/tray-catalogue";
 import { BLUEPRINTS } from "./blueprints";
 import { craftNow, Crafting, lacking, workshopStock } from "./crafting";
 import { Progress, inUse } from "./progress";
 import { crateFor } from "./rewards";
 import { built, ready, techOf, unlocksOf } from "./tech";
-import { costText, isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "./things";
+import { costText, isFree, isGift, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "./things";
 import { buildStarterWorld, syncIndustries } from "./world";
 
 /** Game mode's railway kits and lineside furniture, by the blueprint that unlocks them: the table as decided. */
@@ -70,7 +70,8 @@ describe("railway kits in Game mode", () => {
   it("each blueprint unlocks exactly its kits", () => {
     for (const [tech, things] of Object.entries(UNLOCKS)) expect(new Set(unlocksOf(tech)), tech).toEqual(new Set(things));
     // And no other blueprint unlocks a kit or furniture.
-    const kits = (Object.keys(THING_RULES) as ThingId[]).filter((id) => id.startsWith("prop:") || id === "car:cleaner" || (id.startsWith("piece:") && isKit(id.slice(6) as PieceTypeId)));
+    // (Grand Central's kits are a grand project's gift, never researched: src/game/grand.ts.)
+    const kits = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isGift(id) && (id.startsWith("prop:") || id === "car:cleaner" || (id.startsWith("piece:") && isKit(id.slice(6) as PieceTypeId))));
     for (const id of kits) expect(Object.keys(UNLOCKS), id).toContain(ruleOf(id)!.tech);
   });
 
@@ -86,6 +87,17 @@ describe("railway kits in Game mode", () => {
   it("every Sandbox kit is in Game mode now, behind its blueprint, on a tray shelf", () => {
     const tray = new Set([GAME_TRACK_KITS, ...GAME_KIT_GROUPS].flatMap((g) => g.items.map((i) => (i.kind === "piece" ? i.type : ""))));
     for (const type of Object.keys(KITS) as PieceTypeId[]) {
+      // (Grand Central: a grand project's gift, given as it's started, not learned; its first stage's kit on the shelf,
+      // the later ones its kit retyped on the map: src/game/grand.ts.)
+      if (isGift(pieceThing(type))) {
+        expect(tray.has(type), type).toBe(type === "kit-grand-central-1");
+        continue;
+      }
+      // (A secret's halt is the game's to lay, when the secret's found: never on the tray, src/game/secrets.ts.)
+      if (isSecretKit(type)) {
+        expect(tray.has(type), type).toBe(false);
+        continue;
+      }
       expect(ruleOf(pieceThing(type))?.tech, type).toBeDefined();
       // (Not the signal skins: a Signal's styles now, signals spec §4. Old saves' pieces still load and work.)
       if (SIGNAL_SKINS.includes(type)) {

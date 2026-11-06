@@ -2,6 +2,9 @@ import { dateText } from "../game/calendar";
 import { GOALS, type Goal, type GoalProgress } from "../game/goals";
 import { type Journal, type JournalEntry, type JournalPlace } from "../game/journal";
 import { STICKERS, type Sticker, type StickerTheme } from "../game/stickers";
+import { grandOf, type AchievementView } from "../game/grand";
+import { CARGO, GOODS_ICON, type CargoKind } from "../economy/cargo";
+import { kindsOf } from "../economy/goods";
 
 /** The Stickers tab's headings, in order. */
 const THEMES: readonly [StickerTheme, string][] = [
@@ -23,6 +26,15 @@ export interface StickersShown {
 export function stickerTicket(s: Sticker, earned: boolean): string {
   if (s.hidden && !earned) return `Hint: ${s.hint}`;
   return earned ? `Earned! ${s.how}.` : `${s.how}.`;
+}
+
+type Tab = "goals" | "news" | "stickers" | "achievements";
+
+/** "●●◐○": an achievement's stages done, the one under way, and the rest. */
+export function achievementPips(done: number, of: number, started: boolean): string {
+  let s = "";
+  for (let i = 0; i < of; i++) s += i < done ? "●" : i === done && started ? "◐" : "○";
+  return s;
 }
 
 /** A small screen (a phone, either way up): the card starts folded up. */
@@ -54,6 +66,8 @@ export interface GoalsPanelHandlers {
   showTip?(): void;
   /** The tip was tapped away ("Got it"): it goes for good. */
   tipDone?(id: string): void;
+  /** An achievement's Show me: fly to its grand project's site (or, not started, to a City ★ to start it from). */
+  showGrand?(id: string): void;
 }
 
 /** A tip shown on the Goals tab (`FeatureTip`, src/game/feature-tips.ts): a new system and how to use it. */
@@ -84,6 +98,13 @@ export class GoalsPanel {
   private readonly tabNews = document.createElement("button");
   private readonly tabStickers = document.createElement("button");
   private readonly stickersPane = document.createElement("div");
+  private readonly tabAch = document.createElement("button");
+  private readonly achPane = document.createElement("div");
+  /** The grand projects as achievements (null: the tab's hidden, no town is a City yet). */
+  private ach: readonly AchievementView[] | null = null;
+  private achKey = "";
+  /** The achievement opened to its stages. */
+  private achPicked: string | null = null;
   /** A sticker earned and not yet seen in its tab: a dot on the chip. */
   private readonly dot = document.createElement("span");
   private stickers: StickersShown = { earned: [], unseen: [], open: false };
@@ -92,7 +113,7 @@ export class GoalsPanel {
   private picked: string | null = null;
   private readonly bell = document.createElement("span");
   private readonly newsBadge = document.createElement("span");
-  private tab: "goals" | "news" | "stickers" = "goals";
+  private tab: Tab = "goals";
   /** The journal entry each News row shows, and the newest entry seq drawn, so a new entry adds to the list in place. */
   private readonly rowEntry = new WeakMap<HTMLElement, JournalEntry>();
   private drawnSeq = 0;
@@ -170,10 +191,16 @@ export class GoalsPanel {
     this.tabNews.append("News", this.newsBadge);
     this.tabStickers.textContent = "Stickers";
     this.tabStickers.hidden = true;
+    // (🥇 alone on a narrow phone: style.css hides the word.)
+    this.tabAch.innerHTML = `<span aria-hidden="true">🥇</span><span class="tab-word"> Achievements</span>`;
+    this.tabAch.setAttribute("aria-label", "Achievements");
+    this.tabAch.title = "Achievements";
+    this.tabAch.hidden = true;
     for (const [b, which] of [
       [this.tabGoals, "goals"],
       [this.tabNews, "news"],
       [this.tabStickers, "stickers"],
+      [this.tabAch, "achievements"],
     ] as const) {
       b.className = "goals-tab";
       b.setAttribute("role", "tab");
@@ -191,7 +218,7 @@ export class GoalsPanel {
       e.stopPropagation();
       this.setOpen(false);
     });
-    tabs.append(this.tabGoals, this.tabNews, this.tabStickers, close);
+    tabs.append(this.tabGoals, this.tabNews, this.tabStickers, this.tabAch, close);
     this.pane.className = "goals-pane";
     this.newsPane.className = "news-pane";
     this.newsPane.hidden = true;
@@ -204,8 +231,25 @@ export class GoalsPanel {
       this.picked = this.picked === tile.dataset.id ? null : tile.dataset.id!;
       this.drawStickers(true);
     });
+    this.achPane.className = "ach-pane";
+    this.achPane.hidden = true;
+    this.achPane.addEventListener("click", (e) => {
+      const t = e.target as HTMLElement;
+      const show = t.closest<HTMLElement>(".ach-show");
+      if (show) {
+        e.stopPropagation();
+        if (window.matchMedia(SHEET).matches) this.setOpen(false);
+        handlers.showGrand?.(show.dataset.id!);
+        return;
+      }
+      const row = t.closest<HTMLElement>(".ach-row");
+      if (!row) return;
+      e.stopPropagation();
+      this.achPicked = this.achPicked === row.dataset.id ? null : row.dataset.id!;
+      this.drawAchievements();
+    });
     this.handlers = handlers;
-    this.body.append(tabs, this.pane, this.newsPane, this.stickersPane);
+    this.body.append(tabs, this.pane, this.newsPane, this.stickersPane, this.achPane);
     this.root.append(top, this.body);
     this.setTab("goals");
     // A new entry put in at the top mid-tap would move the row away from the finger: it waits for the press to end
@@ -285,15 +329,17 @@ export class GoalsPanel {
     if (cut()) this.root.classList.add("title-small");
   }
 
-  private setTab(tab: "goals" | "news" | "stickers"): void {
+  private setTab(tab: Tab): void {
     this.tab = tab;
     this.pane.hidden = tab !== "goals";
     this.newsPane.hidden = tab !== "news";
     this.stickersPane.hidden = tab !== "stickers";
+    this.achPane.hidden = tab !== "achievements";
     for (const [b, which] of [
       [this.tabGoals, "goals"],
       [this.tabNews, "news"],
       [this.tabStickers, "stickers"],
+      [this.tabAch, "achievements"],
     ] as const) {
       b.classList.toggle("on", tab === which);
       b.setAttribute("aria-selected", String(tab === which));
@@ -310,6 +356,53 @@ export class GoalsPanel {
     if (id) this.picked = id;
     this.setTab("stickers");
     this.setOpen(true);
+  }
+
+  /** Open the Journal on its Achievements tab, on one achievement's stages if given. */
+  openAchievements(id?: string): void {
+    if (!this.ach || this.root.hidden) return;
+    if (id) this.achPicked = id;
+    this.setTab("achievements");
+    this.drawAchievements();
+    this.setOpen(true);
+  }
+
+  /** The grand projects as achievements (null: no tab yet). Cheap when unchanged: called with every goals check. */
+  setAchievements(views: readonly AchievementView[] | null): void {
+    const key = views ? views.map((v) => `${v.id}:${v.done}:${v.line}`).join("|") : "";
+    if (key === this.achKey) return;
+    this.achKey = key;
+    this.ach = views;
+    this.tabAch.hidden = !views;
+    if (!views && this.tab === "achievements") this.setTab("goals");
+    this.drawAchievements();
+  }
+
+  /** The tab: a count, then a row for each achievement (its stage pips, reward and what's next); a tapped one's stages. */
+  private drawAchievements(): void {
+    const views = this.ach;
+    if (!views) {
+      this.achPane.replaceChildren();
+      return;
+    }
+    const earned = views.filter((v) => v.earned).length;
+    const rows = views.map((v) => {
+      const g = grandOf(v.id)!;
+      const open = this.achPicked === v.id;
+      const stages = open
+        ? `<ol class="ach-stages">${g.stages
+            .map((st, i) => {
+              const goods = kindsOf(st.goods)
+                .map((k) => `<span title="${escapeHtml(CARGO[k as CargoKind].label)}">${st.goods[k]} ${GOODS_ICON[k as CargoKind]}</span>`)
+                .join(" ") + (st.riders ? ` <span>${st.riders} 🧑 riders</span>` : "");
+              const cls = i < v.done ? "done" : i === v.done && v.town ? "now" : "";
+              return `<li class="${cls}"><b>${i < v.done ? "✓ " : ""}${escapeHtml(st.name)}</b> <span class="ach-goods">${goods}</span></li>`;
+            })
+            .join("")}</ol><button class="chip text ach-show" data-id="${v.id}">${v.town ? "Show me the site" : "Show me a City ★"}</button>`
+        : "";
+      return `<div class="ach-item${v.earned ? " got" : ""}${open ? " open" : ""}"><button class="ach-row" data-id="${v.id}" aria-expanded="${open}"><span class="ach-icon" aria-hidden="true">${v.icon}</span><span class="ach-main"><b class="ach-name">${escapeHtml(v.name)}${v.earned ? ' <span class="ach-earned">✓ Earned</span>' : ""}</b><span class="ach-pips" title="${v.done} of ${v.of} stages">${achievementPips(v.done, v.of, !!v.town)}</span><span class="ach-reward">🎁 ${escapeHtml(v.reward)}</span><span class="ach-line">${escapeHtml(v.line)}</span></span></button>${stages}</div>`;
+    });
+    this.achPane.innerHTML = `<p class="stickers-count">🥇 ${earned} / ${views.length} grand projects</p><p class="sticker-ticket hint">Big builds in a City ★: trains bring each stage's goods. Finish one for a reward that lasts.</p>${rows.join("")}`;
   }
 
   /** The stickers earned and seen, and whether the tab shows yet (cheap when unchanged: called with every goals check). */

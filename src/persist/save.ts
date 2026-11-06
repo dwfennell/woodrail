@@ -14,7 +14,8 @@ import { BARGE_LOADS, isBulk, isDock, MAX_BOATS } from "../game/boats";
 import { joinSavedLine, LINE_COLOURS, loadSavedLines, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, serializeLandscape } from "./landscape-data";
-import { FEAT_NONE, FEAT_RUIN } from "../landscape";
+import { FEAT_NONE, FEAT_RUIN, planSecrets, ringOf } from "../landscape";
+import { findSecret, haltPieceOf } from "../game/secrets";
 
 export { SAVE_VERSION } from "./save-limits";
 
@@ -192,6 +193,8 @@ export function serializeWorld(world: World): SaveData {
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(world.economy.roadGot.size > 0 ? { roadGot: [...world.economy.roadGot].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
     ...(world.economy.placePlans.size > 0 ? { placePlans: [...world.economy.placePlans].map(([townId, p]) => [townId, p.id, { ...p.got }] as [number, string, Record<string, number>]) } : {}),
+    ...(world.economy.grandPlans.size > 0 ? { grandPlans: [...world.economy.grandPlans].map(([id, p]) => (p.riders ? [id, p.townId, p.stage, { ...p.got }, p.prop, p.riders] : [id, p.townId, p.stage, { ...p.got }, p.prop]) as [string, number, number, Record<string, number>, number, number?]) } : {}),
+    ...(world.economy.grandGift.size > 0 ? { grandGift: [...world.economy.grandGift].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]) } : {}),
     ...(lines.length > 0 ? { lines } : {}),
     ...boatsOf(world, renumbered),
     ...yardsOf(world, renumbered),
@@ -452,6 +455,18 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     for (const k of CARGO_KINDS) if (bag[k]) got[k] = bag[k];
     economy.placePlans.set(townId, { id, got });
   }
+  for (const [id, townId, stage, bag, prop, riders] of save.grandPlans ?? []) {
+    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    const got: Bag = {};
+    for (const k of CARGO_KINDS) if (bag[k]) got[k] = bag[k];
+    economy.grandPlans.set(id, { townId, stage, got, prop, ...(riders ? { riders } : {}) });
+  }
+  for (const [townId, bag] of save.grandGift ?? []) {
+    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    const goods: Bag = {};
+    for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
+    economy.grandGift.set(townId, goods);
+  }
   for (const [townId, bag] of save.roadGot ?? []) {
     if (!landscape.towns.some((t) => t.id === townId)) continue;
     const goods: Bag = {};
@@ -557,6 +572,14 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     landscape.sites = [];
     landscape.siteless = true;
   } else if (save.landscape.sites === undefined) addSitesToOldSave(world);
+  // A save from before secrets (a Game map's, `siteless` not set): they're planned now on land it doesn't have yet, so
+  // the land it buys from now on has them (src/landscape/secrets.ts). Kept from then on (saved with the land).
+  if (!landscape.siteless && !landscape.secretPlan) {
+    landscape.secretPlan = planSecrets(landscape.seed, landscape.coast ?? null, (px, pz) => landscape.grid.hasPlot(px, pz) || ringOf(px, pz) === 0);
+    landscape.secrets ??= [];
+  }
+  // A found secret's halt that isn't on the layout (it can't be taken up: a save from elsewhere) is laid again.
+  for (const s of landscape.secrets ?? []) if (s.found && haltPieceOf(layout, s) === undefined && landscape.grid.hasPlot(s.plot.px, s.plot.pz)) findSecret(world, s);
   return ok(world);
 }
 

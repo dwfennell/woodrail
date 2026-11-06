@@ -7,8 +7,10 @@ import { CELL } from "../landscape/grid";
 import type { Progress } from "./progress";
 import { statusOf } from "./town-life";
 import type { World } from "./world";
+import { noteTrip } from "./secrets";
 import { visitorFactor } from "./places";
 import { METRO_QUARTERS, METRO_SLOWER } from "./metro";
+import { hubFare } from "./grand";
 
 /**
  * Game mode's passengers: people wait at each town's station, more the bigger the town; coaches carry them to another
@@ -17,12 +19,14 @@ import { METRO_QUARTERS, METRO_SLOWER } from "./metro";
  */
 
 /** Seats in a coach, by its look. */
-export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 4, "double-decker": 8, "first-class": 3, observation: 3, metro: 8 };
+export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 4, "double-decker": 8, "first-class": 3, observation: 3, metro: 8, royal: 4 };
 
 /** A first-class coach's riders pay this many times the fare. */
 export const FIRST_CLASS = 2;
 /** A train with a dining car: every rider on it pays this many times the fare. */
 export const DINING = 1.5;
+/** Riders on the Royal Train (a royal saloon in it: the grand project's reward, src/game/grand.ts) pay this many times the fare. */
+export const ROYAL_FARE = 2;
 /** A sleeper coach's riders pay this many times the fare on a long trip (`SLEEPER_TRIP` or more, as the crow flies). */
 export const SLEEPER = 2.5;
 /** How far a ride must go for a sleeper's fare (mm): 40 squares, from one end of a map's towns toward the other. */
@@ -159,6 +163,9 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
     if (look === "sleeper" && far >= SLEEPER_TRIP) fare *= SLEEPER;
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
     if (world.economy.ridersOf(carId).scenic && hasObservation(world, found.train.cars)) fare *= OBSERVATION;
+    if (look === "royal") fare *= ROYAL_FARE;
+    // Grand Central finished: a quarter more on any line through it (src/game/grand.ts).
+    fare *= hubFare(world, from, to, found.train.cars.find((c) => c.kind === "engine")?.id);
   }
   if (from.role === "airport") fare *= VISITOR_BONUS;
   // Getting off at a town with a leisure place, from another town: a visitor, who pays more.
@@ -198,22 +205,23 @@ export function noteViews(world: World): void {
   }
 }
 
-/** Someone got off: pay their fare and count them. Returns the coins paid. */
-export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number, month?: number): number {
+/** Someone got off: pay their fare and count them (at a secret's halt, a tourist trip: `noteTrip`). Returns the coins paid. */
+export function payFare(world: World, p: Progress, from: DepotState, to: DepotState, carId: number, month?: number, year = 0): number {
   // (The circus's town pays double: src/game/circus.ts.)
   const fare = fareFor(world, from, to, carId, month) * circusFare(p, to);
   p.coins += fare;
   p.riders++;
   // (Visitors counted, for the Day out sticker.)
   if (visitorsFor(world, from, to, month) > 1) p.counts.set("visitors", (p.counts.get("visitors") ?? 0) + 1);
+  if (world.economy.isLookout(to)) noteTrip(world, p, from, to, fare, year);
   return fare;
 }
 
 /** Put Game mode's passengers into the world's economy (seats and fares). */
-export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void, month?: () => number): void {
+export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void, month?: () => number, year?: () => number): void {
   world.economy.seatsOf = (carId) => seatsIn(world, carId);
   world.economy.onAlight = (from, to, carId) => {
-    const fare = payFare(world, p(), from, to, carId, month?.());
+    const fare = payFare(world, p(), from, to, carId, month?.(), year?.());
     paid?.(fare, from, to);
   };
 }

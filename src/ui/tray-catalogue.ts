@@ -93,6 +93,8 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine"], looks: ["rack"], label: "Rack engine" },
   // (Game mode's once Metro is learned: a motor car and two cars, as one.)
   { kind: "train", cars: ["engine", "passenger", "passenger"], looks: ["metro", "metro", "metro"], label: "Metro train", unlearned: "hide" },
+  // (Game mode's once its grand project is finished: a gift, src/game/grand.ts.)
+  { kind: "train", cars: ["engine", "passenger", "passenger"], looks: ["royal", "royal", "royal"], label: "Royal Train", unlearned: "hide" },
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Flatbed wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
@@ -210,6 +212,7 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
       { kind: "piece", type: "depot-chocolate", label: "Chocolate factory" },
       { kind: "piece", type: "depot-flowers", label: "Flower field" },
       { kind: "piece", type: "depot-dyeworks", label: "Dye works" },
+      { kind: "piece", type: "depot-glassworks", label: "Glassworks" },
       { kind: "piece", type: "depot-quarry", label: "Quarry" },
       { kind: "piece", type: "depot-mine", label: "Mine" },
       { kind: "piece", type: "depot-foundry", label: "Foundry" },
@@ -282,7 +285,8 @@ export const GAME_KIT_GROUPS: TrayGroup[] = [
   },
   {
     label: "Stations",
-    items: [kit("kit-two-platform-station", "Two-platform station"), kit("kit-grand-terminus", "Terminus")],
+    // (Grand Central: a grand project's, given when it's started in a City ★, src/game/grand.ts.)
+    items: [kit("kit-two-platform-station", "Two-platform station"), kit("kit-grand-terminus", "Terminus"), kit("kit-grand-central-1", "Grand Central")],
   },
   {
     label: "Yard",

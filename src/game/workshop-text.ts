@@ -6,6 +6,7 @@
  * (warehouse-text.ts).
  */
 import { CARGO, type CargoKind } from "../economy/cargo";
+import { plural, wagonFor } from "./chains";
 import type { KeepWhy } from "../economy/economy";
 
 /** The workshop's card: how planks get there, under what it holds. */
@@ -32,5 +33,23 @@ export function keptText(why: Exclude<KeepWhy, "nothing" | "route">, kind: Cargo
     case "school":
       // How many (`Economy.heldForSchool`): a routed train holds at most one wagon's worth (issue #20).
       return held > 0 ? `Keeping ${held} ${goods} for the school (Research first)` : `Keeping ${goods} for the school (Research first)`;
+  }
+}
+
+/**
+ * Why a routed train won't pick up `kind` at `place`, the stop it's heading for or standing at (`Economy.notLoadingAt`),
+ * on its engine card: "Not loading planks at the sawmill: the workshop doesn't need any yet". `taker`: the later stop
+ * that would take them, as the card names places ("" if none); `takerFull`: it's full (else it doesn't need any yet).
+ * A no-wagon reason in the chain hints' words ("…go on a flatbed wagon").
+ */
+export function notLoadingText(why: "no-room" | "no-wagon" | "none", kind: CargoKind, place: string, taker = "", takerFull = false): string {
+  const goods = CARGO[kind].label.toLowerCase();
+  switch (why) {
+    case "no-room":
+      return `Not loading ${goods} at ${place}: ${taker ? `${taker} ${takerFull ? "is full" : "doesn't need any yet"}` : "no stop after it has room"}`;
+    case "no-wagon":
+      return `Not loading ${goods} at ${place}: ${plural(kind) ? "they go" : "it goes"} on ${wagonFor(kind)}. Add one to this train`;
+    case "none":
+      return `No ${goods} to load at ${place} yet`;
   }
 }

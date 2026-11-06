@@ -42,11 +42,26 @@ const check = (what, ok, detail = "") => {
   console.log(ok ? "PASS" : "FAIL", what, detail);
 };
 const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
-const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+// (Again, up to 3 times, when the page drops the wait's promise ("Resulting promise was garbage collected", a context
+// gone mid-navigation): a wait for the frames to settle, not a check. It crashed the run on a retried tap at 360 px.)
+const settle = async () => {
+  for (let k = 0; ; k++) {
+    try {
+      return await p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+    } catch (e) {
+      if (k >= 2 || !/garbage collected|context was destroyed|navigation/i.test(e.message)) throw e;
+      await p.waitForTimeout(500);
+    }
+  }
+};
 const enterGame = async () => {
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
   await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  // (The tray's start-up pictures all drawn first: on a new page they're drawn a batch at a time, each about 4 s of
+  // SwiftShader read-back, and a card opened during one pops in seconds late, under a tap aimed before it: the 360 px
+  // loop's missed "Takes all planks" on batch P, whose tray has more to draw. The game's own wait for e2e tests.)
+  await p.evaluate(() => Promise.race([window.woodrail.trayThumbnailsSaved(), new Promise((r) => setTimeout(r, 120000))]));
   await settle();
   await p.keyboard.press("Escape");
 };
@@ -66,6 +81,41 @@ const tap = async (selector) => {
   await p.touchscreen.tap(box.x, box.y);
   await p.waitForTimeout(400);
   return true;
+};
+/**
+ * A tap on one of a card's choice chips (`.yard-mode [data-yard]`, the school's `[data-school]`), then a wait until it's
+ * the one on (`.active`); a tap that missed it (under SwiftShader at 360 px one sometimes lands as the card settles) is
+ * tapped again, up to 3 times. What's checked is the card's and the depot's state after, as before.
+ */
+const tapChip = async (selector) => {
+  for (let k = 0; k < 3; k++) {
+    if (!(await tap(selector))) return false;
+    const on = await p
+      .waitForFunction((sel) => document.querySelector(sel)?.classList.contains("active"), selector, { timeout: 3000 })
+      .then(() => true, () => false);
+    if (on) return true;
+  }
+  return false;
+};
+/**
+ * A tap on the keep stepper's − or Auto, then a wait for what it does (the number shown changes; Auto, once tapped, is
+ * gone); a tap that missed is tapped again, up to 3 times. As `tapChip`: what's checked is the state after.
+ */
+const keepShown = () => p.evaluate(() => document.querySelector('.keep-row[data-kind="planks"] .keep-n')?.textContent ?? null);
+const tapStep = async (selector) => {
+  for (let k = 0; k < 3; k++) {
+    const before = await keepShown();
+    if (!(await tap(selector))) return false;
+    const done = await p
+      .waitForFunction(
+        ({ sel, before }) => (sel.includes('"auto"') ? !document.querySelector(sel) : document.querySelector('.keep-row[data-kind="planks"] .keep-n')?.textContent !== before),
+        { sel: selector, before },
+        { timeout: 3000 },
+      )
+      .then(() => true, () => false);
+    if (done) return true;
+  }
+  return false;
 };
 let shop = null;
 /** The card's choice now: which chip is on, the line under it, and the workshop's setting. */
@@ -123,7 +173,7 @@ const tapFrames = async (selector) => {
     }
     return w.framesDrawn;
   });
-  await tap(selector);
+  await (/data-yard|data-school/.test(selector) ? tapChip(selector) : /data-step/.test(selector) ? tapStep(selector) : tap(selector));
   await p.waitForTimeout(1500);
   return p.evaluate((f0) => ({ frames: window.woodrail.framesDrawn - f0, invalidates: window.__inval }), f0);
 };
@@ -143,7 +193,7 @@ shop = await p.evaluate(() => window.woodrail.economy.allDepots().find((d) => d.
 await openCard();
 c = await card();
 check("after a reload it still takes all planks", c.on === "Takes all planks" && c.takesAll === true && c.hint === ALL_HINT, JSON.stringify(c));
-await tap('.yard-mode [data-yard="share"]');
+await tapChip('.yard-mode [data-yard="share"]');
 c = await card();
 check("a tap on Shares with towns switches it back", c.on === "Shares with towns" && c.takesAll === false && c.hint === SHARES_HINT, JSON.stringify(c));
 
@@ -174,7 +224,7 @@ let k = await keep();
 check("its keep stepper while it shares: Keeps 7 planks (the game's own), no Auto, 44 px buttons", k.shown === "7" && !k.auto && k.set === null && k.rule === 7 && k.btns.every((h) => h >= 40) && k.fits, JSON.stringify(k));
 await shot("03-keep-stepper");
 const less = await tapFrames('.keep-row [data-keep="planks"][data-step="-1"]');
-await tap('.keep-row [data-keep="planks"][data-step="-1"]');
+await tapStep('.keep-row [data-keep="planks"][data-step="-1"]');
 k = await keep();
 check("two taps on − keep 5: the setting, the crane's rule and the line under it say 5; Auto shows", k.shown === "5" && k.set === 5 && k.rule === 5 && k.auto && k.hint === "Leaves planks for towns and schools further on, keeping 5 for you", JSON.stringify(k));
 check("…and the map isn't drawn again for it", less.invalidates === 0, JSON.stringify(less));
@@ -186,13 +236,13 @@ shop = await p.evaluate(() => window.woodrail.economy.allDepots().find((d) => d.
 await openCard();
 k = await keep();
 check("after a reload it still keeps 5", k.shown === "5" && k.set === 5 && k.rule === 5, JSON.stringify(k));
-await tap('.keep-row [data-keep="planks"][data-step="auto"]');
+await tapStep('.keep-row [data-keep="planks"][data-step="auto"]');
 k = await keep();
 check("Auto goes back to the game's own 7", k.shown === "7" && k.set === null && k.rule === 7 && !k.auto && k.hint === SHARES_HINT, JSON.stringify(k));
-await tap('.yard-mode [data-yard="all"]');
+await tapChip('.yard-mode [data-yard="all"]');
 k = await keep();
 check("Takes all planks: no stepper (it fills its yard)", k.shown === null, JSON.stringify(k));
-await tap('.yard-mode [data-yard="share"]');
+await tapChip('.yard-mode [data-yard="share"]');
 
 // A school on the map: Takes all's line is unchanged (no hidden priority for the school). Both fit, at 390 and 360 px.
 let school = await p.evaluate(() => {
@@ -220,7 +270,7 @@ for (const width of [390, 360]) {
   await p.setViewportSize({ width, height: 844 });
   for (const mode of ["share", "all"]) {
     await openCard();
-    await tap(`.yard-mode [data-yard="${mode}"]`);
+    await tapChip(`.yard-mode [data-yard="${mode}"]`);
     c = await card();
     const f = await fits();
     const want = mode === "all" ? ALL_HINT : SHARES_HINT;
@@ -252,12 +302,12 @@ await openSchool();
 let sc = await schoolCard();
 check("the school's card: Shares with towns (on) / Research first", sc.on === "Shares with towns" && JSON.stringify(sc.chips) === JSON.stringify(["Shares with towns", "Research first"]) && sc.takesAll === false, JSON.stringify(sc));
 check("…its line", sc.hint === "Trains drop goods at each stop in turn; here, a share when a town further on wants them too", String(sc.hint));
-await tap('.depot-card [data-school="first"]');
+await tapChip('.depot-card [data-school="first"]');
 sc = await schoolCard();
 check("a tap on Research first switches it", sc.on === "Research first" && sc.takesAll === true && sc.hint === "Trains keep what its research needs for it, past towns and the workshop. On a route, up to one wagon", JSON.stringify(sc));
 await shot("school-research-first");
 await openCard();
-await tap('.yard-mode [data-yard="all"]');
+await tapChip('.yard-mode [data-yard="all"]');
 c = await card();
 check("…and the workshop's Takes all line says so", c.on === "Takes all planks" && c.hint === `${ALL_HINT}, after your school's research (it's set to Research first)`, JSON.stringify(c));
 await p.waitForTimeout(2500);
@@ -267,7 +317,7 @@ school = await p.evaluate(() => window.woodrail.economy.allDepots().find((d) => 
 await openSchool();
 sc = await schoolCard();
 check("after a reload the school is still Research first", sc.on === "Research first" && sc.takesAll === true, JSON.stringify(sc));
-await tap('.depot-card [data-school="share"]');
+await tapChip('.depot-card [data-school="share"]');
 sc = await schoolCard();
 check("a tap on Shares with towns switches it back", sc.on === "Shares with towns" && sc.takesAll === false, JSON.stringify(sc));
 

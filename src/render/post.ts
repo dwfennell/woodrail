@@ -1,6 +1,6 @@
 import { DepthTexture, HalfFloatType, ShaderMaterial, UniformsUtils, UnsignedByteType, Vector2, WebGLRenderTarget, type PerspectiveCamera, type Scene, type WebGLRenderer } from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import type { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { FullScreenQuad, Pass } from "three/examples/jsm/postprocessing/Pass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { BokehShader } from "three/examples/jsm/shaders/BokehShader.js";
@@ -130,7 +130,8 @@ class ScenePass extends Pass {
   }
 }
 
-export function createPost(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera, quality: QualitySettings): Post {
+/** `redraw`: a frame wanted, when ambient occlusion has come (its code is loaded after the rest: post-ao.ts). */
+export function createPost(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera, quality: QualitySettings, redraw: () => void = () => {}): Post {
   // Multisampled half-float targets need a colour-buffer extension: without one (some phones), antialiasing would
   // quietly fail, so draw into an 8-bit target instead (a little banding in deep shadow, but smooth edges).
   const halfFloat = renderer.extensions.has("EXT_color_buffer_float") || renderer.extensions.has("EXT_color_buffer_half_float");
@@ -169,19 +170,24 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
   composer.addPass(scenePass);
   let gtao: GTAOPass | null = null;
   const aoStrength = shadowLook().contact;
-  if (quality.ambientOcclusion) {
-    gtao = new GTAOPass(scene, camera, 1, 1);
-    // Normals come from the shared depth, not a second draw of the scene.
-    gtao.setGBuffer(depth);
-    // Ambient occlusion is soft and denoised: half resolution looks the same at a quarter of the cost. The composer
-    // sizes every pass, so halve it there.
-    const fullSize = gtao.setSize.bind(gtao);
-    gtao.setSize = (w, h) => fullSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
-    gtao.updateGtaoMaterial({ radius: 12, distanceExponent: 1.4, thickness: 5, scale: 1.2, samples: 16 });
-    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
-    gtao.blendIntensity = aoStrength;
-    composer.addPass(gtao);
-  }
+  // The size and focus as last set, for ambient occlusion when it comes.
+  let size: [number, number] | null = null;
+  let focus = -1;
+  const aoFocus = () => {
+    if (!gtao || focus < 0) return;
+    gtao.blendIntensity = aoFor(focus) * aoStrength;
+    gtao.enabled = gtao.blendIntensity > 0;
+  };
+  if (quality.ambientOcclusion)
+    void import("./post-ao").then(({ aoPass }) => {
+      gtao = aoPass(scene, camera, depth);
+      gtao.blendIntensity = aoStrength;
+      // (Right after the scene, before depth of field and the lens, as if it had been there from the start.)
+      composer.insertPass(gtao, 1);
+      if (size) gtao.setSize(size[0], size[1]);
+      aoFocus();
+      redraw();
+    });
 
   // Depth of field: three's bokeh shader, reading the shared depth (BokehPass would draw the scene again for it).
   let bokeh: ShaderPass | null = null;
@@ -197,15 +203,14 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
 
   return {
     setSize(w, h) {
+      size = [w, h];
       composer.setSize(w, h);
       lens.uniforms.resolution.value.set(w, h);
       if (bokeh) bokeh.uniforms.aspect.value = w / h;
     },
     setFocus(distance) {
-      if (gtao) {
-        gtao.blendIntensity = aoFor(distance) * aoStrength;
-        gtao.enabled = gtao.blendIntensity > 0;
-      }
+      focus = distance;
+      aoFocus();
       if (!bokeh) return;
       bokeh.uniforms.focus.value = distance;
       bokeh.uniforms.aperture.value = apertureFor(distance) * dof.aperture;

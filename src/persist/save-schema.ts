@@ -99,7 +99,7 @@ export const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "toyworks", "postoffice", "landing", "slip", "boatyard", "shipyard", "airport", "mast", ...KIT_DEPOT_ROLES]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "glassworks", "toyworks", "postoffice", "landing", "slip", "boatyard", "shipyard", "airport", "mast", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -146,6 +146,10 @@ export const saveSchema = z.object({
   roadGot: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
   /** Each town's place under way (game/places.ts): town id, the place's id, and the goods it has had. Absent: none. */
   placePlans: z.array(z.tuple([z.number().int().min(0), z.string().max(40), z.record(z.string(), z.number().int().min(0))])).optional(),
+  /** Grand projects started (game/grand.ts): the project's id, its city's town id, stages done, its stage's goods so far, its site's prop id. Absent: none. */
+  grandPlans: z.array(z.tuple([z.string().max(40), z.number().int().min(0), z.number().int().min(0).max(10), z.record(z.string(), z.number().int().min(0)), z.number().int().min(-1), z.number().int().min(0).optional()])).optional(),
+  /** What the Great Exhibition gave each town toward its growth, by kind. Absent: none. */
+  grandGift: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
   /** Lines: a colour, a name, and stops (depot indices in `depots`, what's done there, wait there to fill). */
   lines: z
     .array(

@@ -1,5 +1,5 @@
 /**
- * What Empty's toast says (a wagon card's Empty, the engine card's Empty all): what was tipped out, by goods, and where
+ * What Empty's toast says (a wagon card's Empty, the engine card's Throw away): what was tipped out, by goods, and where
  * on the map takes the first of them, if anywhere does ("Tipped out 6 🪵 · Ashby takes 🪵").
  */
 import { GOODS_ICON, type CargoKind } from "../economy/cargo";

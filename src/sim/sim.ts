@@ -296,6 +296,8 @@ export class Sim {
   private readonly pathChoice: boolean[] = [];
   /** Path signals: what the nearest train coming to each saw this tick, and last tick (shown: `updateSignals`). */
   private junctionNear = new Map<number, boolean>();
+  /** Path signals at rest (no train coming): clear while no train is on the block, not held (`updateSignals`). */
+  private readonly pathRest = new Map<number, boolean>();
   private junctionSeen = new Map<number, boolean>();
   /**
    * The router's locks, for path signals (signals spec §3.1, §3.3): `locks` gives −2 if a train may go on over these
@@ -1763,9 +1765,36 @@ export class Sim {
     return ((this.layout.switchState(pieceId) >> road) & 1) === 1;
   }
 
-  /** Is this mark (a `Layout` signal id) at clear? A mark not yet worked out shows clear. */
+  /** The layout's signals and track as the aspects were last worked out at (`updateSignals`). */
+  private aspectsAt = { signals: -1, revision: -1 };
+
+  /**
+   * Is this mark (a `Layout` signal id) at clear? Worked out first if signals or track changed since the aspects were
+   * (a signal just put down, moved or turned, even paused, with no tick to come: it shows what its block holds at once).
+   */
   markClear(id: number): boolean {
+    if (this.aspectsAt.signals !== this.layout.signalsVersion || this.aspectsAt.revision !== this.layout.revision) this.updateSignals();
     return this.aspects.get(markKey(id)) ?? true;
+  }
+
+  /**
+   * Why a mark shows what it shows, for its card (signals audit U6): held at red, set Always green, a train on the line
+   * ahead (`by`: its id), a train waiting here for its turn on a line (sections' grant), waiting for a train's way
+   * through the points, or clear.
+   */
+  markWhy(id: number): { clear: boolean; why: "held" | "forced" | "train" | "turn" | "points" | "clear"; by: number } {
+    const clear = this.markClear(id);
+    const m = this.layout.getSignal(id);
+    const g = this.signalByKey.get(markKey(id));
+    if (!m || !g) return { clear, why: "clear", by: -1 };
+    if (m.held) return { clear: false, why: "held", by: -1 };
+    if (m.forced) return { clear, why: "forced", by: -1 };
+    if (clear) return { clear, why: "clear", by: -1 };
+    const by = this.blockBy.get(g.key) ?? -1;
+    if (by !== -1) return { clear, why: "train", by };
+    const gated = this.gatedFor(g);
+    if (gated !== -1) return { clear, why: "turn", by: gated };
+    return { clear, why: g.junction ? "points" : "train", by: -1 };
   }
 
   /** Set how a mark works (its card: Auto, Always red, Always green). Shown at once (even paused). */
@@ -1844,7 +1873,8 @@ export class Sim {
     if (this.pathSignals === 0) return;
     for (const g of this.signals!) {
       if (!g.junction) continue;
-      const clear = !this.isHeld(g) && (seen.get(g.key) ?? false);
+      // (No train coming: at rest, green while its block is free: `pathRest`.)
+      const clear = !this.isHeld(g) && (seen.get(g.key) ?? this.pathRest.get(g.key) ?? false);
       if (this.aspects.get(g.key) !== clear) {
         this.aspects.set(g.key, clear);
         this.signalsVersion++;
@@ -1926,8 +1956,9 @@ export class Sim {
       // (A mark facing on at this joint: the block ends there.)
       if (ref !== start && marks && this.marksAt.has(ref)) continue;
       const next = this.layout.joinedConnector(ref);
-      // (A mark facing back at this joint: the block ends at it.)
-      if (next === -1 || seen.has(next) || (marks && this.marksAt.has(next))) continue;
+      // (A mark facing back at this joint: the block ends at it. Not at its own joint: there a mark facing back is its
+      // set partner, guarding the other way, and the block starts past it.)
+      if (next === -1 || seen.has(next) || (marks && ref !== start && this.marksAt.has(next))) continue;
       seen.add(next);
       const id = pieceOfRef(next);
       if (id === g.pieceId && g.markId === -1) continue;
@@ -1984,6 +2015,11 @@ export class Sim {
     }
     stamp = (Math.imul(stamp, 0x01000193) ^ (this.pathLocks ? this.pathLocks.version() : 0)) | 0;
     stamp = (Math.imul(stamp, 0x01000193) ^ (this.signalGate ? this.signalGate.version() : 0)) | 0;
+    // (Signals placed, moved or turned, and track laid or taken up, change blocks: worked out again then too, though no
+    // train moved. Before, a signal put down beside a standing train showed clear, the default, till a train moved.)
+    stamp = (Math.imul(stamp, 0x01000193) ^ this.layout.signalsVersion) | 0;
+    stamp = (Math.imul(stamp, 0x01000193) ^ this.layout.revision) | 0;
+    this.aspectsAt = { signals: this.layout.signalsVersion, revision: this.layout.revision };
     if (!force && stamp === this.signalStamp) return;
     this.signalStamp = stamp;
     this.pathCache.clear();
@@ -1999,8 +2035,19 @@ export class Sim {
     }
     for (const g of list) {
       if (!this.layout.getPiece(g.pieceId) || this.layout.isLifted(g.pieceId)) continue;
-      // (A path signal's aspect is the nearest train's: `showPathSignals`.)
-      if (g.junction) continue;
+      // (A path signal's aspect is the nearest train's: `showPathSignals`. With none coming, it rests green while no
+      // train is on its block (signals audit: it rested red, beside plain signals resting green); worked out here, on a
+      // change, not every tick.)
+      if (g.junction) {
+        const by = this.isHeld(g) ? -1 : this.blockOccupant(g, -1);
+        this.blockBy.set(g.key, by);
+        this.pathRest.set(g.key, !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1);
+        if (!this.junctionSeen.has(g.key) && this.aspects.get(g.key) !== this.pathRest.get(g.key)) {
+          this.aspects.set(g.key, this.pathRest.get(g.key)!);
+          this.signalsVersion++;
+        }
+        continue;
+      }
       const by = this.isHeld(g) || this.isForced(g) ? -1 : this.blockOccupant(g, -1);
       this.blockBy.set(g.key, by);
       const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;
@@ -2061,7 +2108,8 @@ export class Sim {
         const ref = connectorRef(at, exit);
         if (n > 0 && marks && this.marksAt.has(ref)) break;
         const next = this.layout.joinedConnector(ref);
-        if (next === -1 || (marks && this.marksAt.has(next))) break;
+        // (Not at its own joint: a mark facing back there is its set partner.)
+        if (next === -1 || (marks && n > 0 && this.marksAt.has(next))) break;
         if (!routeFrom(this.layout, at, exit, pathStep)) break;
         const id = pathStep.pieceId;
         if (!g.block.has(id)) break;

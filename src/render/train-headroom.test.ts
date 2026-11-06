@@ -24,7 +24,7 @@ describe("headroom", () => {
         tallest = Math.max(tallest, new Box3().setFromObject(model.root).max.y);
       }
     }
-    // (72.5 mm today: the double-decker coach.)
+    // (72.9 mm today: the double-decker coach, its glazing and roof vents laid flat on its roof.)
     expect(tallest).toBeLessThan(TRAIN_HEADROOM - 3);
     // One level over an underpass is enough; one level alone isn't.
     expect(RISER_HEIGHT + UNDERPASS_DIP).toBeGreaterThanOrEqual(TRAIN_HEADROOM);

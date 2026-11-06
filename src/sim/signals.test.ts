@@ -111,3 +111,73 @@ describe("signals: block working", () => {
     expect(sim.getTrain(t)!.bogies[0].pieceId).not.toBe(ids[1]);
   });
 });
+
+/** A pair on the joint after `ids[k]`: one post each way, as the tray drops them (signals audit, 2026-11-06). */
+function pairAt(layout: Layout, pieceId: number): { on: number; back: number } {
+  const at = connectorRef(pieceId, 1);
+  return { on: layout.addSignal(at), back: layout.addSignal(layout.joinedConnector(at)) };
+}
+
+describe("signals: a pair on one joint (signals audit, 2026-11-06)", () => {
+  it("the post facing a train coming is red while a train stands just past the pair, and its block runs on past its partner", () => {
+    // (Report 1: a train standing just past a pair before a station, the post facing trains coming showed green. Its
+    // block ended at once at the other post of the pair, the one facing back on the same joint: empty, so never red.)
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", "straight-216", "straight-216", "buffer"]);
+    const { on, back } = pairAt(layout, ids[1]);
+    const sim = new Sim(layout);
+    const parked = sim.addTrain(["engine"], { pieceId: ids[2], pathIndex: 0, reversed: false, s: 150 });
+    if (parked.kind !== "placed") throw new Error();
+    run(sim, 0.1);
+    const blockOf = (id: number) => sim.signalBlock(sim.signalList().find((g) => g.key === -1 - id)!.key);
+    expect(blockOf(on)).toEqual([ids[2], ids[3], ids[4], ids[5]]);
+    expect(blockOf(back)).toEqual([ids[1], ids[0]]);
+    expect(sim.markClear(on)).toBe(false);
+    expect(sim.markClear(back)).toBe(true);
+    // A train coming stops at it, short of the joint, and goes once the one past it has gone.
+    const t = driving(sim, ids[0], 150, ["engine"]);
+    run(sim, 6);
+    expect(sim.getTrain(t)!.bogies[0].pieceId).toBe(ids[1]);
+    expect(sim.atRedSignal(t)).toBe(true);
+    sim.removeTrain(parked.trainId);
+    run(sim, 3);
+    expect(sim.getTrain(t)!.bogies[0].pieceId).not.toBe(ids[1]);
+  });
+
+  it("a pair before points is a path signal: red for a train coming while the way beyond is taken, green once the points go the free way", () => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", "switch", "straight-216", "straight-216", "buffer"]);
+    const { on } = pairAt(layout, ids[1]);
+    const sim = new Sim(layout);
+    const beyond = sim.addTrain(["engine"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 150 });
+    if (beyond.kind !== "placed") throw new Error();
+    expect(sim.signalList().find((g) => g.key === -1 - on)!.junction).toBe(true);
+    const t = driving(sim, ids[0], 150, ["engine"]);
+    run(sim, 5);
+    expect(sim.getTrain(t)!.bogies[0].pieceId).toBe(ids[1]);
+    expect(sim.heldBy(t)).toBe(beyond.trainId);
+    expect(sim.toggleSwitch(ids[3])).toBe(true);
+    run(sim, 3);
+    expect(sim.getTrain(t)!.bogies[0].pieceId).not.toBe(ids[1]);
+  });
+});
+
+describe("signals: a path signal at rest, and what a signal's card says (signals audit U6)", () => {
+  it("a path signal rests green while its block is free (it rested red), red while a train stands on its way, and its card says why", () => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", "switch", "straight-216", "straight-216", "buffer"]);
+    const { on } = pairAt(layout, ids[1]);
+    const sim = new Sim(layout);
+    run(sim, 0.1);
+    expect(sim.signalList().find((g) => g.key === -1 - on)!.junction).toBe(true);
+    expect(sim.markClear(on)).toBe(true);
+    expect(sim.markWhy(on)).toMatchObject({ clear: true, why: "clear" });
+    const beyond = sim.addTrain(["engine"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 150 });
+    if (beyond.kind !== "placed") throw new Error();
+    run(sim, 0.1);
+    expect(sim.markClear(on)).toBe(false);
+    expect(sim.markWhy(on)).toMatchObject({ clear: false, why: "train", by: beyond.trainId });
+    // (Held: red, said so; Always green: said so.)
+    sim.setMarkMode(on, "red");
+    expect(sim.markWhy(on)).toMatchObject({ clear: false, why: "held" });
+    sim.setMarkMode(on, "green");
+    expect(sim.markWhy(on).why).toBe("forced");
+  });
+});

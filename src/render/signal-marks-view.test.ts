@@ -3,7 +3,7 @@ import { BoxGeometry, Group, Mesh, MeshBasicMaterial } from "three";
 import { connectorRef, Layout, type PieceTypeId } from "../track";
 import { chain } from "../economy/loop-fixtures";
 import type { Materials } from "./materials";
-import { ARM_GLIDE_S, SignalMarksView, type MarkModels } from "./signal-marks-view";
+import { ARM_GLIDE_S, markSetGhost, placeSetGhost, SignalMarksView, type MarkModels } from "./signal-marks-view";
 
 const S: PieceTypeId = "straight-216";
 const plain = () => new MeshBasicMaterial();
@@ -111,5 +111,33 @@ describe("signal marks' drawing", () => {
     layout.turnSignal(m2);
     view.sync();
     expect(view.shownOf(m1)!.look).toBe("plain");
+  });
+});
+
+describe("a signal set's ghost", () => {
+  it("shows both posts, one each side of the joint, or the one when it's a lone signal; the view hides a set picked up", () => {
+    const layout = new Layout();
+    const ids = chain(layout, [S, S, S]);
+    const at = connectorRef(ids[0], 1);
+    const ghost = markSetGhost(mats);
+    const [a, b] = [ghost.getObjectByName("post0")!, ghost.getObjectByName("post1")!];
+    expect(placeSetGhost(ghost, layout, at, true)).toBe(true);
+    expect(b.visible).toBe(true);
+    // (Either side of the track: the posts stand on the drivers' right of opposite ways.)
+    expect(Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z)).toBeGreaterThan(30);
+    expect(placeSetGhost(ghost, layout, at, false)).toBe(true);
+    expect(b.visible).toBe(false);
+    // (An open end has no other side: one post only.)
+    expect(placeSetGhost(ghost, layout, connectorRef(ids[2], 1), true)).toBe(true);
+    expect(b.visible).toBe(false);
+    const sim = aspects();
+    const view = new SignalMarksView(layout, sim, mats);
+    const m1 = layout.addSignal(at);
+    const m2 = layout.addSignal(connectorRef(ids[1], 0));
+    view.sync();
+    expect([view.topOf(m1), view.topOf(m2)].every(Boolean)).toBe(true);
+    view.hidden = [m1, m2];
+    expect(view.sync()).toBe(true);
+    expect([view.topOf(m1), view.topOf(m2)]).toEqual([null, null]);
   });
 });

@@ -87,8 +87,9 @@
     "mobile.counts.textures": {
       "kind": "count",
       "unit": "",
-      "measured": 43,
-      "max": 46
+      "measured": 49,
+      "max": 52,
+      "why": "+3 on 2026-11-06: the secret sites (ae38f28) are drawn by their own PropsView, three BatchedMeshes (a material each), and each BatchedMesh holds two small data textures (its matrices, 16x16 float, and its indirect index, 8x8): about 12 KB in all. Their geometry was trimmed (batches start small) instead."
     },
     "mobile.counts.programs": {
       "kind": "count",
@@ -105,8 +106,9 @@
     "mobile.counts.glTextures": {
       "kind": "count",
       "unit": "",
-      "measured": 47,
-      "max": 50
+      "measured": 53,
+      "max": 56,
+      "why": "+3 on 2026-11-06: the secret sites (ae38f28) are drawn by their own PropsView, three BatchedMeshes (a material each), and each BatchedMesh holds two small data textures (its matrices, 16x16 float, and its indirect index, 8x8): about 12 KB in all. Their geometry was trimmed (batches start small) instead."
     },
     "mobile.leak.heapMB": {
       "kind": "leakMB",
@@ -189,8 +191,9 @@
     "desktop.counts.textures": {
       "kind": "count",
       "unit": "",
-      "measured": 42,
-      "max": 45
+      "measured": 48,
+      "max": 51,
+      "why": "+3 on 2026-11-06: the secret sites (ae38f28) are drawn by their own PropsView, three BatchedMeshes (a material each), and each BatchedMesh holds two small data textures (its matrices, 16x16 float, and its indirect index, 8x8): about 12 KB in all. Their geometry was trimmed (batches start small) instead."
     },
     "desktop.counts.programs": {
       "kind": "count",
@@ -207,8 +210,9 @@
     "desktop.counts.glTextures": {
       "kind": "count",
       "unit": "",
-      "measured": 46,
-      "max": 49
+      "measured": 52,
+      "max": 55,
+      "why": "+3 on 2026-11-06: the secret sites (ae38f28) are drawn by their own PropsView, three BatchedMeshes (a material each), and each BatchedMesh holds two small data textures (its matrices, 16x16 float, and its indirect index, 8x8): about 12 KB in all. Their geometry was trimmed (batches start small) instead."
     }
   }
 }

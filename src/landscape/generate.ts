@@ -9,6 +9,7 @@ import {
   FEAT_DEPOT,
   FEAT_FIELD,
   FEAT_RUIN,
+  FEAT_SECRET,
   FEAT_SHED,
   FEAT_NONE,
   FEAT_STATION,
@@ -30,6 +31,7 @@ import {
   type PlotCoord,
 } from "./grid";
 import { valueNoise } from "./noise";
+import type { SecretPlan, SecretSite } from "./secrets";
 
 export type { Region } from "./edges";
 
@@ -71,7 +73,7 @@ export interface Town {
    * Its station upgraded in place to a big station's kit (Game mode, src/game/station-upgrade.ts): the kit's model is
    * drawn instead of the station house and its sign.
    */
-  upgraded?: "kit-two-platform-station" | "kit-grand-terminus";
+  upgraded?: "kit-two-platform-station" | "kit-grand-terminus" | "kit-grand-central-1" | "kit-grand-central-2" | "kit-grand-central-3";
 }
 
 export type DepotKind = "forest" | "sawmill";
@@ -162,6 +164,13 @@ export interface Landscape {
    * gets the map's extra towns; an old Sandbox save gains nothing.
    */
   siteless?: boolean;
+  /**
+   * Where the map's secrets go, plot by plot (`planSecrets`): made with the map (an older save's when it loads), so a
+   * plot's land for sale has the same secret however often it's made. Missing on a map with none (Sandbox's).
+   */
+  secretPlan?: SecretPlan[];
+  /** The secret sites placed so far, on the land it has (see `SecretSite`; ids are places here). */
+  secrets?: SecretSite[];
   /**
    * Where the player's first train first ran on this map: a little painted marker stands there
    * (`game/touches.ts`). Null: the map had trains already running before there were markers (none is put down).
@@ -1304,6 +1313,7 @@ export function adoptRegion(world: Landscape, part: Landscape): number[] {
   const depotBase = world.depots.length;
   const fieldBase = world.fields.length;
   const siteBase = world.sites?.length ?? 0;
+  const secretBase = world.secrets?.length ?? 0;
   const buildingBase = world.nextBuildingId;
   const slotMap: number[] = [];
   p.plots.forEach((plot: PlotCoord, from) => {
@@ -1332,7 +1342,9 @@ export function adoptRegion(world: Landscape, part: Landscape): number[] {
                   ? owner + buildingBase
                   : f === FEAT_RUIN
                     ? owner + siteBase
-                    : owner;
+                    : f === FEAT_SECRET
+                      ? owner + secretBase
+                      : owner;
     }
   });
   const cell = (i: number) => slotMap[(i / PLOT_CELLS) | 0] * PLOT_CELLS + (i % PLOT_CELLS);
@@ -1353,6 +1365,10 @@ export function adoptRegion(world: Landscape, part: Landscape): number[] {
   if (part.sites?.length) {
     const sites = (world.sites ??= []);
     for (const s of part.sites) sites.push({ ...s, id: s.id + siteBase, centre: { ...s.centre }, piece: { ...s.piece }, plot: { ...s.plot }, fields: s.fields.map((f) => f + fieldBase) });
+  }
+  if (part.secrets?.length) {
+    const secrets = (world.secrets ??= []);
+    for (const s of part.secrets) secrets.push({ ...s, id: s.id + secretBase, piece: { ...s.piece }, plot: { ...s.plot } });
   }
   for (const i of part.corridors) world.corridors.push(cell(i));
   if (part.shed && !world.shed) world.shed = { ...part.shed, cells: part.shed.cells.map(cell) };

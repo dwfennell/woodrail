@@ -9,10 +9,10 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type LeverPost, t
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { METRO_KIT, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { METRO_KIT, isSecretKit, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
-import { markGhost, placeGhost } from "../render/signal-marks-view";
+import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
 import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
 import { topologyOf, trainLength } from "../economy/sections";
 import { SIGNAL_MODES, type SignalStyle } from "../track";
@@ -35,6 +35,7 @@ import type { Game } from "./game";
 import { pointsSetFor } from "./engine-status";
 import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
+import { haltName, secretAt, secretOfPiece } from "./secrets";
 import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
 import { callHome, calledLine, trainsInReach } from "./telegraph";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
@@ -56,6 +57,9 @@ import { PinHint, type PinHintState } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
+import { loadHint } from "./chains";
+import { canCarry as carCarries } from "../economy/cargo";
+import { needsWagonText, wagonTag, wagonWords } from "../economy/wagons";
 import { progressOf, YARD_COSTS } from "./yards";
 import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, isStore, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode, type YardBuild, type YardOrder } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestKnob, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
@@ -205,7 +209,9 @@ type Press =
   /** A road piece the player laid (on square `cell`). */
   | { kind: "road"; cell: number }
   /** A signal mark's post (signals spec §4): a tap holds it at red or lets it go, a long press opens its card. */
-  | { kind: "signal"; markId: number };
+  | { kind: "signal"; markId: number }
+  /** A secret site not yet found, in its mist (its id in `Landscape.secrets`): a tap opens its card. */
+  | { kind: "secret"; secretId: number };
 
 /** A car held in the hand: what it is, which way it faces, its lever, and (when picked up) its id and load. */
 type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; look?: CarLook; cargo?: { kind: CargoKind; count: number } };
@@ -367,7 +373,7 @@ type Mode =
    * Clearing (the Clear chip on): a tap or a sweep marks what it passes over, taken away when the finger's lifted (see
    * `commitErase`). Where the pointer last was, what's marked, and why what it passed over stays (said once, on lift).
    */
-  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; told: Map<EraseRefusal, string>; stays: Set<number> }
+  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; signals: Set<number>; told: Map<EraseRefusal, string>; stays: Set<number> }
   | {
       kind: "drag-scenery";
       pointerId: number;
@@ -676,13 +682,17 @@ export class Interaction {
   /** How long (ms) each pointer move placing a signal took (its snap and its tint), latest last: for the e2e. */
   readonly signalMoveMs: number[] = [];
 
-  /** A signal in the hand: a new one from the tray (`moving` −1), or a placed one picked up (its mark's id). */
+  /**
+   * A signal in the hand: a new one from the tray (`moving` −1), or a placed one picked up (its mark's id), with its set
+   * partner (the one facing the other way on its joint): both picked up, both shown in the ghost.
+   */
   private signalDrag(pointerId: number, moving: number): Extract<Mode, { kind: "drag-signal" }> {
-    const ghost = markGhost(this.game.mats);
+    const ghost = markSetGhost(this.game.mats);
     ghost.visible = false;
     this.game.scene.add(ghost);
     if (moving !== -1) {
-      this.game.marksView.hidden = moving;
+      const partner = this.game.layout.signalPartner(moving);
+      this.game.marksView.hidden = partner ? [moving, partner.id] : [moving];
       this.onPickup?.();
     }
     this.game.controls.enabled = false;
@@ -717,8 +727,8 @@ export class Interaction {
         }
         if (m.dir === 0) m.dir = Math.cos(h - this.cameraHeading()) >= 0 ? 1 : -1;
         target = snapJoint(layout, near.cursor, m.dir);
-        const there = target === -1 ? undefined : layout.signalAt(target);
-        if (there && there.id !== m.moving) target = -1;
+        // (A new one goes where none faces that way; a placed one with its set, where both fit: `signalSetAt`.)
+        if (target !== -1 && (m.moving === -1 ? !!layout.signalAt(target) : !this.editor().signalSetAt(m.moving, target))) target = -1;
         // (Not in a tunnel: it couldn't be seen or tapped there.)
         this.signalDark = target !== -1 && this.jointInTunnel(target);
         if (this.signalDark) target = -1;
@@ -732,7 +742,9 @@ export class Interaction {
       m.target = target;
       m.ghost.visible = target !== -1;
       if (target !== -1) {
-        placeGhost(m.ghost, layout, target);
+        // (Both posts, as the drop will put them: a new pair where the other way's free, a set with its partner.)
+        const both = m.moving === -1 ? !layout.signalAt(layout.joinedConnector(target)) : !!layout.signalPartner(m.moving);
+        placeSetGhost(m.ghost, layout, target, both);
         this.showTint(target, m.moving);
       } else g.blockTint.hide();
       g.invalidate();
@@ -749,13 +761,42 @@ export class Interaction {
     this.game.invalidate();
   }
 
+  /** The red signal an open engine card's train waits at (its joint end), whose block is tinted; −1: none. */
+  private waitTintAt = -1;
+
+  /**
+   * An open engine card's train stands at a red signal (`at`: its joint end; −1: it doesn't now): the line that signal
+   * guards is tinted while the card is open, so the player sees what it waits for (signals audit U3). Called as the
+   * card updates; does something only on a change. Not over a signal being placed or a signal's own card.
+   */
+  setWaitTint(at: number): void {
+    if (at === this.waitTintAt) return;
+    const g = this.game;
+    const free = this.selectedMark === -1 && this.mode.kind !== "drag-signal" && this.mode.kind !== "signal-run";
+    this.waitTintAt = at;
+    if (!free) return;
+    if (at === -1) {
+      if (g.blockTint.hide()) g.invalidate();
+    } else this.showTint(at);
+  }
+
+  /** Signal (the card of a train at a red): the camera glides to the signal it waits at; its line stays tinted. */
+  showWaitSignal(at: number): void {
+    const g = this.game;
+    const j = postAt(g.layout, at);
+    if (!j) return;
+    if (g.following !== -1) this.toggleFollow();
+    g.director.glideTo(g.controls.target.clone().set(j.x, j.y, j.z), 700, { duration: 0.6, inRoom: true });
+    this.showTint(at);
+  }
+
   /** The signal in the hand put away: its ghost and tint gone, a picked-up one shown again where it was. */
   private letGoSignal(m: Extract<Mode, { kind: "drag-signal" }>): void {
     const g = this.game;
     g.director.setEdgePointer(null);
     g.scene.remove(m.ghost);
     disposeObject(m.ghost);
-    g.marksView.hidden = -1;
+    g.marksView.hidden = [];
     g.blockTint.hide();
     g.invalidate();
   }
@@ -769,7 +810,7 @@ export class Interaction {
     if (m.target === -1) {
       // (A placed one taken back to the tray: taken away.)
       if (m.overTray && m.moving !== -1) {
-        ed.removeSignal(m.moving);
+        ed.removeSignalSet(m.moving);
         this.hud.toast("Back in the box");
       } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : "Drop it onto the track");
       return;
@@ -784,6 +825,11 @@ export class Interaction {
       return;
     }
     if (this.game.layout.getSignal(id)?.at !== m.target) ed.moveSignal(id, m.target);
+    // (A set moved together: one each way, nothing to turn round.)
+    if (this.game.layout.signalPartner(id)) {
+      this.hud.toast("Signals moved, both together", false, 2400);
+      return;
+    }
     // (The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with.)
     this.hud.toast("Signal moved. Tap here to turn it round", false, 3600, () => {
       if (this.game.layout.getSignal(id) && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
@@ -904,8 +950,9 @@ export class Interaction {
     const last = m.ats.length > 0 ? postAt(layout, m.ats[m.ats.length - 1]) : null;
     if (last && Math.hypot(last.x - j.x, last.z - j.z) < m.gap) return;
     m.ats.push(at);
-    const ghost = markGhost(g.mats);
-    placeGhost(ghost, layout, at);
+    // (Both posts of the pair each joint gets, the other only where that way's free.)
+    const ghost = markSetGhost(g.mats);
+    placeSetGhost(ghost, layout, at, !layout.signalAt(layout.joinedConnector(at)));
     g.scene.add(ghost);
     m.ghosts.push(ghost);
     g.invalidate();
@@ -941,13 +988,15 @@ export class Interaction {
     return g.marksView.pick(x - r.left, y - r.top, g.camera, r.width, r.height, touch ? 20 : 8);
   }
 
-  /** A tap on a signal: held at red (Always red), or let go (Auto) (the toy: signals spec §4, the user's decision 1). */
+  /**
+   * A tap on a signal opens its card, as a tap on any piece does (signals audit U5: a tap used to hold it at red, and its
+   * card, with its modes and Remove, took a long press nobody found: "no way to remove signals"). Holding it at red is
+   * the card's Always red.
+   */
   private tapMark(id: number): void {
     if (!this.game.layout.getSignal(id)) return;
-    this.game.sim.toggleMark(id);
-    this.onSwitched?.();
+    this.selectMark(id);
     this.game.invalidate();
-    if (this.selectedMark === id) this.showMarkCard();
   }
 
   /** Open a signal's card, its blocks tinted. */
@@ -964,7 +1013,7 @@ export class Interaction {
   /** A signal's modes on its card, in `SIGNAL_MODES`' order. */
   private static readonly MODES: readonly { label: string; title: string; lamps: readonly ("red" | "green")[] }[] = [
     { label: "Auto", title: "Red while a train is on the line ahead, else green", lamps: ["red", "green"] },
-    { label: "Always red", title: "Stop every train here (a tap on the signal does too)", lamps: ["red"] },
+    { label: "Always red", title: "Stop every train here", lamps: ["red"] },
     { label: "Always green", title: "Let trains past whatever is ahead. They still keep their distance and never bump", lamps: ["green"] },
   ];
 
@@ -978,7 +1027,13 @@ export class Interaction {
       this.hud.hideCards();
       return;
     }
-    this.hud.showPieceCard(false, "Signal: guards this way →", false, false, false, this.markWaits(m.at) ? "" : "Too short for a train to wait here");
+    // (Which way it guards is the chevron on the ground by its post, lit as it is; the title says what it shows now.)
+    const waits = this.markWaits(m.at);
+    this.hud.showPieceCard(false, this.markTitle(id), false, false, false, waits ? "" : "Too short for a train to wait here");
+    this.hud.setPieceDetailWarn(!waits);
+    // Remove, said plainly (the user: "there doesn't seem to be a way to remove signals"): the set, one undo step.
+    const pair = !!g.layout.signalPartner(id);
+    this.hud.setDeleteLabel(pair ? "Remove signals" : "Remove signal", pair ? "Take this signal and the one facing the other way off the track (Del)" : "Take this signal off the track (Del)");
     // How it works (the user: "auto or forced on or off"): Auto, Always red (a tap holds it so too), Always green.
     this.hud.showSignalModes(Interaction.MODES, SIGNAL_MODES.indexOf(m.mode), (i) => {
       g.sim.setMarkMode(id, SIGNAL_MODES[i]);
@@ -989,7 +1044,7 @@ export class Interaction {
     this.hud.showLevers(
       [
         { label: "Turn round", title: "Guard trains going the other way" },
-        { label: `Style: ${Interaction.STYLE_NAMES[m.style]}`, title: "Lamps, semaphore or colour light" },
+        { label: `Look: ${Interaction.STYLE_NAMES[m.style]} ▸`, title: "Lamps, semaphore or colour light: a tap shows the next" },
       ],
       (i) => {
         if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
@@ -1001,6 +1056,30 @@ export class Interaction {
       },
     );
     this.showTint(m.at);
+  }
+
+  /** A signal card's title: red or green now, and why (signals audit U6), from the sim (`Sim.markWhy`). */
+  private markTitle(id: number): string {
+    const w = this.game.sim.markWhy(id);
+    switch (w.why) {
+      case "held":
+        return "Signal · red: held here";
+      case "forced":
+        return "Signal · green: always";
+      case "train":
+        return "Signal · red: a train is on the line ahead";
+      case "turn":
+        return "Signal · red: a train waits here for its turn";
+      case "points":
+        return "Signal · red: a train's way through the points isn't set";
+      default:
+        return "Signal · green: the line ahead is clear";
+    }
+  }
+
+  /** Signals or their aspects changed: an open signal card's title follows (only then: never per frame). */
+  marksChanged(): void {
+    if (this.selectedMark !== -1 && this.game.layout.getSignal(this.selectedMark)) this.hud.setPieceTitle(this.markTitle(this.selectedMark));
   }
 
   /**
@@ -1834,7 +1913,7 @@ export class Interaction {
     // Clearing: the press marks what's under it, and a sweep from there all it passes over (two fingers still pan).
     if (this.erasesNow && this.touches.size <= 1) {
       this.game.controls.enabled = false;
-      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), told: new Map(), stays: new Set() };
+      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), signals: new Set(), told: new Map(), stays: new Set() };
       this.mode = m;
       this.eraseAt(m, e.clientX, e.clientY);
       this.showErase(m);
@@ -1919,7 +1998,8 @@ export class Interaction {
       else hit = null;
     }
     // (In Game mode, the town's houses only to move them about their town: a landmark not at all.)
-    if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || !this.propWithinReach(hit.propId))) hit = null;
+    // (A grand project's site neither: it stays where its city put it.)
+    if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || this.grandSite(hit.propId) || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     // By a free end, on nothing that can be taken hold of from here after all: it draws straight away.
@@ -2687,6 +2767,20 @@ export class Interaction {
 
   private tap(p: Press, add = false): void {
     const g = this.game;
+    if (p.kind === "secret") {
+      this.clearSelection();
+      this.onSecretTap?.(p.secretId);
+      return;
+    }
+    // A found secret's halt (the site and its track): its card.
+    if (p.kind === "piece" && !this.picking && !add && this.onSecretTap) {
+      const site = secretOfPiece(g.world, p.pieceId);
+      if (site) {
+        this.clearSelection();
+        this.onSecretTap(site.id);
+        return;
+      }
+    }
     if (p.kind === "signal") {
       this.tapMark(p.markId);
       return;
@@ -2759,7 +2853,7 @@ export class Interaction {
     }
     if (p.kind === "prop") {
       // (A town's house in Game mode isn't selected: a tap there opens its town's card.)
-      if (this.townHouse(p.propId)) {
+      if (this.townHouse(p.propId) || this.grandSite(p.propId)) {
         const station = this.townStation(p.propId);
         if (station !== -1 && this.townCard) this.openDepot(station);
         else {
@@ -2834,6 +2928,9 @@ export class Interaction {
    */
   onRuinTap: ((siteId: number) => void) | null = null;
 
+  /** A secret site tapped (in its mist, or found: its halt or the site): the game opens its card (by its id). */
+  onSecretTap: ((secretId: number) => void) | null = null;
+
   /** The standing ruin (site id) drawn at this screen point, or −1: what the ray meets first of the ruins, if anything. */
   ruinAtScreen(x: number, y: number): number {
     this.setNdc(x, y);
@@ -2870,8 +2967,9 @@ export class Interaction {
   }
 
   clearSelection(): void {
-    if (this.selectedMark !== -1) {
+    if (this.selectedMark !== -1 || this.waitTintAt !== -1) {
       this.selectedMark = -1;
+      this.waitTintAt = -1;
       if (this.game.blockTint.hide()) this.game.invalidate();
     }
     if (this.selectedPiece !== -1 || this.picking) {
@@ -2943,7 +3041,35 @@ export class Interaction {
     return this.hud.depotCardOpen ? this.selectedDepot : -1;
   }
   /** What the open depot card last showed. */
-  private readonly shownDepot = { id: -1, piles: -1, auto: false, wait: false, delivered: -1 };
+  private readonly shownDepot = { id: -1, piles: -1, auto: false, wait: false, delivered: -1, warn: "" };
+  /** When the open depot card last looked for a train standing there with the wrong wagons (`wrongWagonsAt`), ms. */
+  private wagonCheckAt = -Infinity;
+  private wagonWarn = "";
+
+  /**
+   * A goods train standing at depot `d` that can't take what's there because none of its wagons carries it: "A train
+   * here needs a hopper for stone" (the player's case: flatbeds at a quarry, nothing happening). "" for none. Asked at
+   * most twice a second while the card is open (a lookup per train's bogie; nothing when no train is there).
+   */
+  private wrongWagonsAt(d: DepotState): string {
+    const now = performance.now();
+    if (now - this.wagonCheckAt < 500) return this.wagonWarn;
+    this.wagonCheckAt = now;
+    const { sim, economy } = this.game;
+    let warn = "";
+    for (const id of sim.trainIds()) {
+      const t = sim.getTrain(id);
+      if (!t || t.speed > 1 || !t.bogies.some((b) => economy.depotAtPiece(b.pieceId) === d) || !t.cars.some((c) => carCarries(c.kind))) continue;
+      const h = loadHint(t, (pieceId) => economy.depotAtPiece(pieceId), null);
+      if (h && h.depot === d && h.why === "wagon") {
+        const need = needsWagonText(h.kind);
+        warn = `A train here ${need[0].toLowerCase()}${need.slice(1)}`;
+        break;
+      }
+    }
+    this.wagonWarn = warn;
+    return warn;
+  }
 
   private depotTitle(depotId: number): string {
     const d = this.game.economy.depot(depotId);
@@ -3092,7 +3218,11 @@ export class Interaction {
     // this per-frame check.
     let pileKey = 0;
     for (let k = 0; k < d.piles.length; k++) pileKey = (Math.imul(pileKey, 0x01000193) ^ (d.piles[k] + 1)) | 0;
-    if (shown.id === d.id && shown.piles === pileKey && shown.auto === d.auto && shown.wait === d.waitFull && shown.delivered === delivered0) return;
+    // (A town's card is its ledger; a store's and a school's have rows of their own: only an industry's goods line says
+    // what a train standing there lacks.)
+    const warn = d.role === "town" || d.role === "school" || isStore(d.role) || RECIPES[d.role].gives.length === 0 ? "" : this.wrongWagonsAt(d);
+    if (shown.id === d.id && shown.piles === pileKey && shown.auto === d.auto && shown.wait === d.waitFull && shown.delivered === delivered0 && shown.warn === warn) return;
+    shown.warn = warn;
     shown.id = d.id;
     shown.piles = pileKey;
     shown.auto = d.auto;
@@ -3109,7 +3239,7 @@ export class Interaction {
     // (A workshop's stone, taken only while a price needs it: listed while it holds some or some is owed.)
     let piles = pilesOf(d.role)
       .filter((kind) => !owed?.includes(kind) || d.piles[CARGO[kind].index] > 0 || (economy.owes?.(kind) ?? 0) > 0)
-      .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
+      .map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d), wagon: wagonTag(kind) }));
     // A harbour's quay takes any good: it lists only what's there. (So does a town's card in Sandbox, which has no
     // ledger: a row for each of the nine goods a town takes was a wall of "0/12". Its chain rows say what can come.)
     if (d.role === "harbour" || d.role === "town") piles = piles.filter((p) => p.count > 0);
@@ -3117,7 +3247,7 @@ export class Interaction {
     // read 0 while the card says what's still to come).
     const building = (d.role === "boatyard" || d.role === "shipyard") && economy.yardOrders.get(d.id);
     if (building)
-      piles = Object.entries(YARD_COSTS[building.build]).map(([k, n]) => ({ label: `${GOODS_ICON[k as CargoKind]} ${CARGO[k as CargoKind].label}`, count: Math.min(n ?? 0, building.got[k as CargoKind] ?? 0), cap: n ?? 0 }));
+      piles = Object.entries(YARD_COSTS[building.build]).map(([k, n]) => ({ label: `${GOODS_ICON[k as CargoKind]} ${CARGO[k as CargoKind].label}`, count: Math.min(n ?? 0, building.got[k as CargoKind] ?? 0), cap: n ?? 0, wagon: wagonTag(k as CargoKind) }));
     // A warehouse: how to use it, and a row for each good it holds or lists (its count, and what it lets trains do with
     // it), "Any other goods", and "+ Add a good" (goods the map makes, not shown yet). "Empty" while it holds nothing.
     if (isStore(d.role)) {
@@ -3149,7 +3279,7 @@ export class Interaction {
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
     const note = d.role === "town" ? `Delivered ${delivered}` : d.role === "harbour" && piles.length === 0 ? "Nothing on the quay: drop goods here for the boats" : "";
     // A workshop: how its planks get there (a train on a route drops them only at its stops).
-    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note, false, d.role === "workshop" ? SHOP_HELP : "");
+    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note, false, d.role === "workshop" ? SHOP_HELP : "", warn);
   }
 
   toggleDepotAuto(): void {
@@ -3228,7 +3358,7 @@ export class Interaction {
     } else {
       this.onRefused?.();
       // (A refusal, as for a piece put down where it can't go: at once, and said once while it's up.)
-      this.hud.refuse(m.cargo === "log" ? "Logs go on a flatbed wagon or the sawmill's log pile" : m.cargo === "planks" ? "Planks go on a flatbed wagon or a station's goods pile" : "That goes on a wagon that carries it, or a pile that takes it");
+      this.hud.refuse(m.cargo === "log" ? "Logs go on a flatbed wagon or the sawmill's log pile" : m.cargo === "planks" ? "Planks go on a flatbed wagon or a station's goods pile" : `${CARGO[m.cargo].label} ${CARGO[m.cargo].label.endsWith("s") ? "go" : "goes"} on ${wagonWords(m.cargo) ? `a ${wagonWords(m.cargo).toLowerCase()}` : "a wagon that carries it"}, or a pile that takes it`);
     }
   }
 
@@ -3597,8 +3727,21 @@ export class Interaction {
     const g = this.game;
     const building = g.props.get(propId)?.building;
     const found = building === undefined ? null : findBuilding(g.landscape, building);
-    const piece = found ? g.stations.get(found.town.id) : undefined;
+    // (A grand project's site: its city's.)
+    const site = this.grandSite(propId) ? (this.siteTown?.(propId) ?? -1) : -1;
+    const piece = found ? g.stations.get(found.town.id) : site >= 0 ? g.stations.get(site) : undefined;
     return piece === undefined ? -1 : (g.economy.depotAtPiece(piece)?.id ?? -1);
+  }
+
+  /**
+   * The town a grand project's site stands for (Game mode, src/game/grand.ts: set by main), or −1 for any other prop.
+   * Such a site is the city's: never lifted or taken up, and a tap opens its city's card.
+   */
+  siteTown: ((propId: number) => number) | null = null;
+
+  /** Is this prop a grand project's site in Game mode? */
+  private grandSite(propId: number): boolean {
+    return !this.propsEditable && (this.siteTown?.(propId) ?? -1) >= 0;
   }
 
   /** Is this prop a town's building in Game mode (moved only about its town: see town-moves.ts)? */
@@ -3834,7 +3977,10 @@ export class Interaction {
   }
 
   /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
-  private fixedLabel(pieceId: number): string | null {
+  fixedLabel(pieceId: number): string | null {
+    // (A found secret's halt: the game laid it, where the secret is.)
+    const secret = secretOfPiece(this.game.world, pieceId);
+    if (secret) return haltName(secret);
     for (const [siteId, id] of this.game.ruins) {
       const site = this.game.landscape.sites?.[siteId];
       if (id === pieceId && site) return `Old ${SITE_NAMES[site.role]}`;
@@ -3896,7 +4042,8 @@ export class Interaction {
       const id = this.selectedMark;
       this.clearSelection();
       this.hud.hideCards();
-      this.editor().removeSignal(id);
+      // (With its set partner: placed together, taken away together.)
+      this.editor().removeSignalSet(id);
       return;
     }
     if (this.roads.selected !== -1) {
@@ -3996,6 +4143,17 @@ export class Interaction {
 
   /** Mark what's under (x, y) to be cleared, if it may be; note why something may not (said on lift: `eraseRefusal`). */
   private eraseAt(m: Mode & { kind: "erase" }, x: number, y: number): void {
+    // A signal's post: the signal goes, with its set partner (placed together, cleared together). Shown gone at once.
+    const mark = this.game.layout.signalCount > 0 ? this.markAt(x, y, this.lastPointerWasTouch) : -1;
+    if (mark !== -1) {
+      if (m.signals.has(mark)) return;
+      const partner = this.game.layout.signalPartner(mark);
+      m.signals.add(mark);
+      if (partner) m.signals.add(partner.id);
+      this.game.marksView.hidden = [...m.signals];
+      this.game.invalidate();
+      return;
+    }
     const hit = this.pickExact(x, y);
     // (The first reason of each kind is kept: a depot's track and its building are one thing that stays.)
     const note = (kind: EraseRefusal, why: string) => {
@@ -4023,6 +4181,7 @@ export class Interaction {
     } else if (hit.kind === "prop") {
       if (m.props.has(hit.propId)) return;
       if (this.townHouse(hit.propId)) note("house", "The town's houses stay");
+      else if (this.grandSite(hit.propId)) note("house", "Grand projects stay");
       else m.props.add(hit.propId);
     } else if (hit.kind === "depot") note("station", "Stations and depots stay");
     else if (hit.kind === "car") note("train", "Trains stay: take one off from its card");
@@ -4058,6 +4217,8 @@ export class Interaction {
   private showErase(m: (Mode & { kind: "erase" }) | null): void {
     const g = this.game;
     g.trackView.setHighlights(m ? m.pieces : [], "blocked");
+    // (Signals swept are hidden while the sweep goes on: drawn again if it's let go of, or gone with it.)
+    if (!m && g.marksView.hidden.length > 0 && this.mode.kind !== "drag-signal") g.marksView.hidden = [];
     let k = 0;
     for (const id of m?.props ?? []) {
       const p = g.props.get(id);
@@ -4112,9 +4273,12 @@ export class Interaction {
     if (why) this.hud.toast(why);
     const ids = this.keepCarryingStands(this.withRisers(free)).filter((id) => !this.liftHeld(id));
     const props = [...m.props].filter((id) => g.props.get(id));
-    if (ids.length === 0 && props.length === 0) return;
+    const signals = [...m.signals].filter((id) => g.layout.getSignal(id));
+    if (ids.length === 0 && props.length === 0 && signals.length === 0) return;
     const pieces = ids.map((id) => g.layout.getPiece(id)!);
     this.editor().group(() => {
+      // (Signals first: their track going would put them by, to come back on Undo with it.)
+      for (const id of signals) if (g.layout.getSignal(id)) this.editor().removeSignalSet(id);
       if (ids.length > 0) this.editor().removeGroup(ids);
       this.removeProps(props);
     });
@@ -6209,7 +6373,7 @@ export class Interaction {
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)
     // (The loop-the-loops' shows': a tap on an engine's copy running the loop is a tap on the engine.)
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group, g.ruinsView.group], true);
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group, g.ruinsView.group, g.secretsView.group], true);
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
       const shown = g.loopShow.engineAt(h.object as Object3D);
@@ -6257,6 +6421,8 @@ export class Interaction {
         if (role === "landing" || role === "slip" || role === "boatyard" || role === "shipyard") return { kind: "piece", pieceId: kitPiece };
         // (A metro stop's entrance is all there is of it to see: a tap on it is a tap on the stop.)
         if (g.layout.getPiece(kitPiece)?.type === METRO_KIT) return { kind: "piece", pieceId: kitPiece };
+        // (A found secret: the whole site is its halt's, whose card a tap opens.)
+        if (isSecretKit(g.layout.getPiece(kitPiece)?.type ?? "straight-216")) return { kind: "piece", pieceId: kitPiece };
         continue;
       }
       // A level crossing's style (its barriers or gates) is its prop's.
@@ -6267,6 +6433,12 @@ export class Interaction {
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
       if (pieceId !== -1 && this.onSpan(pieceId, h.point.x, h.point.z)) return { kind: "piece", pieceId, deck: true, at: { x: h.point.x, z: h.point.z } };
       if (pieceId !== -1) return { kind: "piece", pieceId, at: { x: h.point.x, z: h.point.z } };
+      // A secret site not yet found, in its mist, on the land (one on land not yet bought: passed through, to the ground).
+      if (g.secretsView.holds(h.object)) {
+        const site = secretAt(g.landscape, h.point.x, h.point.z);
+        if (site) return { kind: "secret", secretId: site.id };
+        continue;
+      }
       // An old industry's ruin: its stub's (a tap opens its card; it stays put). One on land not yet bought: passed
       // through, to the ground.
       if (g.ruinsView.isRuin(h.object)) {

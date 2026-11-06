@@ -101,7 +101,11 @@ const board = async (open) => {
   const is = () => p.evaluate(() => !!document.querySelector(".board-open"));
   for (let attempt = 0; attempt < 3; attempt++) {
     if ((await is()) === open) return true;
-    if (!(await tap(open ? ".research-pill" : ".board-head .close"))) return false;
+    if (attempt > 0) console.log(`(board: a tap to ${open ? "open" : "close"} it was lost: tried again)`);
+    if (!(await tap(open ? ".research-pill" : ".board-head .close"))) {
+      if (attempt < 2) continue;
+      return false;
+    }
     const done = await p
       .waitForFunction((o) => !!document.querySelector(".board-open") === o, open, { timeout: 5000, polling: 200 })
       .then(() => true)
@@ -616,7 +620,7 @@ await shot("13-idle-pill");
 await tap(".toast");
 await p.waitForTimeout(600);
 check("…tapping the toast opens the picker", await boardOpen(), "");
-await tap(".board-head .close");
+await board(false);
 await p.waitForTimeout(600);
 check("…closed again", !(await boardOpen()), "");
 // The school's card: Idle, and a button for the picker.
@@ -635,17 +639,17 @@ await shot("14-idle-school-card");
 await tap(".depot-card .depot-pick");
 await p.waitForTimeout(600);
 check("…its button opens the picker", await boardOpen(), "");
-await tap(".board-head .close");
+await board(false);
 await p.waitForTimeout(600);
 // Once per finish: a while later (the workshop's clock asks every second), the toast hasn't come again.
 await p.waitForTimeout(8000);
 const toasts = await p.evaluate(() => window.__toasts.filter((t) => / is idle: /.test(t)));
 check("…the idle toast showed once", toasts.length === 1, JSON.stringify(toasts));
 // Tapping the pill opens the picker too; closed with nothing picked, the dot pulses again (a few times, then rests).
-await tap(".research-pill");
+await board(true);
 await p.waitForTimeout(600);
 check("…and so does the pill", await boardOpen(), "");
-await tap(".board-head .close");
+await board(false);
 // Idle 30 s from there, the dot pulsing: no frames drawn.
 const idle2 = await p.evaluate(async () => {
   const w = window.woodrail;
@@ -670,7 +674,7 @@ await p.emulateMedia({ reducedMotion: "no-preference" });
 // 10. Chains (a research that needs one not learned yet): Mills needs Farming. Queued in one tap, Farming first; never
 // "Research now" while Farming isn't learned, "Research Farming now" instead; taking Farming out takes Mills too, with
 // a toast; and the chain runs through: Farming learned, then Mills researched and learned (the payoff).
-await tap(".research-pill");
+await board(true);
 await select("Mills");
 t = await ticket();
 check("chain, idle: Mills (needs Farming) offers Research Farming now, then Mills", t?.state === "locked" && queuedButtons(t) === "Research Farming now" && /Then Mills/.test(t.foot) && t.buttons.every((x) => x.h >= 44), JSON.stringify(t));
@@ -714,7 +718,7 @@ check("Research Farming now: Farming under way, Junctions up next, Mills after",
 t = await ticket();
 check("…Mills, Farming under way: only Remove (it waits for Farming)", t?.name === "Mills" && t.state === "next" && queuedButtons(t) === "✕ Remove", JSON.stringify(t));
 await shot("18-chain-waits");
-await tap(".board-head .close");
+await board(false);
 // The payoff: Farming's goods in and studied, learned; Mills' plain Research now; Mills researched and learned.
 const deliverGoods = (bag) =>
   p.evaluate((bag) => {
@@ -726,13 +730,13 @@ await deliverGoods({ planks: 6 });
 await p.waitForFunction(() => window.woodrail.progress().learned.has("farming"), null, { timeout: 90000 }).catch(() => null);
 await p.waitForTimeout(600);
 check("Farming learned; Junctions started from the queue, Mills next", JSON.stringify(await queued()) === JSON.stringify(["junctions", "mills"]), JSON.stringify(await queued()));
-await tap(".research-pill");
+await board(true);
 await select("Mills");
 t = await ticket();
 check("…now Mills says Research now", queuedButtons(t) === "✕ Remove|Research now", JSON.stringify(t));
 await tap(".board-sheet button[data-act=now]", "Research now");
 check("…a tap starts Mills", (await queued())[0] === "mills", JSON.stringify(await queued()));
-await tap(".board-head .close");
+await board(false);
 await deliverGoods({ planks: 6, grain: 6 });
 await p.waitForFunction(() => window.woodrail.progress().learned.has("mills"), null, { timeout: 150000 }).catch(() => null);
 check("…and Mills is learned (the mill is unlocked)", await p.evaluate(() => window.woodrail.progress().learned.has("mills")), JSON.stringify(await queued()));
@@ -756,17 +760,17 @@ check("Juice works: unlocks the juice works, costs 8 planks and 120 coins, in wo
 await shot("19-juice-works-360");
 await p.setViewportSize({ width: 390, height: 844 });
 await p.waitForTimeout(400);
-await tap(".board-head .close");
+await board(false);
 // Creamery (shown: Dairy farm is learned) by taps, Research now, its goods brought: learned. Only then is the Cold van
 // shown by name (a "?" while what it needs isn't learned), and it's researched the same way.
 const researchByTaps = async (name, id, planks = 12) => {
-  await tap(".research-pill");
+  await board(true);
   await select(name);
   const first = await ticket();
   await tap(".board-sheet button[data-act=pick]", first?.buttons[0]?.text);
   if ((await queued())[0] !== id) await tap(".board-sheet button[data-act=now]", "Research now");
   const under = (await queued())[0];
-  await tap(".board-head .close");
+  await board(false);
   await deliverGoods({ planks });
   await p.waitForFunction((id) => window.woodrail.progress().learned.has(id), id, { timeout: 150000 }).catch(() => null);
   return { first, under };

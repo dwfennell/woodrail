@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, Box3, type Material } from "three";
 import type { Materials } from "../render/materials";
-import { addStripes, liveryRecolor, LIVERY_SLOTS } from "../render/train-models";
+import { addStripes, liveryRecolor, LIVERY_SLOTS, paintable } from "../render/train-models";
 import { CAR_LOOKS } from "../sim/cars";
 import { LINING, LIVERIES, liveryById, liveryOf, paint, paintOpen, paintState, RAINBOW } from "./paint-shop";
 import { Progress } from "./progress";
@@ -69,7 +69,9 @@ describe("the paint shop", () => {
   });
 
   it("a livery swaps every engine look's modelled body and trim colours, and nothing else", () => {
-    for (const look of CAR_LOOKS.engine) {
+    // (The Royal Train keeps its claret and gold: not painted, src/game/grand.ts.)
+    expect(paintable("engine", "royal")).toBe(false);
+    for (const look of CAR_LOOKS.engine.filter((l) => l !== "royal")) {
       const slots = LIVERY_SLOTS[look]!;
       expect(slots, look).toBeDefined();
       const map = liveryRecolor(look, { body: "#111111", trim: "#222222" });

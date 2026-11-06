@@ -1,6 +1,6 @@
+import { lazy } from "./lib/lazy";
 import { CRANE_TEXT } from "./game/crane-text";
 import { placeNear, type Place as NearPlace } from "./game/place-near";
-import { installDevChecks, recentBreaks } from "./game/dev-checks";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { CrossingBells } from "./audio/crossing-bell";
@@ -26,7 +26,7 @@ import { StickerTracker } from "./game/stickers";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
-import { dateOf, dateText } from "./game/calendar";
+import { dateOf, dateText, MONTH_S } from "./game/calendar";
 import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from "./game/journal";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
@@ -48,7 +48,7 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, isGift, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltTown, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
@@ -72,7 +72,7 @@ import { planIcons, planWords } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, isStore as isStoreRole, MAX_SHEDS, RECIPES, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef } from "./economy";
 import type { Stuck } from "./economy/stalls";
-import { BlueprintBoard, type Station } from "./ui/blueprint-board";
+import type { BlueprintBoard, BlueprintBoardHandlers, Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, wants as researchWants, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
@@ -99,11 +99,15 @@ import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
 import { attachWater, type WaterControls } from "./ui/water-controls";
+import { attachSecrets, type SecretControls } from "./ui/secret-controls";
+import { secretOfStop } from "./game/secrets";
+import { isSecretKit } from "./track";
 import { drawPlaceRows } from "./ui/places-row";
-import { PaintSheet } from "./ui/paint-sheet";
 import { paintable } from "./render/train-models";
 import { ownColoursOpen, paint, paintOpen, paintOwn, paintPots } from "./game/paint-shop";
 import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
+import { achievements, advanceGrands, centralPiece, centralWhy, countRider, fairTown, moveCentralKit, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, siteAsset, siteSpot, startGrand, unionFootprint, type GrandId } from "./game/grand";
+import { drawGrandRow } from "./ui/grand-row";
 import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
 import { costTag, refundText, trayCostTag } from "./ui/cost-tag";
@@ -138,8 +142,6 @@ import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
 import { CloudCard } from "./ui/cloud-card";
-import { FeedbackSheet } from "./ui/feedback-sheet";
-import { StatsCard } from "./ui/stats-card";
 import { pageStats } from "./stats/stats";
 import { gpuOnlyEnabled } from "./render/gpu-only";
 import "./style.css";
@@ -330,8 +332,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.restoreInPlace = !gpuOnlyEnabled();
   // Dev builds (the dev server, or `?dev`): the train invariants checked as the game runs, a red badge when one breaks
   // (src/game/dev-checks.ts). In a production build without `?dev` they never run (8.9 KB of the bundle).
+  // (Loaded only then, on its own: not in the bundle every start fetches.)
   let devChecks: { frame(): void } | null = null;
-  if (import.meta.env.DEV || new URLSearchParams(location.search).has("dev")) devChecks = installDevChecks(game);
+  let recentBreaks = (): string[] => [];
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has("dev"))
+    void import("./game/dev-checks").then((d) => {
+      devChecks = d.installDevChecks(game);
+      recentBreaks = d.recentBreaks;
+    });
   let mode = opening.mode;
   /** The research pill as last drawn: its key (`pillKey`) and the progress it was for (a new game starts a new one). */
   let pillKeyShown = "";
@@ -339,7 +347,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** What the open Research picker was last drawn from (`boardKey`). */
   let boardKeyShown = "";
   // Stations and depots never move (to take up joint play, or to close a near miss).
-  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values(), ...game.ruins.values()].includes(id);
+  // (And a found secret's halt: the game laid it, where the secret is. src/game/secrets.ts.)
+  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values(), ...game.ruins.values()].includes(id) || isSecretKit(game.layout.getPiece(id)?.type ?? "straight-216");
   /** Has the train lift's first-time tip been shown (on this device)? */
   let liftTipShown = liftTipSeen();
   /** An editor for the world's track and props (props-only edits skip the track's work). */
@@ -421,6 +430,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let interaction: Interaction;
   /** River barges on screen (made once the HUD and interaction are: `attachWater`). */
   let water: WaterControls | null = null;
+  let secrets: SecretControls | null = null;
   const audio = new ToyAudio();
   let muted = loadMuted();
   audio.setMuted(muted);
@@ -526,9 +536,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       removeTrain: () => interaction.removeSelectedTrain(),
       renameEngine: (name) => interaction.renameSelectedEngine(name),
       paint: () => {
-        if (interaction.openEngineCarId !== -1) paintSheet.show(interaction.openEngineCarId);
+        if (interaction.openEngineCarId !== -1) {
+          const id = interaction.openEngineCarId;
+          paintSheet.use((s) => s.show(id));
+        }
       },
       showBlocker: () => showBlocker(),
+      showWaitSignal: () => {
+        if (viewWaitAt !== -1) interaction.showWaitSignal(viewWaitAt);
+      },
       sendCrane: () => sendCrane(),
       showPlace: (id) => showPlace(id),
       toggleChainHints: () => setChainHints(!chainHintsOn),
@@ -794,6 +810,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
+  // (An open signal card says what the signal shows now, as its aspect changes.)
+  game.onMarksChanged = () => interaction?.marksChanged();
   game.keysTaken = () => interaction.piecesTakeKeys;
   interaction.onArmed = (item, carried) => hud.setArmed(item ? trayKey(item) : null, carried);
   interaction.onPlaced = (snapped) => {
@@ -1377,6 +1395,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function onChange(): void {
+    // Track laid to a secret finds it: its halt is laid, a stop from now on (src/game/secrets.ts).
+    secrets?.trackChanged();
     game.trackChanged();
     industriesChanged();
     // Game mode: squares of town newly dug under (a metro's tunnels) are paid for now they're down (checked first:
@@ -1700,6 +1720,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         showStickers();
       },
       showTip: () => showTip(),
+      showGrand: (id) => showGrandSite(id),
       tipDone: (id) => {
         tips.finish(id);
         saveTips(tips.toJSON());
@@ -1763,6 +1784,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // A place's last goods are in (or a treat bought): it stands in the town now (game/places.ts).
     placeBuilt: (town, place, at) => placeUp(town, place, at),
     placeStuck: (town, place) => hud.toast(`${place.name}: no room in ${town.name} yet. It goes up as soon as there is.`, false, 4200),
+    // A city's grand project had goods: a stage may be done (src/game/grand.ts).
+    grandGoods: () => advanceGrand(),
     received: (town, kind, n, before) => {
       const firstFlour = !progress.firstFlour;
       payDelivery(progress, kind, n, before, town);
@@ -1912,6 +1935,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     checkStickers(announce, fresh.length > 0);
     checkTips(announce);
+    showAchievements();
     const current = goals.current();
     goalsPanel.show(goals.doneCount, current, current ? current.check(game.world, ctx) : null, goals.next(), goals.total, goals.lockedHint(), goals.lockedCount);
   }
@@ -2309,8 +2333,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     return rows;
   }
-  // The Research picker: the whole tree, each blueprint researched at a school.
-  const board = new BlueprintBoard(document.body, {
+  // The Research picker: the whole tree, each blueprint researched at a school. Its code is loaded the first time it's
+  // opened (`setBoardOpen`); till then `board` stands in, shut.
+  let boardImpl: BlueprintBoard | null = null;
+  let boardLoading = false;
+  const board = {
+    get open(): boolean {
+      return boardImpl?.open ?? false;
+    },
+    pictureCame: (key: string) => boardImpl?.pictureCame(key),
+  };
+  const boardHandlers: BlueprintBoardHandlers = {
     pick: (id) => picked(id, toggleQueue),
     now: (id) => picked(id, startNow),
     close: () => setBoardOpen(false),
@@ -2327,7 +2360,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }),
         "board",
       ),
-  });
+  };
 
   /**
    * The growth menu: a bottom sheet with the first town's offer waiting ("Larkfield grew! Pick one", three cards), one
@@ -2498,9 +2531,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Open or close the Research picker; `on`: open on that card ("Show me" for a goal's research). */
   function setBoardOpen(open: boolean, on?: string): void {
+    if (open && !boardImpl) {
+      // (Its code fetched the first time, then opened as asked: a second ask while it loads waits on the first.)
+      if (boardLoading) return;
+      boardLoading = true;
+      void import("./ui/blueprint-board").then(({ BlueprintBoard }) => {
+        boardImpl = new BlueprintBoard(document.body, boardHandlers);
+        setBoardOpen(true, on);
+      });
+      return;
+    }
+    if (!boardImpl) return refreshBoard();
     if (open && mapView.open) closeMap(false);
-    board.setOpen(open);
-    if (open && on) board.focus(on);
+    boardImpl.setOpen(open);
+    if (open && on) boardImpl.focus(on);
     hud.root.classList.toggle("board-open", open);
     if (open) {
       interaction.clearSelection();
@@ -2588,7 +2632,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return { ...base, state: "locked" as const, waits, ...(gate ? { school: gate } : other ? { gate: other.kind === "delivered" && GOODS_ICON[other.good as CargoKind] ? `${GOODS_ICON[other.good as CargoKind]} ${other.n} ${other.good}` : needTag(other) } : {}) };
     }
     const focus = goalPick(progress, goalTech, school !== null);
-    board.show({
+    boardImpl?.show({
       stations,
       branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
       ...(focus ? { focus } : {}),
@@ -2797,6 +2841,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     saved: () => scheduleSave(),
     paid: () => scheduleSave("progress"),
   });
+  // Secrets on the map (Game mode): found by laying track to them, their cards, midsummer (src/ui/secret-controls.ts).
+  secrets = attachSecrets({
+    game,
+    hud,
+    interaction,
+    progress: () => progress,
+    found: () => {
+      audio.chime();
+      scheduleSave();
+    },
+  });
   function passengersOn(): void {
     peopleClock.clear();
     harbourTrade.reset();
@@ -2816,12 +2871,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     attachPassengers(
       game.world,
       () => progress,
-      () => {
+      (_fare, from, to) => {
         hud.setCoins(progress.coins);
         scheduleSave("progress");
+        // (A rider through a city building Grand Central counts toward its last stage: src/game/grand.ts.)
+        if (game.economy.grandPlans.size > 0 && countRider(game.world, from.townId, to.townId)) advanceGrand();
+        // (A tourist trip to a secret is counted on its site, in the land: saved with the world.)
+        if (secretOfStop(game.world, to)) scheduleSave();
       },
       // (Visitors' seasons go by the railway's calendar.)
       () => dateOf(game.simSeconds).month,
+      () => dateOf(game.simSeconds).year,
     );
   }
   /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
@@ -2921,8 +2981,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A town with a powered radio mast sends more: src/game/radio.ts. The towns counted again only when the power or
     // the props change.)
     peopleArrive(game.world, progress, gameSeconds, peopleClock, radioBoost());
+    // Secrets: midsummer at the stones, an open card's trips.
+    secrets?.tick();
     // The circus (late-game spec K1): a show opens where its train stands at a town, and closes after three months.
     if (mode === "game" && progress.learned.has("circus")) tickCircus();
+    // The World's Fair wheel's tickets, each month, and its fair week (src/game/grand.ts).
+    if (mode === "game" && game.economy.grandPlans.size > 0) tickGrand();
     // Sparks: a power station's coal may have run out (or come), a train put on or away (src/game/power.ts).
     syncPower();
     // Metro trains draw power: a coal from a power station now and then, as they run (not while paused: they stand,
@@ -2985,7 +3049,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (Its station's upgrade row follows the track, the land and what's learned: drawn again when they change.)
     key: (d: DepotState) => {
       const town = townOfDepot(d);
-      const places = town ? placeRowKey(game.world, progress, town) : 0;
+      const places = town ? Math.imul(placeRowKey(game.world, progress, town), 31) + grandRowKey(game.world, progress, town.id) : 0;
       return (Math.imul(Math.imul(ledgerKey(game.world, d, ledgerOf()), 31) + (canUpgrade(d) ? game.layout.revision * 7919 + game.landscape.grid.revision : 0), 31) + places) | 0;
     },
     show: (d: DepotState) => {
@@ -2995,6 +3059,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       drawLedger(hud.depotExtra, v, { school: (id) => interaction.openDepotCard(id), lines: () => openLines() });
       if (canUpgrade(d)) drawUpgrades(d);
       drawPlaces(d);
+      drawGrand(d);
     },
   };
 
@@ -3045,6 +3110,222 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         scheduleSave("progress");
       },
     });
+  }
+
+  // ---- grand projects (spec 2026-11-05-character-and-goals.md): src/game/grand.ts ----------------------------------
+
+  /** A city's Grand projects row on its card (Game mode, a city or bigger: a City ★ starts them). */
+  function drawGrand(d: DepotState): void {
+    const town = townOfDepot(d);
+    if (!town || mode !== "game") return;
+    const level = statusOf(game.world, town.id).level;
+    if (level < GRAND_LEVEL - 1 && ![...game.economy.grandPlans.values()].some((p) => p.townId === town.id)) return;
+    drawGrandRow(hud.depotExtra, grandRow(game.world, progress, town, level), {
+      build: (id) => void buildGrand(town, id as GrandId),
+      show: (id) => showGrandSite(id),
+    });
+  }
+
+  /** Every stage's model of a project, loaded (their footprints find its site). */
+  const grandModels = (id: GrandId): Promise<unknown> => {
+    const g = grandOf(id)!;
+    return Promise.all(Array.from({ length: g.stages.length + 1 }, (_, i) => game.propLibrary.load(siteAsset(g, i))));
+  };
+
+  /** Build on a project's tile: its site found by the city, its coins paid, its plot put up. */
+  async function buildGrand(town: Town, id: GrandId): Promise<void> {
+    const g = grandOf(id)!;
+    try {
+      await grandModels(id);
+    } catch {
+      hud.toast("Couldn't load the plans just now. Try again in a moment", false, 3200);
+      return;
+    }
+    const level = statusOf(game.world, town.id).level;
+    // Grand Central: a station of its own, its kit given into the toy box for the player to put on a line by the city.
+    if (g.kits) {
+      const kit = g.kits[0];
+      const r = startGrand(game.world, progress, town, level, id, () => ({ ...town.station, y: 0 }), () => {
+        progress.add(`piece:${kit}`, 1);
+        hud.refreshTrayBadges();
+        return -1;
+      });
+      if (r !== "started") return audio.refuse();
+      grandStarted(town, id);
+      hud.toast(`🚉 Grand Central is in your toy box (Industries tab, Stations): put it on a line by ${town.name}, and lay track to its three roads`, true, 6000);
+      return;
+    }
+    const fps = Array.from({ length: g.stages.length + 1 }, (_, i) => game.propLibrary.footprint(siteAsset(g, i)));
+    const fp = unionFootprint(fps, g.scale);
+    const r = startGrand(
+      game.world,
+      progress,
+      town,
+      level,
+      id,
+      () => (fp ? siteSpot(game.world, town, fp, game.propLibrary.footprint) : null),
+      (asset, pose, scale) => {
+        const prop = game.props.add(asset, pose, undefined, { scale }).id;
+        game.propsChanged();
+        return prop;
+      },
+    );
+    if (r === "no-room") {
+      hud.toast(`No room by ${town.name} for the ${g.name}: it needs a big clear, level space near the station`, false, 4200);
+      audio.refuse();
+      return;
+    }
+    if (r === "not-now") return audio.refuse();
+    grandStarted(town, id);
+  }
+
+  /** A grand project started in `town`: coins shown, the toast and News, saved. */
+  function grandStarted(town: Town, id: GrandId): void {
+    const g = grandOf(id)!;
+    hud.setCoins(progress.coins);
+    hud.toast(`${g.icon} The ${g.name} is planned for ${town.name}! Trains bring each stage's goods to its station`, true, 4200, () => showGrandSite(id));
+    note({ kind: "milestone", text: `${g.icon} ${town.name} starts the ${g.name}`, place: grandPlace(id) ?? undefined }, 4200, true);
+    audio.tap();
+    checkGoals(false);
+    scheduleSave();
+    scheduleSave("progress");
+    game.invalidate();
+  }
+
+  /** Where a project's site stands (null: not started, or its prop's gone). */
+  function grandPlace(id: string): { x: number; z: number } | null {
+    const plan = game.economy.grandPlans.get(id);
+    const p = plan ? game.props.get(plan.prop) : undefined;
+    if (p) return { x: p.x, z: p.z };
+    // (Grand Central: its kit, once it's on a line; till then, its city.)
+    const station = plan && grandOf(id)?.kits ? game.layout.getPiece(centralPiece(game.world)) : undefined;
+    if (station) return { x: station.pose.x, z: station.pose.z };
+    const t = plan && game.landscape.towns.find((x) => x.id === plan.townId);
+    return t ? { x: t.centre.x, z: t.centre.z } : null;
+  }
+
+  /** Fly to a project's site; not started, to the biggest town, whose card starts it. */
+  function showGrandSite(id: string): void {
+    const at = grandPlace(id);
+    if (at) {
+      hud.hideCards();
+      flyTo(at);
+      return;
+    }
+    let best: Town | null = null;
+    let bestLevel = -1;
+    for (const t of game.landscape.towns) {
+      const l = statusOf(game.world, t.id).level;
+      if (l > bestLevel) [best, bestLevel] = [t, l];
+    }
+    if (!best) return;
+    flyTo({ x: best.centre.x, z: best.centre.z });
+    if (bestLevel < GRAND_LEVEL) hud.toast(`${best.name} is a ${statusOf(game.world, best.id).name}: grow a town into a City ★ to start a grand project`, false, 4200);
+    else {
+      const station = game.economy.depotAtPiece(game.stations.get(best.id) ?? -1);
+      if (station) interaction.openDepotCard(station.id);
+    }
+  }
+
+  /** Goods went into a grand project: its stages done move it on (its site's model swapped), and one finished pays out. */
+  function advanceGrand(): void {
+    const events = advanceGrands(game.world, (prop, asset) => {
+      const p = game.props.get(prop);
+      if (!p) return;
+      game.props.remove(prop);
+      game.props.add(asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, prop, { scale: p.scale });
+      game.propsChanged();
+    });
+    for (const e of events) {
+      const g = grandOf(e.id)!;
+      const plan = game.economy.grandPlans.get(e.id)!;
+      // Grand Central's stage: its kit moves on (the placed one retyped: the same roads, its trains and routes kept).
+      const kit = g.kits?.[plan.stage];
+      if (kit) {
+        moveCentralKit(game.world, progress, kit);
+        hud.refreshTrayBadges();
+        if (centralPiece(game.world) >= 0) {
+          void game.kitView.load(kit).then(() => game.syncKits(true));
+          industriesChanged();
+          game.trackChanged();
+        }
+      }
+      const town = game.landscape.towns.find((t) => t.id === plan.townId);
+      const at = grandPlace(e.id) ?? undefined;
+      if (e.kind === "stage") {
+        const next = g.stages[e.stage];
+        note({ kind: "milestone", text: `${g.icon} ${g.name}: ${g.stages[e.stage - 1].name.replace(/^The /, "the ")} done! Next, ${next.name.replace(/^The /, "the ")}`, place: at }, 4200);
+        game.flourishes.add(game.landscapeView.flash(town ? [town.id] : []));
+        audio.chime();
+      } else grandEarned(e.id, at);
+    }
+    if (events.length > 0) {
+      checkGoals(true);
+      scheduleSave();
+      scheduleSave("progress");
+      cloud?.edited(mode, "progress");
+      game.invalidate();
+    }
+  }
+
+  /** A grand project finished: its reward, its day (every town flashes, the camera goes to it), and the News. */
+  function grandEarned(id: GrandId, at: { x: number; z: number } | undefined): void {
+    const g = grandOf(id)!;
+    if (id === "exhibition") {
+      // Every town grows a step: what each lacks, given toward its growth; they grow on the next update.
+      giveExhibition(game.world, game.landscape, (townId) => statusOf(game.world, townId));
+      townLife.rewardsChanged();
+    }
+    // A tenth fewer goods for every town from now on (`growthCut`): wants are looked at again.
+    if (id === "cathedral") townLife.rewardsChanged();
+    // The Royal Train into the toy box: its look, its engine and two saloons (a gift, never made).
+    if (id === "royal-train") {
+      for (const [thing, n] of ROYAL_GIFT) progress.add(thing, n);
+      hud.refreshTrayBadges();
+    }
+    note({ kind: "milestone", text: `🥇 ${g.day}`, place: at }, 6000, true);
+    hud.toast(`🥇 ${g.day}! (Achievements)`, true, 6000, () => goalsPanel.openAchievements(id));
+    game.flourishes.add(game.landscapeView.flash(game.landscape.towns.map((t) => t.id)));
+    if (at) flyTo(at);
+    audio.chime();
+  }
+
+  // A grand project's site is its city's: a tap opens the city's card, and it's never lifted (Game mode).
+  interaction.siteTown = (propId) => {
+    if (mode !== "game") return -1;
+    for (const plan of game.economy.grandPlans.values()) if (plan.prop === propId) return plan.townId;
+    return -1;
+  };
+
+  /** The last game month the wheel's tickets were paid for (−1: none yet this session: the calendar is the session's). */
+  let wheelPaidTo = -1;
+  /** The fair week told for this month (−1: none). */
+  let fairTold = -1;
+  /** A second of play with grand projects on the map: the wheel's tickets as a month passes, fair week in July. */
+  function tickGrand(): void {
+    const months = Math.floor(game.simSeconds / MONTH_S);
+    const t = wheelTickets(game.world, wheelPaidTo, months);
+    wheelPaidTo = t.paidTo;
+    if (t.coins > 0) {
+      progress.coins += t.coins;
+      hud.setCoins(progress.coins);
+      note({ kind: "event", key: "wheel", qty: t.coins, text: "", place: grandPlace("ferris-wheel") ?? undefined, format: (n) => `🎡 The wheel's tickets: +${n} coins` });
+      scheduleSave("progress");
+    }
+    const fair = fairTown(game.world, dateOf(game.simSeconds).month);
+    if (fair >= 0 && fairTold !== months) {
+      fairTold = months;
+      const t = game.landscape.towns.find((x) => x.id === fair);
+      if (t) note({ kind: "milestone", text: `🎡 Fair week in ${t.name}! Crowds come by train all July`, place: { x: t.centre.x, z: t.centre.z } }, 4200);
+    }
+  }
+
+  /** The Journal's Achievements tab: shown once any town is a City (or a project's begun). */
+  function showAchievements(): void {
+    let top = 0;
+    for (const t of game.landscape.towns) top = Math.max(top, statusOf(game.world, t.id).level);
+    const open = mode === "game" && (top >= GRAND_LEVEL - 1 || game.economy.grandPlans.size > 0);
+    goalsPanel.setAchievements(open ? achievements(game.world, top >= GRAND_LEVEL) : null);
   }
 
   /** A place stands in a town now: the News, a chime, the goals, and saved. */
@@ -3496,7 +3777,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const key = `${grid.version}|${game.world.props.version}`;
     if (key !== radioShown.key) radioShown = { key, towns: radioTowns(game.world, grid.current) };
     const towns = radioShown.towns;
-    return (townId) => radioRiders(towns, townId);
+    // (And a grand project's: the Cathedral's pilgrims, the wheel's fair week in July. Each adds to the base.)
+    const month = dateOf(game.simSeconds).month;
+    return (townId) => radioRiders(towns, townId) + grandRiders(game.world, townId, month);
   }
 
   /** The open depot card's power, as drawn (a key of its inputs), or "" for none. */
@@ -3803,7 +4086,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * Empty (the wagon card) or Empty all (the engine card, `all`): tip the goods out where the train stands, thrown away
+   * Empty (the wagon card) or Throw away (the engine card, `all`): tip the goods out where the train stands, thrown away
    * (`Economy.dump`). Not undoable: undo is the track's and the land's, and no train action (Decouple, Swap ends) or
    * crane work is in it. A coach's riders stay on. The toast says what went, and a place on the map that takes it.
    */
@@ -3840,7 +4123,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * Empty and Empty all on the open card: shown while there are goods to tip out, greyed while the train moves. Keyed
+   * Empty and Throw away on the open card: shown while there are goods to tip out, greyed while the train moves. Keyed
    * by the car, the loads' stamp and whether it stands: the buttons are touched only when one changes.
    */
   let emptyKey = "";
@@ -3901,14 +4184,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let viewCar = -1;
   let viewStanding = false;
   const viewStatus = { shown: "", next: "", since: 0 };
+  /** Since when the open engine has stood at a stop (−1: it isn't): Leave now shows after LEAVE_SHOW_MS. */
+  let stopSince = -1;
+  const LEAVE_SHOW_MS = 1200;
   /** Who's in the open engine's way, with the status shown (and the latest, not shown yet): Show's and the fix's. */
   const viewBlocker: { shown: Blocker | null; next: Blocker | null } = { shown: null, next: null };
   /** A place the status shown says isn't on the train's line (it keeps goods that place takes): "Add …" offers it. */
   let viewAddStop = -1;
+  /** The red signal the open engine stands at (its joint end), shown by Signal and tinted; −1: none. */
+  let viewWaitAt = -1;
   function showEngineView(): void {
     const carId = interaction.openEngineCarId;
     if (carId === -1) {
       viewCar = -1;
+      if (viewWaitAt !== -1) {
+        viewWaitAt = -1;
+        interaction.setWaitTint(-1);
+      }
       return;
     }
     const found = game.sim.findCar(carId);
@@ -3920,8 +4212,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
     // Waiting to turn back where the track ends: Continue sends it on now.
     hud.setContinue(canContinue(game.sim, game.economy, carId));
-    // Waiting under the crane for a full load: Leave now sends it on with what it has.
-    hud.setLeaveNow(game.economy.waitingToFill(found.train.id) !== null);
+    // Standing at a stop (worked by the crane, or waiting to fill): Leave now sends it on with what it has. Shown once
+    // it has stood there LEAVE_SHOW_MS (a crane's quick unit doesn't flash it in and out), at once while it waits to
+    // fill (the feature tip points at it).
+    const atStop = game.economy.atStop(found.train.id) !== null;
+    const clock = performance.now();
+    if (!atStop || carId !== viewCar) stopSince = atStop ? clock : -1;
+    else if (stopSince === -1) stopSince = clock;
+    hud.setLeaveNow(atStop && (clock - stopSince >= LEAVE_SHOW_MS || game.economy.waitingToFill(found.train.id) !== null));
     const opened = carId !== viewCar;
     viewCar = carId;
     // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go
@@ -3955,6 +4253,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const b = viewBlocker.shown;
     hud.setBlocker(!!b, b && b.car < 0 ? "points" : "train");
+    // Standing at a red signal (a mark's): Signal beside it, and the line that signal guards tinted (signals audit U3).
+    const redKey = game.layout.signalCount > 0 && game.sim.atRedSignal(found.train.id) ? game.sim.redSignalKeyAhead(found.train.id) : -1;
+    const waitAt = redKey < 0 && redKey !== -1 ? (game.layout.getSignal(-1 - redKey)?.at ?? -1) : -1;
+    if (waitAt !== viewWaitAt) {
+      viewWaitAt = waitAt;
+      interaction.setWaitTint(waitAt);
+    }
+    hud.setWaitSignal(waitAt !== -1);
     // A line with a train too many: Remove beside the status (with the status it belongs to).
     if (status === latest) hud.setCrowded(!!view.crowded);
     // (A train in the way, and a crane train on the map to lift it off: Send the crane.)
@@ -4076,7 +4382,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   // The paint shop's sheet (game/paint-shop.ts): an engine painted from its card.
-  const paintSheet = new PaintSheet({
+  // (Its code is loaded the first time it opens.)
+  const paintSheet = lazy(async () => new (await import("./ui/paint-sheet")).PaintSheet({
     progress: () => progress,
     liveryOf: (id) => game.sim.liveryOf(id),
     nameOf: (id) => game.sim.nameOf(id),
@@ -4106,7 +4413,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       scheduleSave("progress");
       return true;
     },
-  });
+  }));
 
   hud.onEngineCardShown = () => {
     // The paint shop (Game mode, once a town is a Town): 🎨 on the engine's card.
@@ -4167,7 +4474,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // Its top speed by its engines, against the classic's (Sandbox's are all the classic's); too heavy to move, none said.
       const l = engineLoad(game.world, found.train);
       const speed = mode !== "game" ? 1 : l.cars > l.pulls || l.engines.length === 0 ? 0 : Math.min(...l.engines.map((e) => e.speed));
-      const s = trainSummary(cars.map(summaryCar), speed, line?.name ?? "");
+      // (Its line's name isn't said again where the card's route section says it.)
+      const s = trainSummary(cars.map(summaryCar), speed, mode === "sandbox" || progress.learned.has("routes") ? "" : (line?.name ?? ""));
       hud.setEngineSummary(s.about, s.load);
       hud.setCarGoods(null);
     } else {
@@ -4249,7 +4557,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const swatch = document.createElement("i");
       swatch.className = "route-swatch";
       swatch.style.background = line.colour;
-      label.append(swatch, Object.assign(document.createElement("span"), { className: "route-line-text", textContent: line.name }));
+      label.append(swatch, Object.assign(document.createElement("span"), { className: "route-line-text", textContent: planning ? `Editing ${line.name}` : line.name }));
       // Its trains, where it has more than this one; the name opens the Lines view (to rename it, recolour it).
       if (riders > 1) label.append(Object.assign(document.createElement("span"), { className: "route-riders", textContent: `· ${riders} trains` }));
       label.classList.add("route-line-name");
@@ -4266,17 +4574,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       any.textContent = "Goes anywhere, works at every stop";
       head.append(any);
     }
-    head.append(
-      planning
-        ? button("Done", "route-plan on", "Finish planning the route", () => donePlanning())
-        : button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)),
-    );
-    // On a line, this train can leave it (it goes anywhere again; the line stays for its other trains). The last train
-    // leaving a line asks first, whatever its name (the line goes with it, its stops and via points: audit F3): a
-    // second tap within LEAVE_ASK_MS.
-    if (line && !planning) {
+    // Edit (or Plan a route) at the head; editing, Done goes to the foot (with Take off line), where a thumb finishes.
+    if (!planning) head.append(button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)));
+    // Editing a line, this train can be taken off it (it goes anywhere again; the line stays for its other trains): at
+    // the foot, away from Go and Leave now, worded so it can't be read as setting off (the user read "Leave" beside Edit
+    // as "leave the stop"). The last train taken off a line asks first, whatever its name (the line goes with it, its
+    // stops and via points: audit F3): a second tap within LEAVE_ASK_MS.
+    const foot = document.createElement("div");
+    foot.className = "route-foot";
+    if (line && planning) {
       const asks = riders === 1;
-      const leave = button(leaveAsked === carId ? `Forget “${line.name}”?` : "Leave", "route-leave", riders > 1 ? "Take this train off its line (its other trains keep running it)" : "Take this train off its line: it goes anywhere again", () => {
+      const leave = button(leaveAsked === carId ? `Forget “${line.name}”?` : "Take off line", "route-leave", riders > 1 ? "Take this train off its line (its other trains keep running it)" : "Take this train off its line: it goes anywhere again", () => {
         if (asks && leaveAsked !== carId) {
           leaveAsked = carId;
           routeShown = "";
@@ -4290,18 +4598,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }
         leaveAsked = -1;
         routeEdit(() => stopLine(game.economy, carId));
+        // (Off its line, there's nothing left to edit: back to the card.)
+        donePlanning();
         showRoute();
         routeChanged();
         scheduleSave();
       });
       leave.classList.toggle("asking", leaveAsked === carId);
-      head.append(leave);
+      foot.append(leave);
     }
+    if (planning) foot.append(button("Done", "route-plan on", "Finish planning the route", () => donePlanning()));
     box.append(head);
     // Asking: what a second tap does, in words (the button only says "Forget …?").
-    if (line && !planning && leaveAsked === carId) {
-      box.append(Object.assign(document.createElement("div"), { className: "route-warn route-leave-ask", textContent: `Tap again to forget ${line.name} and its stops` }));
-    }
+    const leaveAsk = line && planning && leaveAsked === carId ? Object.assign(document.createElement("div"), { className: "route-warn route-leave-ask", textContent: `Tap again to forget ${line.name} and its stops` }) : null;
     // On no line, with lines on the map: run one of them (a tap), as well as planning its own.
     if (!line && !planning && game.economy.lines.size > 0) {
       const join = document.createElement("div");
@@ -4348,7 +4657,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (planning && !line) {
       const hint = document.createElement("div");
       hint.className = "route-hint";
-      hint.textContent = "Tap stations and depots, in order";
+      hint.textContent = "Tap stations and depots on the map, in the order the train should visit them";
       box.append(hint);
     }
     if (line) {
@@ -4467,14 +4776,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       };
       strip.addEventListener("scroll", edges, { passive: true });
       requestAnimationFrame(() => {
-        // The picked stop (else, planning, the last, just added; else the one it's heading for) scrolled into view.
-        const chip = (strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? strip.lastElementChild : strip.querySelector(".route-chip.next"))) as HTMLElement | null;
-        // Wholly in view, clear of the edges' fades (the strip's last chip scrolls fully to its end).
-        if (chip) {
-          const fade = 44;
-          const right = chip.offsetLeft + chip.offsetWidth;
-          if (right > strip.scrollLeft + strip.clientWidth - fade) strip.scrollLeft = Math.min(strip.scrollWidth - strip.clientWidth, right - strip.clientWidth + fade);
-          else if (chip.offsetLeft < strip.scrollLeft + fade) strip.scrollLeft = Math.max(0, chip.offsetLeft - fade);
+        // The picked stop (else, planning, the last, just added; else the one it's heading for) scrolled into view,
+        // whole, with a whole chip at the strip's start (the strip snaps to chips' starts: one cut at the start read as
+        // a stop missing, critique 2026-11-05). Heading for a stop, the one before it shows too, where it fits.
+        const chips = [...strip.querySelectorAll<HTMLElement>(".route-chip")];
+        const target = strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? chips.at(-1) : strip.querySelector<HTMLElement>(".route-chip.next")) ?? null;
+        if (target) {
+          const fade = 36;
+          // The furthest left it may start and still show the target whole, short of the right edge's fade.
+          const least = target.offsetLeft + target.offsetWidth - strip.clientWidth + fade;
+          const before = target.previousElementSibling as HTMLElement | null;
+          let left = !planning && before && before.offsetLeft >= least ? before.offsetLeft : Math.min(target.offsetLeft, Math.max(0, least));
+          // On a chip's start: the first at or after it (or the target's own).
+          left = chips[0] === target ? 0 : (chips.find((c) => c.offsetLeft >= left)?.offsetLeft ?? target.offsetLeft);
+          // (Room at the end for it, where the chips after it are too few to fill the strip: the end's blank grows.)
+          const short = left - (strip.scrollWidth - strip.clientWidth);
+          strip.style.setProperty("--end", `${36 + Math.max(0, Math.ceil(short))}px`);
+          strip.scrollLeft = left;
         }
         edges();
       });
@@ -4482,7 +4800,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (planning && stopPicked === -1 && !viaPicked) {
         const hint = document.createElement("div");
         hint.className = "route-hint route-plan-hint";
-        hint.textContent = viaAsked ? "Now tap the track to go by" : "Tap places to add stops, or track to go that way";
+        hint.textContent = viaAsked ? "Now tap the track the train should go by" : "Tap a place on the map to add it as a stop. Tap track to make the train go that way.";
         box.append(hint);
       }
       // The first time, a word on what a chip does (till one is tapped); on a line with a warehouse, till its chip is.
@@ -4679,6 +4997,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         box.append(warn);
       }
     }
+    if (leaveAsk) box.append(leaveAsk);
+    if (foot.childElementCount > 0) box.append(foot);
   }
 
   /**
@@ -5846,6 +6166,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         ? (type, pose, ignoreId, y) =>
             siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id)), plantedCells(game.landscape, game.world.props)) ??
             haltWhy(game.landscape, type, pose) ??
+            // (Grand Central stands by the city that's building it: src/game/grand.ts.)
+            centralWhy(game.world, type, haltTown(game.landscape, pose)) ??
             // (Two levels under a town: the digging's paid for as it goes down, and refused if the coins are short.)
             (y !== undefined ? digWhy(game.world, progress, type, pose, y) : null)
         : null;
@@ -5879,7 +6201,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const lock = lockOf(item);
         return lock && unlockHow(progress, lock.tech);
       };
-      hud.trayKnown = (item) => (item.kind === "road" ? progress.learned.has(ROAD_TECH[item.piece]) : item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id)));
+      hud.trayKnown = (item) => (item.kind === "road" ? progress.learned.has(ROAD_TECH[item.piece]) : item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id) && (!isGift(id) || (progress.owned.get(id) ?? 0) > 0)));
       // A tab that needs a blueprint (Roads) shows once it's learned.
       hud.tabKnown = (tech) => progress.learned.has(tech);
       hud.refreshTabs();
@@ -6367,13 +6689,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   hud.setHistory(false, false);
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
-  const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
-  if (statsCard) hud.addStatsItem(() => statsCard.show());
+  // (Its code is loaded the first time it's shown.)
+  const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m))) : null;
+  if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
   const feedbackUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
   if (crashes) hud.addCrashItem(() => !crashReportsOff(), () => setCrashReportsOff(!crashReportsOff()));
   if (feedbackUrl) {
-    const sheet = new FeedbackSheet(hud.root, feedbackUrl, {
+    // (Its code is loaded the first time it opens.)
+    const url = feedbackUrl;
+    const sheet = lazy(async () => new (await import("./ui/feedback-sheet")).FeedbackSheet(hud.root, url, {
       map: async () => {
         save();
         return { map: await mapText(mode), mode };
@@ -6381,10 +6706,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       capture: () => game.capture(),
       info: () => ({ build: __BUILD_ID__ || "dev", badges: [...recentBreaks(), ...recentErrors()] }),
       toast: (m) => hud.toast(m),
-    });
+    }));
     hud.addFeedbackItem(() => {
       hud.hideCards();
-      sheet.show();
+      sheet.use((f) => f.show());
     });
   }
   /** The one-time "Help improve Woodrail?" question: put off while something else is being done. */
@@ -6394,7 +6719,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       statsAskTimer = window.setTimeout(askStats, 5000);
       return;
     }
-    statsCard.ask();
+    statsCard.use((c) => c.ask());
   }
   if (cloud) {
     const card = new CloudCard(hud.root, cloud, {
