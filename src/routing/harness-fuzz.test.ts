@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
 import { HarnessRun, INVARIANTS, type Invariant, type Report, type Scenario, type TrainSpec } from "./harness";
+import { boxedConvoy } from "./boxed";
 import { fuzz, ringFuzz } from "./scenarios";
 
 /**
@@ -106,9 +107,12 @@ describe(`routing fuzz with signals: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRS
  * (`ringFuzz`: hand-run trains one behind another round a ring with a passing loop, as on the user's map). On the rings
  * a third run, a line: 2 or 3 of the trains (by the seed) routed on one line A ⇄ B, the rest hand-run (the user,
  * 2026-11-02: line trains on a circuit follow each other, no room rule there). `ROUTE_WORSE=1` prints each seed's numbers.
+ * Excused: a run whose every stall, as it began, was a boxed-in convoy (`boxedConvoy`, boxed.ts; the user's decision (4):
+ * convoys into a dead end stay one train to a section, the card's fix a passing loop). Any other stall still fails.
  */
 describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines and rings`, () => {
-  type Run = { stalls: number; visits: number; why: string };
+  /** `boxed`: of its stalls, those a boxed-in convoy when begun (`boxedConvoy`, the user's decision (4)). */
+  type Run = { stalls: number; visits: number; why: string; boxed: number };
   type Pair = { name: string; hand: Run; routed: Run; line?: Run; lineOf?: number };
   const handRun = (t: TrainSpec): TrainSpec => ({ ...t, stops: undefined, line: undefined, next: undefined, vias: undefined });
   /** `routed`: how many trains get a route (0: all hand-run; 1: train 0; more: the first that many, on one line). */
@@ -128,7 +132,15 @@ describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines an
       // (Stops come to: a depot piece newly under a train, counted every tick for every train.)
       const under = new Map<number, Set<number>>();
       let visits = 0;
+      let begun = 0;
+      let boxed = 0;
       const count = (run: HarnessRun) => {
+        // (Each stall as it begins: a boxed-in convoy, or not.)
+        if (run.stalls.begun > begun) {
+          begun = run.stalls.begun;
+          if (boxedConvoy(run)) boxed++;
+          (count as unknown as { boxed: number }).boxed = boxed;
+        }
         for (const id of run.sim.trainIds()) {
           const t = run.sim.getTrain(id)!;
           const key = t.cars[0].id;
@@ -141,19 +153,20 @@ describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines an
         (count as unknown as { visits: number }).visits = visits;
         return false;
       };
-      counters.set(layout, count as unknown as { visits: number });
+      counters.set(layout, count as unknown as { visits: number; boxed?: number });
       return { ...b, trains, events: [...(b.events ?? []), { when: count, do: () => {} }] };
     },
   });
-  const counters = new WeakMap<Layout, { visits: number }>();
+  const counters = new WeakMap<Layout, { visits: number; boxed?: number }>();
   const once = (sc: Scenario): Run => {
     const layout = new Layout();
     const r = new HarnessRun(layout, sc).run(SECONDS);
-    return { stalls: r.stalls.begun, visits: counters.get(layout)?.visits ?? 0, why: r.stalls.why.map((w) => w ?? "-").join("/") };
+    const c = counters.get(layout);
+    return { stalls: r.stalls.begun, visits: c?.visits ?? 0, why: r.stalls.why.map((w) => w ?? "-").join("/"), boxed: c?.boxed ?? 0 };
   };
   /** The trains a ring seed puts down (its line takes 2 or 3 of them, never more than there are). */
   const trainsOf = (sc: Scenario): number => sc.build(new Layout()).trains.length;
-  const show = (r: Run) => `${r.visits} stops, ${r.stalls} stalls (${r.why})`;
+  const show = (r: Run) => `${r.visits} stops, ${r.stalls} stalls (${r.why})${r.boxed > 0 ? `, ${r.boxed} boxed in` : ""}`;
   let pairs: Pair[] | undefined;
   const run = () =>
     (pairs ??= [
@@ -173,6 +186,8 @@ describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines an
     }));
   const worseThan = (hand: Run, r: Run, what: string): string[] => {
     const out: string[] = [];
+    // (Every stall it has a boxed-in convoy, as it began: the user's decision (4), kept. Its stops drop with it.)
+    if (r.stalls > 0 && r.boxed === r.stalls) return out;
     if (r.stalls > 0 && hand.stalls === 0) out.push(`${what}: a new stall`);
     if (r.visits * 2 <= hand.visits && hand.visits >= 4) out.push(`${what}: stops ${hand.visits} → ${r.visits}`);
     return out;
@@ -193,24 +208,11 @@ describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines an
 });
 
 /**
- * Seeds a route still makes worse (100 + 100 seeds × 1800 s, 2026-11-01; 200 + 200, 2026-11-02), each with why: the
- * user's decision B (2026-11-02, rail-road.md): kept. All are hand-run trains running as a convoy into a dead end: the one behind pulls up behind
- * the one standing at the end and turns there too (routing spec §16 Q9), and they go back together. With a route, the
- * line's single-line working lets one train into a stretch of single track at a time (or one into a line end), so the
- * two stand, said stuck, the card's fix a passing loop.
+ * Seeds a route still makes worse, each with why. None now. The convoys into a dead end the user decided to keep
+ * (decision (4), 2026-11-02, and again 2026-11-06: rail-road.md) aren't listed by seed: they're recognised by their shape
+ * as they stall (`boxedConvoy`, boxed.ts: a hand-run train boxed in between the end of the line and the routed train, the
+ * routed stop behind it, the card's fix a passing loop), and only that shape is excused. (Listed here till 2026-11-06:
+ * 74, 77, 79, 121, 127, 135, 183 and 7. 77 isn't worse any more; the rest are that shape, as are the 20 seeds the
+ * hand-run runs' giving way, f54d0712, newly showed: before it both runs stalled.)
  */
-const KNOWN_WORSE: Record<string, string> = {
-  "fuzz seed 74": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
-  "fuzz seed 77": "two trains put down in one line end, a third hand-run: hand-run they convoy into the end",
-  "fuzz seed 79": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
-  // (Seeds 101–200, first run long on claude/route-follow-lines, 2026-11-02; the same on its base. The user's decision B:
-  // convoys into a dead end stay one train to a section, the card's fix a passing loop.)
-  "fuzz seed 121": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
-  "fuzz seed 127": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
-  "fuzz seed 135": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
-  "fuzz seed 183": "two trains on a plain line, no points: hand-run a convoy end to end; routed, both in its one section",
-  // (2026-11-05, giving way, stalls.ts: on main both runs stalled (1 stop each). All hand-run, one now gives way and they
-  // run on (26 stops); routed, it's a true deadlock, said stuck as before: the hand-run train stands between the routed
-  // one and its stop at the line's end, with no room to turn there, and the siding's points trail for it.)
-  "fuzz seed 7": "a hand-run train boxed in between the routed one and its stop at the line's end: stuck, as on main",
-};
+const KNOWN_WORSE: Record<string, string> = {};
