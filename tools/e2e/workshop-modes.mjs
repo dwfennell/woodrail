@@ -97,6 +97,26 @@ const tapChip = async (selector) => {
   }
   return false;
 };
+/**
+ * A tap on the keep stepper's − or Auto, then a wait for what it does (the number shown changes; Auto, once tapped, is
+ * gone); a tap that missed is tapped again, up to 3 times. As `tapChip`: what's checked is the state after.
+ */
+const keepShown = () => p.evaluate(() => document.querySelector('.keep-row[data-kind="planks"] .keep-n')?.textContent ?? null);
+const tapStep = async (selector) => {
+  for (let k = 0; k < 3; k++) {
+    const before = await keepShown();
+    if (!(await tap(selector))) return false;
+    const done = await p
+      .waitForFunction(
+        ({ sel, before }) => (sel.includes('"auto"') ? !document.querySelector(sel) : document.querySelector('.keep-row[data-kind="planks"] .keep-n')?.textContent !== before),
+        { sel: selector, before },
+        { timeout: 3000 },
+      )
+      .then(() => true, () => false);
+    if (done) return true;
+  }
+  return false;
+};
 let shop = null;
 /** The card's choice now: which chip is on, the line under it, and the workshop's setting. */
 const card = () =>
@@ -153,7 +173,7 @@ const tapFrames = async (selector) => {
     }
     return w.framesDrawn;
   });
-  await (/data-yard|data-school/.test(selector) ? tapChip(selector) : tap(selector));
+  await (/data-yard|data-school/.test(selector) ? tapChip(selector) : /data-step/.test(selector) ? tapStep(selector) : tap(selector));
   await p.waitForTimeout(1500);
   return p.evaluate((f0) => ({ frames: window.woodrail.framesDrawn - f0, invalidates: window.__inval }), f0);
 };
@@ -204,7 +224,7 @@ let k = await keep();
 check("its keep stepper while it shares: Keeps 7 planks (the game's own), no Auto, 44 px buttons", k.shown === "7" && !k.auto && k.set === null && k.rule === 7 && k.btns.every((h) => h >= 40) && k.fits, JSON.stringify(k));
 await shot("03-keep-stepper");
 const less = await tapFrames('.keep-row [data-keep="planks"][data-step="-1"]');
-await tap('.keep-row [data-keep="planks"][data-step="-1"]');
+await tapStep('.keep-row [data-keep="planks"][data-step="-1"]');
 k = await keep();
 check("two taps on − keep 5: the setting, the crane's rule and the line under it say 5; Auto shows", k.shown === "5" && k.set === 5 && k.rule === 5 && k.auto && k.hint === "Leaves planks for towns and schools further on, keeping 5 for you", JSON.stringify(k));
 check("…and the map isn't drawn again for it", less.invalidates === 0, JSON.stringify(less));
@@ -216,7 +236,7 @@ shop = await p.evaluate(() => window.woodrail.economy.allDepots().find((d) => d.
 await openCard();
 k = await keep();
 check("after a reload it still keeps 5", k.shown === "5" && k.set === 5 && k.rule === 5, JSON.stringify(k));
-await tap('.keep-row [data-keep="planks"][data-step="auto"]');
+await tapStep('.keep-row [data-keep="planks"][data-step="auto"]');
 k = await keep();
 check("Auto goes back to the game's own 7", k.shown === "7" && k.set === null && k.rule === 7 && !k.auto && k.hint === SHARES_HINT, JSON.stringify(k));
 await tapChip('.yard-mode [data-yard="all"]');
