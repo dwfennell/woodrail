@@ -305,6 +305,10 @@ if (!setup.error) {
       return { at: ref, x: j.x, y: j.y, z: j.z, heading: j.heading };
     }, at);
     if (dest) {
+      // (Framed on both joints, so the picture shows the set's ghost where it's going.)
+      const from0 = await post();
+      await glideTo({ x: (from0.x + dest.x) / 2, y: 0, z: (from0.z + dest.z) / 2 }, 1100);
+      await settle();
       const top = await post();
       const [sx, sy] = await screenOf({ x: top.x, y: top.y - 20, z: top.z });
       const [ex, ey] = await screenOf({ x: dest.x - Math.cos(dest.heading) * 30, y: dest.y, z: dest.z - Math.sin(dest.heading) * 30 });
