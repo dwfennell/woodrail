@@ -336,13 +336,18 @@ const GIVE_WAY: Case[] = [
     },
   },
   {
-    // (Points thrown for a road given way that didn't take go back to the player's way: `restore` holds, as every case's.)
+    // (Points thrown for a road given way that didn't take go back to the player's way: `restore` holds, as every case's.
+    // And the train that gave way by it, still standing in the ring, turns round at the next try.)
     scenario: S.handRunRoadHeld,
     checks: {
-      "a hand-run one gave way, not the routed one": (r) => {
-        expect(r.gaveWay.any).toBeGreaterThanOrEqual(1);
+      // (Before: 3 stops, then all three said stuck for good, having given way twice.)
+      "payoff: the routed train 8+ stops in 5 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(8),
+      "never stuck": noStall,
+      "hand-run ones gave way, not the routed one": (r) => {
+        expect(r.gaveWay.any).toBeGreaterThanOrEqual(3);
         expect(r.gaveWay.routed).toBe(0);
       },
+      "the hand-run ones keep going: 5+ turns at the buffers each": (r) => r.turns.slice(1).forEach((t) => expect(t.buffer).toBeGreaterThanOrEqual(5)),
     },
   },
 ];

@@ -33,7 +33,8 @@ import { CHECK_TICKS, type Sections } from "./sections";
  * No livelock: a train that gave way doesn't again for `YIELD_AGAIN_S`, and never again to the same train till that one
  * has got somewhere (come to its next stop, or turned at the end of the line): boxed in, it would only come back to it
  * (a hand-run train between a buffer and the train whose stop is behind it). A ring then is broken by another of its
- * trains, or said stuck as before. A ring nobody can break (single track, no way round, no room to turn) is said stuck, as
+ * trains, or said stuck as before. (Except a train that gave way by another road and still stands there, its way on held
+ * all the same: it turns round at the next try, the points going back (`Router.gaveWayTaken`). Fuzz seed 142.) A ring nobody can break (single track, no way round, no room to turn) is said stuck, as
  * before; so is one through signals (adding a signal is the fix) and a parked train's (the player's).
  *
  * Cost: nothing per frame. Every `CHECK_TICKS`, with two or more trains, each standing train's chain is followed (each
@@ -121,9 +122,9 @@ export class Stalls {
   private readonly yielded = new Map<number, number>();
   /**
    * Whom each train last gave way to, by `trainKey`: that train's key, and its goal and last end-of-line turn then (it
-   * has got somewhere once either has changed).
+   * has got somewhere once either has changed); and whether it gave way by another road (`Router.giveWayRoad`).
    */
-  private readonly gaveTo = new Map<number, { by: number; goal: number; turn: number }>();
+  private readonly gaveTo = new Map<number, { by: number; goal: number; turn: number; road: boolean }>();
   /** Rings nobody in could break, by their trains (sorted ids, joined): when last tried (tick). */
   private readonly tried = new Map<string, number>();
   /** Told when trains come to be stuck (once a stall): their engines, and why the first is. */
@@ -306,15 +307,18 @@ export class Stalls {
           const byKey = trainKey(by);
           const progress = this.progressOf(by);
           const was = this.gaveTo.get(trainKey(t));
-          if (was && was.by === byKey && was.goal === progress.goal && was.turn === progress.turn) continue;
+          // (Given way to it already, and it's got nowhere since: it would only come back. Unless it gave way by another
+          // road and still waits on it: the points thrown didn't let it go (its way on held all the same), so it turns.)
+          const again = !!was && was.by === byKey && was.goal === progress.goal && was.turn === progress.turn;
+          if (again && !was.road) continue;
           if (pass && (!host.goal || !wayRound(sim.layout, t, host.goal(engine), sim.piecesUnder(by.id)))) continue;
           // (A hand-run train takes another road at the points just ahead, if one's free; else it turns round.)
-          const road = !pass && !!host.otherRoad?.(id, by.id);
+          const road = !pass && !again && !!host.otherRoad?.(id, by.id);
           const turned = road ? t : sim.turnNow(id);
           if (!turned) continue;
           if (road) this.gaveWayRoad++;
           gave = turned;
-          this.gaveTo.set(trainKey(turned), { by: byKey, ...progress });
+          this.gaveTo.set(trainKey(turned), { by: byKey, ...progress, road });
           if (pass) this.gaveWayRouted++;
           break;
         }
@@ -325,7 +329,8 @@ export class Stalls {
         continue;
       }
       this.gaveWay++;
-      this.yielded.set(trainKey(gave), now);
+      // (By another road, it isn't kept from turning round at the next try should it still stand in the ring.)
+      if (!this.gaveTo.get(trainKey(gave))!.road) this.yielded.set(trainKey(gave), now);
       this.tried.delete(key);
       for (const id of ring) {
         const t = id === gave.id ? gave : sim.getTrain(id);

@@ -832,7 +832,7 @@ export const handRunBoxedIn: Scenario = {
  * never did again till that one got somewhere, which it couldn't. All three stood for good, said stuck (seed 142:
  * 82 stops all hand-run, 8 with the route). And the points thrown for it, never gone over, were left thrown for good
  * (the `restore` invariant; fuzz seed 95's break on cf529c9a). Now they go back once the road hasn't taken
- * (`Router.gaveWayTaken`).
+ * (`Router.gaveWayTaken`), and a train that gave way by a road and still stands in the ring turns round at the next try.
  */
 export const handRunRoadHeld: Scenario = {
   name: "a hand-run train given way by a road that didn't take",
