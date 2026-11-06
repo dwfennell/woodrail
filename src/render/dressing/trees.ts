@@ -300,8 +300,21 @@ function crownGeometry(id: CrownId, round: number, lowDetail: boolean): BufferGe
   }
 }
 
+/**
+ * Each tree shape's geometry, made once and shared by every tile's (and plot's) instanced draw of it: they were a copy
+ * each, a dozen copies of every shape on a late map. Never disposed (a few hundred kilobytes in all).
+ */
+const shapes = new Map<string, BufferGeometry>();
+function shape(key: string, make: () => BufferGeometry): BufferGeometry {
+  let g = shapes.get(key);
+  if (!g) shapes.set(key, (g = make()));
+  return g;
+}
+
 function instanced(geometry: BufferGeometry, material: Material, count: number): InstancedMesh {
   const mesh = new InstancedMesh(geometry, material, Math.max(1, count));
+  // (Its geometry is one of `shapes`: not the mesh's to free.)
+  mesh.userData.sharedGeometry = true;
   mesh.count = count;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -350,26 +363,24 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   const nBases = lowDetail ? 0 : count((l) => l.base);
   let bases: InstancedMesh | null = null;
   if (nBases) {
-    const base = new CylinderGeometry(13, 14.5, BASE_H, round);
-    base.translate(0, BASE_H / 2, 0);
+    const base = shape(`base:${round}`, () => new CylinderGeometry(13, 14.5, BASE_H, round).translate(0, BASE_H / 2, 0));
     bases = make(base, woodMat, nBases);
     bases.castShadow = false; // flat discs: their shadow would hide under them anyway
   }
   let trunks: InstancedMesh | null = null;
   const nTrunks = count((l) => l.trunk === "wood");
   if (nTrunks) {
-    const trunk = new CylinderGeometry(4, 5, TRUNK_H, 8, 1, true);
-    trunk.translate(0, BASE_H + TRUNK_H / 2, 0);
+    const trunk = shape("trunk", () => new CylinderGeometry(4, 5, TRUNK_H, 8, 1, true).translate(0, BASE_H + TRUNK_H / 2, 0));
     trunks = make(trunk, woodMat, nTrunks);
   }
   let birchTrunks: InstancedMesh | null = null;
   const nBirch = count((l) => l.trunk === "birch");
-  if (nBirch) birchTrunks = make(birchTrunk(lowDetail), lowDetail ? crownMat : mats.paint, nBirch);
+  if (nBirch) birchTrunks = make(shape(`birch:${lowDetail}`, () => birchTrunk(lowDetail)), lowDetail ? crownMat : mats.paint, nBirch);
   let appleMesh: InstancedMesh | null = null;
   const nApples = count((l) => !!l.apples);
-  if (nApples) appleMesh = make(apples(lowDetail), crownMat, nApples);
+  if (nApples) appleMesh = make(shape(`apples:${lowDetail}`, () => apples(lowDetail)), crownMat, nApples);
   const crowns = new Map<CrownId, InstancedMesh>();
-  for (const id of new Set(looks.map((l) => l.crown))) crowns.set(id, make(crownGeometry(id, round, lowDetail), crownMat, count((l) => l.crown === id)));
+  for (const id of new Set(looks.map((l) => l.crown))) crowns.set(id, make(shape(`${id}:${round}:${lowDetail}`, () => crownGeometry(id, round, lowDetail)), crownMat, count((l) => l.crown === id)));
 
   const c = new Color();
   const used = new Map<InstancedMesh, number>();

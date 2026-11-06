@@ -1,10 +1,11 @@
-import { BoxGeometry, BufferAttribute, Color, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, type BufferGeometry, type Material } from "three";
+import { BoxGeometry, BufferAttribute, BufferGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Vector3, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, CORNER_RADIUS, forEachInPlot, hillPieces, hillSlabs, hillsOf, type LandscapeGrid, type RoundBlock, type Slab } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE, type Materials } from "../materials";
 import { roundedChamferedBox } from "./chamfer";
 import { nonIndexed } from "../non-indexed";
+import { weld } from "../compact";
 
 /** Beech tones (multiplied over the wood texture) so a hill reads as a stack of separate blocks. */
 export const BLOCK_TONES = ["#ffffff", "#f4e4cc", "#ead3b0", "#fbefdc", "#e2c7a0"];
@@ -69,6 +70,54 @@ function scaleUv(g: BufferGeometry, u: number, v: number): BufferGeometry {
   const uv = g.getAttribute("uv");
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * u, uv.getY(i) * v);
   return g;
+}
+
+/**
+ * Each block shape (its size and rounded corners), made once and shared by every tile's instanced draw of it (a copy
+ * each was a dozen copies of each on a late map). Its faces straight down are left out: a block stands on the felt, a
+ * block under it, or a painted top on its block, so they're never seen (shadows are cast by stand-ins). Kept for the
+ * page (a few dozen shapes, a few kilobytes each). Welded (see `weld`).
+ */
+const blockShapes = new Map<string, BufferGeometry>();
+function blockShape(key: string, make: () => BufferGeometry): BufferGeometry {
+  let g = blockShapes.get(key);
+  if (!g) blockShapes.set(key, (g = weld(withoutUnderside(make()))));
+  return g;
+}
+
+/** `g` without its triangles that face straight down (a box's bottom), as a non-indexed geometry. */
+export function withoutUnderside(g: BufferGeometry): BufferGeometry {
+  const flat = nonIndexed(g);
+  const pos = flat.getAttribute("position");
+  const keep: number[] = [];
+  const a = new Vector3();
+  const b = new Vector3();
+  const c = new Vector3();
+  for (let t = 0; t < pos.count; t += 3) {
+    a.fromBufferAttribute(pos, t);
+    b.fromBufferAttribute(pos, t + 1);
+    c.fromBufferAttribute(pos, t + 2);
+    b.sub(a);
+    c.sub(a);
+    const n = b.cross(c);
+    // Straight down: its normal within a degree of −y.
+    if (n.y < -0.9998 * n.length()) continue;
+    keep.push(t);
+  }
+  if (keep.length * 3 === pos.count) return flat;
+  const out = new BufferGeometry();
+  for (const name of Object.keys(flat.attributes)) {
+    const src = flat.getAttribute(name) as BufferAttribute;
+    const s = src.itemSize;
+    const arr = new Float32Array(keep.length * 3 * s);
+    keep.forEach((t, i) => {
+      for (let j = 0; j < 3 * s; j++) arr[i * 3 * s + j] = src.array[t * s + j];
+    });
+    out.setAttribute(name, new BufferAttribute(arr, s));
+  }
+  if (flat !== g) flat.dispose();
+  g.dispose();
+  return out;
 }
 
 function instanced(geometry: BufferGeometry, material: Material, count: number): InstancedMesh {
@@ -180,12 +229,16 @@ export function blockMeshes(
   }
   for (const [corners, list] of byCorners) {
     const tops = list.filter((b) => b.top);
-    const body = uv(rounded ? roundedChamferedBox(w, h, w, 2.5 * k, corners, round) : new BoxGeometry(w, h, w), h);
+    const body = blockShape(`body:${rounded}:${w}:${h}:${k}:${corners}:${round}`, () => uv(rounded ? roundedChamferedBox(w, h, w, 2.5 * k, corners, round) : new BoxGeometry(w, h, w), h));
     // The green paint is a layer of its own on top of a shorter block (same width, nothing overlapping), so no faces
     // lie close enough together to flicker.
-    const paint = uv(roundedPaint ? roundedChamferedBox(w, paintH, w, PAINT_CHAMFER * k, corners, round) : new BoxGeometry(w, paintH, w), w);
+    const paint = blockShape(`paint:${roundedPaint}:${w}:${paintH}:${k}:${corners}:${round}`, () =>
+      uv(roundedPaint ? roundedChamferedBox(w, paintH, w, PAINT_CHAMFER * k, corners, round) : new BoxGeometry(w, paintH, w), w),
+    );
     const wood = instanced(body, materials.wood, list.length);
     const grass = instanced(paint, materials.top, tops.length);
+    wood.userData.sharedGeometry = true;
+    grass.userData.sharedGeometry = true;
     wood.castShadow = false;
     grass.castShadow = false;
     list.forEach((b, i) => {

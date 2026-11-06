@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { groups } from "../../scripts/e2e/lib/groups.mjs";
+import { mouseMoves, steps, testClockIn } from "../../scripts/e2e/lib/fast.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out/low-bridge";
@@ -47,6 +48,9 @@ async function boot() {
   const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  // (The game's test clock: a laid line's settling, a dig's flourish and the train's run under the bridge keep up with
+  // real time under SwiftShader. lib/fast.mjs.)
+  testClockIn(b);
   await openSandbox();
 }
 
@@ -470,8 +474,8 @@ suite.add("draw-ramp", async () => {
     for (let i = 1; i < sc.length; i++) {
       const [ax, ay] = sc[i - 1];
       const [bx, by] = sc[i];
-      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 12));
-      for (let k = 1; k <= n; k++) await p.mouse.move(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+      // (A few moves to a frame, as a mouse's come: lib/fast.mjs.)
+      await mouseMoves(p, steps([ax, ay], [bx, by], Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 12))));
     }
     const drawn = await p.evaluate(() => (window.woodrail.interaction.draw.line?.pieces ?? []).map((q) => `${q.type}${q.blocked ? "(red)" : ""}`));
     await p.mouse.up();
@@ -873,8 +877,8 @@ suite.add("draw-under", async () => {
     for (let i = 1; i < sc.length; i++) {
       const [ax, ay] = sc[i - 1];
       const [bx, by] = sc[i];
-      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 12));
-      for (let k = 1; k <= n; k++) await p.mouse.move(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+      // (A few moves to a frame, as a mouse's come: lib/fast.mjs.)
+      await mouseMoves(p, steps([ax, ay], [bx, by], Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 12))));
     }
     const drawn = await p.evaluate(() => (window.woodrail.interaction.draw.line?.pieces ?? []).map((q) => `${q.type}${q.blocked ? "(red)" : ""}`));
     await p.mouse.up();

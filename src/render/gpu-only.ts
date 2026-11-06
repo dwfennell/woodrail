@@ -1,5 +1,6 @@
 import { StaticDrawUsage, type BufferAttribute, type BufferGeometry, type InterleavedBuffer, type InterleavedBufferAttribute, type Mesh, type Object3D } from "three";
 import { compactVertices } from "./compact-vertices";
+import { farBeforeFree } from "./far-detail";
 
 /**
  * Geometry that's only drawn: its vertex data freed from JavaScript once the GPU has it.
@@ -82,6 +83,8 @@ export function gpuOnlyGeometry(g: BufferGeometry, opts: GpuOnlyOptions = {}): v
   if (!g.boundingBox) g.computeBoundingBox();
   g.userData.gpuOnly = true;
   compactVertices(g);
+  // (Its far version, if it has one, asked for now: made from its arrays, which go once it's uploaded.)
+  farBeforeFree(g);
   for (const name of Object.keys(g.attributes)) if (!(opts.pickable && name === "position")) markAttribute(g.getAttribute(name));
   if (!opts.pickable) markAttribute(g.index);
 }

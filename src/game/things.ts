@@ -27,6 +27,11 @@ export interface ThingRule {
   readonly tech?: string;
   /** Free and unlimited once its blueprint is learned (only a look: the crossing styles). Never made or counted. */
   readonly free?: true;
+  /**
+   * Given, never made (a special train's cars: late-game spec, "special trains are earned, never bought"): it comes
+   * into the toy box once, when its blueprint is learned (`learnGift`), and the workshop and reward cards never offer it.
+   */
+  readonly gift?: true;
 }
 
 /**
@@ -91,6 +96,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:mailvan": { label: "Mail van", cost: { planks: 3 }, tech: "post-office" },
   // (Dearer than a mail van: it sorts on the move, so it needs no post office stop.)
   "car:sortvan": { label: "Sorting van", cost: { planks: 5 }, tech: "mail" },
+  // The circus train's cages: a gift, two of them, when Circus is learned (src/game/circus.ts).
+  "car:cage": { label: "Circus cage", cost: {}, tech: "circus", gift: true },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 10 }, coins: 300, tech: "sawmills" },
@@ -118,6 +125,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-flowers": { label: "Flower field", cost: { planks: 6 }, coins: 150, tech: "paint" },
   "piece:depot-dyeworks": { label: "Dye works", cost: { planks: 10 }, coins: 240, tech: "paint" },
   "piece:depot-toyworks": { label: "Toy workshop", cost: { planks: 14 }, coins: 440, tech: "toys" },
+  "piece:depot-airport": { label: "Airport", cost: { planks: 16, iron: 8 }, coins: 450, tech: "airport" },
+  "piece:depot-mast": { label: "Airship mast", cost: { planks: 8, iron: 4 }, coins: 250, tech: "airship" },
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 180, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 10 }, coins: 310, tech: "mines" },
   "piece:depot-foundry": { label: "Foundry", cost: { planks: 15 }, coins: 480, tech: "foundry" },
@@ -174,6 +183,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "prop:mech-telegraph-pole": { label: "Telegraph pole", cost: { planks: 1 }, tech: "telegraph" },
   // A spark of power with no coal (src/game/power.ts): only on a hilltop.
   "prop:mech-wind-turbine": { label: "Wind turbine", cost: { planks: 4, iron: 2 }, coins: 60, tech: "wind" },
+  // In a town, with a spark of power: more people come to its stations (src/game/radio.ts).
+  "prop:mech-radio-mast": { label: "Radio mast", cost: { planks: 4, iron: 3 }, coins: 120, tech: "radio" },
   // Big stations: passenger stops of their own (looks only for now: not a town's halt).
   "piece:kit-two-platform-station": { label: "Two-platform station", cost: { planks: 10 }, tech: "big-stations" },
   "piece:kit-grand-terminus": { label: "Grand terminus", cost: { planks: 14 }, tech: "big-stations" },
@@ -229,6 +240,9 @@ export const ruleOf = (id: ThingId): ThingRule | undefined => THING_RULES[id];
  * style). Whether it's known yet is `Progress.knows`.
  */
 export const isFree = (id: ThingId): boolean => THING_RULES[id]?.free !== undefined || !THING_RULES[id];
+
+/** Given once, never made (see `ThingRule.gift`). */
+export const isGift = (id: ThingId): boolean => THING_RULES[id]?.gift === true;
 
 /** A tray item that puts things on the map: a piece, a train, or a catalogue model (a prop). */
 export type ThingItem = { kind: "piece"; type: PieceTypeId } | { kind: "train"; cars: readonly CarKind[]; looks?: readonly CarLook[] } | { kind: "prop"; asset: string };

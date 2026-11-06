@@ -521,6 +521,24 @@ const scenery: Asset[] = [
     },
   },
   {
+    id: "scene-big-top",
+    name: "Big top",
+    category: "Scenery",
+    tags: ["circus", "big top", "tent", "fair", "striped", "flag"],
+    notes:
+      "A red and cream striped circus tent with a flag on its pole and a blue door. In Game mode it goes up by a town's station wherever the circus train stops, for three months.",
+    build: (k) => {
+      const red = k.paint(TOY.red);
+      const cream = k.paint(TOY.cream);
+      const g = k.group();
+      for (let i = 0; i < 5; i++) g.add(k.cyl(i % 2 ? cream : red, 70, 10, 0, i * 10, 0, 70, 32));
+      g.add(k.cone(red, 80, 50, 0, 50, 0, 32), k.cone(cream, 40, 25, 0, 75, 0, 32), k.cone(red, 17, 12, 0, 88, 0, 24));
+      g.add(k.cyl(k.paint(TOY.brown), 2.2, 40, 0, 96, 0), k.box(k.paint(TOY.yellow), 20, 11, 1.5, 0.5, 11, 124, 0));
+      g.add(k.box(k.paint(TOY.blue), 30, 38, 10, 3, 0, 0, 68));
+      return g;
+    },
+  },
+  {
     id: "scene-tent",
     name: "Camping tent",
     category: "Scenery",

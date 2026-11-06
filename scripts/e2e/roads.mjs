@@ -10,6 +10,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
+import { batterySaverIn, mouseMoves, steps, testClockIn } from "./lib/fast.mjs";
 import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
 
 const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out";
@@ -37,6 +38,9 @@ async function start() {
   b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   // (Clocks held still: this counts idle frames, and a clock in view draws one at each minute; e2e:station-clock tests that.)
   pinClocksIn(b);
+  // (The game's test clock, and the desktop page as Battery saver: none of this looks at pixels. lib/fast.mjs.)
+  testClockIn(b);
+  batterySaverIn(b);
   // (Its pages' crashes, navigations and console errors, and the dev server's reloads: printed when a group fails.)
   watchBrowser(b);
   watchServer(server);
@@ -181,10 +185,9 @@ async function trayDrag(label, i) {
   const sy = box.y + box.height / 2;
   await p.mouse.move(sx, sy);
   await p.mouse.down();
-  for (let k = 1; k <= 4; k++) {
-    await p.mouse.move(sx, sy - 20 * k);
-    await frame();
-  }
+  // (Moves a few to a frame, as a mouse's come: lib/fast.mjs.)
+  await mouseMoves(p, Array.from({ length: 4 }, (_, k) => [sx, sy - 20 * (k + 1)]));
+  await frame();
   // Picked up (the tray saw the press go up and out): in hand before it's carried over the map.
   await until(() => window.woodrail.interaction.mode.kind.startsWith("drag"));
   const held = await p.evaluate(() => window.woodrail.interaction.mode.kind);
@@ -195,10 +198,8 @@ async function trayDrag(label, i) {
   }
   const [x, y] = await p.evaluate((i) => T.screen(i), i);
   const ty = sy - 80;
-  for (let k = 1; k <= 10; k++) {
-    await p.mouse.move(sx + ((x - sx) * k) / 10, ty + ((y - ty) * k) / 10);
-    await frame();
-  }
+  await mouseMoves(p, steps([sx, ty], [x, y], 10));
+  await frame();
   // Aim again (the view may have moved), then let go.
   for (let k = 0; k < 2; k++) {
     await frame();
@@ -235,10 +236,8 @@ async function dragSquare(a, b) {
   await p.mouse.move(x0, y0);
   await p.mouse.down();
   await frame();
-  for (let k = 1; k <= 12; k++) {
-    await p.mouse.move(x0 + ((x1 - x0) * k) / 12, y0 + ((y1 - y0) * k) / 12);
-    await frame();
-  }
+  await mouseMoves(p, steps([x0, y0], [x1, y1], 12));
+  await frame();
   await p.mouse.up();
   await frame();
 }
@@ -741,7 +740,13 @@ if (route && route.path.length <= 60) {
 if (route && route.path.length <= 60) {
   const ahead = (seconds) => p.evaluate((n) => { const w = window.woodrail; for (let k = 0; k < n; k++) { w.sim.tick(); w.economy.tick(); } }, Math.round(seconds * 120));
   const van = () => p.evaluate(() => { const w = window.woodrail; const v = w.economy.roadVehicles.list[0]; return v ? { leg: v.leg, sq: w.landscape.grid.cellAtWorld(v.x, v.z), x: v.x, z: v.z, t: v.t } : null; });
-  const sent = await p.evaluate(({ a, b }) => window.woodrail.vans.drive(a, b), route);
+  // (Paused from the moment it's sent, but for V1's look at it moving: the settle below waits out the camera, not the
+  // van, which keeps the scene busy, and under the test clock its 30 s were 30 s of game time, the van's whole trip, so
+  // V2 found it on its way back. The trip's legs are V2's own sim steps.)
+  const sent = await p.evaluate(({ a, b }) => {
+    window.woodrail.paused = true;
+    return window.woodrail.vans.drive(a, b);
+  }, route);
   const home = await p.evaluate((a) => window.woodrail.vans.homeOf(a), route.a);
   // Drawn while it drives in view (frames come from the van alone: no train runs).
   await p.evaluate(() => { const w = window.woodrail; const v = w.economy.roadVehicles.list[0]; const V = w.camera.position.constructor; w.director.focus(new V(v.x, v.y, v.z), 260); });
@@ -749,10 +754,12 @@ if (route && route.path.length <= 60) {
   // (Up to 30 s for it to move and be drawn: software drawing manages about a frame a second here.)
   const drawn = await p.evaluate(async () => {
     const w = window.woodrail;
+    w.paused = false;
     const v = w.economy.roadVehicles.list[0];
     const f = w.framesDrawn;
     const t = v.t;
     for (let k = 0; k < 300 && !(w.framesDrawn > f && v.t > t); k++) await new Promise((r) => setTimeout(r, 100));
+    w.paused = true;
     return { frames: w.framesDrawn - f, moved: v.t - t, leg: v.leg };
   });
   // (The scene had settled: any frame drawn is the van's.)
@@ -768,6 +775,7 @@ if (route && route.path.length <= 60) {
   }, route);
   await ahead(60);
   const back = await van();
+  await p.evaluate(() => (window.woodrail.paused = false));
   check(`V2 it reaches ${route.bName}'s streets, comes back and parks by the station`, there.leg === "there" && there.inTown && back.leg === "home" && back.sq === home, `${JSON.stringify(there)} → ${JSON.stringify(back)} (home ${home})`);
   // Parked: a still instance, no frames.
   await p.evaluate(() => Promise.race([window.woodrail.settled(30), new Promise((r) => setTimeout(r, 60000))]));
@@ -1038,16 +1046,12 @@ if (route && route.path.length <= 60) {
     // (As `trayDrag`: lifted off the tray, in hand, carried over, aimed again, let go.)
     await p.mouse.move(sx, sy);
     await p.mouse.down();
-    for (let k = 1; k <= 4; k++) {
-      await p.mouse.move(sx, sy - 20 * k);
-      await frame();
-    }
+    await mouseMoves(p, Array.from({ length: 4 }, (_, k) => [sx, sy - 20 * (k + 1)]));
+    await frame();
     await until(() => window.woodrail.interaction.mode.kind.startsWith("drag"));
     const [x, y] = await p.evaluate((i) => T.screen(i), i);
-    for (let k = 1; k <= 10; k++) {
-      await p.mouse.move(sx + ((x - sx) * k) / 10, sy - 80 + ((y - sy + 80) * k) / 10);
-      await frame();
-    }
+    await mouseMoves(p, steps([sx, sy - 80], [x, y], 10));
+    await frame();
     for (let k = 0; k < 2; k++) {
       await frame();
       const [ax, ay] = await p.evaluate((i) => T.screen(i), i);

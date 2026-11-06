@@ -47,7 +47,7 @@ import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
-import { costText, isFree, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
+import { costText, isFree, isGift, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
@@ -79,8 +79,17 @@ import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, want
 import { cardState, costWords, goalPick, IdleNotice, learnedText, pickerKey, pillKey, pillResearch, pillView, removedText, researchCard, schoolCard, schoolCardKey, showMePick, unlockHow, unlocksWords } from "./game/research-text";
 import { TelegraphWires } from "./render/telegraph-wires";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
+import { BIG_TOP, bigTopSpot, CIRCUS_FARE, circusTick } from "./game/circus";
+import { nextSpeed, slower, speedsOpen } from "./game/time-scale";
 import { attachEngines, cantMove, detachEngines, load as engineLoad, tooHeavy } from "./game/engines";
+import { airportLines, Airports, airportsOf, planePose } from "./game/airports";
+import { Airships, mastLines, mastsOf, TOUR_HEIGHT, TOUR_RADIUS, tourSights } from "./game/airship";
+import type { MastAt } from "./render/airship-view";
+import { MAST } from "./render/depot-view";
+import { depotPoint as yardPoint } from "./game/harbours";
+import type { AirportAt } from "./render/planes-view";
 import { canPower, POWERED_RATE, powerOf } from "./game/power";
+import { radioRiders, radioTowns } from "./game/radio";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARGO, CARGO_KINDS, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, lighthouseNear, SHED_PRICE } from "./game/harbours";
@@ -92,7 +101,8 @@ import { drawLedger } from "./ui/town-ledger";
 import { attachWater, type WaterControls } from "./ui/water-controls";
 import { drawPlaceRows } from "./ui/places-row";
 import { PaintSheet } from "./ui/paint-sheet";
-import { paint, paintOpen } from "./game/paint-shop";
+import { paintable } from "./render/train-models";
+import { ownColoursOpen, paint, paintOpen, paintOwn, paintPots } from "./game/paint-shop";
 import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
 import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
@@ -504,6 +514,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       togglePause: () => {
         game.paused = !game.paused;
         hud.setPaused(game.paused);
+      },
+      toggleSpeed: () => {
+        game.timeScale = nextSpeed(game.timeScale, speedsOpen(progress, game.landscape.towns));
+        syncSpeed();
       },
       lever: (v) => interaction.setLever(v),
       follow: () => interaction.toggleFollow(),
@@ -2375,7 +2389,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (id === "vans") deliveryVans.sync();
     if (id === "buses") buses.sync();
     if (id === "tunnels") game.setTunnels(true);
-    const makes = unlocksOf(id).map((t) => ruleOf(t)!.label);
+    const makes = unlocksOf(id).filter((t) => !isGift(t)).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
     // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
     const gift = learnGift(progress, id);
@@ -2586,6 +2600,24 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return pickerKey(progress, schoolName(), goals.current()?.id ?? "");
   }
 
+  /** People coming to stations, on game time (see `simElapsed`). */
+  const peopleSeconds: StudyClock = { at: null };
+  /**
+   * The time control (src/game/time-scale.ts): the speeds open (Clockmaker, Clock tower), the HUD's clock showing the
+   * speed. Outside Game mode, or a speed no longer open, back to 1×. Cheap: called once a second and on a tap.
+   */
+  function syncSpeed(): void {
+    const open = mode === "game" ? speedsOpen(progress, game.landscape.towns) : [1 as const];
+    if (!open.includes(game.timeScale as 1)) game.timeScale = 1;
+    hud.setSpeed(game.timeScale, open.length > 1, nextSpeed(game.timeScale, open));
+  }
+  // A phone too slow for the speed: a speed slower, said.
+  game.onTooSlow = () => {
+    game.timeScale = slower(game.timeScale);
+    hud.toast(`Your phone is working hard: back to ${game.timeScale}×`, false, 3600);
+    syncSpeed();
+  };
+
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
   const CRAFT_STEP = 0.25;
   /** The research's study clock, on the world's game time (see `simElapsed`). */
@@ -2607,6 +2639,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     setSpeed(progress, researchSpeed(game.world, progress.learned));
   }
   setInterval(() => {
+    syncSpeed();
     if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
     if (mode === "game") refreshPill();
     showDate();
@@ -2704,6 +2737,54 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const warnedHeavy = new Set<number>();
   // Harbours (Game mode): boats call by themselves and buy what's on the quay.
   const harbourTrade = new HarbourTrade();
+  // Airports' planes (late-game spec A1): their clocks are game time, moved on once a second; the view poses the
+  // planes from them on frames drawn anyway.
+  const airports = new Airports();
+  /** The airports the view draws planes for, kept till the map's pieces change. */
+  let airportsAt: { key: string; list: AirportAt[] } = { key: "", list: [] };
+  game.planeSource = {
+    airports: () => {
+      if (mode !== "game") return [];
+      const key = `${game.layout.revision}|${game.economy.allDepots().length}`;
+      if (key !== airportsAt.key) {
+        const list: AirportAt[] = [];
+        for (const d of airportsOf(game.world)) {
+          const piece = game.layout.getPiece(d.pieceId)!;
+          list.push({ id: d.id, pose: piece.pose, y: piece.y });
+        }
+        airportsAt = { key, list };
+      }
+      return airportsAt.list;
+    },
+    phase: (id) => airports.phase(id, airports.lastUpdate < 0 ? 0 : game.simSeconds - airports.lastUpdate),
+    place: planePose,
+  };
+  // Airships at masts (late-game spec B1): their tours by the game's clock, moved on once a second.
+  const airships = new Airships();
+  let mastsAt: { key: string; list: MastAt[] } = { key: "", list: [] };
+  /** A mast's sights (counted as its tour takes off, and for its card while it's open). */
+  const sightsOf = (d: DepotState) => {
+    const piece = game.layout.getPiece(d.pieceId)!;
+    return tourSights(game.world, yardPoint(piece.pose, MAST.t, MAST.l));
+  };
+  game.shipSource = {
+    masts: () => {
+      if (mode !== "game") return [];
+      const key = `${game.layout.revision}|${game.economy.allDepots().length}`;
+      if (key !== mastsAt.key) {
+        const list: MastAt[] = [];
+        for (const d of mastsOf(game.world)) {
+          const piece = game.layout.getPiece(d.pieceId)!;
+          list.push({ id: d.id, pose: piece.pose, y: piece.y });
+        }
+        mastsAt = { key, list };
+      }
+      return mastsAt.list;
+    },
+    phase: (id) => airships.phase(id, airships.lastUpdate < 0 ? 0 : game.simSeconds - airships.lastUpdate),
+    radius: TOUR_RADIUS,
+    height: TOUR_HEIGHT,
+  };
   // River barges (Game mode): the player's boats, their cards and planning (src/ui/water-controls.ts).
   water = attachWater({
     game,
@@ -2806,6 +2887,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         scheduleSave("progress");
       }
     }
+    // Airships take off with their riders, and land: each rider pays the tour's fare.
+    for (const t of airships.update(game.world, progress, game.simSeconds, sightsOf)) {
+      hud.setCoins(progress.coins);
+      note({ kind: "event", key: `tour:${t.depotId}`, qty: t.paid, text: "", place: depotPlace(t.depotId), format: () => `An airship tour landed: ${t.riders} rider${t.riders === 1 ? "" : "s"}, +${t.paid} coins` });
+      scheduleSave("progress");
+    }
+    // Planes land at airports: the lounge flies off (paying), visitors get off for the trains.
+    for (const v of airports.update(game.world, progress, game.simSeconds)) {
+      if (v.paid > 0) {
+        hud.setCoins(progress.coins);
+        note({ kind: "event", key: `flew:${v.depotId}`, qty: v.paid, text: "", place: depotPlace(v.depotId), format: () => `A plane took ${v.flew} rider${v.flew === 1 ? "" : "s"}: +${v.paid} coins` });
+      }
+      if (v.paid > 0 || v.visitors > 0) scheduleSave("progress");
+    }
     // The player's boats move on, drop and pick up.
     water?.tick(sailed);
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
@@ -2819,12 +2914,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (why) warnedHeavy.add(id);
       else warnedHeavy.delete(id);
     }
-    peopleArrive(game.world, progress, 1, peopleClock);
+    // (On game time: at 2× people come twice as fast, as everything else does.)
+    const gameSeconds = simElapsed(peopleSeconds, game.simSeconds);
+    // (A town with a powered radio mast sends more: src/game/radio.ts. The towns counted again only when the power or
+    // the props change.)
+    peopleArrive(game.world, progress, gameSeconds, peopleClock, radioBoost());
+    // The circus (late-game spec K1): a show opens where its train stands at a town, and closes after three months.
+    if (mode === "game" && progress.learned.has("circus")) tickCircus();
     // Sparks: a power station's coal may have run out (or come), a train put on or away (src/game/power.ts).
     syncPower();
     // Metro trains draw power: a coal from a power station now and then, as they run (not while paused: they stand,
-    // though they keep their speed for after).
-    if (!game.paused) metroDraw(game.world, 1, metroClock);
+    // though they keep their speed for after). On game time too.
+    if (!game.paused) metroDraw(game.world, gameSeconds, metroClock);
     // (A town grown out over a line two levels down: those squares weren't dug for it, so nothing's paid.)
     if (mode === "game") settleDigging(progress, squaresDugUnder(game.world), false);
     // A bus at a station's stop goes for the people waiting in its town off the line.
@@ -3082,6 +3183,108 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.append(line);
   }
 
+  /** The open mast card's lines, as drawn ("" for none). */
+  let mastShown = "";
+  /** A mast's card (Game mode): who's aboard, what there is to see, and the fare; or the tour in the air. */
+  function showMast(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    if (!d || d.role !== "mast") {
+      mastShown = "";
+      return;
+    }
+    // (The sights counted again only when the map or the trains change: a key, not a frame.)
+    const sk = `${d.id}|${game.layout.revision}|${game.sim.trainCount}`;
+    if (sk !== mastSightsKey) {
+      mastSightsKey = sk;
+      mastSights = sightsOf(d);
+    }
+    const lines = mastLines(d, airships.state(d.id), mastSights!);
+    const key = lines.join("\n");
+    if (key === mastShown && hud.depotExtra.childElementCount > 0) return;
+    mastShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    for (const text of lines) {
+      const line = document.createElement("div");
+      line.className = "station-waiting";
+      line.textContent = text;
+      box.append(line);
+    }
+  }
+  let mastSightsKey = "";
+  let mastSights: ReturnType<typeof tourSights> | null = null;
+
+  /** The open airport card's lines, as drawn ("" for none): its countdown ticks in place. */
+  let airportShown = "";
+  /** An airport's card (Game mode): its next plane, its lounge, its visitors. Drawn again only when its text changes. */
+  function showAirport(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    if (!d || d.role !== "airport") {
+      airportShown = "";
+      return;
+    }
+    const lines = airportLines(d, airports.nextIn(d.id));
+    const key = lines.join("\n");
+    if (key === airportShown && hud.depotExtra.childElementCount > 0) return;
+    airportShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    for (const text of lines) {
+      const line = document.createElement("div");
+      line.className = "station-waiting";
+      line.textContent = text;
+      box.append(line);
+    }
+  }
+
+  /** The circus's second of play: its big top put up or taken down, and what's said (src/game/circus.ts). */
+  function tickCircus(): void {
+    // (The big top's model, fetched ahead of its first show: its footprint finds it room.)
+    if (!game.propLibrary.footprint(BIG_TOP)) void game.propLibrary.load(BIG_TOP).catch(() => {});
+    const town = (id: number) => game.landscape.towns.find((t) => t.id === id);
+    const events = circusTick(
+      game.world,
+      progress,
+      1,
+      (townId) => {
+        const piece = game.layout.getPiece(game.stations.get(townId) ?? -1);
+        if (!piece) return -1;
+        // (Before its model is in, a big top's own size: about 160 mm across.)
+        const fp = game.propLibrary.footprint(BIG_TOP) ?? { cx: 0, cz: 0, hw: 80, hd: 80 };
+        const spot = bigTopSpot(game.world, piece.pose, fp, game.propLibrary.footprint);
+        if (!spot) return -1;
+        const id = game.props.add(BIG_TOP, spot).id;
+        game.propsChanged();
+        return id;
+      },
+      (prop) => {
+        if (!game.props.get(prop)) return;
+        game.props.remove(prop);
+        game.propsChanged();
+      },
+    );
+    for (const e of events) {
+      const t = town(e.town);
+      const name = t?.name ?? "The town";
+      if (e.kind === "opened") {
+        note({ kind: "milestone", text: `The circus is in ${name}! Riders to ${name} pay ${CIRCUS_FARE}× for 3 months`, place: t ? { x: t.centre.x, z: t.centre.z } : undefined }, 4200, true);
+        hud.toast(`✨ The circus is in ${name}! Riders there pay ${CIRCUS_FARE}×`, true, 3600);
+      } else {
+        const level = Math.max(1, statusOf(game.world, e.town).level);
+        const offer = offerOnGrowth(progress, game.world, name, level, Math.random);
+        hud.toast(`The circus leaves ${name}.${offer ? ` ${name} thanks you: pick a reward` : ""}`, true, 3600, offer ? () => openRewards() : undefined);
+        if (offer) refreshBoard();
+      }
+      audio.chime();
+      scheduleSave();
+      scheduleSave("progress");
+    }
+  }
+
   // ---- depot tracks: an industry upgraded to 2, then 3 tracks, from its card (Sidings learned) ---------------------
   // docs/superpowers/specs/2026-11-04-depot-tracks.md. Its row is its own element, put back if another row cleared it.
   let tracksShown = "";
@@ -3283,6 +3486,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.append(build);
   }
 
+  /** The towns with a powered radio mast, kept till the power plan or the props change. */
+  let radioShown: { key: string; towns: Map<number, number> } = { key: "", towns: new Map() };
+  function radioBoost(): (townId: number) => number {
+    if (mode !== "game") return () => 1;
+    const grid = powerOf(game.world);
+    const key = `${grid.version}|${game.world.props.version}`;
+    if (key !== radioShown.key) radioShown = { key, towns: radioTowns(game.world, grid.current) };
+    const towns = radioShown.towns;
+    return (townId) => radioRiders(towns, townId);
+  }
+
   /** The open depot card's power, as drawn (a key of its inputs), or "" for none. */
   let powerShown = "";
   /** The power grid's version last acted on (the yards' rates follow it). */
@@ -3341,6 +3555,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const waiting = p.yards.length - p.yardsOn.size;
         line(`🏭 Powered yards: <b>${p.yardsOn.size}</b>${waiting > 0 ? `, ${waiting} waiting for a spark` : ""}`);
       }
+      if (p.masts.length > 0) line(`⚡ Radio masts: <b>${p.masts.length}</b>${p.masts.length > p.mastsOn.size ? `, ${p.masts.length - p.mastsOn.size} without a spark` : ""}`);
       line(p.spare > 0 ? `<b>${p.spare}</b> spare: Power a yard on its card to speed it up` : p.made > 0 ? "No sparks spare" : "");
       return;
     }
@@ -3406,7 +3621,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const stock = workshopStock(game.world);
     const SHELVES = ["Track", "Trains", "Industries", "Railway"];
     for (const tid of Object.keys(THING_RULES) as ThingId[]) {
-      if (!progress.knows(tid) || isFree(tid)) continue;
+      if (!progress.knows(tid) || isFree(tid) || isGift(tid)) continue;
       const rule = ruleOf(tid)!;
       rows.push({
         id: tid,
@@ -3863,6 +4078,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     progress: () => progress,
     liveryOf: (id) => game.sim.liveryOf(id),
     nameOf: (id) => game.sim.nameOf(id),
+    ownOpen: () => ownColoursOpen(progress),
+    wagonsOf: (carId) => {
+      const t = game.sim.findCar(carId)?.train;
+      return t ? t.cars.filter((c) => c.id !== carId && c.kind !== "engine" && paintable(c.kind, game.sim.lookOf(c.id))).map((c) => c.id) : [];
+    },
+    pots: () => paintPots(game.world),
+    paintOwn: (cars, body, trim) => {
+      if (!paintOwn(progress, game.world, game.sim, cars, body, trim)) {
+        audio.refuse();
+        return false;
+      }
+      audio.chime();
+      scheduleSave();
+      return true;
+    },
     paint: (carId, id) => {
       if (!paint(progress, game.sim, carId, id)) {
         audio.refuse();
@@ -6093,6 +6323,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showFarm();
       showSawmill();
       showHarbour();
+      showAirport();
+      showMast();
       water?.frame();
       showPower();
       showTracks();
@@ -6132,7 +6364,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
   const statsCard = stats.available ? new StatsCard(hud.root, stats, (m) => hud.toast(m)) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.show());
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.

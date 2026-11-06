@@ -79,6 +79,11 @@ const MAX_BLOCK = 64;
  */
 const CROSS_LOOK = 24;
 const CROSS_GAP = 4;
+/**
+ * A train coming up to facing points that another train has just left waits this long (s) once they're clear before it
+ * goes onto them: time for the player to throw them, so the two go different ways.
+ */
+export const POINTS_CLEAR_S = 0.5;
 /** A train that may not climb a rack stops with its nose this far (mm) short of the rack's joint. */
 const RACK_GAP = 6;
 /** A train with a rack engine runs this much slower on a rack (its cog clacking round). */
@@ -1442,6 +1447,8 @@ export class Sim {
    * and the tick it said so (good that tick and the next). See `crossCap`.
    */
   private readonly crossClaims = new Map<number, { key: number; tick: number }>();
+  /** Points a train coming up to them last saw another train on (`onPoints`), and when. */
+  private readonly pointsSeen = new Map<number, { key: number; tick: number }>();
   /**
    * Trains held where they stand by another train (`heldBy`): short of a piece where paths meet that it's on or coming
    * onto (`crossCap`), close behind it or nose to nose with it (`followCap`), or against its side; and the tick it was
@@ -2593,6 +2600,17 @@ export class Sim {
       const piece = this.layout.getPiece(c.pieceId);
       if (!piece) break;
       const def = getPieceDef(piece.type, piece.flipped);
+      // Facing points ahead (a choice of way from the end it comes in by) with another train on them, or just off them:
+      // it stops short till they've been clear `POINTS_CLEAR_S`, so the player can throw them between the two (the user,
+      // 2026-11-05: "this will let the player toggle the switch if they want the trains to go different directions").
+      if (k > 0 && facingChoice(def, c)) {
+        const by = this.onPoints(train, c.pieceId);
+        if (by) {
+          const room = dist - inset - CROSS_GAP;
+          if (room < 0.5) this.holdBy(train, by, "follow");
+          return room < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (room - 0.5));
+        }
+      }
       const mask = crossMasks(def)[c.pathIndex] ?? 0;
       if (mask !== 0) {
         // (On it already: it goes on over, saying so.)
@@ -2623,6 +2641,29 @@ export class Sim {
       c.s = 0;
     }
     return Infinity;
+  }
+
+  /**
+   * Another train with an engine on these points, or one that was (seen by a train coming up to them) less than
+   * `POINTS_CLEAR_S` ago; else null. (Wagons with no engine on them aren't: an engine runs onto them and couples.)
+   */
+  private onPoints(train: Train, pieceId: number): Train | null {
+    for (const t of this.trains.values()) {
+      if (t === train || t.derailed || !hasEngine(t)) continue;
+      for (const b of t.bogies)
+        if (b.pieceId === pieceId) {
+          this.pointsSeen.set(pieceId, { key: trainKey(t), tick: this.ticks });
+          return t;
+        }
+    }
+    const seen = this.pointsSeen.get(pieceId);
+    if (!seen) return null;
+    if (this.ticks - seen.tick >= POINTS_CLEAR_S * SIM_HZ) {
+      this.pointsSeen.delete(pieceId);
+      return null;
+    }
+    const t = this.trainByKey(seen.key);
+    return t && t !== train && !t.derailed ? t : null;
   }
 
   /** Another train on, or coming onto, a piece by one of the paths in `mask` (a bit each), or null. */
@@ -2792,6 +2833,18 @@ const crossCache = new WeakMap<PieceDef, readonly number[]>();
  * train on the other (a crossing's two lines, a switch's roads by its stem). None on a deck or lift (a train has it
  * to itself), or on double track. Worked out once per piece def.
  */
+/** Does the cursor's path come onto its piece at an end with a choice of way (facing points; not a turntable's deck)? */
+function facingChoice(def: PieceDef, c: Cursor): boolean {
+  if (def.paths.length < 2 || def.gated) return false;
+  const path = def.paths[c.pathIndex];
+  if (!path) return false;
+  const entry = c.reversed ? path.to : path.from;
+  if (entry === null) return false;
+  let n = 0;
+  for (const p of def.paths) if ((p.from === entry && p.to !== null) || p.to === entry) n++;
+  return n > 1;
+}
+
 export function crossMasks(def: PieceDef): readonly number[] {
   let masks = crossCache.get(def);
   if (masks) return masks;
