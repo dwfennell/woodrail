@@ -117,7 +117,10 @@ await p.evaluate(
       const piece = w.layout.getPiece(lift);
       const x = piece.pose.x + 144 * Math.cos(piece.pose.heading);
       const z = piece.pose.z + 144 * Math.sin(piece.pose.heading);
-      w.director.glideTo(new w.camera.position.constructor(x, 30, z), dist, { duration: 0.1 });
+      // (From across its line, as a player looks at a platform: kept from wherever the camera faced, on a map where the
+      // lift came out end-on its tower stood between the camera and the platform's middle, and took the tap, as it
+      // should: e2e:lift failed some runs.)
+      w.director.glideTo(new w.camera.position.constructor(x, 30, z), dist, { duration: 0.1, theta: -piece.pose.heading, phi: 0.9 });
     };
   },
   { lift },
