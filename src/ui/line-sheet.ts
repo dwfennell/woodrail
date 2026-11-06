@@ -148,6 +148,15 @@ export class LineSheet {
     };
     window.addEventListener("pointerup", up, true);
     window.addEventListener("pointercancel", up, true);
+    // (A click on the sheet ends its press first: what the click does shows at once, built for it.)
+    this.root.addEventListener(
+      "click",
+      () => {
+        this.pressing = false;
+        this.pending = null;
+      },
+      true,
+    );
     parent.appendChild(this.root);
   }
 

@@ -98,6 +98,14 @@ export class LinesView {
     };
     window.addEventListener("pointerup", up, true);
     window.addEventListener("pointercancel", up, true);
+    this.root.addEventListener(
+      "click",
+      () => {
+        this.pressing = false;
+        this.pending = null;
+      },
+      true,
+    );
   }
 
   get open(): boolean {
