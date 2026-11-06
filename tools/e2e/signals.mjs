@@ -675,6 +675,8 @@ if (!setup.error) {
     await touch("touchStart", lx, ly, t);
     await p.waitForTimeout(800);
     await touch("touchEnd", 0, 0, Date.now() / 1000);
+    // (Measured once the card has popped in, not mid-way through its grow.)
+    await p.waitForTimeout(600);
     await frames();
     return p.evaluate(() => {
       const e = [...document.querySelectorAll(".piece-card:not([hidden]) button")].find((b) => b.textContent === "Remove signals" && b.getBoundingClientRect().width > 0);
@@ -691,6 +693,7 @@ if (!setup.error) {
     await p.waitForTimeout(400);
     await tapAt(del[0], del[1]);
   }
+  await p.waitForTimeout(600);
   const g1 = await gone();
   check("4. Remove signals on its card takes the set away, both", !g1.here && !g1.other && g1.count === 0, JSON.stringify(g1));
   const undoBtn = await p.evaluate(() => {
