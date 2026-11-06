@@ -115,4 +115,14 @@ describe("signal marks", () => {
     expect(editor.removeSignalSet(lone)).toBe(true);
     expect(layout.signalCount).toBe(2);
   });
+
+  it("a set cleared in a group (as Clear's sweep does, with track and props) comes back with one undo", () => {
+    const { layout, ids } = line(6);
+    const editor = new Editor(layout, new Sim(layout), () => {});
+    const [a] = editor.addSignals([connectorRef(ids[1], 1), connectorRef(ids[2], 0)]);
+    expect(editor.group(() => void editor.removeSignalSet(a))).toBe(true);
+    expect(layout.signalCount).toBe(0);
+    expect(editor.undo()).toBe(true);
+    expect(layout.signalCount).toBe(2);
+  });
 });
