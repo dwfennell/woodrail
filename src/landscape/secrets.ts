@@ -15,12 +15,12 @@ import { CELL, FEAT_NONE, FEAT_SECRET, FEAT_TREE, PLOT_COLS, PLOT_ROWS, SURF_GRA
  * - at most one in the start (the plots a game begins with), the rest in land that's bought;
  * - spread out: no two in the same or neighbouring plots (diagonals too), in the first rings of plots round the start;
  * - the shipwreck only on a coast plot, on its beach (its stern at the water's edge); a map with no coast (a save from
- *   before the coast) gets another of the inland ones in its place.
+ *   before the coast) has the five inland ones only (each secret is one of a kind).
  * Each is placed as its plot's land is made (`addPlotSecret`, after the plot's own towns, depots and old sites), on
  * open ground it levels and clears of trees, its squares kept as a ruin's are (`FEAT_SECRET`).
  */
 
-/** The secrets that stand inland (all but the shipwreck), in the order a map with no coast takes a second from. */
+/** The secrets that stand inland (all but the shipwreck). */
 export const INLAND_SECRETS: readonly SecretKind[] = ["castle", "stones", "lost-mine", "lake", "footprint"];
 
 /** A secret planned for a plot (`planSecrets`). */
@@ -116,8 +116,8 @@ export function planSecrets(seed: number, coast: Coast | null, skip: (px: number
     }
     return null;
   };
-  const kinds: SecretKind[] = coast ? ["shipwreck", ...inland] : [...inland, inland[0]];
-  // (No coast, no shipwreck: another inland secret takes its place, above.)
+  // (No coast, no shipwreck: the five inland ones only.)
+  const kinds: SecretKind[] = coast ? ["shipwreck", ...inland] : inland;
   for (const kind of kinds) {
     const p = kind === "shipwreck" ? wreck() : anywhere(out.some((o) => ringOf(o.px, o.pz) === 0) ? 1 : 0);
     if (p) out.push({ kind, ...p });

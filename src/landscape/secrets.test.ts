@@ -41,11 +41,9 @@ describe("secrets on the map: the plan", () => {
     });
   }
 
-  it("a map with no coast gets another inland secret in the shipwreck's place", () => {
+  it("a map with no coast has the five inland secrets, each once", () => {
     const plan = planSecrets(5, null).filter((p) => !p.alt);
-    expect(plan).toHaveLength(6);
-    expect(plan.some((p) => p.kind === "shipwreck")).toBe(false);
-    expect(new Set(plan.map((p) => p.kind)).size).toBe(5);
+    expect(plan.map((p) => p.kind).sort()).toEqual(["castle", "footprint", "lake", "lost-mine", "stones"]);
   });
 
   it("an older save's plan keeps off the plots it has", () => {
