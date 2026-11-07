@@ -5884,6 +5884,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     mapReturn = { target: c.target.clone(), distance: sph.radius, phi: sph.phi, theta: sph.theta };
     mapView.setOpen(true);
     hud.setMapOpen(true);
+    // (Moving till the glide lands and the view stays still a moment: `mapSettled` false from the start.)
+    mapMoving = true;
     game.steepAllowed = true;
     // Every place marked on the player's land (its ruins too), fitted between the map's bars (where the labels and badges
     // go), as far out as the camera may go: on a big map they can't all be, and a drag pans to the rest (QA: on 22 plots
@@ -6716,7 +6718,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, chainHints, mapSettled: () => mapView.open && !mapMoving });
   // (Its code is loaded the first time it's shown.)
   const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m))) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));
