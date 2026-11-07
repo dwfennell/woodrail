@@ -3958,6 +3958,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let planning = false;
   /** How many lines the card offers a train on no line to run (those it can reach, nearest first). */
   const JOIN_SHOWN = 3;
+  /** The engine whose card's "Run a line…" is open (its lines listed), or −1. */
+  let joinOpen = -1;
   /** How long (ms) Delete in the line sheet waits for its second tap. */
   const LEAVE_ASK_MS = 4000;
   /** The stop whose chip was tapped (its actions shown), or −1. */
@@ -5034,7 +5036,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     const riders = line ? trainsOn(game.economy, line.id).length : 0;
     const others = line ? "" : [...game.economy.lines.values()].map((l) => `${l.id}${l.colour}${l.name}`).join(",");
-    const key = `${carId}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${game.economy.plansVersion}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}:${viaAsked}:${wayNote.carId === carId && performance.now() < wayNote.until}:${viewAddStop}`;
+    const key = `${carId}:${joinOpen === carId}:${game.trackVersion}:${game.layout.switchesVersion}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${storeHintSeen}:${game.economy.plansVersion}:${cantReachText}:${riders}:${others}:${line ? `${line.id}|${line.colour}|${line.name}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}:${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}:${viaAsked}:${wayNote.carId === carId && performance.now() < wayNote.until}:${viewAddStop}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -5076,7 +5078,32 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       label.addEventListener("click", () => openLines());
     } else label.textContent = "Route";
     head.append(label);
-    if (!line && !planning) {
+    // Lines this train could run (track leads to one of their stops from it), nearest first: offered behind one chip
+    // (lines stand alone now, so there may be many: a row of them made the card taller than a small phone).
+    const reach =
+      !line && !planning && game.economy.lines.size > 0
+        ? (() => {
+            const front = trainFront(carId);
+            const out = [...game.economy.lines.values()].flatMap((l) => {
+              let best = Infinity;
+              for (const st of l.stops) {
+                const piece = game.economy.depot(st.depotId)?.pieceId;
+                const leg = front && piece !== undefined ? legFromCursor(game.layout, front, piece) : null;
+                if (leg) best = Math.min(best, runsLength(leg));
+              }
+              return best < Infinity || !front ? [{ l, best }] : [];
+            });
+            return out.sort((a, b) => a.best - b.best);
+          })()
+        : [];
+    if (!line && !planning && reach.length > 0) {
+      const run = button("Run a line…", "route-join-open", "Put this train on a line that already runs near it", () => {
+        joinOpen = joinOpen === carId ? -1 : carId;
+        showRoute();
+      });
+      run.setAttribute("aria-expanded", String(joinOpen === carId));
+      head.append(run);
+    } else if (!line && !planning) {
       const any = document.createElement("span");
       any.className = "route-none";
       any.textContent = "Goes anywhere, works at every stop";
@@ -5085,26 +5112,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Edit (or Plan a route): the line sheet, where its stops and trains are changed (and a train taken off it).
     head.append(button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)));
     box.append(head);
-    // On no line, with lines on the map: run one of them (a tap), as well as planning its own. Only lines track leads
-    // to from this train, at most `JOIN_SHOWN` of them, nearest first (lines stand alone now: there may be many, and
-    // the card would grow past the screen); the rest in the Lines list, a tap away.
-    if (!line && !planning && game.economy.lines.size > 0) {
+    // "Run a line…" tapped: the lines it can reach, at most `JOIN_SHOWN`, nearest first; the rest in the Lines list.
+    if (!line && !planning && joinOpen === carId && reach.length > 0) {
       const join = document.createElement("div");
       join.className = "route-join";
-      join.append(Object.assign(document.createElement("span"), { className: "route-hint", textContent: "Or run a line:" }));
-      const front = trainFront(carId);
-      const reach = [...game.economy.lines.values()].flatMap((l) => {
-        let best = Infinity;
-        for (const st of l.stops) {
-          const piece = game.economy.depot(st.depotId)?.pieceId;
-          const leg = front && piece !== undefined ? legFromCursor(game.layout, front, piece) : null;
-          if (leg) best = Math.min(best, runsLength(leg));
-        }
-        return best < Infinity || !front ? [{ l, best }] : [];
-      });
-      reach.sort((a, b) => a.best - b.best);
       for (const { l } of reach.slice(0, JOIN_SHOWN)) {
         const b = button(l.name, "route-join-line", `Run this train on ${l.name}`, () => {
+          joinOpen = -1;
           routeEdit(() => joinLine(game.economy, carId, l.id));
           showRoute();
           routeChanged();
@@ -5113,8 +5127,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         b.style.setProperty("--line", l.colour);
         join.append(b);
       }
-      if (reach.length > JOIN_SHOWN || reach.length < game.economy.lines.size) join.append(button("All lines…", "route-join-all", "Every line, in the Lines list", () => openLines()));
-      if (join.childElementCount > 1) box.append(join);
+      if (reach.length > JOIN_SHOWN) join.append(button("All lines…", "route-join-all", "Every line, in the Lines list", () => openLines()));
+      box.append(join);
     }
     // Editing a line its other trains run too: it says so.
     if (planning && riders > 1) {
