@@ -139,7 +139,8 @@ describe("feature tips: light onboarding for the systems after the core goals", 
     const tips = new TipTracker();
     tips.update(w, ctx({ ringLine: 2 }));
     expect(tips.current()?.text).toBe(RING_TIP);
-    expect(tips.current()!.guide(w, ctx()).lines).toBe(true);
+    // Its Show me: that line's sheet (Reverse is in its ⋯ menu).
+    expect(tips.current()!.guide(w, ctx({ ringLine: 2 })).line).toBe(2);
     tips.finish("ring-reverse");
     // No workshop yet: no keeps tip, routes or not.
     tips.update(w, ctx({ goalDone: (id) => id === "give-route" }));

@@ -16,7 +16,7 @@
 //   6. Leave now: a hand-run train stands under the forest's crane waiting for a full load: a one-time toast and the
 //      tip; Show me opens its engine card; Leave now there sends it on, and the tip goes.
 //   7. A route given past a sharing workshop: the keep stepper's tip and toast; Show me opens the workshop's card; a
-//      tap on + there, and the tip goes. Then a ring line: the tip and its toast; Show me opens Lines; Reverse there turns its train round; the tip goes.
+//      tap on + there, and the tip goes. Then a ring line: the tip and its toast; Show me opens its line sheet with ⋯ open; Reverse there turns its train round; the tip goes.
 //   8. Reloaded: every tip used or tapped away stays gone. Idle: no frames drawn (tips are checked with the goals).
 //
 // Pictures (390×844, at 2×) go to the out dir; `docs/agents/shots/onboarding-*.jpg` are copies.
@@ -346,12 +346,22 @@ if (!setup.error) {
   check("…and the tip shows under the goals", rg.shown && !!rg.row?.includes("Reverse"), JSON.stringify(rg));
   await shot("onboarding-ring-tip");
   await tapButton(`.goal.feature-tip[data-feature-tip="ring-reverse"] .tip-show`);
-  const lines = await p.waitForFunction(() => [...document.querySelectorAll("button")].some((e) => e.textContent.trim() === "Reverse" && e.getBoundingClientRect().width > 0), null, { timeout: 20000 }).then(() => true, () => false);
-  check("its Show me opens Lines, Reverse on the line's row", lines);
+  // (Reverse is in the line sheet's ⋯ menu: Show me opens the ring line's sheet with that menu open, Reverse one tap away.)
+  const lines = await p
+    .waitForFunction(
+      (id) => {
+        const b = document.querySelector(".line-sheet .ls-reverse");
+        const r = b?.getBoundingClientRect();
+        return window.woodrail.lines.sheetLine() === id && !!r && r.width >= 44 && r.height >= 44 && r.top >= 0 && r.bottom <= innerHeight;
+      },
+      ring,
+      { timeout: 20000 },
+    )
+    .then(() => true, () => false);
+  check("its Show me opens the ring line's sheet, its ⋯ menu open, Reverse there (44 px, in view)", lines);
   await shot("onboarding-ring-showme");
   const beforeDir = await p.evaluate((e) => window.woodrail.sim.findCar(e).train.cars[0].id === e && window.woodrail.economy.routeOf(e)?.next, waiting.engine);
-  await p.evaluate(() => [...document.querySelectorAll("button")].find((e) => e.textContent.trim() === "Reverse" && e.getBoundingClientRect().width > 0).setAttribute("data-e2e", "reverse"));
-  await tapButton('[data-e2e="reverse"]');
+  await tapButton(".line-sheet .ls-reverse");
   const turned = await toastWith("runs the other way round now");
   check("Reverse turns the train round on the ring (the payoff), and the tip goes", !!turned && (await tipGone("ring-reverse")), JSON.stringify({ turned, beforeDir }));
   await p.keyboard.press("Escape");

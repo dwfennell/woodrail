@@ -4195,7 +4195,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * Open the sheet on line `id` (−1: a new line, made at its first stop) with no train's card: from the Lines list, a
    * copy, or + New line.
    */
-  function openLineSheet(id: number, opts: { tab?: "stops" | "trains"; fromLines?: boolean; open?: number } = {}): void {
+  function openLineSheet(id: number, opts: { tab?: "stops" | "trains"; fromLines?: boolean; open?: number; menu?: boolean } = {}): void {
     if (planning) setPlanning(false);
     closeLines();
     interaction.clearSelection();
@@ -4207,6 +4207,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     sheetChosen = true;
     setPlanning(true);
     if (opts.open !== undefined) stopPicked = opts.open;
+    // (A tip's Show me for Reverse: the ⋯ menu open, Reverse in it.)
+    if (opts.menu) sheetMenu = true;
     showSheet();
   }
 
@@ -5068,13 +5070,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       swatch.className = "route-swatch";
       swatch.style.background = line.colour;
       label.append(swatch, Object.assign(document.createElement("span"), { className: "route-line-text", textContent: planning ? `Editing ${line.name}` : line.name }));
-      // Its trains, where it has more than this one; the name opens the Lines view (to rename it, recolour it).
+      // Its trains, where it has more than this one; the name opens the Lines list (a row there opens its sheet: rename,
+      // recolour, Reverse, Copy).
       if (riders > 1) label.append(Object.assign(document.createElement("span"), { className: "route-riders", textContent: `· ${riders} trains` }));
       label.classList.add("route-line-name");
       // (A pencil: the name can be tapped, to rename or recolour the line. Audit F17: it read as a label.)
       label.append(Object.assign(document.createElement("span"), { className: "route-line-edit", textContent: "✎" }));
       label.setAttribute("role", "button");
-      label.title = "Lines: rename it, change its colour";
+      label.title = "Lines: every line; tap this one to rename it, recolour it or reverse it";
       label.addEventListener("click", () => openLines());
     } else label.textContent = "Route";
     head.append(label);
@@ -5872,7 +5875,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     discsMoving = moving;
   }
 
-  // The Lines view (see src/ui/lines-view.ts): every line listed (rename it, recolour it, show it), and every line's
+  // The Lines view (see src/ui/lines-view.ts): every line listed (a row opens its sheet: rename, recolour, Reverse), and every line's
   // ribbon on the map while it's open. Built only on change: a key per frame, nothing more while nothing changes.
   const linesView = new LinesView(hud.root, {
     open: (id) => openLineSheet(id, { fromLines: true, tab: trainsOn(game.economy, id).length === 0 ? "trains" : "stops" }),
@@ -6289,8 +6292,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       setBoardOpen(true, guide.board === true ? undefined : guide.board);
       return;
     }
-    if (guide.lines) {
-      openLines();
+    if (guide.line !== undefined) {
+      if (game.economy.lines.has(guide.line)) openLineSheet(guide.line, { menu: true });
+      else openLines();
       return;
     }
     if (guide.engine !== undefined) interaction.openEngineCard(guide.engine);
