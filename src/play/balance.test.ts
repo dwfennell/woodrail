@@ -1122,7 +1122,7 @@ function nearEnd(P: Player, id: number, n: number): boolean {
  * and a short straight, and track runs from the switch to a site for `type` near `cells` (with room for `after`). The
  * industry's piece must be in the box. Its piece and its free end, or null with everything put back.
  */
-function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceTypeId): { id: number; beyond: number } | null {
+function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceTypeId): { id: number; beyond: number; sw: number } | null {
   const w = P.w;
   const g = w.landscape.grid;
   if (!P.canMake(new Map([["piece:switch", 1]]))) return null;
@@ -1149,7 +1149,7 @@ function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceT
           const had = new Set(w.layout.pieceIds());
           for (const c of [1, 0]) {
             const r = play(w.layout, P.editor, connectorRef(sw, 2), connectorRef(q, c), { blocked: P.rules(), maxPieces: 60, fiddle: 3 });
-            if (r.ok && P.settle()) return { id: q, beyond: connectorRef(q, 1 - c) };
+            if (r.ok && P.settle()) return { id: q, beyond: connectorRef(q, 1 - c), sw };
             for (const id of [...w.layout.pieceIds()]) if (!had.has(id)) P.editor.remove(id);
           }
           P.editor.remove(q);
@@ -2412,14 +2412,22 @@ class Playthrough {
           if (g.feature[i] === FEAT_FIELD && !ruins.has(g.owner[i])) fields.push(i);
         });
         P.make(new Map([["piece:depot-farm", 1]]));
-        const r = extend(P, { type: "depot-farm", cells: fields, after: "depot-mill" }) ?? (s.learned.has("switches") ? branchOff(P, "depot-farm", fields, "depot-mill") : null);
+        const r: { id: number; beyond: number; sw?: number } | null = extend(P, { type: "depot-farm", cells: fields, after: "depot-mill" }) ?? (s.learned.has("switches") ? branchOff(P, "depot-farm", fields, "depot-mill") : null);
         if (r) {
           this.farm = r.id;
+          // (On a branch, before Routes: the unrouted goods train takes it only when the player sets its switch for
+          // the farm by hand, as for an old farm on a spur (`tendSpur`). Else its grain never comes, and the Mills
+          // research that waits on it never ends: the gentler start's fields lie off the line's ends on many seeds.)
+          if (r.sw !== undefined) {
+            this.spurFarm = !s.learned.has("routes");
+            this.spurSwitch = r.sw;
+            if (!ROUTES_FIRST) P.everySecond = () => this.tendSpur();
+          }
           capEnd(P, r.beyond);
           syncIndustries(w, true);
           updateRates(w, (role) => boostOf(s, role));
           P.happened++;
-          P.note(`built a farm yard at the line's end (rate ${w.economy.depotAtPiece(r.id)!.rate.toFixed(2)})`);
+          P.note(`built a farm yard ${r.sw !== undefined ? "on a branch off the line" : "at the line's end"} (rate ${w.economy.depotAtPiece(r.id)!.rate.toFixed(2)})`);
           this.firsts["farm built"] = Math.round(P.minute);
           if (this.lines) this.routeGoods();
         } else {
