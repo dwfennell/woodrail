@@ -78,6 +78,13 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] 
   // managed: never asked to wait, it never gave a turn. Now the way goes on toward the stop after, and a one-train
   // line of signals sharing a network takes its turns (`Sections.line`). Stuck 300 s with no stop; now 8 stops.)
   { file: "signals-mill-wait.txt", seconds: 300, arrivals: 4, what: "QA: a towns line held at the mill by a hopper shuttle sharing its track" },
+  // (Issues #31 and #32, 2026-11-07 (build mw5rjr7b): four lines' trains and a hand-run hopper train in a ring of waits
+  // through signals, each held for the next. Their cards said "Stuck: too many trains for these signals. Add a signal";
+  // the player added one (#32's map) and all stood on: the hand-run train, on no line, had wandered into the ring, and
+  // a ring through signals never gave way. Now a hand-run train in one turns round as in any ring (`Stalls.giveWay`).
+  // Stuck 600 s with no stop but the shuttle's; now 6+ stops each in 300 s.)
+  { file: "signal-green-held.txt", seconds: 300, arrivals: 4, what: "issue #31: four lines and a hand-run train in a ring of waits through signals" },
+  { file: "signal-added-still-stuck.txt", seconds: 300, arrivals: 4, what: "issue #32: the same, a signal added as the card said" },
 ];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {

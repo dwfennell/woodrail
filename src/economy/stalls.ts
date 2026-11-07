@@ -238,14 +238,17 @@ export class Stalls {
         if (by && engine >= 0 && now - (this.waiting.get(start) ?? now) >= STARVED_S * 120) found.set(engine, { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) });
         continue;
       }
-      // (A ring with a red signal in it: too many trains for the signals.)
-      const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal");
+      // (A ring of trains following each other through signals: too many trains for the signals. One with trains held
+      // by sections in it (single track, trains meeting) isn't, though some stand at reds: a signal can't help there
+      // (issue #32), and a hand-run train in it is the one in the way: moving it, or giving it a route, is the fix.)
+      const signals = why === "ring" && this.throughSignals(chain);
+      const loose = why === "ring" && !signals ? this.handRunIn(chain) : null;
       for (const id of chain) {
         const t = sim.getTrain(id)!;
         // (The held train itself is waiting by rule: its card already says the line is full.)
         if (!on.has(id)) continue;
-        const by = sim.getTrain(on.get(id)!);
         const engine = this.lineEngine(t);
+        const by = loose && loose !== t ? loose : sim.getTrain(on.get(id)!);
         if (engine < 0 || !by) continue;
         found.set(engine, signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
@@ -284,16 +287,16 @@ export class Stalls {
     for (const [k, t] of this.yielded) if (now - t >= YIELD_AGAIN_S * 120) this.yielded.delete(k);
     if (this.gaveTo.size > 0) for (const [k, g] of this.gaveTo) if (!sim.trainByKey(k) || !sim.trainByKey(g.by)) this.gaveTo.delete(k);
     for (const [key, ring] of rings) {
-      // (Held long enough: since its first train was found in it. Through a red signal: adding a signal is the fix.)
+      // (Held long enough: since its first train was found in it. Trains following each other through signals: adding a
+      // signal is the fix. With trains held by sections in it, some at reds, it gives way as any ring does (issue #32:
+      // four lines' trains and a hand-run one met on single track; "Add a signal" was done, and all stood on).)
       let held = Infinity;
-      let signals = false;
       for (const id of ring) {
-        if (sim.heldHow(id) === "signal") signals = true;
         const t = sim.getTrain(id);
         const s = t && this.since.get(this.lineEngine(t));
         held = Math.min(held, s ? now - s.tick : 0);
       }
-      if (signals || held < YIELD_S * 120) continue;
+      if (this.throughSignals(ring) || held < YIELD_S * 120) continue;
       const last = this.tried.get(key);
       if (last !== undefined && now - last < YIELD_RETRY_S * 120) continue;
       let gave: Train | null = null;
@@ -340,6 +343,30 @@ export class Stalls {
         if (e >= 0) found.delete(e);
       }
     }
+  }
+
+  /**
+   * Is this ring of waits one of trains following each other through signals: one at least at a red for a train on its
+   * block, and none held by sections (a train meeting another on single track: there a signal doesn't help)?
+   */
+  private throughSignals(ids: readonly number[]): boolean {
+    let signal = false;
+    for (const id of ids) {
+      if (this.sim.heldHow(id) === "signal") signal = true;
+      const t = this.sim.getTrain(id);
+      if (t) for (const car of t.cars) if (car.kind === "engine" && this.sections.waitOf(car.id)) return false;
+    }
+    return signal;
+  }
+
+  /** A hand-run train (lever on, no route) among these, or null (none, or no routes to tell by). */
+  private handRunIn(ids: readonly number[]): Train | null {
+    if (!this.host.routed) return null;
+    for (const id of ids) {
+      const t = this.sim.getTrain(id);
+      if (t && !this.host.routed(this.lineEngine(t))) return t;
+    }
+    return null;
   }
 
   /** The trains on the track now. */
