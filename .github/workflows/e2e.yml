@@ -1,6 +1,7 @@
 # The end-to-end suites in parallel, on what would land: the ref merged with main. See docs/agents/e2e.md, "CI".
 #
-#   plan    merge main in; pick the suites (affected + smoke, or the given ones, or all) and split them into shards
+#   plan    merge main in; pick the suites (affected + smoke, or the given ones, or all: dispatch with `all`, or a
+#           push whose head commit message says [e2e all]) and split them into shards
 #           balanced by rough duration (scripts/e2e/ci.mjs, scripts/e2e/durations.json); build dist/ once
 #   shard   one per runner: its suites as the landing gate runs them, one retry each
 #   unit    vitest, sharded
@@ -66,7 +67,7 @@ jobs:
       - id: plan
         env:
           SUITES: ${{ inputs.suites }}
-          ALL: ${{ inputs.all }}
+          ALL: ${{ inputs.all || contains(github.event.head_commit.message, '[e2e all]') }}
         run: |
           set -euo pipefail
           args=()
