@@ -1465,17 +1465,31 @@ function mapHelpers(p) {
     await still();
   };
   const tapOn = async (what) => {
+    // (Every glide while it's tapped, and who asked: said if the tap makes no click.)
+    await p.evaluate(() => {
+      const d = window.woodrail.director;
+      if (d.__tapGlide) return;
+      d.__tapGlide = d.glideTo;
+      d.glideTo = function (target, distance, opts) {
+        (window.__tapGlides ??= []).push({ to: [Math.round(target.x), Math.round(target.z)], d: Math.round(distance), by: (new Error().stack ?? "").split("\n").slice(2, 5).map((l) => l.trim().replace(/\(.*\//, "(")).join(" < ") });
+        if (window.__tapGlides.length > 12) window.__tapGlides.shift();
+        return d.__tapGlide.call(this, target, distance, opts);
+      };
+    });
     await showing(what);
     const [x, y] = await onScreen(what);
     try {
       await tapped(p, () => p.touchscreen.tap(x, y));
     } catch (e) {
       // (A tap that made no click: what was under it, and what was open, said.)
-      const under = await p.evaluate(([x, y]) => {
+      const under = await p.evaluate(([x, y, what]) => {
         const el = document.elementFromPoint(x, y);
         const open = [...document.querySelectorAll(".hud .card, .line-sheet, .lines-view, .menu")].filter((c) => !c.hidden && c.getBoundingClientRect().height > 0).map((c) => c.className.split(" ").slice(0, 2).join("."));
-        return { at: [Math.round(x), Math.round(y)], el: el ? `${el.tagName}.${String(el.className).split(" ").join(".")}` : null, open, planning: document.querySelector(".hud")?.classList.contains("planning") };
-      }, [x, y]);
+        const w = window.woodrail;
+        const t = w.controls.target;
+        const f = what.engine !== undefined ? w.sim.findCar(what.engine)?.train.world[0] : null;
+        return { touches: w.interaction.touches?.size, mode: w.interaction.mode?.kind, eng: f && [Math.round(f.x), Math.round(f.z)], glides: window.__tapGlides, at: [Math.round(x), Math.round(y)], size: [innerWidth, innerHeight], el: el ? `${el.tagName}.${String(el.className).split(" ").join(".")}` : null, open, planning: document.querySelector(".hud")?.classList.contains("planning"), following: w.following, busy: w.director.busy, target: [Math.round(t.x), Math.round(t.z)], distance: Math.round(w.camera.position.distanceTo(t)), bounds: w.director.bounds && [w.director.bounds.x0, w.director.bounds.x1, w.director.bounds.z0, w.director.bounds.z1].map(Math.round) };
+      }, [x, y, what]);
       throw new Error(`${e.message.split("\n")[0]} ${JSON.stringify({ what, ...under })}`);
     }
   };
