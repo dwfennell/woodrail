@@ -230,7 +230,7 @@ if (!setup.error) {
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(`\n${failures === 0 ? "e2e:circus passed" : `e2e:circus: ${failures} failed`}`);
+console.log(`\n${failures === 0 ? "e2e:circus: all passed" : `e2e:circus: ${failures} failed`}`);
 await b.close();
 await server.close();
 process.exit(failures === 0 ? 0 : 1);

@@ -170,7 +170,7 @@ Every push to a `claude/**` branch (not one that touches only `docs/**`) runs th
 runners, on **the branch merged with main**, so a green run holds for what would land. A newer push to the same branch
 cancels the older run. To run it on demand: Actions → e2e → Run workflow, with `ref` (a branch or sha), and either
 `suites` (the gate's form: `signals touch:blocker,defaults click:desktop`) or `all`. A push whose head commit's message says `[e2e all]` runs every suite too (for a release point, or
-when dispatching isn't open to you).
+when dispatching isn't open to you), and `[e2e: signals touch:blocker]` runs just those.
 
 The jobs:
 

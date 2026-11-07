@@ -68,8 +68,11 @@ jobs:
         env:
           SUITES: ${{ inputs.suites }}
           ALL: ${{ inputs.all || contains(github.event.head_commit.message, '[e2e all]') }}
+          MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
+          # (A push may name its suites in the head commit's message: "[e2e: signals touch:blocker,defaults]".)
+          if [ -z "$SUITES" ]; then SUITES=$(printf '%s' "$MESSAGE" | sed -n 's/.*\[e2e: *\([^]]*\)\].*/\1/p' | head -1); fi
           args=()
           if [ "$ALL" = "true" ]; then args+=(--all); elif [ -n "$SUITES" ]; then args+=(--suites "$SUITES"); fi
           node .ci/scripts/e2e/ci.mjs plan "${args[@]}" > plan.json
@@ -89,7 +92,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.count != '0'
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 85
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}

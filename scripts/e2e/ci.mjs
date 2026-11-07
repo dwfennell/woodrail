@@ -178,6 +178,7 @@ async function run() {
   mkdirSync(join(CWD, "e2e-results"), { recursive: true });
   const results = [];
   const scripts = pkg().scripts;
+  const deadline = Date.now() + Number(process.env.E2E_DEADLINE_MIN ?? 70) * 60000;
   for (const [suite, groups] of want) {
     const info = suites[suite];
     const unit = unitText(suite, groups);
@@ -188,9 +189,16 @@ async function run() {
     const body = scripts[info.script];
     if (/^npm run build && /.test(body) && existsSync(join(CWD, "dist/index.html"))) command = body.replace(/^npm run build && /, "");
     const est = groups === "all" ? (d.suites[suite] ?? 300) : [...groups].reduce((t, g) => t + (d.groups?.[suite]?.[g] ?? 300), 0);
-    const timeoutMs = Math.min(55, Math.max(15, Math.ceil((est * 2.5) / 60))) * 60000;
+    // (A hung suite is killed: twice its estimate, 10 to 40 min. The durations are from a 4-core box; GitHub's runners
+    // ran the suites in about half that.)
+    const timeoutMs = Math.min(40, Math.max(10, Math.ceil((est * 2) / 60))) * 60000;
     const logPath = join(CWD, "e2e-logs", `${suite}.log`);
     const attempts = [];
+    if (Date.now() > deadline) {
+      console.log(`::error::${unit} not run: the shard is out of time (E2E_DEADLINE_MIN)`);
+      results.push({ unit, suite, groups: groups === "all" ? "all" : [...groups], result: "fail", seconds: 0, attempts: [{ ok: false, code: null, seconds: 0, last: "not run: shard out of time" }] });
+      continue;
+    }
     for (let k = 1; k <= 2; k++) {
       const head = `${env.E2E_ONLY ? `E2E_ONLY=${env.E2E_ONLY} ` : ""}${command}${k > 1 ? "   (retry: groups that passed are cached)" : ""}`;
       console.log(`::group::${unit}${k > 1 ? " (retry)" : ""}`);
@@ -202,6 +210,13 @@ async function run() {
       attempts.push({ ok, code: r.code, timedOut: r.timedOut, seconds: r.seconds, last: r.last });
       console.log(`${ok ? "PASS" : "FAIL"} ${unit} in ${r.seconds}s${r.last ? ` (${r.last})` : " (no pass line)"}${r.code ? ` exit ${r.code}` : ""}`);
       if (ok) break;
+      // (No retry past the shard's budget, E2E_DEADLINE_MIN after it started: the job's own timeout would kill it
+      // and lose every result.)
+      const left = deadline - Date.now();
+      if (k === 1 && left < Math.min(timeoutMs, r.seconds * 1000 + 60000)) {
+        console.log(`::warning::${unit} failed (exit ${r.code}${r.timedOut ? ", timed out" : ""}); no time left in the shard to retry`);
+        break;
+      }
       if (k === 1) console.log(`::warning::${unit} failed (exit ${r.code}${r.timedOut ? ", timed out" : ""}); retrying once`);
     }
     const passed = attempts.at(-1).ok;

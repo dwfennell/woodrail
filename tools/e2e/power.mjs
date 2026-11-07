@@ -415,7 +415,7 @@ const back = await p.evaluate((id) => {
 check("6. reloaded: the turbine still stands, the sawmill is still asked for", back.turbines === 1 && back.asked > 0, JSON.stringify(back));
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(`\n${failures === 0 ? "e2e:power passed" : `e2e:power: ${failures} failed`}`);
+console.log(`\n${failures === 0 ? "e2e:power: all passed" : `e2e:power: ${failures} failed`}`);
 await b.close();
 await server.close();
 process.exit(failures === 0 ? 0 : 1);
