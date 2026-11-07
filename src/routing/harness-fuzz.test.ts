@@ -41,7 +41,8 @@ const GREEN = "held by sections (a slot or section wait) standing at a signal th
 // (midTurn's 11 seeds came off with step 1: nothing turns a train round mid-line now.)
 const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {};
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
-  greenHeld: { 14: GREEN, 30: GREEN, 37: GREEN, 66: GREEN, 69: GREEN, 76: GREEN, 105: GREEN, 119: GREEN, 160: GREEN, 174: GREEN, 192: GREEN },
+  // (14 and 30 came off on the merged base (2026-11-07): main's fixes since the list was made.)
+  greenHeld: { 37: GREEN, 66: GREEN, 69: GREEN, 76: GREEN, 105: GREEN, 119: GREEN, 160: GREEN, 174: GREEN, 192: GREEN },
 };
 
 /** Of these runs (seeds FIRST + k), those that broke `inv` and aren't known to; and the known ones that ran and didn't. */
@@ -63,7 +64,7 @@ describe(`routing fuzz: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × 
   const run = () =>
     (reports ??= Array.from({ length: SEEDS }, (_, k) => {
       const seed = FIRST + k;
-      const h = new HarnessRun(new Layout(), fuzz(seed, SECONDS));
+      const h = new HarnessRun(new Layout(), { ...fuzz(seed, SECONDS), heldFree: true });
       const r = h.run(SECONDS);
       const broke = INVARIANTS.filter((i) => r.broke[i].count > 0);
       if (LONG && broke.length > 0) console.log(`seed ${seed}: ${broke.map((i) => `${i} ×${r.broke[i].count} (${r.broke[i].first[0]})`).join("; ")}`);
@@ -107,7 +108,7 @@ describe(`routing fuzz with signals: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRS
       // (FIRST + k, as the plain fuzz: a shard of `npm run fuzz:long` once ran seeds 1 .. ROUTING_FUZZ here whatever its
       // FIRST, so every shard ran the same seeds with signals and those past the first shard's never ran.)
       const seed = FIRST + k;
-      const marked = new HarnessRun(new Layout(), fuzz(seed, SECONDS, true)).run(SECONDS);
+      const marked = new HarnessRun(new Layout(), { ...fuzz(seed, SECONDS, true), heldFree: true }).run(SECONDS);
       const plain = new HarnessRun(new Layout(), fuzz(seed, SECONDS)).run(SECONDS);
       if (LONG) {
         const broke = INVARIANTS.filter((i) => marked.broke[i].count > 0);

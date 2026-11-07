@@ -85,7 +85,7 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     // (From 51.9 s: trains following each other round the ring come onto points (78, 122, 130) the one ahead is still
     // on, its tail on them: following on circuits (§16 Q10) by the follow gap, through points. The core frees points
     // only once the leader's tail is off them.)
-    known: [{ invariant: "oneOwner", why: "close following through points on a ring (redesign step 6: every train reserves)" }],
+    known: [{ invariant: "oneOwner", why: "close following through points on a ring (redesign step 6: every train reserves)" }, { invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
   },
   // (Issue #29, 2026-11-05: "This train is blocked by a train all the way on the other side of the map!" (v154). The
   // routed train, and a hand-run one, waited for good on an engine parked across the map: on no line, standing in the
@@ -105,7 +105,7 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     what: "QA: a towns line held at the mill by a hopper shuttle sharing its track",
     // (91.6 s: engine 30, its move granted, stood held "cross" by the hopper shuttle on points 49's junction: sections
     // gave it a way through points a train they don't manage was on; the sim's crossing guard caught it.)
-    known: [{ invariant: "netActed", why: "a grant through points the unmanaged hopper shuttle holds (redesign step 5: grants reserve)" }],
+    known: [{ invariant: "netActed", why: "a grant through points the unmanaged hopper shuttle holds (redesign step 5: grants reserve)" }, { invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
   },
   // (Issue #31, 2026-11-07: "I don't understand why this train is stuck... the signal ahead of it is green" (mw5rjr7b).
   // Five trains on a network of signals; four (engines 30, 34, 44, 52) stand at red path signals from the first second,
@@ -118,6 +118,8 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     seconds: 600,
     arrivals: 20,
     what: "issue #31: four trains stuck at signals from the start, a ring of slot waits",
+    // (7.4 s: engine 52, on no line, stands in the ring though the core would book it 4 pieces on: §4.1.)
+    known: [{ invariant: "heldFree", why: "engine 52 held in the ring of slot waits though the booking core would let it go (redesign steps 4–6)" }],
     stuck: {
       30: "ring of slot waits at signals (30 → 44 → 34 → 52): redesign steps 4–6",
       34: "ring of slot waits at signals: redesign steps 4–6",
@@ -136,7 +138,7 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     arrivals: 4,
     what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added",
     // (87.6 s: engine 52, its move granted, held "cross" by the hand-run hopper train on points 49: as the mill's map.)
-    known: [{ invariant: "netActed", why: "a grant through points the hand-run hopper train holds (redesign step 5: grants reserve)" }],
+    known: [{ invariant: "netActed", why: "a grant through points the hand-run hopper train holds (redesign step 5: grants reserve)" }, { invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
   },
 ];
 
@@ -145,7 +147,7 @@ describe("bug maps: copied maps replayed with the invariants on", () => {
     it(`${m.file} (${m.what}): no invariant breaks in ${m.seconds} s, each routed train comes to ${m.arrivals}+ stops, none stands ${LIVE_S} s`, async () => {
       const { world } = await loadBugMap(FILES[m.file] ?? "");
       const known = new Set((m.known ?? []).map((k) => k.invariant));
-      const r = replayBugMap(world, { seconds: m.seconds, stopAtFirst: false });
+      const r = replayBugMap(world, { seconds: m.seconds, stopAtFirst: false, heldFree: true });
       const broke = INVARIANTS.filter((k) => r.checks.broke[k].count > 0);
       expect(broke.filter((k) => !known.has(k)).map((k) => `${k} ×${r.checks.broke[k].count}: ${r.checks.broke[k].first.join(" | ")}`), r.first ? describeBreak(r.first) : "").toEqual([]);
       expect([...known].filter((k) => r.checks.broke[k].count === 0), "known breaks that no longer break (take them off)").toEqual([]);
@@ -207,7 +209,7 @@ describe.skipIf(!ENV.REPLAY_FILE)("replay a copied map (npm run replay)", () => 
   it(`${ENV.REPLAY_FILE}`, async () => {
     const { mode, world } = await loadBugMap((await fs()).readFileSync(ENV.REPLAY_FILE!, "utf8"));
     const seconds = Number(ENV.REPLAY_SECONDS ?? 600);
-    const r = replayBugMap(world, { seconds, seed: Number(ENV.REPLAY_SEED ?? 1), stopAtFirst: !ENV.REPLAY_ALL });
+    const r = replayBugMap(world, { seconds, seed: Number(ENV.REPLAY_SEED ?? 1), stopAtFirst: !ENV.REPLAY_ALL, heldFree: true });
     const stops = [...r.arrivals].map(([e, n]) => `engine ${e}: ${n}`).join(", ") || "no routed trains";
     console.log(`replay: a ${mode} map, ${world.sim.trainIds().length} trains, ${r.seconds.toFixed(1)} s run; stops ${stops}`);
     console.log(r.first ? `replay: first break: ${describeBreak(r.first)}${r.first.engine !== undefined ? ` (engine ${r.first.engine})` : ""}${r.first.pieceId !== undefined ? ` (piece ${r.first.pieceId})` : ""}` : `replay: the invariants held for ${seconds} s`);

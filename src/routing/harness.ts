@@ -63,6 +63,8 @@ export interface Scenario {
    * what's tested. In the game, sections hold such a train at its slot's end first (single-line working across lines).
    */
   ownLines?: boolean;
+  /** Check heldFree too (the booking core in shadow beside the checks: `InvariantOptions.heldFree`). */
+  heldFree?: boolean;
 }
 
 /** Turn-backs by cause (`Train.lastTurn`). */
@@ -215,6 +217,7 @@ export class HarnessRun implements InvariantWorld {
       trains: () => this.engines.map((engine, key) => ({ key, engine })),
       name: (k) => `train ${k}`,
       now: () => this.tick,
+      heldFree: !!scenario.heldFree,
     });
     this.report = {
       name: scenario.name,

@@ -40,8 +40,9 @@
  * - **strayed:** a train's front came onto a piece off its last booking (it went another road at points than the core
  *   would have booked). Not a fault: how often the core's way and today's differ.
  */
-import { CAR_SPECS, SIM_HZ, type Train } from "../sim";
-import { connectorRef, getPieceDef, indexOfRef, pathExitConnector, pathLength, pieceOfRef, routeFrom } from "../track";
+import { CAR_SPECS, flipCursor, SIM_HZ, underByEnds, walkTrack, type Train } from "../sim";
+import { connectorRef, getPieceDef, indexOfRef, junction, pathExitConnector, pathLength, pieceOfRef, routeFrom, type PieceDef } from "../track";
+import { BookingTable } from "./bookings";
 import { topologyOf, trainLength, type Topology } from "../economy/sections";
 import type { InvariantWorld } from "../sim/invariants";
 import { waysFrom } from "./graph";
@@ -126,8 +127,11 @@ export class ReservationShadow {
   /** Bookings worked out (all trains, all checks), and the time they took (ms): the core's cost. */
   bookings = 0;
   ms = 0;
-  /** The table as of the last check: each held piece's owner (a train's key). */
-  readonly owner = new Map<number, number>();
+  /** Waiting points passed over because the piece just past them was another train's (§6 F4). */
+  joined = 0;
+  /** The table as of the last check: each train's holds, by (piece, path) (§6 F3), under it end to end and ahead. */
+  readonly table: BookingTable;
+  private readonly cover = new Map<number, number>();
   readonly last = new Map<number, Booking>();
   private readonly memo = new Map<number, Memo>();
   private ticks = 0;
@@ -137,7 +141,9 @@ export class ReservationShadow {
   constructor(
     private readonly world: InvariantWorld,
     private readonly opts: ShadowOptions = {},
-  ) {}
+  ) {
+    this.table = new BookingTable(world.layout);
+  }
 
   /** One tick: every `CHECK_TICKS`, book afresh and compare. */
   tick(): void {
@@ -155,14 +161,14 @@ export class ReservationShadow {
       const f = sim.findCar(engine);
       if (f && !f.train.derailed && f.train.bogies.length > 0) trains.push({ key, engine, t: f.train });
     }
-    // 1. Under each train.
-    this.owner.clear();
+    // 1. Under each train, buffer face to buffer face (§6 F8), by the paths it's on (§6 F3).
+    this.table.clear();
     const shares: { a: number; b: number; pieceId: number }[] = [];
     for (const x of trains)
-      for (const p of sim.piecesUnder(x.t.id)) {
-        const o = this.owner.get(p);
-        if (o !== undefined && o !== x.key) shares.push({ a: o, b: x.key, pieceId: p });
-        else this.owner.set(p, x.key);
+      for (const [p, mask] of underByEnds(this.world.layout, x.t, this.cover)) {
+        const o = this.table.blocker(p, mask, x.key);
+        if (o !== -1) shares.push({ a: o, b: x.key, pieceId: p });
+        this.table.hold(p, x.key, mask, "under");
       }
     // (Rule 3: the way each train is heading on the pieces its axles are on.)
     for (const x of trains) {
@@ -183,7 +189,7 @@ export class ReservationShadow {
       const booking = this.book(x.t, x.key, x.engine);
       this.bookings++;
       this.last.set(x.key, booking);
-      if (booking.ok) for (const p of booking.pieces) this.owner.set(p.pieceId, x.key);
+      if (booking.ok) for (const p of booking.pieces) this.table.hold(p.pieceId, x.key, 1 << p.path, "ahead");
     }
     // 3. Compare.
     for (const x of order) this.compare(x.t, x.key, x.engine, x.m, this.last.get(x.key)!);
@@ -245,12 +251,12 @@ export class ReservationShadow {
     const exit = pathExitConnector(def, pathIndex, reversed);
     // (The end of the track: a buffer, an open end. Always a waiting point: the train turns there.)
     if (exit === -1) return true;
+    const ref = connectorRef(pieceId, exit);
     // (Rule 3: one-way plain track, a train's length of it behind this joint: a waiting point.)
     if (depth > 0) {
       run = def.paths.length === 1 && !def.gated && this.dirs.get(pieceId) === 1 << exit ? run + pathLength(def.paths[pathIndex].geom) : 0;
-      if (run >= walk.length) return true;
+      if (run >= walk.length) return this.joinFree(ref, key, walk);
     }
-    const ref = connectorRef(pieceId, exit);
     const mark = layout.signalAt(ref);
     // (Leaving a slot it fits in, not the one it started in, going its way: a waiting point reached.)
     const slotId = topo.slotOf.get(pieceId) ?? -1;
@@ -259,7 +265,7 @@ export class ReservationShadow {
       const nextSlot = joined === -1 ? -1 : (topo.slotOf.get(pieceOfRef(joined)) ?? -1);
       if (nextSlot !== slotId) {
         const slot = topo.slots[slotId];
-        if (slot.kind !== "signal" || slot.mark === ref) return true;
+        if (slot.kind !== "signal" || slot.mark === ref) return this.joinFree(ref, key, walk);
       }
     }
     // (A signal held at red, or set Always red: the booking can't pass it, unless this is its waiting point's end.)
@@ -273,11 +279,6 @@ export class ReservationShadow {
     const entry = indexOfRef(joined);
     if (++walk.steps > MAX_STEPS || out.length >= MAX_WALK) {
       walk.refusal = { kind: "far" };
-      return false;
-    }
-    const o = this.owner.get(nextId);
-    if (o !== undefined && o !== key) {
-      walk.refusal = { kind: "train", by: o, pieceId: nextId, entry };
       return false;
     }
     const nextPiece = layout.getPiece(nextId);
@@ -303,6 +304,12 @@ export class ReservationShadow {
     const mark0 = out.length;
     const mm0 = reach.mm;
     for (const w of tries) {
+      // (Booked by path (§6 F3): this road is free unless another train holds one that fouls it.)
+      const by = this.table.blocker(nextId, 1 << w.path, key);
+      if (by !== -1) {
+        walk.refusal = { kind: "train", by, pieceId: nextId, entry };
+        continue;
+      }
       const path = nd.paths[w.path];
       const rev = path.from !== entry;
       out.push({ pieceId: nextId, path: w.path });
@@ -311,6 +318,26 @@ export class ReservationShadow {
       out.length = mark0;
       reach.mm = mm0;
     }
+    return false;
+  }
+
+  /**
+   * Bookings never meet end to end (§6 F4, as OpenTTD's free waiting position): a waiting point at joint `ref` is free
+   * only if no other train holds a road on the piece past it that comes onto that joint. Refused, the train that holds it
+   * is the refusal.
+   */
+  private joinFree(ref: number, key: number, walk: Walk): boolean {
+    const { layout } = this.world;
+    const joined = layout.joinedConnector(ref);
+    if (joined === -1) return true;
+    const nextId = pieceOfRef(joined);
+    const entry = indexOfRef(joined);
+    const p = layout.getPiece(nextId);
+    if (!p) return true;
+    const by = this.table.blocker(nextId, pathsAt(getPieceDef(p.type, p.flipped), entry), key);
+    if (by === -1) return true;
+    walk.refusal = { kind: "train", by, pieceId: nextId, entry };
+    this.joined++;
     return false;
   }
 
@@ -333,12 +360,11 @@ export class ReservationShadow {
     return true;
   }
 
-  /** Has this train points or a crossing under it (any car)? */
+  /** Has this train points or a crossing under it (any car, end to end), as `track/points.ts` counts them? */
   private overPoints(t: Train): boolean {
-    for (const id of this.world.sim.piecesUnder(t.id)) {
+    for (const id of underByEnds(this.world.layout, t, this.cover).keys()) {
       const p = this.world.layout.getPiece(id);
-      const def = p && getPieceDef(p.type, p.flipped);
-      if (def && def.paths.length > 1 && !def.gated && !def.signal) return true;
+      if (p && waitOff(getPieceDef(p.type, p.flipped))) return true;
     }
     return false;
   }
@@ -438,29 +464,33 @@ export class ReservationShadow {
   private signalAhead(t: Train, forward: boolean): { key: number; pieceId: number; dist: number } | null {
     const { layout } = this.world;
     const b = forward ? t.bogies[0] : t.bogies[t.bogies.length - 1];
-    let at = b.pieceId;
-    let path = b.pathIndex;
-    let rev = forward ? b.reversed : !b.reversed;
-    let p = layout.getPiece(at);
-    if (!p) return null;
-    let def = getPieceDef(p.type, p.flipped);
-    const inset = CAR_SPECS[(forward ? t.cars[0] : t.cars[t.cars.length - 1]).kind].bogieInset;
-    let dist = (forward ? pathLength(def.paths[path].geom) - b.s : b.s) - inset - 6;
-    for (let k = 0; k < 8 && dist <= SIGNAL_NEAR; k++) {
-      const exit = pathExitConnector(def, path, rev);
-      if (exit === -1) return null;
-      const mark = layout.signalAt(connectorRef(at, exit));
-      if (mark) return { key: -1 - mark.id, pieceId: at, dist: Math.max(0, dist) };
-      const step = { pieceId: 0, pathIndex: 0, reversed: false };
-      if (!routeFrom(layout, at, exit, step)) return null;
-      at = step.pieceId;
-      path = step.pathIndex;
-      rev = step.reversed;
-      p = layout.getPiece(at)!;
-      def = getPieceDef(p.type, p.flipped);
-      dist += pathLength(def.paths[path].geom);
-    }
-    return null;
+    const c = { ...b };
+    if (!forward) flipCursor(layout, c);
+    // (Measured from the lead car's nose, a little short of it.)
+    const off = CAR_SPECS[(forward ? t.cars[0] : t.cars[t.cars.length - 1]).kind].bogieInset + 6;
+    let found: { key: number; pieceId: number; dist: number } | null = null;
+    let first = true;
+    walkTrack(
+      layout,
+      c,
+      SIGNAL_NEAR + off,
+      (pieceId, path, rev, from) => {
+        const p = layout.getPiece(pieceId)!;
+        const def = getPieceDef(p.type, p.flipped);
+        const end = from + pathLength(def.paths[path].geom) - (first ? c.s : 0);
+        first = false;
+        if (end - off > SIGNAL_NEAR) return false;
+        const exit = pathExitConnector(def, path, rev);
+        if (exit === -1) return false;
+        const mark = layout.signalAt(connectorRef(pieceId, exit));
+        if (!mark) return;
+        found = { key: -1 - mark.id, pieceId, dist: Math.max(0, end - off) };
+        return false;
+      },
+      routeFrom,
+      8,
+    );
+    return found;
   }
 
   /** shared-points and shared-piece: trains under the same piece, once a sharing. */
@@ -475,7 +505,7 @@ export class ReservationShadow {
       m.shared.add(k);
       const p = layout.getPiece(s.pieceId);
       const def = p && getPieceDef(p.type, p.flipped);
-      const points = !!def && def.paths.length > 1 && !def.gated && !def.signal;
+      const points = !!def && waitOff(def);
       const name = (key: number) => {
         const x = trains.find((y) => y.key === key);
         return x ? this.label(x.t) : `train ${key}`;
@@ -518,6 +548,18 @@ export class ReservationShadow {
     const on = [...this.onPointsBy].map(([k, n]) => `${k} ${n}`).join(", ");
     return `${kinds}${by ? `; held-free by ${by}` : ""}${on ? `; held-on-points by ${on}` : ""}${ref ? `; refused by ${ref}` : ""}`;
   }
+}
+
+/** Points or a crossing (paths that meet; not a deck, which a train has whole): never a place to wait (`track/points.ts`). */
+function waitOff(def: PieceDef): boolean {
+  return junction(def) && !def.gated;
+}
+
+/** The paths (a bit each) that end at a piece's connector. */
+function pathsAt(def: PieceDef, connector: number): number {
+  let bits = 0;
+  for (let i = 0; i < def.paths.length; i++) if (def.paths[i].from === connector || def.paths[i].to === connector) bits |= 1 << i;
+  return bits;
 }
 
 interface Walk {

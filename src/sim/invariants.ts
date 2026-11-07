@@ -21,6 +21,9 @@
  *   (issue #31: "the signal ahead of it is green"). Said once a stand.
  * - **midTurn:** a train turned round not at the end of its line (`Sim.onTurn`: `turnNow` with track ahead), nor by
  *   the player's Reverse on a ring line (the firm rule: trains turn only at the end of their line).
+ * - **heldFree:** a lever-on train standing `HELD_FREE_S` (5 s), not busy at a stop, held although the booking core in
+ *   shadow would book it a way on to a waiting point (routing redesign §6 F6: a lost wake, or a hold too big). Opt-in
+ *   (`heldFree`). Said once a stand.
  * - **netActed:** a train sections granted a move (and the router holds nothing against) stood `NET_S` held by
  *   another train nose to nose, against its side, or short of points or a crossing it's on (`Sim.heldBy`): the
  *   physical guards caught what the grant let through. Said once a stand.
@@ -36,15 +39,16 @@ import type { Stalls } from "../economy/stalls";
 import type { Router } from "../routing/router";
 import { next, waysFrom } from "../routing/graph";
 import { planChoice, planWay, ROUTE_COSTS } from "../routing/plan";
+import { ReservationShadow } from "../routing/shadow";
 
-export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed"] as const;
+export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed", "heldFree"] as const;
 
 /**
  * The invariants added by the routing redesign's step 0 (docs/superpowers/specs/2026-11-07-routing-redesign.md §4):
  * known to break on some maps and seeds today, each such listed beside its test with why (`KNOWN_NEW` lists), so the
  * gates stay green and the lists shrink as the reservation core lands.
  */
-export const NEW_INVARIANTS: readonly Invariant[] = ["oneOwner", "greenHeld", "midTurn", "netActed"];
+export const NEW_INVARIANTS: readonly Invariant[] = ["oneOwner", "greenHeld", "midTurn", "netActed", "heldFree"];
 export type Invariant = (typeof INVARIANTS)[number];
 
 /** What the checks run on. Read afresh each check (a harness's save round-trip swaps the sim and its services). */
@@ -104,6 +108,11 @@ export interface InvariantOptions {
   onBreak?: (b: Break) => void;
   /** The time in ticks (default the sim's): a harness's own clock, which runs on over a save round-trip's new sim. */
   now?: () => number;
+  /**
+   * Check heldFree (routing redesign §6 F6): the booking core in shadow (`routing/shadow.ts`) run beside the checks.
+   * Off by default (it books every train ten times a second); the fuzz and the bug maps turn it on.
+   */
+  heldFree?: boolean;
 }
 
 /** The first few breaks of an invariant are kept in words (the rest only counted). */
@@ -194,6 +203,21 @@ export class Invariants {
     this.broke = Object.fromEntries(INVARIANTS.map((k) => [k, { count: 0, first: [] as string[] }])) as Invariants["broke"];
   }
 
+  private shadow: ReservationShadow | null = null;
+
+  /** heldFree: the shadow books every `CHECK_TICKS`; each held-free it finds is a break. */
+  private checkHeldFree(): void {
+    this.shadow ??= new ReservationShadow(this.world, {
+      trains: this.opts.trains,
+      onDisagree: (d) => {
+        if (d.kind !== "held-free") return;
+        const engine = this.opts.trains ? undefined : d.key;
+        this.break("heldFree", `${d.what}`, engine);
+      },
+    });
+    this.shadow.tick();
+  }
+
   /** How many breaks in all. */
   get count(): number {
     let n = 0;
@@ -279,6 +303,7 @@ export class Invariants {
       if (full) this.checkNet(t, key, engine, m);
     }
     this.watchTurns();
+    if (this.opts.heldFree) this.checkHeldFree();
     // (Signals every call, as fronts: a front crossing a joint is seen on the tick it does.)
     this.checkSignals(names);
     if (!this.noted) this.noteSignals();
