@@ -81,6 +81,7 @@ export function serializeLandscape(land: Landscape): LandscapeData {
     seed: land.seed,
     starter: land.starter,
     ...(land.hills ? { hills: land.hills } : {}),
+    ...(land.water ? { water: land.water } : {}),
     nextBuildingId: land.nextBuildingId,
     ...(land.coast ? { coast: { side: land.coast.side, plot: land.coast.plot } } : {}),
     plots: g.plots.map((p, slot) => {
@@ -169,6 +170,7 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     seed: data.seed,
     starter: data.starter,
     ...(data.hills ? { hills: data.hills } : {}),
+    ...(data.water ? { water: data.water } : {}),
     grid,
     towns: data.towns,
     depots: data.depots,

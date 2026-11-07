@@ -9,7 +9,7 @@ function memory(): Storage {
 
 describe("the new-game sheet's choices", () => {
   it("has a Hills row, its steps flattest to highest, Gentle picked first", () => {
-    expect(NEW_GAME_ROWS.map((r) => r.key)).toEqual(["hills"]);
+    expect(NEW_GAME_ROWS.map((r) => r.key)).toEqual(["hills", "water", "coast"]);
     expect(NEW_GAME_ROWS[0].steps.map((s) => s.value)).toEqual([...HILLINESS]);
     expect(NEW_GAME_ROWS[0].steps.map((s) => s.label)).toEqual(["Flat", "Gentle", "Hilly", "Mountainous"]);
     expect(DEFAULT_CHOICES.hills).toBe("gentle");
@@ -18,8 +18,8 @@ describe("the new-game sheet's choices", () => {
 
   it("remembers the last choice for the next new game, and keeps the default for one it doesn't know", () => {
     const s = memory();
-    saveChoices({ hills: "mountains" }, s);
-    expect(loadChoices(s).hills).toBe("mountains");
+    saveChoices({ hills: "mountains", water: "lots", coast: false }, s);
+    expect(loadChoices(s)).toEqual({ hills: "mountains", water: "lots", coast: false });
     s.setItem("woodrail.newGame", JSON.stringify({ hills: "alps", more: 1 }));
     expect(loadChoices(s)).toEqual(DEFAULT_CHOICES);
     s.setItem("woodrail.newGame", "{not json");

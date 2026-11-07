@@ -10,11 +10,11 @@ import { viewRoom } from "./ui/view-room";
 import { stopDrag } from "./ui/route-drag";
 import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
+import { buildStarterWorld, createWorld, freshGameWorld, landForSale, newMapSeed, plotsForSale } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
-import { connectedPairs, hillsOfLand, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
-import { isHilliness, LEGACY_HILLS, type Hilliness } from "./landscape/hills";
+import { connectedPairs, mapSettingsOf, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
+import { mapCode, parseMapCode, type MapSettings } from "./landscape/water";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
@@ -206,13 +206,13 @@ function saveFlag(key: string): void {
 }
 
 /**
- * A map asked for in the link (`#seed-12345`), to share or replay a particular map: its hills as such a link has always
- * made them (`LEGACY_HILLS`), or as it says (`#seed-12345-gentle`: `landscape/hills.ts`).
+ * A map asked for in the link (`#seed-` and a map code: `#seed-12345`), to share or replay a particular map: its land
+ * as such a link has always made it (Hilly, Some water, the sea), or as the code says (`#seed-12345-gentle-water-lots`,
+ * `-nocoast`: `mapCode`, the code the game shows for a map).
  */
-function linkedSeed(): { seed: number; hills: Hilliness } | null {
-  const m = /^#seed-(\d{1,9})(?:-([a-z]+))?$/.exec(location.hash);
-  if (!m || (m[2] !== undefined && !isHilliness(m[2]))) return null;
-  return { seed: Number(m[1]), hills: (m[2] as Hilliness | undefined) ?? LEGACY_HILLS };
+function linkedSeed(): MapSettings | null {
+  const m = /^#seed-(.+)$/.exec(location.hash);
+  return m ? parseMapCode(m[1]) : null;
 }
 
 /**
@@ -231,8 +231,9 @@ function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fr
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
   if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
   if (link !== null) {
-    const same = saved?.ok && saved.value.landscape.seed === link.seed && !saved.value.landscape.starter && hillsOfLand(saved.value.landscape) === link.hills;
-    return { world: same ? saved.value : createWorld(link.seed, false, true, false, link.hills), mode, linked: true, fromSave: !!same };
+    const was = saved?.ok ? saved.value.landscape : null;
+    const same = !!was && !was.starter && mapCode(mapSettingsOf(was)) === mapCode(link);
+    return { world: same && saved?.ok ? saved.value : createWorld(link.seed, false, true, false, link), mode, linked: true, fromSave: same };
   }
   return { world: saved?.ok ? saved.value : buildStarterWorld(mode === "game"), mode, linked: resumed, fromSave: !!saved?.ok };
 }
@@ -574,15 +575,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       selectJoined: () => interaction.selectJoined(),
       doneSelecting: () => interaction.doneSelecting(),
       newLayout: () =>
-        newGameSheet.open({
-          mode,
-          warn: "This map is put away for a new one.",
-          start: ({ hills }) => {
-            saveLastBuilt(mode, null);
-            setWorld(createWorld(Math.floor(Math.random() * 1_000_000), false, true, mode === "game", hills));
-            cloud?.edited(mode);
-            game.frameLayout();
-          },
+        askNewMap(mode, "This map is put away for a new one.", (c, seed) => {
+          saveLastBuilt(mode, null);
+          setWorld(createWorld(seed, false, true, mode === "game", c));
+          cloud?.edited(mode);
+          game.frameLayout();
         }),
       resetStarter: () => {
         saveLastBuilt(mode, null);
@@ -599,10 +596,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lowerHills: () => setLowering(!lowering),
       clearRuin: () => clearShownRuin(),
       restoreRuin: () => restoreShownRuin(),
-      newGame: () => newGameSheet.open({ mode: "game", warn: "Your railway and its goals start again.", start: ({ hills }) => newGame(hills) }),
+      newGame: () => askNewMap("game", "Your railway and its goals start again.", (c, seed) => newGame(c, seed)),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
       copyMap: () => void copyMap(),
+      mapCode: () => mapCode(mapSettingsOf(game.landscape)),
+      copyMapCode: () => {
+        const code = mapCode(mapSettingsOf(game.landscape));
+        void navigator.clipboard.writeText(code).then(
+          () => hud.toast(`Copied the map seed ${code}: type it into a new game's seed to play this map`),
+          () => hud.toast(`The map seed is ${code}`),
+        );
+      },
       home: () => backToRailway(),
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
@@ -1573,8 +1578,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }
     : undefined;
   const newGameSheet = new NewGameSheet(document.body);
-  // The title's New game and New map ask what the map's to be like first (the new-game sheet), then make it.
-  const title = new TitleScreen(document.body, { play: (next, fresh) => (fresh ? newGameSheet.open({ mode: next, start: (c) => play(next, true, c) }) : play(next, false)), loadCloud }, { thumbnails });
+  /**
+   * The new-game screen for a new map in `next` mode: its seed (`newMapSeed`: the starter map's for a first game), the
+   * dice's fresh ones, and what Start does with the choices and the seed.
+   */
+  function askNewMap(next: GameMode, warn: string | undefined, start: (c: NewGameChoices, seed: number) => void): void {
+    newGameSheet.open({ mode: next, seed: newMapSeed(next === "game"), roll: () => newMapSeed(false), warn, start });
+  }
+  // The title's New game and New map ask what the map's to be like first (the new-game screen), then make it.
+  const title = new TitleScreen(document.body, { play: (next, fresh) => (fresh ? askNewMap(next, undefined, (c, seed) => play(next, true, c, seed)) : play(next, false)), loadCloud }, { thumbnails });
 
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
   let pausedBeforeTitle = false;
@@ -6051,10 +6063,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** Game mode, in play: start again on the starter map with no goals done, with these hills (the new-game sheet's). */
-  function newGame(hills: Hilliness): void {
+  function newGame(choices: NewGameChoices, seed: number): void {
     resetGoals();
     saveLastBuilt("game", null);
-    setWorld(freshGameWorld(Math.random, hills));
+    setWorld(freshGameWorld(Math.random, choices, seed));
     syncPlaceStyles();
     townLife.reset();
     passengersOn();
@@ -6064,21 +6076,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** Leave the title for a mode: carry on with its railway, or start it afresh. */
-  function play(next: GameMode, fresh: boolean, choices: NewGameChoices = DEFAULT_CHOICES): void {
+  function play(next: GameMode, fresh: boolean, choices: NewGameChoices = DEFAULT_CHOICES, seed?: number): void {
     // From the opening screen: its toys go first, and the screen paints without them before a map is built (building
     // holds the page for a moment, and a toy canvas left showing through it can flash white).
     if (overOpening) {
       if (leaving) return;
       leaving = true;
       toys?.stop();
-      requestAnimationFrame(() => setTimeout(() => begin(next, fresh, choices), 0));
+      requestAnimationFrame(() => setTimeout(() => begin(next, fresh, choices, seed), 0));
       return;
     }
-    begin(next, fresh, choices);
+    begin(next, fresh, choices, seed);
   }
 
   /** Load or make the mode's world, and play. */
-  function begin(next: GameMode, fresh: boolean, choices: NewGameChoices = DEFAULT_CHOICES): void {
+  function begin(next: GameMode, fresh: boolean, choices: NewGameChoices = DEFAULT_CHOICES, seed?: number): void {
     interaction.guideSpots = [];
     leaving = false;
     if (fresh && next === "game") resetGoals();
@@ -6086,7 +6098,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh) {
       // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
       if (hasOlderSave(next)) loadFromStorage(next);
-      setWorld(next === "game" ? freshGameWorld(Math.random, choices.hills) : createWorld(Math.floor(Math.random() * 1_000_000), false, true, false, choices.hills));
+      setWorld(next === "game" ? freshGameWorld(Math.random, choices, seed ?? newMapSeed(true)) : createWorld(seed ?? newMapSeed(false), false, true, false, choices));
       restoreSession(next, false);
       cloud?.edited(next);
     } else if (next !== mode) {

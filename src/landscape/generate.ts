@@ -31,6 +31,7 @@ import {
   type PlotCoord,
 } from "./grid";
 import { hillLevel, LEGACY_HILLS, type Hilliness } from "./hills";
+import { LEGACY_WATER, type MapSettings, type Water } from "./water";
 import { valueNoise } from "./noise";
 import type { SecretPlan, SecretSite } from "./secrets";
 
@@ -152,6 +153,12 @@ export interface Landscape {
    * same way. Missing: a map from before the choice, whose hills are `LEGACY_HILLS` (the land as it was made then).
    */
   hills?: Hilliness;
+  /**
+   * How much water (rivers and lakes) the map has (chosen before a new game: `landscape/water.ts`), for its land not
+   * yet owned to be made the same way. Missing: a map from before the choice, whose water is `LEGACY_WATER`. (The sea is
+   * `coast`: null is a map without one.)
+   */
+  water?: Water;
   grid: LandscapeGrid;
   towns: Town[];
   /** Cells kept clear for track: station approaches (and the starter strip). */
@@ -267,28 +274,32 @@ export function corridorCells(land: Landscape): number[] {
 }
 
 /** The world a new game starts with: the start region, generated deterministically from a seed. */
-export function generateLandscape(seed: number, options: { starter?: boolean; coast?: boolean; starterTowns?: number; hills?: Hilliness } = {}): Landscape {
+export function generateLandscape(seed: number, options: { starter?: boolean; coast?: boolean; starterTowns?: number; hills?: Hilliness; water?: Water } = {}): Landscape {
   const starter = options.starter ?? false;
   const coast = options.coast === false ? null : coastOf(seed, starter);
-  return generateRegion(seed, START_REGION, { starter, shed: true, coast, starterTowns: options.starterTowns, hills: options.hills });
+  return generateRegion(seed, START_REGION, { starter, shed: true, coast, starterTowns: options.starterTowns, hills: options.hills, water: options.water });
 }
 
 /** A map's hills (`Landscape.hills`): an older map's, saved before the choice, as they were made then. */
 export const hillsOfLand = (land: Pick<Landscape, "hills">): Hilliness => land.hills ?? LEGACY_HILLS;
+/** A map's water (`Landscape.water`): an older map's, saved before the choice, as it was made then. */
+export const waterOfLand = (land: Pick<Landscape, "water">): Water => land.water ?? LEGACY_WATER;
+/** What a map was made with, for its code (`mapCode`): its seed, hills, water and whether it has the sea. */
+export const mapSettingsOf = (land: Landscape): MapSettings => ({ seed: land.seed, hills: hillsOfLand(land), water: waterOfLand(land), coast: !!land.coast });
 
 /** One plot of land, as it would be if added to a world with this seed (ids from 0: see `adoptRegion`). */
-export function generatePlot(seed: number, px: number, pz: number, coast: Coast | null = coastOf(seed), hills: Hilliness = LEGACY_HILLS): Landscape {
-  return generateRegion(seed, { px0: px, pz0: pz, w: 1, h: 1 }, { starter: false, shed: false, coast, hills });
+export function generatePlot(seed: number, px: number, pz: number, coast: Coast | null = coastOf(seed), hills: Hilliness = LEGACY_HILLS, water: Water = LEGACY_WATER): Landscape {
+  return generateRegion(seed, { px0: px, pz0: pz, w: 1, h: 1 }, { starter: false, shed: false, coast, hills, water });
 }
 
 /**
  * A rectangle of plots, deterministically from the seed and where it is (retrying internally until every town and
  * depot is reachable from the others and from the region's edge). Its edges meet the land either side: see `edges.ts`.
  */
-export function generateRegion(seed: number, region: Region, options: { starter: boolean; shed: boolean; coast?: Coast | null; starterTowns?: number; hills?: Hilliness }): Landscape {
+export function generateRegion(seed: number, region: Region, options: { starter: boolean; shed: boolean; coast?: Coast | null; starterTowns?: number; hills?: Hilliness; water?: Water }): Landscape {
   let last: Landscape | null = null;
   for (let attempt = 0; attempt < 20; attempt++) {
-    const land = attemptRegion(seed, region, options.starter, attempt, options.coast ?? null, options.starterTowns ?? STARTER_TOWNS, options.hills ?? LEGACY_HILLS);
+    const land = attemptRegion(seed, region, options.starter, attempt, options.coast ?? null, options.starterTowns ?? STARTER_TOWNS, options.hills ?? LEGACY_HILLS, options.water ?? LEGACY_WATER);
     if (reachable(land)) {
       if (options.shed) addShed(land);
       addFields(land, region);
@@ -327,7 +338,7 @@ function treeHere(seed: number, col: number, row: number): boolean {
 }
 
 
-function attemptRegion(seed: number, region: Region, starter: boolean, attempt: number, coastOfMap: Coast | null, starterTowns: number, hills: Hilliness): Landscape {
+function attemptRegion(seed: number, region: Region, starter: boolean, attempt: number, coastOfMap: Coast | null, starterTowns: number, hills: Hilliness, water: Water): Landscape {
   // A region well inland (the start region, mostly) skips the coast's sums square by square: none can reach it. (The
   // crossings on its edges still ask the map's coast, so they agree with the plots beside it.)
   // (Squares more than SAND + MAX_HEIGHT from the shore are neither sand, nor beach-bound hills, nor too near for a
@@ -431,7 +442,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
 
   // Rivers: crossing the region's edges where the edge contracts say, joined up inside. (The contracts still name
   // where country lanes used to cross; there are no generated roads between towns now, only town gates.)
-  const stubs = regionStubs(seed, region, coastOfMap);
+  const stubs = regionStubs(seed, region, coastOfMap, water);
   const rivers = stubs.inside.filter((s) => s.kind === "river");
   for (const stub of rivers) for (const [col, row] of stub.cells) grid.surface[grid.index(col, row)] = SURF_RIVER;
   joinRivers(grid, rivers, region, random, local, interior, locked);
@@ -456,7 +467,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   });
 
   // (A map's hills are saved only when chosen: a map without them is `LEGACY_HILLS`.)
-  return { seed, starter, ...(hills !== LEGACY_HILLS ? { hills } : {}), grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId, coast: coastOfMap, sites: [] };
+  return { seed, starter, ...(hills !== LEGACY_HILLS ? { hills } : {}), ...(water !== LEGACY_WATER ? { water } : {}), grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId, coast: coastOfMap, sites: [] };
 }
 
 /** How many buildings a new town is grown to, by where it is: a hamlet to a small town. */

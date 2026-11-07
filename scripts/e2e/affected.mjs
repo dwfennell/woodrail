@@ -45,7 +45,7 @@ export const SUITES = {
   "train-summary": { script: "e2e:train-summary", minutes: 8 },
   "not-loading": { script: "e2e:not-loading", minutes: 3 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
-  "new-game": { script: "e2e:new-game", minutes: 5 },
+  "new-game": { script: "e2e:new-game", minutes: 8 },
   civic: { script: "e2e:civic", minutes: 5 },
   "paint-picker": { script: "e2e:paint-picker", minutes: 4 },
   stickers: { script: "e2e:stickers" },
@@ -316,7 +316,7 @@ export const RULES = [
   // Power as sparks and the wind farm (late-game spec W1).
   [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
   // The new-game sheet and how hilly a map is (chosen before a new game, saved with the map).
-  [["src/ui/new-game.ts", "src/landscape/hills.ts", "src/landscape/generate.ts", "src/ui/title.ts", "src/ui/hud.ts", "src/persist/landscape-data.ts", "src/persist/landscape-schema.ts"], ["new-game", "tutorial"]],
+  [["src/ui/new-game.ts", "src/landscape/hills.ts", "src/landscape/water.ts", "src/landscape/edges.ts", "src/landscape/generate.ts", "src/ui/title.ts", "src/ui/hud.ts", "src/persist/landscape-data.ts", "src/persist/landscape-schema.ts"], ["new-game", "tutorial"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).
   ["src/test-setup.ts", []],
 ];
