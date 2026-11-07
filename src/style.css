@@ -623,6 +623,16 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-foot[hidden] { display: none; }
 .title-cloud { min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; background: rgba(250, 243, 230, 0.82); box-shadow: 0 4px 14px rgba(30, 20, 10, 0.25); font: inherit; font-weight: 800; font-size: 14px; color: #5c4632; cursor: pointer; }
 .title-cloud:hover { background: rgba(250, 243, 230, 0.95); }
+/* A railway in the cloud for this mode (cloud-known.ts `titleOffers`): under the card's buttons, its own look (a
+   sky-blue pill: not a third wood button), what it is and when it was saved on a line of its own. */
+.title-cloud-offer { margin-top: 8px; grid-column: 1 / -1; }
+.title-cloud-offer[hidden] { display: none; }
+.title-cloud-go { width: 100%; min-height: 48px; padding: 6px 14px; border: 0; border-radius: 14px; background: #dcebf3; box-shadow: inset 0 -2px 0 rgba(40, 80, 110, 0.18); font: inherit; font-weight: 800; font-size: 15px; color: #2e526a; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.title-cloud-go:hover:not(:disabled) { background: #cfe3ee; }
+.title-cloud-go:disabled { cursor: default; opacity: 0.7; }
+.title-cloud-go.busy { opacity: 0.6; }
+.title-cloud-when { font-weight: 600; font-size: 12.5px; color: #4f6f84; }
+.title-cloud-error { margin-top: 6px; text-align: center; font-size: 13px; font-weight: 700; color: #a3402c; }
 .title-screen .cloud-card { position: fixed; top: 50%; bottom: auto; transform: translate(-50%, -50%); }
 /* (A phone on its side has no room under the cards: the link sits in the empty top right corner instead.) */
 @media (max-height: 500px) { .title-foot { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); } }

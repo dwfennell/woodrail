@@ -691,6 +691,157 @@ suite.add(
   { about: "steps 9–10: Game mode on C and D: one town's growth is one offer; a reward taken on both pays once" },
 );
 
+// Cloud saves on by themselves, and the title's "Continue from cloud" (2026-11-07). F, a phone: a new map, nothing sent;
+// a piece laid from the tray turns them on (a code made for it), and its railway goes up with the next round. G's
+// code typed in on F: F's own code is remembered, and the title offers its railway back ("Continue from cloud"), which a
+// tap takes. A remembered code with nothing under it goes from the title once asked; offline, a tap says so and nothing
+// changes; Turn off: nothing offered, and a piece laid doesn't turn it on again. Pictures: docs/agents/shots/cloud-auto-*.
+const SHOTS = new globalThis.URL("../../docs/agents/shots/", import.meta.url).pathname;
+suite.add(
+  "auto",
+  async () => {
+    const { shot, quiet } = await import("./lib/shot.mjs");
+    const phone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 };
+    const ctxF = await newContext(phone);
+    const f = await device(ctxF);
+    const meta = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("woodrail.cloud.v1") ?? "null"));
+    const known = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("woodrail.cloud.known.v1") ?? "[]"));
+    await f.evaluate(() => (window.woodrail.paused = true));
+    await menu(f, "New map");
+    await f.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    await autosaved(f);
+    check("auto: a new map alone doesn't turn cloud saves on", !(await meta(f))?.code, JSON.stringify(await meta(f)));
+
+    // A piece from the tray, laid by a finger: the player's first build.
+    const cdp = await ctxF.newCDPSession(f);
+    const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+    const before = await f.evaluate(() => [...window.woodrail.layout.pieceIds()].length);
+    for (let attempt = 0; attempt < 3 && !(await f.evaluate(() => window.woodrail.editor().canUndo)); attempt++) {
+      const from = await f.evaluate(() => {
+        const e = document.querySelector('.scroller .tray-item[data-key="piece:straight-144"]');
+        if (!e) return null;
+        const r = e.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      });
+      if (!from) throw new Error(`no tray item: ${await f.evaluate(() => document.querySelector(".tray")?.textContent)}`);
+      const to = [{ x: 195, y: 330 }, { x: 120, y: 450 }, { x: 260, y: 250 }][attempt];
+      await touch("touchStart", from.x, from.y);
+      for (let k = 1; k <= 20; k++) {
+        await touch("touchMove", from.x + ((to.x - from.x) * k) / 20, from.y + ((to.y - from.y) * k) / 20);
+        await f.waitForTimeout(30);
+      }
+      await f.waitForTimeout(300);
+      await touch("touchEnd", 0, 0);
+      await f.waitForTimeout(1000);
+    }
+    const laid = (await f.evaluate(() => [...window.woodrail.layout.pieceIds()].length)) > before && (await f.evaluate(() => window.woodrail.editor().canUndo));
+    check("auto: a piece laid from the tray", laid);
+    await f.waitForFunction(() => !!JSON.parse(localStorage.getItem("woodrail.cloud.v1") ?? "null")?.code, null, { timeout: 10000 }).catch(() => {});
+    const codeF = (await meta(f))?.code;
+    check("auto: …turns cloud saves on, a code made for this device", /^[a-z]{3,5}-[a-z]{3,5}-[a-z]{3,5}-\d{4}$/.test(codeF ?? ""), JSON.stringify(await meta(f)));
+    let rf = await remote(codeF);
+    for (let i = 0; i < 160 && rf.status !== 200; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+      rf = await remote(codeF);
+    }
+    check("auto: …and the railway goes up on the next round (30 s), not at once", rf.status === 200, JSON.stringify(rf));
+    await menu(f, "Cloud save");
+    await f.waitForFunction(() => /Saved online/.test(document.querySelector(".cloud-status")?.textContent ?? ""), null, { timeout: 15000 }).catch(() => {});
+    const onCard = await card(f);
+    check("auto: the card shows the code, saved online by itself", onCard.includes(codeF.replace(/-/g, " ")) && /saves online by itself/.test(onCard) && /Saved online/.test(onCard), onCard);
+    await quiet(f, 30_000);
+    await shot(f, `${SHOTS}cloud-auto-card.jpg`, { type: "jpeg", quality: 80 });
+    await tap(f, "Done");
+    const seedF = await seed(f);
+    const remembered = (await known(f)).find((k) => k.code === codeF);
+    check("auto: the code is remembered, with its railway's pieces", /\d+ pieces?/.test(remembered?.modes?.sandbox?.desc ?? ""), JSON.stringify(remembered));
+
+    // G: a code of its own (turned on by hand), with a railway of its own.
+    const ctxG = await newContext({ viewport: { width: 1280, height: 800 } });
+    const g = await device(ctxG);
+    await g.evaluate(() => (window.woodrail.paused = true));
+    await menu(g, "New map");
+    await g.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    await autosaved(g);
+    await menu(g, "Cloud save");
+    await tap(g, "Turn on");
+    await g.waitForFunction(() => /Saved online/.test(document.querySelector(".cloud-status")?.textContent ?? ""), null, { timeout: 30000 });
+    const codeG = (await meta(g)).code;
+    const seedG = await seed(g);
+    await ctxG.close();
+
+    // F takes G's code: its own railway kept aside, and its own code remembered.
+    await menu(f, "Cloud save");
+    await tap(f, "Load a save from another device");
+    await f.fill(".cloud-input", codeG.replace(/-/g, " "));
+    const reloaded = f.waitForEvent("load", { timeout: 60000 });
+    await tap(f, "Load");
+    await reloaded;
+    await inSandbox(f);
+    check("auto: F carries on with G's railway", (await seed(f)) === seedG, `F ${await seed(f)}; G ${seedG}`);
+
+    // The title (the page opened afresh): F's own railway offered back from the cloud, without asking the cloud first.
+    await f.goto(URL);
+    await f.waitForFunction(() => !!window.woodrail && window.woodrail.title.shown && !window.woodrail.title.root.classList.contains("placing"), null, { timeout: 180000 });
+    const offer = await f.evaluate(() => {
+      const b = document.querySelector(".title-card.mode-sandbox .title-cloud-go");
+      const q = b?.getBoundingClientRect();
+      return b && !b.closest("[hidden]") ? { text: b.textContent, code: b.dataset.code, h: q.height, inside: q.left >= 0 && q.right <= innerWidth && q.bottom <= innerHeight + 1 } : null;
+    });
+    check("title: “☁ Continue from cloud” on Sandbox's card, what it is and when (a finger's height)", !!offer && /Continue from cloud/.test(offer.text) && /\d+ pieces?, saved /.test(offer.text) && offer.code === codeF && offer.h >= 44, JSON.stringify(offer));
+    check("title: …and Continue still opens this device's own (G's) railway", await f.evaluate(() => !document.querySelector(".title-card.mode-sandbox .title-buttons button").hidden));
+    await shot(f, `${SHOTS}cloud-auto-title.jpg`, { type: "jpeg", quality: 80 });
+
+    // Offline: a tap says so on the card, and nothing changes.
+    const g0 = await f.evaluate(() => localStorage.getItem("woodrail.autosave.v3"));
+    await ctxF.setOffline(true);
+    await f.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-cloud-go").click());
+    await f.waitForFunction(() => /Can't reach the cloud/.test(document.querySelector(".title-cloud-error")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
+    const offlineSaid = await f.evaluate(() => ({ said: document.querySelector(".title-cloud-error")?.textContent ?? null, title: window.woodrail.title.shown, code: JSON.parse(localStorage.getItem("woodrail.cloud.v1")).code }));
+    check("title offline: a tap says it can't reach the cloud, and nothing changes", /Can't reach the cloud/.test(offlineSaid.said ?? "") && offlineSaid.title && offlineSaid.code === codeG && (await f.evaluate(() => localStorage.getItem("woodrail.autosave.v3"))) === g0, JSON.stringify(offlineSaid));
+    await ctxF.setOffline(false);
+
+    // Online: a tap takes F's code up again, and the game starts on its railway (G's kept aside, to restore).
+    const back = f.waitForEvent("load", { timeout: 60000 });
+    await f.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-cloud-go").click());
+    await back;
+    await inSandbox(f);
+    check("title: Continue from cloud carries on with F's own railway again", (await seed(f)) === seedF && (await meta(f)).code === codeF, `F ${await seed(f)} (want ${seedF}); code ${(await meta(f)).code}`);
+    check("…G's railway kept aside, to restore", await f.evaluate(() => localStorage.getItem("woodrail.cloud.backup.sandbox") !== null));
+
+    // A code remembered with nothing under it (gone): offered at first, then gone once the cloud's been asked.
+    await f.evaluate(() => {
+      const k = JSON.parse(localStorage.getItem("woodrail.cloud.known.v1"));
+      k.push({ code: "zebra-zebra-zebra-0001", usedAt: 1, modes: { game: { savedAt: Date.now(), saveVersion: 1, desc: "3 pieces" } } });
+      localStorage.setItem("woodrail.cloud.known.v1", JSON.stringify(k));
+    });
+    await f.goto(URL);
+    await f.waitForFunction(() => !!window.woodrail && window.woodrail.title.shown, null, { timeout: 180000 });
+    await f.waitForFunction(() => !JSON.parse(localStorage.getItem("woodrail.cloud.known.v1")).some((k) => k.code === "zebra-zebra-zebra-0001"), null, { timeout: 30000 }).catch(() => {});
+    const gone = await f.evaluate(() => ({ known: JSON.parse(localStorage.getItem("woodrail.cloud.known.v1")).map((k) => k.code), row: [...document.querySelectorAll(".title-cloud-go")].filter((b) => !b.closest("[hidden]")).map((b) => b.dataset.code) }));
+    check("title: a remembered code with nothing saved under it is forgotten once asked, and not offered", !gone.known.includes("zebra-zebra-zebra-0001") && !gone.row.includes("zebra-zebra-zebra-0001"), JSON.stringify(gone));
+    check("title: G's code (used before) is offered on Sandbox's card", gone.row.includes(codeG), JSON.stringify(gone));
+
+    // Turn off: nothing offered on the title, and the next piece laid doesn't turn it on again.
+    await inSandbox(f);
+    await menu(f, "Cloud save");
+    await tap(f, "Turn off");
+    await f.waitForTimeout(300);
+    await f.evaluate(() => [...document.querySelectorAll(".cloud-card:not(.stats-card) button")].find((b) => /Tap again/.test(b.textContent)).click());
+    check("Turn off: off, and the card says this device only", /saved on this device only/.test(await card(f)), await card(f));
+    await tap(f, "Done");
+    await f.evaluate(() => window.woodrail.interaction.onSwitched?.());
+    // (A layout edit the cheap way here: auto-on itself was tested above by a tray drop.)
+    await f.waitForTimeout(1000);
+    check("Turn off: an edit after doesn't turn it on again", !(await meta(f)).code && (await meta(f)).off === true, JSON.stringify(await meta(f)));
+    await f.goto(URL);
+    await f.waitForFunction(() => !!window.woodrail && window.woodrail.title.shown && !window.woodrail.title.root.classList.contains("placing"), null, { timeout: 180000 });
+    await f.waitForTimeout(2000);
+    check("Turn off: the title offers nothing from the cloud", await f.evaluate(() => [...document.querySelectorAll(".title-cloud-go")].every((b) => b.closest("[hidden]"))));
+  },
+  { about: "cloud saves on by themselves (a piece laid), the title's Continue from cloud, a gone code, offline, Turn off" },
+);
+
 await suite.run(async (_g, go) => {
   await boot();
   try {
