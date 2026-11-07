@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { engineStatus, engineView } from "../../game/engine-status";
+import { engineStatus } from "../../game/engine-status";
 import { ADV_OK, advanceCursor, createAdvance, markKey, SIM_HZ } from "../../sim";
 import { connectorRef } from "../../track";
-import { loadBugMap } from "../bugmap";
+import { describeBreak, loadBugMap, replayBugMap } from "../bugmap";
 import MAP from "./signal-green-held.txt?raw";
 import MAP_32 from "./signal-added-still-stuck.txt?raw";
 import type { World } from "../../game/world";
@@ -60,25 +60,20 @@ describe("issue #31: a train held at a signal's waiting point, a hair past its s
 });
 
 /**
- * Issue #32 (filed three minutes after #31, the same map with a signal pair added where the card said): all the trains
- * still stood. The hand-run hopper train (Hazel, engine 52, on no line) was in the ring: a signal can't help with one,
- * and a ring through signals never gave way. Now it turns round as in any ring (the bug maps' replay: every routed
- * train comes to its stops). Where it can't turn, the cards name it, the train to move, not "Add a signal".
+ * Issue #32 (filed three minutes after #31: the same map with a signal pair added at the sawmill, as the card said): all
+ * the trains still stood. The signal did its part: the timber train on the passing loop pulled right in, clear of the
+ * loop's points. But sections then sent the goods train (Yellow, engine 44) in behind it, onto the road it stood on
+ * (one it may follow out), with the loop's other road empty: its path signal stayed red for the timber train, which
+ * waited on the hand-run train, which waited on the next, round to Yellow. Now an empty road comes before one with a
+ * train to follow: the trains run, and none has to turn round.
  */
-describe("issue #32: a ring of waits through signals with a hand-run train in it", () => {
-  it("where the hand-run train can't turn round, the cards say it's in the way, not to add a signal", async () => {
+describe("issue #32: the map with the signal added, nobody giving way", () => {
+  it("the goods train takes the loop's empty road, and every routed train comes to its stops, none turning round", async () => {
     const { world } = await loadBugMap(MAP_32);
-    const { sim, economy } = world;
     noGivingWay(world);
-    for (let i = 0; i < 30 * SIM_HZ; i++) {
-      sim.tick();
-      economy.tick();
-    }
-    // (Each card names the hand-run train, Hazel (engine 52), as the one in the way: its Show finds it.)
-    for (const e of [30, 34, 44]) {
-      const v = engineView(sim, economy, e, () => "");
-      expect(v.status).toBe("Stuck: a train with no route is in the way. Move it or give it a route");
-      expect(v.blocker?.car).toBe(52);
-    }
+    const r = replayBugMap(world, { seconds: 300 });
+    expect(r.first && describeBreak(r.first)).toBeNull();
+    for (const engine of world.economy.lineIdOf.keys()) expect(r.arrivals.get(engine) ?? 0, `engine ${engine}`).toBeGreaterThanOrEqual(4);
+    expect(world.economy.stalls.gaveWay).toBe(0);
   }, 60_000);
 });
