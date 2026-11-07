@@ -411,6 +411,43 @@ the card says to add a loop.
   or the mill jam.
 - Slots carry the network with no signals, so a kid never needs one.
 
+### 3.12a Forgiving placement: never too particular about where a train stands
+
+**The user (2026-11-07, on #31's map):** "I feel like we are being too particular about exactly where our trains are
+positioned." In #31, a signal placed inside a loop road stopped a train with its tail over the points, and that made a
+real jam. Players lay track and signals roughly. The game makes them work, and the rules say so:
+
+- **A waiting point is a stretch, not a spot.** It's the length of plain track a train stands on clear of points: a
+  slot, a signal's approach, a one-way run (§3.3). Where on it the train's nose comes to rest doesn't matter.
+- **Tolerances are in train lengths and pieces, never millimetres.** A rule asks "does the train fit, clear of points,
+  with a piece to spare?". It never asks "is the nose within 6 mm of the joint?". No behaviour may hinge on fractions of
+  a millimetre: rounding in where a train came to rest must never decide whether it may go. That kind of rounding, and
+  stop points worked out to the millimetre, are #31's class.
+- **A train held at a signal stands clear of points.** If its tail would be over points behind it:
+  1. **Pull forward:** if the track past the signal, up to the next points, is free and fits the rest of the train, its
+     booking ends there instead (the signal is passed, shown green for it, and its card says so).
+  2. **Else stop short:** the booking ends at the last joint behind those points where the whole train fits, as if the
+     signal stood there. In effect the signal's stop point snaps back to where the train fits.
+  3. **Else the signal can't hold a train here:** for trains of that length it's passable (§3.6). Its card says why
+     ("Too close to the points to stop a train here") and the Signal tool's tint shows it while placing.
+- **Points are never a place to wait.** A booking never ends with a car over points or a crossing (§3.3). So a train
+  held anywhere blocks only the plain track it stands on. The shadow counts how often today's guards break this
+  (`held-on-points`, §4.1).
+- **Line ends and stops forgive too.** A train that fits a slot with room to spare stops anywhere in it. One a few mm
+  too long for a loop road isn't sent in to foul the far points: it's treated as not fitting (decided in pieces, with
+  `ROAD_MARGIN`), and its card says the loop is too short for it.
+- **Cases this covers:**
+  - a signal inside a loop road (audit B5, #31);
+  - a signal just past points;
+  - a signal on a short spur;
+  - a train a little longer than the gap between two signals;
+  - two signals on adjacent joints;
+  - a train coming to rest a hair past a stop point;
+  - a stop piece right beside points;
+  - a depot track shorter than the train.
+
+  In each the train ends up clear of points or isn't sent in, and nothing depends on where within a piece it stopped.
+
 ### 3.13 Phones' CPU budget
 
 - **Per train per tick:** one cap from a running distance, plus a piece-boundary check on the tail for release. That's

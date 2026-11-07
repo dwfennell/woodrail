@@ -67,11 +67,12 @@ const part = (r) => r.run.split(" ")[0];
 const totals = {};
 for (const r of runs) {
   const p = part(r);
-  totals[p] ??= { runs: 0, counts: {}, heldFreeBy: {}, refusedBy: {}, bookings: 0, ms: 0, ticks: 0, with: {} };
+  totals[p] ??= { runs: 0, counts: {}, heldFreeBy: {}, onPointsBy: {}, refusedBy: {}, bookings: 0, ms: 0, ticks: 0, with: {} };
   const t = totals[p];
   t.runs++;
   add(t.counts, r.counts);
   add(t.heldFreeBy, r.heldFreeBy);
+  add(t.onPointsBy, r.onPointsBy ?? {});
   add(t.refusedBy, r.refusedBy);
   t.bookings += r.bookings;
   t.ms += r.ms;
@@ -89,12 +90,13 @@ for (const [p, t] of Object.entries(totals)) {
   console.log(`\n${p}: ${t.runs} runs, ${(t.ticks / 120 / 60).toFixed(0)} game minutes`);
   for (const [k, v] of Object.entries(t.counts)) console.log(`  ${k.padEnd(15)} ${String(v).padStart(6)}  (in ${t.with[k] ?? 0} of ${t.runs} runs)`);
   if (Object.keys(t.heldFreeBy).length) console.log(`  held-free by what holds it today: ${sorted(t.heldFreeBy)}`);
+  if (Object.keys(t.onPointsBy).length) console.log(`  held-on-points by what holds it today: ${sorted(t.onPointsBy)}`);
   if (Object.keys(t.refusedBy).length) console.log(`  ran-unbooked and green-unbooked, by what met the booking: ${sorted(t.refusedBy)}`);
   console.log(`  shadow cost: ${t.bookings} bookings, ${((t.ms * 1000) / Math.max(1, t.bookings)).toFixed(1)} µs each, ${((t.ms * 1000) / Math.max(1, t.ticks)).toFixed(2)} µs a tick`);
 }
-const score = (r) => r.counts["held-free"] + r.counts["ran-unbooked"] + r.counts["shared-points"] + r.counts["green-unbooked"] + r.counts["red-booked"];
+const score = (r) => r.counts["held-free"] + r.counts["ran-unbooked"] + r.counts["shared-points"] + r.counts["green-unbooked"] + r.counts["red-booked"] + (r.counts["held-on-points"] ?? 0);
 const worst = [...runs].sort((a, b) => score(b) - score(a)).slice(0, 8);
-console.log(`\nworst runs (held-free + ran-unbooked + shared-points + green-unbooked + red-booked):`);
+console.log(`\nworst runs (held-free + ran-unbooked + shared-points + green-unbooked + red-booked + held-on-points):`);
 for (const r of worst) console.log(`  ${r.run}: ${score(r)} (${Object.entries(r.counts).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`).join(", ")})${r.first["held-free"][0] ? `; e.g. ${r.first["held-free"][0]}` : ""}`);
 console.log(`\nshadow report: ${runs.length} runs in ${((Date.now() - t0) / 60000).toFixed(1)} min; ${results.filter((r) => r.code !== 0).length} shards failed`);
 process.exit(results.some((r) => r.code !== 0) ? 1 : 0);

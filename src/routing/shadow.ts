@@ -30,6 +30,10 @@
  *   past it: the core would show it red.
  * - **red-booked:** a train standing at a red signal `HELD_FREE_S` whose booking goes past it: the core would show it
  *   clear.
+ * - **held-on-points:** a lever-on train standing `ON_POINTS_S`, not busy at a stop, with points or a crossing under it
+ *   (its tail over them, as a rule): where it stands it blocks every way through them (the user: "we are being too
+ *   particular about exactly where our trains are positioned"; #31). By what holds it today, and whether a signal is
+ *   just ahead of it (`onPointsBy`). The core never ends a booking with a train over points.
  * - **strayed:** a train's front came onto a piece off its last booking (it went another road at points than the core
  *   would have booked). Not a fault: how often the core's way and today's differ.
  */
@@ -40,7 +44,7 @@ import type { InvariantWorld } from "../sim/invariants";
 import { waysFrom } from "./graph";
 import { planChoice, planWay, ROUTE_COSTS } from "./plan";
 
-export const KINDS = ["held-free", "ran-unbooked", "shared-points", "shared-piece", "green-unbooked", "red-booked", "strayed"] as const;
+export const KINDS = ["held-free", "ran-unbooked", "shared-points", "shared-piece", "green-unbooked", "red-booked", "held-on-points", "strayed"] as const;
 export type Kind = (typeof KINDS)[number];
 
 /** Books afresh every this many ticks (as sections' asks: 10 a second). */
@@ -53,6 +57,8 @@ export const MAX_WALK = 80;
 const ROAD_SLACK = 2000;
 /** green-unbooked: a signal this near ahead of a train's front axle (mm) is the one it's at or coming to. */
 const SIGNAL_NEAR = 300;
+/** held-on-points: how long (s) a train stands over points before it's counted. */
+export const ON_POINTS_S = 2;
 /** How many tries (pieces walked, all roads) one booking may make. */
 const MAX_STEPS = 400;
 
@@ -95,6 +101,8 @@ interface Memo {
   runSaid: boolean;
   redStood: number;
   redSaid: boolean;
+  onPoints: number;
+  onPointsSaid: boolean;
   greenSaid: number;
   booked: Set<number>;
   shared: Set<string>;
@@ -106,6 +114,8 @@ export class ReservationShadow {
   readonly counts: Record<Kind, number> = Object.fromEntries(KINDS.map((k) => [k, 0])) as Record<Kind, number>;
   /** held-free by what holds the train today (its card's kind). */
   readonly heldFreeBy = new Map<string, number>();
+  /** held-on-points by what holds the train today (its card's kind), and "at signal" when a signal is just ahead. */
+  readonly onPointsBy = new Map<string, number>();
   /** ran-unbooked and green-unbooked by what the core's booking met (a train, a held signal, too far). */
   readonly refusedBy = new Map<string, number>();
   /** The first few of each kind, in words. */
@@ -180,7 +190,7 @@ export class ReservationShadow {
 
   private memoOf(key: number, now: number): Memo {
     let m = this.memo.get(key);
-    if (!m) this.memo.set(key, (m = { front: -1, stoodFree: 0, freeSaid: false, runSaid: false, redStood: 0, redSaid: false, greenSaid: 0, booked: new Set(), shared: new Set(), seen: now }));
+    if (!m) this.memo.set(key, (m = { front: -1, stoodFree: 0, freeSaid: false, runSaid: false, redStood: 0, redSaid: false, onPoints: 0, onPointsSaid: false, greenSaid: 0, booked: new Set(), shared: new Set(), seen: now }));
     m.seen = now;
     return m;
   }
@@ -301,6 +311,16 @@ export class ReservationShadow {
     return false;
   }
 
+  /** Has this train points or a crossing under it (any car)? */
+  private overPoints(t: Train): boolean {
+    for (const id of this.world.sim.piecesUnder(t.id)) {
+      const p = this.world.layout.getPiece(id);
+      const def = p && getPieceDef(p.type, p.flipped);
+      if (def && def.paths.length > 1 && !def.gated && !def.signal) return true;
+    }
+    return false;
+  }
+
   /** Rule 3: plain track (one path) every train seen on it has run the same way. */
   private oneWayPlain(pieceId: number): boolean {
     const p = this.world.layout.getPiece(pieceId);
@@ -334,6 +354,20 @@ export class ReservationShadow {
     } else {
       m.stoodFree = 0;
       m.freeSaid = false;
+    }
+    // held-on-points: standing held with points or a crossing under it.
+    if (standing && this.overPoints(t)) {
+      m.onPoints += CHECK_TICKS;
+      if (!m.onPointsSaid && m.onPoints >= ON_POINTS_S * SIM_HZ) {
+        m.onPointsSaid = true;
+        const atSignal = layout.signalCount > 0 && this.signalAhead(t, net >= 0) !== null;
+        const why = `${this.opts.why?.(t, engine) ?? "standing"}${atSignal ? " (at a signal)" : ""}`;
+        this.onPointsBy.set(why, (this.onPointsBy.get(why) ?? 0) + 1);
+        this.say("held-on-points", key, `${this.label(t)} stood ${ON_POINTS_S} s held (${why}) with points under it`, why);
+      }
+    } else {
+      m.onPoints = 0;
+      m.onPointsSaid = false;
     }
     // ran-unbooked: running between waiting points with no way on.
     const topo = topologyOf(layout, trainLength(t));
@@ -458,7 +492,8 @@ export class ReservationShadow {
     const kinds = KINDS.map((k) => `${k} ${this.counts[k]}`).join(", ");
     const by = [...this.heldFreeBy].map(([k, n]) => `${k} ${n}`).join(", ");
     const ref = [...this.refusedBy].map(([k, n]) => `${k} ${n}`).join(", ");
-    return `${kinds}${by ? `; held-free by ${by}` : ""}${ref ? `; refused by ${ref}` : ""}`;
+    const on = [...this.onPointsBy].map(([k, n]) => `${k} ${n}`).join(", ");
+    return `${kinds}${by ? `; held-free by ${by}` : ""}${on ? `; held-on-points by ${on}` : ""}${ref ? `; refused by ${ref}` : ""}`;
   }
 }
 

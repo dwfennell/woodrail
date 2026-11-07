@@ -26,7 +26,7 @@ const PARTS = new Set((ENV.SHADOW_PARTS ?? "plain,signals,ring,maps").split(",")
 const MAPS: Record<string, string> = Object.fromEntries(Object.entries(import.meta.glob("../play/bugmaps/*.txt", { query: "?raw", import: "default", eager: true }) as Record<string, string>).map(([k, v]) => [k.split("/").pop()!, v]));
 
 function line(run: string, s: ReservationShadow, ticks: number): void {
-  const out = { run, counts: s.counts, heldFreeBy: Object.fromEntries(s.heldFreeBy), refusedBy: Object.fromEntries(s.refusedBy), bookings: s.bookings, ms: Number(s.ms.toFixed(1)), ticks, first: s.first };
+  const out = { run, counts: s.counts, heldFreeBy: Object.fromEntries(s.heldFreeBy), onPointsBy: Object.fromEntries(s.onPointsBy), refusedBy: Object.fromEntries(s.refusedBy), bookings: s.bookings, ms: Number(s.ms.toFixed(1)), ticks, first: s.first };
   console.log(`SHADOW ${JSON.stringify(out)}`);
 }
 
