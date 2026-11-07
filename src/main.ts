@@ -139,7 +139,7 @@ import { hintSeen, loadChainHints, loadMuted, markHintSeen, saveChainHints, save
 import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game/chains";
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
-import { DEFAULT_CHOICES, NewGameSheet, type NewGameChoices } from "./ui/new-game";
+import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
@@ -596,7 +596,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lowerHills: () => setLowering(!lowering),
       clearRuin: () => clearShownRuin(),
       restoreRuin: () => restoreShownRuin(),
-      newGame: () => askNewMap("game", "Your railway and its goals start again.", (c, seed) => newGame(c, seed)),
+      // (What `newGame` really resets, `resetGoals` and a fresh map: the map, its track and trains, and the progress
+      // (coins, research, things owned), goals, stickers, tips and the Journal. Nothing of the game is kept.)
+      newGame: () => askNewMap("game", NEW_GAME_WARNING, (c, seed) => newGame(c, seed)),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
       copyMap: () => void copyMap(),

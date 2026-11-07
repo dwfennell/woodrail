@@ -3,7 +3,7 @@
 // Gentle picked, Start at the foot, each 44 px or more, nothing drawn while it's open); Mountainous picked and Back:
 // no game, the title back; New game again,
 // Flat and Start: a Game-mode map with no hills at its start, saved as Flat, its land kept after a reload (Continue);
-// ☰ New game asks with the screen (it says the railway starts again), Back returns to the game as it was; then on a
+// ☰ New game asks with the screen (saying in two lines what it ends), Back returns to the game as it was; then on a
 // phone on its side (844×390) the same screen with everything in reach; Mountainous and Start: a map with more hills than
 // before, kept after a reload; Sandbox's New map asks too ("Make the map"). Then the starting area of the first game
 // (the starter map, one seed) at each step, a picture each: Hilly (the land as it was), Gentle, Flat and Mountainous,
@@ -90,6 +90,8 @@ const sheet = (p) =>
       open: !s.hidden,
       title: s.querySelector(".new-game-title")?.textContent,
       warn: s.querySelector(".new-game-warn")?.hidden ? "" : s.querySelector(".new-game-warn")?.textContent,
+      // (How many lines the warning takes as drawn: its height over its line height.)
+      warnLines: (() => { const w = s.querySelector(".new-game-warn"); if (!w || w.hidden) return 0; const cs = getComputedStyle(w); return Math.round((w.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / parseFloat(cs.lineHeight)); })(),
       label: s.querySelector(".row-hills .new-game-label")?.textContent,
       blurb: s.querySelector(".row-hills .new-game-blurb")?.textContent,
       labels: [...s.querySelectorAll(".new-game-label")].map((e) => e.textContent),
@@ -201,7 +203,7 @@ const land = (p) =>
   await tap(p, ".hud button[title='Menu'], button[aria-label='Menu']");
   check("☰ New game is a tap", await tap(p, ".menu .menu-item", "New game"));
   s = await sheet(p);
-  check("…it asks with the screen: New game, saying the railway starts again", s.open && s.title === "New game" && /start again/.test(s.warn), JSON.stringify({ open: s.open, warn: s.warn }));
+  check("…it asks with the screen: New game, saying in two lines what it ends: the map, track and trains, and coins, research, goals and stickers", s.open && s.title === "New game" && /Ends this game: new map, no track or trains\.\nCoins, research, goals, stickers start over\./.test(s.warn) && s.warnLines === 2, JSON.stringify({ open: s.open, warn: s.warn, lines: s.warnLines }));
   await p.waitForTimeout(600);
   await p.screenshot({ path: `${OUT}/new-game-3-in-play.png` });
   await tap(p, ".new-game-back");
@@ -214,7 +216,7 @@ const land = (p) =>
   await tap(p, ".menu .menu-item", "New game");
   s = await sheet(p);
   const side = [s.back, s.start, s.seed, s.dice, ...s.all].filter((c) => c.t < 0 || c.b > 390 || c.l < 0 || c.r > 844 || c.h < 44);
-  check("on its side (844×390): the screen fills it, Back, the seed, every row's chips and Start all on it without a scroll, 44 px or more, the warning kept", s.open && s.card.w === 844 && s.card.h === 390 && side.length === 0 && s.bodyScroll <= 1 && /start again/.test(s.warn), JSON.stringify({ card: s.card, side, scroll: s.bodyScroll }));
+  check("on its side (844×390): the screen fills it, Back, the seed, every row's chips and Start all on it without a scroll, 44 px or more, the warning kept", s.open && s.card.w === 844 && s.card.h === 390 && side.length === 0 && s.bodyScroll <= 1 && /Ends this game: new map, no track or trains\.\nCoins, research, goals, stickers start over\./.test(s.warn) && s.warnLines >= 1 && s.warnLines <= 2, JSON.stringify({ card: s.card, side, scroll: s.bodyScroll, lines: s.warnLines }));
   await p.waitForTimeout(600);
   await p.screenshot({ path: `${OUT}/new-game-3b-in-play-sideways.png` });
   await tap(p, ".new-game-back");

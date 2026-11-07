@@ -645,7 +645,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .new-game-sheet .new-game-back { height: 48px; min-width: 104px; padding: 0 16px 0 12px; }
 .new-game-title { margin: 0; font-size: 26px; color: #4a3220; text-align: center; }
 .new-game-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: min(560px, 100%); margin: 0 auto; padding: 24px 2px 16px; display: flex; flex-direction: column; justify-content: flex-start; gap: 16px; }
-.new-game-warn { margin: 0; padding: 10px 12px; border-radius: 12px; text-align: center; font-weight: 800; font-size: 15px; color: var(--warn-ink); background: rgba(176, 57, 31, 0.08); }
+.new-game-warn { margin: 0; padding: 9px 8px; border-radius: 12px; text-align: center; font-weight: 800; font-size: 14px; line-height: 1.35; white-space: pre-line; color: var(--warn-ink); background: rgba(176, 57, 31, 0.08); }
 .new-game-warn[hidden] { display: none; }
 .new-game-rows { display: flex; flex-direction: column; gap: 22px; }
 .new-game-row { display: flex; flex-direction: column; gap: 10px; }
@@ -687,7 +687,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .new-game-pic { width: 30px; height: 17px; }
   .new-game-blurb { font-size: 13px; min-height: 0; }
   .new-game-seed, .new-game-sheet .new-game-dice { height: 46px; }
-  .new-game-warn { padding: 6px 10px; font-size: 14px; }
+  /* (Wide enough to say it in one line: its two sentences side by side.) */
+  .new-game-warn { padding: 5px 10px; font-size: 14px; white-space: normal; }
   .new-game-sheet .new-game-foot .new-game-start { height: 48px; }
 }
 @media (prefers-reduced-motion: reduce) { .new-game-sheet:not([hidden]) { animation: none; } }

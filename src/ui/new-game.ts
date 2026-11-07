@@ -97,6 +97,9 @@ function safeStorage(): Storage | null {
   }
 }
 
+/** Said when ☰ New game is opened in play: what starting now ends (two lines on a phone). */
+export const NEW_GAME_WARNING = "Ends this game: new map, no track or trains.\nCoins, research, goals, stickers start over.";
+
 export interface NewGameAsk {
   mode: GameMode;
   /** The seed the new map would have (`newMapSeed`): shown, and the player may roll or type another. */
