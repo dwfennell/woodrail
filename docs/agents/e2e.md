@@ -176,7 +176,7 @@ The jobs:
 
 - **plan + build**: merges main (a conflict fails here, naming the files), then `node scripts/e2e/ci.mjs plan`: the
   suites from `scripts/e2e/affected.mjs origin/main --json` plus `SMOKE` (or the ones given, or all), split into shards
-  of about 9 minutes each, at most 16, longest first onto the least loaded shard. A grouped suite over 8 minutes is
+  of about 9 minutes each, at most 12 (GitHub Free runs 20 jobs at once across the account; other branches and Pages share them), longest first onto the least loaded shard. A grouped suite over 8 minutes is
   split by its groups (`E2E_ONLY`); a shard's units of one suite run as one invocation. Durations are rough, from
   `scripts/e2e/durations.json`. It also runs `npm run build` (typecheck + vite) once; a shard that needs `dist/`
   (e2e:tray) downloads it instead of building.

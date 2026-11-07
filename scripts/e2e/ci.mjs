@@ -102,9 +102,9 @@ async function plan() {
   }
   const work = units.reduce((t, u) => t + u.seconds, 0);
   const overhead = d.overhead ?? 45;
-  // About 9 minutes of tests a shard, at most --shards (16): a small batch on few runners (each pays a minute or two
+  // About 9 minutes of tests a shard, at most --shards (12: GitHub Free runs 20 jobs at once across the account, shared with other branches and Pages): a small batch on few runners (each pays a minute or two
   // to start), a wide one on many.
-  const max = Number(opt("shards", "16")) || 16;
+  const max = Number(opt("shards", "12")) || 12;
   const n = Math.max(1, Math.min(max, Math.ceil(work / 540), units.length));
   // Longest first, each to the least loaded shard (a suite's first unit on a shard pays its start-up).
   const shards = Array.from({ length: n }, () => ({ load: 0, units: [] }));
