@@ -78,7 +78,7 @@ def post_office(k):
     # Envelope sign.
     g.add(k.box(k.paint(TOY.white), 2, 9, 14, 0.4, 28, 40, 0))
     for s in (-1, 1):
-        flap = k.box(k.paint(TOY.red), 2.4, 0.8, 8.4, 0.2, 28.2, 46, s * 3.4)
+        flap = k.box(k.paint(TOY.red), 2.4, 0.8, 8.4, 0.2, 28.3, 46, s * 3.4)  # (its back off the box's)
         flap.rotation.x = s * 0.6
         g.add(flap)
     # Pillar box.
@@ -177,7 +177,7 @@ def church(k):
     g.add(k.at(door, 43.2, 0, 0, math.pi / 2))
     # Detail: a stone step under the arched door.
     g.add(k.box(k.paint(STONE), 4, 1.2, 16, 0.4, 45, 0, 0))
-    g.add(k.cylX(k.paint(TOY.blue), 6, 1.6, 43.2, 40, 0, 20), k.cylX(k.paint(TOY.yellow), 2.2, 2, 43.4, 40, 0, 12))
+    g.add(k.cylX(k.paint(TOY.blue), 6, 1.6, 43.2, 40, 0, 20), k.cylX(k.paint(TOY.yellow), 2.2, 2, 43.5, 40, 0, 12))  # (its back off the disc's)
     for z in (-5, 5):
         g.add(k.box(k.paint(WIN), 1.6, 10, 4, 0.4, 43, 56, z))
     return g

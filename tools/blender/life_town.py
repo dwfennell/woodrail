@@ -179,7 +179,7 @@ def band_stage(k):
         hold(a, rod(k, k.wood, (0, 0, 0), (4, -1.5, -s * 2), 0.3, 0.25), 0, 0, 0)
         d.add(a)
     d.add(
-        k.cyl(k.paint(TOY.blue), 4, 4.4, 8, 2.6, 0, 4, 20),
+        k.cyl(k.paint(TOY.blue), 4, 4.2, 8, 2.6, 0, 4, 20),  # (its top under the rim's, not level with it)
         k.cyl(k.paint(TOY.white), 4.2, 0.6, 8, 2.6, 0, 4.2, 20),
         k.cyl(k.paint(TOY.white), 4.2, 0.6, 8, 6.4, 0, 4.2, 20),
         k.cyl(k.paint(TOY.cream), 3.7, 0.2, 8, 7, 0, 3.7, 20),

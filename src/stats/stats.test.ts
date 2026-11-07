@@ -123,3 +123,31 @@ describe("hostOf and deviceOf", () => {
     expect(deviceOf(true, 820)).toBe("tablet");
   });
 });
+
+describe("Stats: railway snapshots' consent", () => {
+  it("the one question's yes covers snapshots, and a no turns both off", () => {
+    const { stats, store } = setup();
+    expect(stats.shareMaps).toBe(false);
+    stats.setConsent(true);
+    expect(stats.shareMaps).toBe(true);
+    expect(stats.shouldAsk).toBe(false);
+    expect(stats.deviceId()).toBe("0123456789abcdef");
+    stats.setConsent(false);
+    expect(stats.shareMaps).toBe(false);
+    expect(stats.deviceId()).toBeNull();
+    expect(store.get("woodrail.stats.maps")).toBe("no");
+  });
+
+  it("a yes from before snapshots is asked once more, and can keep to stats", () => {
+    const { stats, store, deps } = setup();
+    store.set("woodrail.stats", "yes");
+    const again = new Stats(deps);
+    expect(again.shouldAsk).toBe(true);
+    expect(again.asksAboutMaps).toBe(true);
+    again.setMaps(false);
+    expect(again.shouldAsk).toBe(false);
+    expect(again.shareMaps).toBe(false);
+    expect(again.consent).toBe("yes");
+    expect(stats.shareMaps).toBe(false);
+  });
+});

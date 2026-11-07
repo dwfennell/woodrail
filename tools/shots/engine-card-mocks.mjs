@@ -66,7 +66,7 @@ async function common(p) {
     paint.textContent = "🎨 Paint";
     const summary = card.querySelector(".engine-summary");
     const empty = card.querySelector(".empty-all");
-    empty.textContent = "🗑 Throw away";
+    empty.textContent = "🗑 Delete cargo";
     const load = document.createElement("div");
     load.className = "m-load";
     summary.replaceWith(load);
@@ -166,7 +166,7 @@ export default async function (p, shot0, setup) {
   const opt = process.env.OPT ?? "a";
   if (opt === "a") {
     // A: one column, every option shown, in bands by purpose: status and its fix; Go/Stop, Leave now and the way; the
-    // line; the load and Throw away; the train's tools with Remove apart.
+    // line; the load and Delete cargo; the train's tools with Remove apart.
     await style(p, "");
     await common(p);
     await toolsRow(p, ".m-load");
@@ -180,7 +180,7 @@ export default async function (p, shot0, setup) {
     await noLine(p, setup.engine);
     await shot("engine-card-a-4-no-line");
   } else {
-    // B: shorter. The load a line under the name, Throw away at its end; the train's tools a quieter row of flat chips,
+    // B: shorter. The load a line under the name, Delete cargo at its end; the train's tools a quieter row of flat chips,
     // Remove last.
     await style(p, `
 .mock .m-load { margin-top: -6px; }
