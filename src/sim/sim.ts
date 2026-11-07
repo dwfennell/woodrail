@@ -70,6 +70,13 @@ const SIGNAL_LOOK = 300;
 const SIGNAL_STEP = 12;
 /** A train stands with its nose this far (mm) short of a red mark's joint (as sections' `STAND_SHORT`). */
 const MARK_STAND = 6;
+/**
+ * A standing train this little (mm) past a signal's stop point is standing at it, not passing it. Sections stand a
+ * train held at a signal's waiting point exactly at the stop point (`STAND_SHORT`), and its last braking step (or the
+ * first tick after a load) can leave its nose a hair past: read as passing, the signal showed clear for it while
+ * sections held it (issue #31: "the signal ahead of it is green").
+ */
+const STAND_SLOP = 2;
 /** A block runs on through at most this many pieces (a loop with no signal in it ends somewhere). */
 const MAX_BLOCK = 64;
 /**
@@ -2232,6 +2239,8 @@ export class Sim {
     const c: Cursor = { ...train.bogies[0] };
     let walked = 0;
     let passed = 0;
+    // (Standing: at a stop point it's a hair past, it's at that signal (`STAND_SLOP`).)
+    const standing = Math.abs(train.speed) < 1;
     for (let k = 0; walked <= SIGNAL_LOOK; k++) {
       const piece = c.pieceId;
       if (k > 0) {
@@ -2248,6 +2257,7 @@ export class Sim {
         let dist = -1;
         if (c.s <= stopAt) dist = walked + stopAt - c.s;
         else if (k > 0 && c.pieceId !== piece) dist = walked - (c.s - stopAt);
+        else if (k === 0 && standing && c.s <= stopAt + STAND_SLOP) dist = 0;
         const red = g && dist >= 0 ? this.redFor(train, g) : null;
         if (red) return { key: g!.key, dist, by: red.by };
         // (A path signal it's passing, past its stop point: shown clear for it.)
@@ -2259,7 +2269,7 @@ export class Sim {
         if (key !== undefined && key !== passed) {
           // (Past the stop point where the axle stands: it's too late to stand short; look on.)
           const dist = walked + pathLength(def.paths[c.pathIndex].geom) - c.s - markStand;
-          if (k === 0 && dist < 0) {
+          if (k === 0 && dist < (standing ? -STAND_SLOP : 0)) {
             passed = key;
             if (this.signalByKey.get(key)!.junction) this.passing(key);
           } else {
