@@ -134,11 +134,12 @@ const snap = async (name) => {
  * A place for a case: where the game's own track rules clear the ground line and the ramp (a setup shortcut: where
  * to build). `lower`: the ground line's pieces relative to (X, Z); `ramp`: the ramp's pose relative to (X, Z).
  */
-const build = (lower, ramp, extra = [], clear = []) =>
+const build = (lower, ramp, extra = [], clear = [], dig = []) =>
   p.evaluate(
-    async ([lower, ramp, extra, clear]) => {
+    async ([lower, ramp, extra, clear, dig]) => {
       const w = window.woodrail;
       const { trackBlock } = await import("/src/game/track-rules.ts");
+      const { planUnderpass } = await import("/src/game/underpass-dig.ts");
       const rules = w.interaction.rules;
       const at = (q, X, Z) => ({ ...q, pose: { x: X + q.pose.x, z: Z + q.pose.z, heading: q.pose.heading }, y: q.y ?? 0, flipped: q.flipped ?? false });
       const t = w.controls.target;
@@ -155,12 +156,23 @@ const build = (lower, ramp, extra = [], clear = []) =>
           const lo = w.editor().placeRun(all.slice(0, -1));
           const r = w.editor().place(ramp.type, at(ramp, X, Z).pose, ramp.y ?? 0, ramp.flipped ?? false);
           const more = extra.map((q) => w.editor().place(q.type, at(q, X, Z).pose, q.y ?? 0, q.flipped ?? false));
+          // (Where the case digs an underpass, the game's own plan for it there (flat open ground under the bridge, by
+          // the line just laid): else taken up again and the next spot tried. Without it, the spot found depended on
+          // where the groups before had left the camera, and on CI after diagonal's it was rough ground: refused.)
+          const ok = dig.every((q) => {
+            const b = at(q, X, Z);
+            return planUnderpass(rules, b.type, b.flipped, b.pose, b.y, -1)?.kind === "dig";
+          });
+          if (!ok) {
+            for (const id of [...more, r, ...lo].reverse()) if (typeof id === "number" && id >= 0) w.editor().remove(id);
+            continue;
+          }
           return { X, Z, lo, ramp: r, more };
         }
       }
       return null;
     },
-    [lower, ramp, extra, clear],
+    [lower, ramp, extra, clear, dig],
   );
 
 /** The ramp's top end, in the world. */
@@ -447,10 +459,11 @@ suite.add("laid-under", async () => {
 // up and digs an underpass under it (no longer red, "go two levels up").
 suite.add("draw-ramp", async () => {
   // (The drawn bridge's way across clear of other track: under it, only the line.)
-  const at = await build(LINE, { type: "ramp", pose: { x: 540, z: -252, heading: Math.PI / 2 } }, [], [
+  const across = [
     { type: "bridge", pose: { x: 540, z: -108, heading: Math.PI / 2 }, y: 48 },
     { type: "bridge", pose: { x: 540, z: 108, heading: Math.PI / 2 }, y: 48 },
-  ]);
+  ];
+  const at = await build(LINE, { type: "ramp", pose: { x: 540, z: -252, heading: Math.PI / 2 } }, [], across, [across[0]]);
   if (!at) check("draw: room for it", false);
   else {
     const top = await rampTop(at.ramp);

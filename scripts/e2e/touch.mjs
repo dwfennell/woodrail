@@ -1746,6 +1746,11 @@ async function leverDefault(ctx, p) {
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
   await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
+  // (And loaded and settled, as a page `openMode` opens is, before the groups after this one use the page: its tray came
+  // before the loading screen went, and on CI turntable-taps' first tap, next, landed on that screen, the deck not turned.)
+  await p.waitForFunction(() => !!document.querySelector("#loading.done"), null, { timeout: 180000 }).catch(() => {});
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await frames(p);
   const s3 = await p.evaluate((id) => ({ there: !!window.woodrail.layout.getPiece(id), way: window.woodrail.layout.switchState(id), def: window.woodrail.economy.router.defaultOf(id) }), id);
   // (Since routing step 4, points off their default that no train holds go back to it at routing's first look after a
   // load: lying as saved, or already back to the tap's way.)

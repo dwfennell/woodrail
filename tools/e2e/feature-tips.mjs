@@ -373,10 +373,22 @@ if (!setup.error) {
   await settle();
   await p.waitForTimeout(1500);
   await settle();
+  // (What asks for a frame meanwhile, for a failure's detail.)
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.__asked = [];
+    for (const k of ["invalidate", "redraw"]) {
+      const real = w[k].bind(w);
+      w[k] = (...a) => {
+        w.__asked.push(`${k}: ${new Error().stack.split("\n").slice(2, 5).join(" < ").replace(/\s+/g, " ")}`);
+        return real(...a);
+      };
+    }
+  });
   const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
   await p.waitForTimeout(2000);
   const idle = (await p.evaluate(() => window.woodrail.framesDrawn)) - f0;
-  check("idle: no frames drawn over 2 s", idle === 0, `${idle} frames`);
+  check("idle: no frames drawn over 2 s", idle === 0, `${idle} frames ${JSON.stringify(await p.evaluate(() => window.woodrail.__asked))}`);
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));

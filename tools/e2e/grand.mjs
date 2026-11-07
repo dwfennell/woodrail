@@ -496,11 +496,20 @@ await p.evaluate(() => {
   w.progress().coins = Math.max(w.progress().coins, 1500);
   w.hud.setCoins(w.progress().coins);
 });
+await closeSheets();
 await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
 await p.waitForTimeout(900);
 check("9. Grand Central: Larkfield's card offers it", (await p.evaluate(() => !!document.querySelector('.grand-tile.build[data-grand="central"]'))) === true);
-await tap('.grand-tile[data-grand="central"] .place-btn');
-await p.waitForFunction(() => window.woodrail.world.economy.grandPlans.has("central"), null, { timeout: 30000 }).catch(() => {});
+// (As the other projects: a sheet come up late over the card (the wheel's month on) is shut, and the tap made again.)
+for (let attempt = 0; attempt < 2; attempt++) {
+  if (attempt > 0) {
+    await closeSheets();
+    await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
+    await p.waitForTimeout(900);
+  }
+  await tap('.grand-tile[data-grand="central"] .place-btn');
+  if (await p.waitForFunction(() => window.woodrail.world.economy.grandPlans.has("central"), null, { timeout: 30000 }).then(() => true, () => false)) break;
+}
 const kitOwned = await p.evaluate(() => window.woodrail.progress().owned.get("piece:kit-grand-central-1") ?? 0);
 check("9. Grand Central: Build gives its kit into the toy box", kitOwned === 1, String(kitOwned));
 await p.evaluate(() => window.woodrail.hud.hideCards?.());
@@ -542,18 +551,25 @@ const spot = await p.evaluate((townId) => {
   return null;
 }, town.id);
 check("9. Grand Central: there's a clear spot for it by Larkfield", !!spot, JSON.stringify(spot));
+let from = null;
 if (spot) {
   await p.evaluate((v) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, 0, v.z), 1500, { duration: 0.1, phi: 0.9 }), spot);
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
   await settle();
-  await clickText(".tabs button", "Industries");
-  await clickText(".tray-item.tray-group", "Stations");
-  const from = await p.evaluate(() => {
-    const el = document.querySelector(".tray-item[data-key='piece:kit-grand-central-1']");
-    el.scrollIntoView({ inline: "center" });
-    const r = el.getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-  });
+  // (The shelf opened again till the tile shows: the tab redraws itself once its prop shelves come in.)
+  for (let attempt = 0; attempt < 3 && !from; attempt++) {
+    await clickText(".tabs button", "Industries");
+    await clickText(".tray-item.tray-group", "Stations");
+    from = await p.evaluate(() => {
+      const el = document.querySelector(".tray-item[data-key='piece:kit-grand-central-1']");
+      if (!el) return null;
+      el.scrollIntoView({ inline: "center" });
+      const r = el.getBoundingClientRect();
+      return r.width > 0 ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+    });
+  }
+}
+if (spot && from) {
   const to = await p.evaluate((v) => {
     const w = window.woodrail;
     const c = new w.camera.position.constructor(v.x, 0, v.z).project(w.camera);
