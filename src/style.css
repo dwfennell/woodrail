@@ -633,26 +633,40 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .title-buttons { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) { .title-screen:not([hidden]), .title-logo .wb { animation: none; } }
-/* The new-game sheet (src/ui/new-game.ts): what the next map's to be like, a row a choice, over the title or the map. */
-.new-game-shade { position: fixed; inset: 0; z-index: 70; background: rgba(40, 28, 16, 0.35); }
-.new-game-shade[hidden] { display: none; }
-.card.new-game-sheet { position: fixed; z-index: 71; top: 50%; bottom: auto; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px)); max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; align-items: stretch; gap: 12px; padding: 18px 18px 18px; border-radius: 20px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); }
+/* The new-game screen (src/ui/new-game.ts): a page of its own over the title or the map, as the title is. Back top
+   left; the rows (a row a choice) in the middle, scrolling if they ever outgrow it; Start at the foot, in a thumb's
+   reach. Its own wood, opaque: the map behind it doesn't show through. */
+.new-game-sheet { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--wood-panel); padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
 .new-game-sheet[hidden] { display: none; }
-.new-game-sheet > .card-title { font-size: 22px; color: #4a3220; text-align: center; }
-.new-game-warn { margin: -4px 0 0; text-align: center; font-weight: 700; font-size: 14px; color: var(--warn-ink); }
+.new-game-sheet:not([hidden]) { animation: title-in 0.25s ease-out; }
+.new-game-head { flex: none; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; width: min(560px, 100%); margin: 0 auto; }
+/* (The title centred on the page: an empty column the size of Back on its right.) */
+.new-game-head::after { content: ""; display: block; width: 104px; }
+.new-game-sheet .new-game-back { height: 48px; min-width: 104px; padding: 0 16px 0 12px; }
+.new-game-title { margin: 0; font-size: 26px; color: #4a3220; text-align: center; }
+.new-game-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: min(560px, 100%); margin: 0 auto; padding: 24px 2px 16px; display: flex; flex-direction: column; justify-content: flex-start; gap: 16px; }
+.new-game-warn { margin: 0; padding: 10px 12px; border-radius: 12px; text-align: center; font-weight: 800; font-size: 15px; color: var(--warn-ink); background: rgba(176, 57, 31, 0.08); }
 .new-game-warn[hidden] { display: none; }
-.new-game-rows { display: flex; flex-direction: column; gap: 14px; }
-.new-game-row { display: flex; flex-direction: column; gap: 8px; }
-.new-game-label { font-weight: 800; font-size: 15px; color: #6a4a2c; }
-.new-game-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.chip.new-game-step { height: auto; min-height: 64px; padding: 8px 4px 7px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 14px; line-height: 1.1; }
-.new-game-pic { width: 32px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
-.new-game-blurb { margin: 0; min-height: 1.4em; font-size: 14px; color: #5c4632; text-align: center; }
-.new-game-foot { justify-content: stretch; gap: 8px; }
-.new-game-sheet .new-game-foot .chip { flex: 1; height: 48px; min-height: 48px; }
-.new-game-foot .new-game-start { flex: 2; }
+.new-game-rows { display: flex; flex-direction: column; gap: 22px; }
+.new-game-row { display: flex; flex-direction: column; gap: 10px; }
+.new-game-label { font-weight: 800; font-size: 17px; color: #6a4a2c; }
+.new-game-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.chip.new-game-step { height: auto; min-height: 76px; padding: 10px 4px 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 15px; line-height: 1.1; }
+.new-game-pic { width: 36px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
+.new-game-blurb { margin: 0; min-height: 1.4em; font-size: 15px; color: #5c4632; text-align: center; }
+.new-game-foot { flex: none; width: min(560px, 100%); margin: 0 auto; display: flex; }
+.new-game-sheet .new-game-foot .new-game-start { flex: 1; height: 58px; font-size: 19px; }
 /* (A phone upright: the four steps two by two, each wide enough for its name.) */
-@media (max-width: 440px) { .new-game-steps { grid-template-columns: repeat(2, 1fr); } .chip.new-game-step { flex-direction: row; min-height: 52px; gap: 8px; } }
+@media (max-width: 440px) { .new-game-steps { grid-template-columns: repeat(2, 1fr); } .chip.new-game-step { flex-direction: row; min-height: 60px; gap: 10px; } }
+/* (A phone on its side: little height, so a smaller head and foot, the steps in a row, and the rows from the top.) */
+@media (max-height: 500px) {
+  .new-game-title { font-size: 22px; }
+  .new-game-body { justify-content: flex-start; padding: 8px 2px; gap: 10px; }
+  .new-game-rows { gap: 12px; }
+  .chip.new-game-step { min-height: 56px; flex-direction: row; gap: 8px; }
+  .new-game-sheet .new-game-foot .new-game-start { height: 50px; }
+}
+@media (prefers-reduced-motion: reduce) { .new-game-sheet:not([hidden]) { animation: none; } }
 /* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening. The
    opening screen keeps its name and its train just where they were (the bar goes, keeping its room); the title's own
    name stays hidden, and its cards fade in below the train (their top set from where the train ends). */

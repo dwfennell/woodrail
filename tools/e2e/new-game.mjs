@@ -1,8 +1,10 @@
-// End-to-end the new-game sheet (`npm run e2e:new-game [-- <out dir>]`), on a 390×844 phone, by taps: the title's New
-// game opens the sheet (New game, a Hills row of four chips, Gentle picked, Back and Start, each 44 px or more, all on
-// the screen, nothing drawn while it's open); Mountainous picked and Back: no game, the title still up; New game again,
+// End-to-end the new-game screen (`npm run e2e:new-game [-- <out dir>]`), on a 390×844 phone, by taps: the title's New
+// game opens the screen, a page of its own filling the window (Back top left, New game, a Hills row of four chips,
+// Gentle picked, Start at the foot, each 44 px or more, nothing drawn while it's open); Mountainous picked and Back:
+// no game, the title back; New game again,
 // Flat and Start: a Game-mode map with no hills at its start, saved as Flat, its land kept after a reload (Continue);
-// ☰ New game asks with the sheet (it says the railway starts again), Mountainous and Start: a map with more hills than
+// ☰ New game asks with the screen (it says the railway starts again), Back returns to the game as it was; then on a
+// phone on its side (844×390) the same screen with everything in reach; Mountainous and Start: a map with more hills than
 // before, kept after a reload; Sandbox's New map asks too ("Make the map"). Then the starting area of the first game
 // (the starter map, one seed) at each step, a picture each: Hilly (the land as it was), Gentle, Flat and Mountainous,
 // each with the hills its step says, fewest to most (about 5 min).
@@ -80,7 +82,7 @@ const sheet = (p) =>
     const chips = [...s.querySelectorAll(".new-game-step")].map((c) => ({ hills: c.dataset.hills, label: c.textContent.trim(), on: c.getAttribute("aria-checked") === "true", ...box(c) }));
     return {
       open: !s.hidden,
-      title: s.querySelector(".card-title")?.textContent,
+      title: s.querySelector(".new-game-title")?.textContent,
       warn: s.querySelector(".new-game-warn")?.hidden ? "" : s.querySelector(".new-game-warn")?.textContent,
       label: s.querySelector(".new-game-label")?.textContent,
       blurb: s.querySelector(".new-game-blurb")?.textContent,
@@ -128,8 +130,10 @@ const land = (p) =>
   check("…Gentle (the default) picked, saying so", s.picked === "gentle" && /Open ground/.test(s.blurb), JSON.stringify({ picked: s.picked, blurb: s.blurb }));
   const small = [...s.chips, s.start, s.back].filter((c) => c.h < 44 || c.w < 44);
   check("…every chip and button 44 px or more each way", small.length === 0, JSON.stringify(small));
-  check("…all on the screen, no sideways scroll", s.card.l >= 0 && s.card.r <= 390 && s.card.t >= 0 && s.card.b <= 844 && s.scrollW <= 390 && s.chips.every((c) => c.l >= 0 && c.r <= 390), JSON.stringify({ card: s.card, scrollW: s.scrollW }));
+  check("…a page of its own: the whole window, Back at the top left, Start at the foot", s.card.l === 0 && s.card.t === 0 && s.card.w === 390 && s.card.h === 844 && s.back.l < 40 && s.back.t < 70 && s.start.b > 844 - 90 && s.start.b <= 844, JSON.stringify({ card: s.card, back: s.back, start: s.start }));
+  check("…all on the screen, no sideways scroll", s.scrollW <= 390 && s.chips.every((c) => c.l >= 0 && c.r <= 390 && c.b <= s.start.t), JSON.stringify({ scrollW: s.scrollW }));
   check("…Start says Start", s.start.text === "Start", s.start.text);
+  await p.waitForTimeout(600);
   await p.screenshot({ path: `${OUT}/new-game-1-sheet.png` });
   await p.waitForTimeout(500);
   const drawn0 = await p.evaluate(() => window.woodrail.framesDrawn);
@@ -140,11 +144,12 @@ const land = (p) =>
   await tap(p, ".new-game-step", "Mountainous");
   s = await sheet(p);
   check("a tap on Mountainous picks it (and only it)", s.picked === "mountains" && s.chips.filter((c) => c.on).length === 1 && /High hills/.test(s.blurb), JSON.stringify({ picked: s.picked, blurb: s.blurb }));
+  await p.waitForTimeout(600);
   await p.screenshot({ path: `${OUT}/new-game-2-mountainous.png` });
   await tap(p, ".new-game-back");
   s = await sheet(p);
   const still = await p.evaluate(() => ({ title: window.woodrail.title.shown }));
-  check("Back closes the sheet: no game started, the title still up", !s.open && still.title, JSON.stringify({ open: s.open, ...still }));
+  check("Back closes the screen: no game started, the title back", !s.open && still.title, JSON.stringify({ open: s.open, ...still }));
 
   await tap(p, ".title-card.mode-game .title-buttons .chip", "New game");
   s = await sheet(p);
@@ -176,8 +181,27 @@ const land = (p) =>
   await tap(p, ".hud button[title='Menu'], button[aria-label='Menu']");
   check("☰ New game is a tap", await tap(p, ".menu .menu-item", "New game"));
   s = await sheet(p);
-  check("…it asks with the sheet: New game, saying the railway starts again", s.open && s.title === "New game" && /start again/.test(s.warn), JSON.stringify({ open: s.open, warn: s.warn }));
+  check("…it asks with the screen: New game, saying the railway starts again", s.open && s.title === "New game" && /start again/.test(s.warn), JSON.stringify({ open: s.open, warn: s.warn }));
+  await p.waitForTimeout(600);
   await p.screenshot({ path: `${OUT}/new-game-3-in-play.png` });
+  await tap(p, ".new-game-back");
+  const backIn = await p.evaluate(() => ({ open: !document.querySelector(".new-game-sheet").hidden, mode: window.woodrail.mode(), title: window.woodrail.title.shown, hills: window.woodrail.landscape.hills }));
+  check("…Back returns to the game as it was (nothing new made)", !backIn.open && backIn.mode === "game" && !backIn.title && backIn.hills === "flat", JSON.stringify(backIn));
+  // A phone on its side: the same screen, Back, every chip and Start on it without a scroll.
+  await p.setViewportSize({ width: 844, height: 390 });
+  await p.waitForTimeout(800);
+  await tap(p, ".hud button[title='Menu'], button[aria-label='Menu']");
+  await tap(p, ".menu .menu-item", "New game");
+  s = await sheet(p);
+  const side = [s.back, s.start, ...s.chips].filter((c) => c.t < 0 || c.b > 390 || c.l < 0 || c.r > 844 || c.h < 44);
+  check("on its side (844×390): the screen fills it, Back, the chips and Start all on it, 44 px or more, the warning kept", s.open && s.card.w === 844 && s.card.h === 390 && side.length === 0 && /start again/.test(s.warn), JSON.stringify({ card: s.card, side }));
+  await p.waitForTimeout(600);
+  await p.screenshot({ path: `${OUT}/new-game-3b-in-play-sideways.png` });
+  await tap(p, ".new-game-back");
+  await p.setViewportSize({ width: 390, height: 844 });
+  await p.waitForTimeout(800);
+  await tap(p, ".hud button[title='Menu'], button[aria-label='Menu']");
+  await tap(p, ".menu .menu-item", "New game");
   await tap(p, ".new-game-step", "Mountainous");
   await tap(p, ".new-game-start");
   await p.waitForFunction(() => window.woodrail.landscape.hills === "mountains", null, { timeout: 120000 });

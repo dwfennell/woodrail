@@ -2,7 +2,8 @@ import type { GameMode } from "../game/modes";
 import { DEFAULT_HILLS, HILLINESS, HILLS_BLURB, HILLS_LABEL, isHilliness, type Hilliness } from "../landscape/hills";
 
 /**
- * The new-game sheet: what the next map is to be like, chosen before it's made (from the title's New game or New map,
+ * The new-game screen (a page of its own, over the title or the map, as the title is; Back top left returns to where it
+ * was opened from): what the next map is to be like, chosen before it's made (from the title's New game or New map,
  * and ☰ New game or New map in play). One row per choice (`NEW_GAME_ROWS`): Hills, for now. A choice is saved with the
  * map it makes (`Landscape.hills`), and remembered here for the next new game. Nothing is drawn till it first opens.
  */
@@ -73,7 +74,7 @@ export interface NewGameAsk {
   /** Said above the rows: what starting now does to the railway in play (from ☰), if anything. */
   warn?: string;
   start(choices: NewGameChoices): void;
-  /** Back (or Esc, or a tap beside the sheet): nothing is made. */
+  /** Back (or Esc): nothing is made. */
   cancel?(): void;
 }
 
@@ -85,12 +86,11 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
 }
 
 export class NewGameSheet {
-  readonly root = el("div", "card new-game-sheet");
-  private readonly shade = el("div", "new-game-shade");
+  readonly root = el("div", "new-game-sheet");
   private ask: NewGameAsk | null = null;
   private choices: NewGameChoices = { ...DEFAULT_CHOICES };
   private drawn = false;
-  private readonly titleEl = el("div", "card-title");
+  private readonly titleEl = el("h2", "new-game-title");
   private readonly warnEl = el("p", "new-game-warn");
   private readonly startBtn = el("button", "chip text primary new-game-start");
   private readonly rowEls = new Map<keyof NewGameChoices, { chips: HTMLButtonElement[]; blurb: HTMLElement }>();
@@ -98,7 +98,6 @@ export class NewGameSheet {
   constructor(parent: HTMLElement) {
     const r = this.root;
     r.hidden = true;
-    this.shade.hidden = true;
     r.setAttribute("role", "dialog");
     r.setAttribute("aria-modal", "true");
     r.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -106,13 +105,7 @@ export class NewGameSheet {
       if (e.key === "Escape") this.cancel();
       e.stopPropagation();
     });
-    // A tap beside the sheet is Back.
-    this.shade.addEventListener("pointerdown", (e) => e.stopPropagation());
-    this.shade.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.cancel();
-    });
-    parent.append(this.shade, r);
+    parent.append(r);
   }
 
   get shown(): boolean {
@@ -136,14 +129,12 @@ export class NewGameSheet {
     this.warnEl.textContent = ask.warn ?? "";
     this.warnEl.hidden = !ask.warn;
     this.sync();
-    this.shade.hidden = false;
     this.root.hidden = false;
     this.startBtn.focus({ preventScroll: true });
   }
 
   hide(): void {
     this.root.hidden = true;
-    this.shade.hidden = true;
     this.ask = null;
   }
 
@@ -208,8 +199,10 @@ export class NewGameSheet {
       rows.append(box);
       this.rowEls.set(row.key, { chips, blurb });
     }
-    const foot = el("div", "card-row new-game-foot");
-    const back = el("button", "chip text new-game-back", "Back");
+    // Top: Back (to where it was opened from) and the screen's name. The rows scroll between it and Start, at the foot.
+    const head = el("div", "new-game-head");
+    const foot = el("div", "new-game-foot");
+    const back = el("button", "chip text new-game-back", "‹ Back");
     back.type = "button";
     back.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -220,8 +213,11 @@ export class NewGameSheet {
       e.stopPropagation();
       this.start();
     });
-    foot.append(back, this.startBtn);
-    this.root.append(this.titleEl, this.warnEl, rows, foot);
+    head.append(back, this.titleEl);
+    foot.append(this.startBtn);
+    const body = el("div", "new-game-body");
+    body.append(this.warnEl, rows);
+    this.root.append(head, body, foot);
     this.drawn = true;
   }
 
