@@ -936,10 +936,12 @@ def industry_mine(k):
     y 66, z 96, turning on z), and a brick engine house with a tall chimney at x 72, z 100.
     """
     g = Node()
-    # The hill: rock blocks stepping up, grass on top.
-    for x0, x1, z0, h, c in ((150, 206, 60, 22, 0), (158, 206, 72, 36, 1), (170, 206, 86, 48, 2)):
-        g.add(k.box(k.paint(ROCK[c]), x1 - x0, h, 114 - z0, 4, (x0 + x1) / 2, PAD, (z0 + 114) / 2))
-    g.add(k.box(k.paint("#5d8a45"), 36, 3, 28, 1.5, 188, PAD + 48, 100))
+    # The hill: rock blocks stepping up, grass on top. Each block steps in at the back (+x) and the side (+z) too, a
+    # little: three blocks' faces in one plane, in three greys, fought for the same pixels (triangles shimmering
+    # across the hill's back and side, 2026-11-07).
+    for x0, x1, z0, z1, h, c in ((150, 206, 60, 114, 22, 0), (158, 204.5, 72, 112.5, 36, 1), (170, 203, 86, 111, 48, 2)):
+        g.add(k.box(k.paint(ROCK[c]), x1 - x0, h, z1 - z0, 4, (x0 + x1) / 2, PAD, (z0 + z1) / 2))
+    g.add(k.box(k.paint("#5d8a45"), 33, 3, 25, 1.5, 186.5, PAD + 48, 98.5))
     # The tunnel mouth on the hill's front (-x) face, framed in timber, rails running out across the yard.
     portal = Node()
     portal.add(k.extrude(k.paint("#c6c3ba"), _arch(26, 26), 3, 0, 0, 0, 0.8))
