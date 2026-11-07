@@ -24,8 +24,16 @@ export function economyWorld(economy: Economy): InvariantWorld {
     target: (engine) => economy.routeTarget(engine),
     owner: (engine) => economy.ownerOf(engine),
     drive: (train) => economy.drive(train),
+    busy: (train, engine) => {
+      const found = economy.sim.findCar(engine);
+      const lever = found ? found.train.cars[found.index].lever : 0;
+      return BUSY.has(trainState(economy.sim, economy, train, lever).kind);
+    },
   };
 }
+
+/** A standing train's card says it's busy where it is by its own choice, not held (`InvariantWorld.busy`). */
+const BUSY: ReadonlySet<string> = new Set(["worked", "at-stop", "spacing", "turning-back", "lift", "lift-bridge", "too-heavy", "no-power", "rack", "stopped", "starting", "derailed"]);
 
 /**
  * Stuck sanity, in the game: a lever-on train standing is explained if its card can say why (`trainState`: worked at a
@@ -46,6 +54,7 @@ export function economyChecks(economy: Economy, opts: InvariantOptions = {}): In
   economy.checker = checks;
   checks.off = () => {
     unwatch();
+    checks.detach();
     if (economy.checker === checks) economy.checker = null;
   };
   return checks;

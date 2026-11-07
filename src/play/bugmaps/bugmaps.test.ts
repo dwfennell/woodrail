@@ -5,6 +5,7 @@ import { legFromCursor } from "../../game/route-path";
 import { readMapText } from "../../persist/bug-map";
 import { appendPiece, connectorRef } from "../../track";
 import { bugMapText, describeBreak, loadBugMap, replayBugMap } from "../bugmap";
+import { INVARIANTS, type Invariant } from "../../sim/invariants";
 
 /**
  * Bug maps (architecture review §3.6): each map here is a "Copy map for a bug report" text, loaded headless and run
@@ -53,8 +54,19 @@ function shuttle(): { world: World; sw: number } {
   return { world, sw };
 }
 
-/** The maps here: the file, how long it runs, and the least stops each routed train must come to (its payoff). */
-const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] = [
+/**
+ * Liveness (routing redesign §4 step 0): no lever-on train stands longer than this (s) not busy at a stop, stuck for a
+ * reason on its card or not (a player sees a train that doesn't move), but the map's `stuck`.
+ */
+const LIVE_S = 120;
+
+/**
+ * The maps here: the file, how long it runs, and the least stops each routed train must come to (its payoff).
+ * `known`: invariants added by the routing redesign's step 0 that break on the map today, and why (they must still
+ * break: one that no longer does comes off). `stuck`: engines (by car id) that don't make progress today, and why: let
+ * off the stops and liveness checks, and checked to be still stuck (one that runs comes off, the map's payoff then its).
+ */
+const MAPS: { file: string; seconds: number; arrivals: number; what: string; known?: { invariant: Invariant; why: string }[]; stuck?: Record<number, string> }[] = [
   { file: "hand-made-shuttle.txt", seconds: 600, arrivals: 6, what: "hand-made: a timber train between the forest and a sawmill, past a siding" },
   // (The long goals play-through's map at 13305 s (minute 221.75), 109 s before its first wrongRoad, the plot Show me
   // frames bought (claude/speed-words-land-goal). Its goods train runs through stops with nothing to do; at 87.7 s it's
@@ -65,7 +77,16 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] 
   // (Play-test 2026-11-01: four hand-run trains round a ring, one then given a route, Mill ⇄ Farm yard. The line's
   // sections took the hand-run trains in, three of them in the ring's one section, each waiting on the next: all four
   // stuck from the first second, no stop in 600 s. Now a train follows one on no line going its way.)
-  { file: "route-stuck.txt", seconds: 600, arrivals: 4, what: "play-test: a routed train among hand-run trains following each other round a ring" },
+  {
+    file: "route-stuck.txt",
+    seconds: 600,
+    arrivals: 4,
+    what: "play-test: a routed train among hand-run trains following each other round a ring",
+    // (From 51.9 s: trains following each other round the ring come onto points (78, 122, 130) the one ahead is still
+    // on, its tail on them: following on circuits (§16 Q10) by the follow gap, through points. The core frees points
+    // only once the leader's tail is off them.)
+    known: [{ invariant: "oneOwner", why: "close following through points on a ring (redesign step 6: every train reserves)" }],
+  },
   // (Issue #29, 2026-11-05: "This train is blocked by a train all the way on the other side of the map!" (v154). The
   // routed train, and a hand-run one, waited for good on an engine parked across the map: on no line, standing in the
   // map's one big section, it was the end of the line for every move through it, on the way or not. Now a train
@@ -77,26 +98,66 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] 
   // lay, into the shuttle's loop, not toward its next town; and Green, with signals' waiting points only, wasn't
   // managed: never asked to wait, it never gave a turn. Now the way goes on toward the stop after, and a one-train
   // line of signals sharing a network takes its turns (`Sections.line`). Stuck 300 s with no stop; now 8 stops.)
-  { file: "signals-mill-wait.txt", seconds: 300, arrivals: 4, what: "QA: a towns line held at the mill by a hopper shuttle sharing its track" },
+  {
+    file: "signals-mill-wait.txt",
+    seconds: 300,
+    arrivals: 4,
+    what: "QA: a towns line held at the mill by a hopper shuttle sharing its track",
+    // (91.6 s: engine 30, its move granted, stood held "cross" by the hopper shuttle on points 49's junction: sections
+    // gave it a way through points a train they don't manage was on; the sim's crossing guard caught it.)
+    known: [{ invariant: "netActed", why: "a grant through points the unmanaged hopper shuttle holds (redesign step 5: grants reserve)" }],
+  },
+  // (Issue #31, 2026-11-07: "I don't understand why this train is stuck... the signal ahead of it is green" (mw5rjr7b).
+  // Five trains on a network of signals; four (engines 30, 34, 44, 52) stand at red path signals from the first second,
+  // a ring of sections' slot waits, 30 → 44 → 34 → 52 → 30, each waiting for the waiting point the next one stands in.
+  // Stalls say "signals" (a ring with a red signal in it), so the deadlock invariant lets them off; only the hopper
+  // shuttle (engine 48) runs: 58 stops in 600 s. The green the user saw is the next signal on, past each train's own red
+  // (signal 36 is 891 mm on from engine 30). Replayed on main 2026-11-07: still stuck, every invariant held.)
+  {
+    file: "signal-green-held.txt",
+    seconds: 600,
+    arrivals: 20,
+    what: "issue #31: four trains stuck at signals from the start, a ring of slot waits",
+    stuck: {
+      30: "ring of slot waits at signals (30 → 44 → 34 → 52): redesign steps 4–6",
+      34: "ring of slot waits at signals: redesign steps 4–6",
+      44: "ring of slot waits at signals: redesign steps 4–6",
+      52: "ring of slot waits at signals (on no line): redesign steps 4–6",
+    },
+  },
   // (Issue #32, 2026-11-07 (build mw5rjr7b): four lines' trains and a hand-run hopper train stood 600 s in a ring of
   // waits, a signal added at the sawmill as the card said. Sections had sent the goods train into the passing loop
   // behind the timber train standing there, the loop's other road empty; now an empty road comes first
   // (`Sections.wayOn`) and they run as laid, nobody turning round. #31's map, the same without that signal, is a real
   // ring (a signal inside the loop road holds a train over its points): its cards say so (signal-green-held.test.ts).)
-  { file: "signal-added-still-stuck.txt", seconds: 300, arrivals: 4, what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added" },
+  {
+    file: "signal-added-still-stuck.txt",
+    seconds: 300,
+    arrivals: 4,
+    what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added",
+    // (87.6 s: engine 52, its move granted, held "cross" by the hand-run hopper train on points 49: as the mill's map.)
+    known: [{ invariant: "netActed", why: "a grant through points the hand-run hopper train holds (redesign step 5: grants reserve)" }],
+  },
 ];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {
   for (const m of MAPS)
-    it(`${m.file} (${m.what}): no invariant breaks in ${m.seconds} s, and each routed train comes to ${m.arrivals}+ stops`, async () => {
+    it(`${m.file} (${m.what}): no invariant breaks in ${m.seconds} s, each routed train comes to ${m.arrivals}+ stops, none stands ${LIVE_S} s`, async () => {
       const { world } = await loadBugMap(FILES[m.file] ?? "");
-      const r = replayBugMap(world, { seconds: m.seconds });
-      expect(r.first && describeBreak(r.first)).toBeNull();
+      const known = new Set((m.known ?? []).map((k) => k.invariant));
+      const r = replayBugMap(world, { seconds: m.seconds, stopAtFirst: false });
+      const broke = INVARIANTS.filter((k) => r.checks.broke[k].count > 0);
+      expect(broke.filter((k) => !known.has(k)).map((k) => `${k} ×${r.checks.broke[k].count}: ${r.checks.broke[k].first.join(" | ")}`), r.first ? describeBreak(r.first) : "").toEqual([]);
+      expect([...known].filter((k) => r.checks.broke[k].count === 0), "known breaks that no longer break (take them off)").toEqual([]);
       expect(r.seconds).toBe(m.seconds);
       expect(r.arrivals.size).toBeGreaterThan(0);
+      const stuck = new Set(Object.keys(m.stuck ?? {}).map(Number));
       // (Every routed train, one that came to none too: it isn't in `arrivals`, and a train stood for good is the bug.)
-      for (const engine of new Set([...world.economy.lineIdOf.keys(), ...r.arrivals.keys()])) expect(r.arrivals.get(engine) ?? 0, `engine ${engine}`).toBeGreaterThanOrEqual(m.arrivals);
-    }, 60_000);
+      for (const engine of new Set([...world.economy.lineIdOf.keys(), ...r.arrivals.keys()])) if (!stuck.has(engine)) expect(r.arrivals.get(engine) ?? 0, `engine ${engine}`).toBeGreaterThanOrEqual(m.arrivals);
+      // (Liveness: no lever-on train stands long, whatever its card says; the known stuck still do.)
+      for (const [engine, s] of r.longestStand) if (!stuck.has(engine)) expect(s, `engine ${engine} stood ${s} s`).toBeLessThan(LIVE_S);
+      for (const engine of stuck) expect(r.longestStand.get(engine) ?? 0, `engine ${engine} known stuck (${m.stuck![engine]}) but ran: take it off`).toBeGreaterThanOrEqual(LIVE_S);
+    }, 120_000);
 
   it("route-stuck.txt: the route planned again as the player did (Mill, then Farm yard): it heads for the farm yard, ahead of it, and its way there keeps off the middle line", async () => {
     const { world } = await loadBugMap(FILES["route-stuck.txt"] ?? "");
