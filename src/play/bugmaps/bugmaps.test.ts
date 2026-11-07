@@ -82,8 +82,10 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] 
   // waits, a signal added at the sawmill as the card said. Sections had sent the goods train into the passing loop
   // behind the timber train standing there, the loop's other road empty; now an empty road comes first
   // (`Sections.wayOn`) and they run as laid, nobody turning round. #31's map, the same without that signal, is a real
-  // ring (a signal inside the loop road holds a train over its points): its cards say so (signal-green-held.test.ts).)
-  { file: "signal-added-still-stuck.txt", seconds: 300, arrivals: 4, what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added" },
+  // ring (a signal inside the loop road holds a train over its points): its cards say so (signal-green-held.test.ts).
+  // 600 s: at 530 s the hopper train ran past the path signal after the loop's points, shown red: the held train on the
+  // other road, moved first, showed its red, not the nearest one's way (`Sim.comingTo`; signals.test.ts).)
+  { file: "signal-added-still-stuck.txt", seconds: 600, arrivals: 8, what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added" },
 ];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {
