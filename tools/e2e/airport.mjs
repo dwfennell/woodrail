@@ -106,7 +106,7 @@ const planRoute = async (engine, places) => {
   if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine });
   await tapButton(".engine-extra .route-plan");
   for (const d of places) await tapOn({ depot: d });
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
 };
 
 // A new game.

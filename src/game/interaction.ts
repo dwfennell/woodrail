@@ -479,6 +479,11 @@ export class Interaction {
   routeGroup: Object3D | null = null;
   onTapStopDisc: ((index: number) => void) | null = null;
   /**
+   * Planning, a place tapped that a train can't stop at yet (a town with no station, an old industry's ruin): what to
+   * say ("Larkfield needs a station first").
+   */
+  onNoStation: ((text: string) => void) | null = null;
+  /**
    * A tap on empty ground (where it landed, and where on screen): true if it was taken (then it doesn't count toward
    * a double tap).
    */
@@ -2570,7 +2575,11 @@ export class Interaction {
         if (this.armed) {
           this.arm(null);
           this.lastTap = null;
-        } else if (this.onPickPlace) this.lastTap = null;
+        } else if (this.onPickPlace) {
+          this.lastTap = null;
+          // Planning, a tap on a yard's ground or a town's: that place (its station), or what it needs first.
+          if (ground) this.planAt(ground.x, ground.z);
+        }
         else if (ground && this.onFloorTap?.(ground, e.clientX, e.clientY)) this.lastTap = null;
         else if (this.noteTap(e) && ground) this.game.director.focus(ground, 260);
       } else this.lastTap = null;
@@ -2769,6 +2778,33 @@ export class Interaction {
 
   // ---- taps -------------------------------------------------------------------------------------------------
 
+  /**
+   * Planning, a tap at a ground point that met no place itself: a yard there (its depot, a little past its edge), or a
+   * town's square (its station). True if it was one of those (added, or said why not).
+   */
+  private planAt(x: number, z: number): boolean {
+    const g = this.game;
+    const yard = g.depotView.depotAt(x, z, 30);
+    if (yard !== -1) {
+      this.onPickPlace?.(yard);
+      return true;
+    }
+    const cell = g.landscape.grid.cellAtWorld(x, z);
+    const town = cell === -1 ? undefined : g.landscape.towns.find((t) => t.cells.includes(cell));
+    return town ? this.planTown(town.id) : false;
+  }
+
+  /** Planning, a town tapped (its houses, its square): its station is the stop; none, it's said. */
+  private planTown(townId: number): boolean {
+    const g = this.game;
+    const town = g.landscape.towns.find((t) => t.id === townId);
+    if (!town) return false;
+    const station = g.economy.allDepots().find((d) => d.role === "town" && d.townId === townId && !!g.layout.getPiece(d.pieceId));
+    if (station) this.onPickPlace?.(station.id);
+    else this.onNoStation?.(`${town.name} needs a station first`);
+    return true;
+  }
+
   private tap(p: Press, add = false): void {
     const g = this.game;
     if (p.kind === "secret") {
@@ -2811,6 +2847,22 @@ export class Interaction {
       const depot = p.kind === "depot" ? g.economy.depot(p.depotId) : p.kind === "piece" ? g.economy.depotAtPiece(p.pieceId) : p.kind === "car" ? standsAt(p.carId) : undefined;
       if (depot) {
         this.onPickPlace(depot.id);
+        return;
+      }
+      // A town's house or shop: the town's station (the user, 2026-11-06: "click on the town/mill/etc").
+      if (p.kind === "prop") {
+        const prop = g.props.get(p.propId);
+        if (prop?.town !== undefined && this.planTown(prop.town)) return;
+        if (prop && this.planAt(prop.x, prop.z)) return;
+      }
+      // An old industry's ruin: not a stop till it's restored.
+      if (p.kind === "piece" && [...g.ruins.values()].includes(p.pieceId)) {
+        this.onNoStation?.("An old industry: restore it first, then it can be a stop");
+        return;
+      }
+      // Track that's a yard's or a town's ground under a model passed through: that place.
+      if (p.kind === "piece" && p.at && !g.economy.depotAtPiece(p.pieceId) && g.depotView.depotAt(p.at.x, p.at.z, 0) !== -1) {
+        this.onPickPlace(g.depotView.depotAt(p.at.x, p.at.z, 0));
         return;
       }
       // Plain track: a via point, passed on the way to the next stop (see `onPickVia`).

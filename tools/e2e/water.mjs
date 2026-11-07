@@ -686,7 +686,7 @@ if (sea) {
         await look(slipMid, 1300);
         await tapWorld(slipMid);
         if (process.env.WATER_DEBUG) await shot("debug-slip-tap");
-        await tapButton(".engine-extra .route-plan.on");
+        await tapButton(".line-sheet .route-plan.on");
         const routed = await p.evaluate((id) => window.woodrail.economy.routeOf(id)?.stops.map((s) => s.depotId) ?? null, train.engine);
         check("its route planned by taps: the ferry slip", !!routed && routed.includes(slip.depot), JSON.stringify(routed));
         await p.evaluate(() => window.woodrail.hud.hideCards());

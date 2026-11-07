@@ -78,6 +78,7 @@ export const SUITES = {
   rack: { script: "e2e:rack", minutes: 3 },
   metro: { script: "e2e:metro", minutes: 3 },
   "feature-tips": { script: "e2e:feature-tips", minutes: 6 },
+  "routes-ux": { script: "e2e:routes-ux", minutes: 6 },
   "tech-tree-5": { script: "e2e:tech-tree-5", minutes: 4 },
 };
 
@@ -241,7 +242,10 @@ export const RULES = [
   ["src/ui/workshop-panel.ts", ["workshop"]],
   ["src/ui/cloud-card.ts", ["cloud"]],
   ["src/ui/map-view.ts", ["sites"]],
-  ["src/ui/lines-view.ts", ["touch:route-ux-more,route-share,route-ring"]],
+  ["src/ui/lines-view.ts", ["touch:route-ux-more,route-share,route-ring", "routes-ux"]],
+  // The routes UX (option B, 2026-11-06): the line sheet, its words, health, the rings round places to tap.
+  [["src/ui/line-sheet.ts", "src/game/line-sheet-text.ts", "src/game/line-health.ts", "src/render/place-rings.ts", "src/economy/line-tally.ts"], ["routes-ux", TOUCH_ROUTES]],
+  [["src/game/lines.ts", "src/game/interaction.ts", "src/main.ts", "src/persist/save.ts", "src/render/depot-view.ts"], ["routes-ux"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
   ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],

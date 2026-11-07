@@ -481,7 +481,7 @@ try {
   check("…tapped, its card opens", await tapEngine(engine));
   await tapButton(".engine-extra .route-plan");
   for (const d of [forestId, millId, setup.town]) await tapOn({ depot: d }, 1300);
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
   const stops = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, engine);
   check("…its route planned by taps: forest, sawmill, town", JSON.stringify(stops) === JSON.stringify([forestId, millId, setup.town]), JSON.stringify(stops));
   await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), engine);

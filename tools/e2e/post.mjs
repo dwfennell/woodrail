@@ -221,7 +221,7 @@ if (!setup.error && setup.engine !== -1) {
   if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine });
   await tapButton(".engine-extra .route-plan");
   for (const d of [towns[0], office, towns[1]]) await tapOn({ depot: d });
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
   const stops = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, engine);
   check("route planned by taps: town, post office, town", JSON.stringify(stops) === JSON.stringify([towns[0], office, towns[1]]), JSON.stringify(stops));
   await p.keyboard.press("Escape");

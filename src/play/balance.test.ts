@@ -13,7 +13,7 @@ import { joinedTowns, StickerTracker, TOWN_TIERS } from "../game/stickers";
 import { FULL_PAY, plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, schoolTakesFor, researchSpeed, townLandmarks } from "../game/landmarks";
-import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
+import { deleteLine, editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { engineStatus } from "../game/engine-status";
 import { economyChecks } from "../game/dev-checks";
@@ -870,9 +870,13 @@ class Player {
 
   lift(engine: number): void {
     const found = this.w.sim.findCar(engine);
+    const line = this.w.economy.lineIdOf.get(engine);
     if (found) this.w.sim.removeTrain(found.train.id);
     // (As the game's Remove does: the engine off its line, so `lineIdOf` keeps no train that's gone.)
     this.w.economy.prune();
+    // (A line stays when its last train goes (lines stand alone, 2026-11-06). This player, its last train lifted,
+    // deletes it, as the line sheet's ⋯ Delete does: it plans the next one afresh from its places as they are now.)
+    if (line !== undefined && trainsOn(this.w.economy, line).length === 0) deleteLine(this.w.economy, line);
   }
 }
 
