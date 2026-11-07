@@ -34,7 +34,7 @@ export default defineConfig(({ command }) => ({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
     // What the game loads on its own as it starts (the save's schemas, the track carving), loaded before each test file.
     setupFiles: ["src/test-setup.ts"],
   },
