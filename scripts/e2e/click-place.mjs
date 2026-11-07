@@ -58,7 +58,7 @@ async function sandbox(ctx) {
   await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
   await p.goto(URL);
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 120000 });
   return p;
 }
@@ -776,7 +776,7 @@ suite.add("game-engine", async () => {
   await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
   await p.goto(URL);
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game button.primary") !== null, null, { timeout: 180000 });
-  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   // (The Trains tab's Engines shelf, opened as a tap on them would: the tray's tabs aren't what's tested here.)
   await p.evaluate(() => window.woodrail.hud.openTray("trains", "Engines"));

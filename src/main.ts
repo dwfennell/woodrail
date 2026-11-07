@@ -10,10 +10,11 @@ import { viewRoom } from "./ui/view-room";
 import { stopDrag } from "./ui/route-drag";
 import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
+import { buildStarterWorld, createWorld, freshGameWorld, landForSale, newMapSeed, plotsForSale } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
-import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
+import { connectedPairs, mapSettingsOf, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
+import { mapCode, parseMapCode, type MapSettings } from "./landscape/water";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
@@ -143,6 +144,7 @@ import { hintSeen, loadChainHints, loadMuted, markHintSeen, saveChainHints, save
 import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game/chains";
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
+import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
@@ -209,10 +211,14 @@ function saveFlag(key: string): void {
   }
 }
 
-/** A map asked for in the link (`#seed-12345`), to share or replay a particular map. */
-function linkedSeed(): number | null {
-  const m = /^#seed-(\d{1,9})$/.exec(location.hash);
-  return m ? Number(m[1]) : null;
+/**
+ * A map asked for in the link (`#seed-` and a map code: `#seed-12345`), to share or replay a particular map: its land
+ * as such a link has always made it (Hilly, Some water, the sea), or as the code says (`#seed-12345-gentle-water-lots`,
+ * `-nocoast`: `mapCode`, the code the game shows for a map).
+ */
+function linkedSeed(): MapSettings | null {
+  const m = /^#seed-(.+)$/.exec(location.hash);
+  return m ? parseMapCode(m[1]) : null;
 }
 
 /**
@@ -223,16 +229,17 @@ function linkedSeed(): number | null {
 let olderSave = false;
 
 function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fromSave: boolean } {
-  const seed = linkedSeed();
-  const mode = seed !== null ? "sandbox" : loadLastMode();
+  const link = linkedSeed();
+  const mode = link !== null ? "sandbox" : loadLastMode();
   // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title.
   const resumed = takeResume() === mode;
   const saved = loadFromStorage(mode);
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
   if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
-  if (seed !== null) {
-    const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
-    return { world: same ? saved.value : createWorld(seed, false, true, false), mode, linked: true, fromSave: !!same };
+  if (link !== null) {
+    const was = saved?.ok ? saved.value.landscape : null;
+    const same = !!was && !was.starter && mapCode(mapSettingsOf(was)) === mapCode(link);
+    return { world: same && saved?.ok ? saved.value : createWorld(link.seed, false, true, false, link), mode, linked: true, fromSave: same };
   }
   return { world: saved?.ok ? saved.value : buildStarterWorld(mode === "game"), mode, linked: resumed, fromSave: !!saved?.ok };
 }
@@ -572,12 +579,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       selectMore: () => interaction.selectMore(),
       selectJoined: () => interaction.selectJoined(),
       doneSelecting: () => interaction.doneSelecting(),
-      newLayout: () => {
-        saveLastBuilt(mode, null);
-        setWorld(createWorld(Math.floor(Math.random() * 1_000_000), false, true, mode === "game"));
-        cloud?.edited(mode);
-        game.frameLayout();
-      },
+      newLayout: () =>
+        askNewMap(mode, "This map is put away for a new one.", (c, seed) => {
+          saveLastBuilt(mode, null);
+          setWorld(createWorld(seed, false, true, mode === "game", c));
+          cloud?.edited(mode);
+          game.frameLayout();
+        }),
       resetStarter: () => {
         saveLastBuilt(mode, null);
         setWorld(buildStarterWorld(mode === "game"));
@@ -593,10 +601,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lowerHills: () => setLowering(!lowering),
       clearRuin: () => clearShownRuin(),
       restoreRuin: () => restoreShownRuin(),
-      newGame: () => newGame(),
+      // (What `newGame` really resets, `resetGoals` and a fresh map: the map, its track and trains, and the progress
+      // (coins, research, things owned), goals, stickers, tips and the Journal. Nothing of the game is kept.)
+      newGame: () => askNewMap("game", NEW_GAME_WARNING, (c, seed) => newGame(c, seed)),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
       copyMap: () => void copyMap(),
+      mapCode: () => mapCode(mapSettingsOf(game.landscape)),
+      copyMapCode: () => {
+        const code = mapCode(mapSettingsOf(game.landscape));
+        void navigator.clipboard.writeText(code).then(
+          () => hud.toast(`Copied the map seed ${code}: type it into a new game's seed to play this map`),
+          () => hud.toast(`The map seed is ${code}`),
+        );
+      },
       home: () => backToRailway(),
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
@@ -1588,7 +1606,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         titleCloud.showEntry(() => title.root.classList.remove("cloud-open"));
       }
     : undefined;
-  const title = new TitleScreen(document.body, { play, loadCloud }, { thumbnails });
+  const newGameSheet = new NewGameSheet(document.body);
+  /**
+   * The new-game screen for a new map in `next` mode: its seed (`newMapSeed`: the starter map's for a first game), the
+   * dice's fresh ones, and what Start does with the choices and the seed.
+   */
+  function askNewMap(next: GameMode, warn: string | undefined, start: (c: NewGameChoices, seed: number) => void): void {
+    newGameSheet.open({ mode: next, seed: newMapSeed(next === "game"), roll: () => newMapSeed(false), warn, start });
+  }
+  // The title's New game and New map ask what the map's to be like first (the new-game screen), then make it.
+  const title = new TitleScreen(document.body, { play: (next, fresh) => (fresh ? askNewMap(next, undefined, (c, seed) => play(next, true, c, seed)) : play(next, false)), loadCloud }, { thumbnails });
 
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
   let pausedBeforeTitle = false;
@@ -6386,11 +6413,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     goalsPanel.reset();
   }
 
-  /** Game mode, in play: start again on the starter map with no goals done. */
-  function newGame(): void {
+  /** Game mode, in play: start again on the starter map with no goals done, with these hills (the new-game sheet's). */
+  function newGame(choices: NewGameChoices, seed: number): void {
     resetGoals();
     saveLastBuilt("game", null);
-    setWorld(freshGameWorld());
+    setWorld(freshGameWorld(Math.random, choices, seed));
     syncPlaceStyles();
     townLife.reset();
     passengersOn();
@@ -6400,21 +6427,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** Leave the title for a mode: carry on with its railway, or start it afresh. */
-  function play(next: GameMode, fresh: boolean): void {
+  function play(next: GameMode, fresh: boolean, choices: NewGameChoices = DEFAULT_CHOICES, seed?: number): void {
     // From the opening screen: its toys go first, and the screen paints without them before a map is built (building
     // holds the page for a moment, and a toy canvas left showing through it can flash white).
     if (overOpening) {
       if (leaving) return;
       leaving = true;
       toys?.stop();
-      requestAnimationFrame(() => setTimeout(() => begin(next, fresh), 0));
+      requestAnimationFrame(() => setTimeout(() => begin(next, fresh, choices, seed), 0));
       return;
     }
-    begin(next, fresh);
+    begin(next, fresh, choices, seed);
   }
 
   /** Load or make the mode's world, and play. */
-  function begin(next: GameMode, fresh: boolean): void {
+  function begin(next: GameMode, fresh: boolean, choices: NewGameChoices = DEFAULT_CHOICES, seed?: number): void {
     interaction.guideSpots = [];
     leaving = false;
     if (fresh && next === "game") resetGoals();
@@ -6422,7 +6449,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh) {
       // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
       if (hasOlderSave(next)) loadFromStorage(next);
-      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000), false, true, false));
+      setWorld(next === "game" ? freshGameWorld(Math.random, choices, seed ?? newMapSeed(true)) : createWorld(seed ?? newMapSeed(false), false, true, false, choices));
       restoreSession(next, false);
       cloud?.edited(next);
     } else if (next !== mode) {

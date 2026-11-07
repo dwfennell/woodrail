@@ -74,6 +74,8 @@ await page.evaluate(
     if (!window.woodrail.title.shown) return;
     const sel = fresh ? ".title-card.mode-game button" : ".title-card button";
     [...document.querySelectorAll(sel)].find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click();
+    // (New game opens the new-game sheet: Hilly, the land this was written on, and Start.)
+    (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click());
   },
   !FILES[MAP],
 );

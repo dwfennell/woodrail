@@ -88,6 +88,11 @@ async function run(vw, vh, mode, landscape = false) {
   await new Promise((r) => setTimeout(r, 1500));
   await shot(p, `${tag}-01-title`);
   await tapSel(p, `.title-card.mode-${mode} .title-buttons .primary:not([hidden])`);
+  // (New game opens the new-game sheet: Hilly, the land this was written on, and Start.)
+  if (await p.evaluate(() => !!document.querySelector(".new-game-sheet:not([hidden])"))) {
+    await tapSel(p, '.new-game-sheet [data-hills="hilly"]');
+    await tapSel(p, ".new-game-sheet .new-game-start");
+  }
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group, .tray .scroller .tray-item") !== null, null, { timeout: 60000 });
   await new Promise((r) => setTimeout(r, 2500));
   await shot(p, `${tag}-02-start`, "first screen (help?)");

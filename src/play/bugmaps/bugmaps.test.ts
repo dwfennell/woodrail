@@ -27,7 +27,8 @@ const fs = async () => (await import(/* @vite-ignore */ "node:" + "fs")) as { re
  * format and of the loop, not a play-test report.)
  */
 function shuttle(): { world: World; sw: number } {
-  const world = buildStarterWorld();
+  // (Hilly: the starter map as it was when the file was written, before the gentler default.)
+  const world = buildStarterWorld(true, "hilly");
   const L = world.layout;
   const forest = world.depots.get(world.landscape.depots.find((d) => d.kind === "forest")!.id)!;
   const chainFrom = (ref: number, types: Parameters<typeof appendPiece>[1][]) => {

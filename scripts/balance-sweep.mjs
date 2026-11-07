@@ -5,7 +5,8 @@
  * minute of CPU a seed (0–200: about 50 min on 4 cores). No CI job runs it.
  *
  * `BALANCE_SEED` seeds the simulated player's choices (the reward cards it's offered and the ones it picks); the map is
- * always the starter map (`buildStarterWorld`, `STARTER_SEED`). So a seed that fails is one player's path through it.
+ * always the starter map (`buildStarterWorld`, `STARTER_SEED`), with the new-game sheet's default hills (BALANCE_HILLS=flat,
+ * hilly or mountains for another step: `landscape/hills.ts`). So a seed that fails is one player's path through it.
  *
  *   npm run balance:sweep                                (seeds 0-200, one run a core)
  *   npm run balance:sweep -- --from 0 --to 40 --jobs 2 [--out <dir>]

@@ -118,7 +118,7 @@ async function inMode(p, mode) {
     { timeout: 180000 },
   );
   await p.evaluate((mode) => {
-    if (window.woodrail.title.shown) document.querySelector(`.title-card.mode-${mode} .title-buttons .primary`).click();
+    if (window.woodrail.title.shown) document.querySelector(`.title-card.mode-${mode} .title-buttons .primary`).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click());
   }, mode);
   await p.waitForFunction(playing, mode, { timeout: 120000 });
 }
@@ -127,6 +127,9 @@ const menu = (p, label) =>
     const item = [...document.querySelectorAll(".menu .menu-item")].find((b) => b.textContent.includes(label));
     if (!item) throw new Error(`no menu item ${label}: ${[...document.querySelectorAll(".menu .menu-item")].map((b) => b.textContent).join(", ")}`);
     item.click();
+    // (New game and New map open the new-game sheet: Hilly, the land this was written on, and Start.)
+    document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click();
+    document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click();
   }, label);
 const tap = (p, label) =>
   p.evaluate((label) => {
