@@ -1,6 +1,6 @@
-import { connectorRef, getPieceDef, indexOfRef, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, SIM_HZ, type Cursor, type Sim, type Train } from "../sim";
-import { next, SEARCH, waysFrom } from "../routing/graph";
+import { connectorRef, getPieceDef, indexOfRef, offersChoice, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, SIM_HZ, trainOn, type Cursor, type Sim, type Train } from "../sim";
+import { next, SEARCH, walkOn, waysFrom } from "../routing/graph";
 import { plan, planWay, type KeepTest } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
 import { deadEndsOf, mouthWay } from "../routing/dead-ends";
@@ -326,19 +326,10 @@ function findLoops(layout: Layout, minRoad: number, pinned: { a: number; b: numb
   return out;
 }
 
-/** Does a piece offer a choice of way (a switch, a deck, a lift)? */
+/** Does a piece offer a choice of way (a switch, a deck, a lift: `track/points.ts` `offersChoice`)? */
 function branches(layout: Layout, pieceId: number): boolean {
   const p = layout.getPiece(pieceId);
-  if (!p) return false;
-  const def = getPieceDef(p.type, p.flipped);
-  if (def.isSwitch || def.gated) return true;
-  // (Two or more paths from one end: a choice. A buffer's turn-back path, or a crossing's two, is none.)
-  for (let c = 0; c < def.connectors.length; c++) {
-    let n = 0;
-    for (const pa of def.paths) if (pa.from === c || pa.to === c) n++;
-    if (n > 1) return true;
-  }
-  return false;
+  return !!p && offersChoice(getPieceDef(p.type, p.flipped));
 }
 
 /** Is a piece a stop (a depot or a station)? */
@@ -1010,20 +1001,24 @@ export class Sections {
     const piece = layout.getPiece(front.pieceId);
     if (!piece) return Infinity;
     const path = getPieceDef(piece.type, piece.flipped).paths[front.pathIndex];
-    let exit = front.reversed ? path.from : (path.to ?? -1);
-    let at = front.pieceId;
     let d = 0;
-    for (let k = 0; k < SEARCH && d <= EDGE_LOOK; k++) {
-      const n = next(layout, at, exit);
-      if (!n) return Infinity;
-      if (blockEdge(layout, n.pieceId)) return d;
-      const ways = waysFrom(layout, n.pieceId, n.entry);
-      if (ways.length !== 1 || ways[0].exit < 0) return Infinity;
-      d += lengthOfPath(layout, n.pieceId, ways[0].path);
-      at = n.pieceId;
-      exit = ways[0].exit;
-    }
-    return Infinity;
+    let found = Infinity;
+    walkOn(
+      layout,
+      front.pieceId,
+      front.reversed ? path.from : (path.to ?? -1),
+      (id, _entry, ways) => {
+        if (blockEdge(layout, id)) {
+          found = d;
+          return false;
+        }
+        if (ways.length !== 1 || ways[0].exit < 0) return false;
+        d += lengthOfPath(layout, id, ways[0].path);
+        return d <= EDGE_LOOK;
+      },
+      SEARCH,
+    );
+    return found;
   }
 
   /** Is train `u` all on `standing`'s pieces and none on way `along`? */
@@ -1921,12 +1916,8 @@ export class Sections {
   private inWayOf(way: Way, own: Train, info: LineInfo): number {
     const pieces = new Set(way.steps.map((x) => x.pieceId));
     for (const r of [...way.through, way.dest]) if (r >= 0) for (const p of info.topo.slots[r]?.pieces ?? []) pieces.add(p);
-    for (const id of this.sim.trainIds()) {
-      const t = this.sim.getTrain(id);
-      if (!t || t === own || !t.bogies.some((b) => pieces.has(b.pieceId))) continue;
-      return nameOf(t);
-    }
-    return -1;
+    const t = trainOn(this.sim, pieces, { except: own });
+    return t ? nameOf(t) : -1;
   }
 
   /**
@@ -1942,11 +1933,8 @@ export class Sections {
 
   /** The first train standing (not running) with an axle on `pieces`, other than `own`, by its name; −1: none. */
   private standingOn(pieces: ReadonlySet<number>, own: Train | undefined): number {
-    for (const id of this.sim.trainIds()) {
-      const t = this.sim.getTrain(id);
-      if (t && t !== own && t.speed < 1 && t.bogies.some((b) => pieces.has(b.pieceId))) return nameOf(t);
-    }
-    return -1;
+    const t = trainOn(this.sim, pieces, { except: own, standing: true });
+    return t ? nameOf(t) : -1;
   }
 
   /** The first train of the line it has no room for (other than `engine`), standing on the track; −1: none. */

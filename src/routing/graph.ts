@@ -113,3 +113,34 @@ export function wayToward(
   }
   return best;
 }
+
+/** How a `walkOn` ended: the end of the track, a piece with a choice of way (visited), the visitor stopped, too far. */
+export type WalkOnEnd = "end" | "choice" | "stopped" | "far";
+
+/**
+ * Walk on from leaving `pieceId` by connector `exit`, piece by piece, while the way has no choice: each piece come onto
+ * is visited (its entry and its ways on, `waysFrom`), then the walk goes on by its one way. It ends at the end of the
+ * track (an open end, a buffer), at a piece with a choice (after visiting it), when the visitor returns false, or after
+ * `max` pieces. The one loop behind sections' `edgeAhead`, the boxed-in check's `plainToEnd` and the router's road check.
+ */
+export function walkOn(
+  layout: Layout,
+  pieceId: number,
+  exit: number,
+  visit: (pieceId: number, entry: number, ways: readonly { option: number; path: number; exit: number }[]) => boolean | void,
+  max = SEARCH,
+): WalkOnEnd {
+  let at = pieceId;
+  let ex = exit;
+  for (let k = 0; k < max; k++) {
+    if (ex < 0) return "end";
+    const n = next(layout, at, ex);
+    if (!n) return "end";
+    const ways = waysFrom(layout, n.pieceId, n.entry);
+    if (visit(n.pieceId, n.entry, ways) === false) return "stopped";
+    if (ways.length !== 1) return ways.length === 0 ? "end" : "choice";
+    at = n.pieceId;
+    ex = ways[0].exit;
+  }
+  return "far";
+}

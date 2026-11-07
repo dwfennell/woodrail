@@ -39,8 +39,14 @@ const FAILS: Partial<Record<Invariant, string>> = {};
 // broke on none. Each break here comes within the first 30 s of its seed, so a run of 30 s or more sees it.)
 const GREEN = "held by sections (a slot or section wait) standing at a signal that shows clear (#31; redesign step 4: signals show the table)";
 // (midTurn's 11 seeds came off with step 1: nothing turns a train round mid-line now.)
-const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {};
+// (heldFree, added with step 2b: from `npm run fuzz:long -- --seeds 40 --seconds 600`, 2026-11-07. Each a train held by
+// sections' slot wait though the booking core would book it a way on: holds too big, step 5's.)
+const FREE = "held by sections' slot wait though the booking core would let it go (redesign step 5: sections grant by booking)";
+const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
+  heldFree: { 22: FREE, 34: FREE, 37: FREE },
+};
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
+  heldFree: { 22: FREE, 34: FREE, 37: FREE },
   // (14 and 30 came off on the merged base (2026-11-07): main's fixes since the list was made.)
   greenHeld: { 37: GREEN, 66: GREEN, 69: GREEN, 76: GREEN, 105: GREEN, 119: GREEN, 160: GREEN, 174: GREEN, 192: GREEN },
 };

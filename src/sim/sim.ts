@@ -1,4 +1,4 @@
-import { type SignalMode, connectorRef, isRack, routeFrom, type RouteStep, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, pairLeverState, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
+import { type SignalMode, connectorRef, doubleTrack, overlaps, isRack, routeFrom, type RouteStep, DECK_GLIDE_S, getPieceDef, indexOfRef, pairLeverState, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -80,7 +80,7 @@ const STAND_SLOP = 2;
 /** A block runs on through at most this many pieces (a loop with no signal in it ends somewhere). */
 const MAX_BLOCK = 64;
 /**
- * Where paths meet (a crossing, a switch's roads by its stem: see `crossMasks`): how far (mm) past its stopping
+ * Where paths meet (a crossing, a switch's roads by its stem: see `track/points.ts` `overlaps`): how far (mm) past its stopping
  * distance a train looks for a piece another train is on or coming onto by a path that meets its own, and how far
  * (mm) short of that piece its front face stops.
  */
@@ -2006,7 +2006,7 @@ export class Sim {
       const entry = indexOfRef(next);
       const ways = pathsAt(def, entry);
       g.block.set(id, (g.block.get(id) ?? 0) | ways);
-      if (def.paths.length > 1 && !pathsApart(def)) g.junction = true;
+      if (def.paths.length > 1 && !doubleTrack(def)) g.junction = true;
       // (A signal piece ends it, on it.)
       if (def.signal) continue;
       def.paths.forEach((path, i) => {
@@ -2110,7 +2110,7 @@ export class Sim {
       const p = this.layout.getPiece(id);
       if (!p) continue;
       const def = getPieceDef(p.type, p.flipped);
-      if (!pathsApart(def) || (o.paths & ways) !== 0) return o.trainId;
+      if (!doubleTrack(def) || (o.paths & ways) !== 0) return o.trainId;
     }
     return -1;
   }
@@ -2162,7 +2162,7 @@ export class Sim {
           }
         }
         const o = forced ? undefined : this.onPieces.get(id);
-        if (o && o.trainId !== train.id && (!pathsApart(def) || ((o.paths >> pathStep.pathIndex) & 1) === 1)) {
+        if (o && o.trainId !== train.id && (!doubleTrack(def) || ((o.paths >> pathStep.pathIndex) & 1) === 1)) {
           r = { clear: false, by: o.trainId };
           break;
         }
@@ -2704,7 +2704,7 @@ export class Sim {
 
   /**
    * The speed a train may run at to stop short of the next piece where its path meets another's (a crossing, a
-   * switch's other road: `crossMasks`) that another train is on, or is coming onto (it said so this tick or last, in
+   * switch's other road: `overlaps`) that another train is on, or is coming onto (it said so this tick or last, in
    * `crossClaims`), by a path that meets its own: Infinity when there's none within its stopping distance. Else it
    * says it's coming onto each such piece it'll reach, so the first to come near one goes over and the other waits
    * (whichever lines they're on, or none). Only pieces where paths meet cost more than a lookup.
@@ -2731,7 +2731,7 @@ export class Sim {
           return room < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (room - 0.5));
         }
       }
-      const mask = crossMasks(def)[c.pathIndex] ?? 0;
+      const mask = overlaps(def)[c.pathIndex] ?? 0;
       if (mask !== 0) {
         // (On it already: it goes on over, saying so.)
         const by = k === 0 ? null : this.crossHeld(train, c.pieceId, mask);
@@ -2911,48 +2911,6 @@ function pathsAt(def: PieceDef, connector: number): number {
   return bits;
 }
 
-const apartCache = new WeakMap<PieceDef, boolean>();
-const apartA = createSample();
-const apartB = createSample();
-
-/**
- * Is a piece double track (or more): not a switch, with several paths that stay at least a track's width apart all
- * along (a double straight, a gantry's roads; not a crossing, whose lines meet)? Worked out once per piece def.
- */
-function pathsApart(def: PieceDef): boolean {
-  if (def.isSwitch || def.paths.length < 2) return false;
-  let apart = apartCache.get(def);
-  if (apart !== undefined) return apart;
-  apart = true;
-  for (let i = 0; i < def.paths.length && apart; i++) for (let j = i + 1; j < def.paths.length && apart; j++) if (pathsMeet(def, i, j)) apart = false;
-  apartCache.set(def, apart);
-  return apart;
-}
-
-/** Do two of a piece's paths come within a track's width of each other somewhere? */
-function pathsMeet(def: PieceDef, i: number, j: number): boolean {
-  const step = 8;
-  const a = def.paths[i].geom;
-  const b = def.paths[j].geom;
-  const la = pathLength(a);
-  const lb = pathLength(b);
-  for (let s = 0; s <= la; s += step) {
-    samplePath(a, Math.min(s, la), apartA);
-    for (let t = 0; t <= lb; t += step) {
-      samplePath(b, Math.min(t, lb), apartB);
-      if (Math.hypot(apartA.x - apartB.x, apartA.z - apartB.z) < TRACK_WIDTH) return true;
-    }
-  }
-  return false;
-}
-
-const crossCache = new WeakMap<PieceDef, readonly number[]>();
-
-/**
- * For each of a piece's paths, the others (a bit each) that meet it (`pathsMeet`): a train on one would run into a
- * train on the other (a crossing's two lines, a switch's roads by its stem). None on a deck or lift (a train has it
- * to itself), or on double track. Worked out once per piece def.
- */
 /** Does the cursor's path come onto its piece at an end with a choice of way (facing points; not a turntable's deck)? */
 function facingChoice(def: PieceDef, c: Cursor): boolean {
   if (def.paths.length < 2 || def.gated) return false;
@@ -2965,19 +2923,3 @@ function facingChoice(def: PieceDef, c: Cursor): boolean {
   return n > 1;
 }
 
-export function crossMasks(def: PieceDef): readonly number[] {
-  let masks = crossCache.get(def);
-  if (masks) return masks;
-  const n = def.paths.length;
-  const out = new Array<number>(n).fill(0);
-  if (n > 1 && n <= MAX_PATHS && !def.gated && !def.lift)
-    for (let i = 0; i < n; i++)
-      for (let j = i + 1; j < n; j++)
-        if (pathsMeet(def, i, j)) {
-          out[i] |= 1 << j;
-          out[j] |= 1 << i;
-        }
-  crossCache.set(def, out);
-  masks = out;
-  return masks;
-}

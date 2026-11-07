@@ -15,7 +15,7 @@
  */
 import { getPieceDef, type Layout } from "../track";
 import { flipCursor, type Cursor, type Train } from "../sim";
-import { next, waysFrom } from "./graph";
+import { next, walkOn } from "./graph";
 import { plan } from "./plan";
 import type { HarnessRun } from "./harness";
 
@@ -49,22 +49,22 @@ function plainToEnd(layout: Layout, c: Cursor, others: ReadonlySet<number>): Set
   const piece = layout.getPiece(c.pieceId);
   if (!piece) return null;
   const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
-  let exit = c.reversed ? path.from : (path.to ?? -1);
-  let at = c.pieceId;
   const out = new Set<number>();
-  for (let k = 0; k < WALK; k++) {
-    if (exit < 0) return out;
-    const n = next(layout, at, exit);
-    if (!n) return out;
-    if (others.has(n.pieceId)) return null;
-    const ways = waysFrom(layout, n.pieceId, n.entry);
-    if (ways.length > 1) return null;
-    out.add(n.pieceId);
-    if (ways.length === 0) return out;
-    at = n.pieceId;
-    exit = ways[0].exit;
-  }
-  return null;
+  let blocked = false;
+  const end = walkOn(
+    layout,
+    c.pieceId,
+    c.reversed ? path.from : (path.to ?? -1),
+    (id, _entry, ways) => {
+      if (others.has(id) || ways.length > 1) {
+        blocked = true;
+        return false;
+      }
+      out.add(id);
+    },
+    WALK,
+  );
+  return blocked || end === "far" ? null : out;
 }
 
 

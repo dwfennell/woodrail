@@ -13,11 +13,11 @@
  * short of them and waits (`RouteWait`), as a routed train does, for as long as that train holds them. Nothing turns it
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
-import { connectorRef, getPieceDef, junction, leverPoints, masksFoul, pairLeverState, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, engineOf, flipCursor, trainKey, UnderCache, type Cursor, type Sim, type Train } from "../sim";
+import { connectorRef, getPieceDef, junction, leverPoints, masksFoul, overlaps, pairLeverState, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
+import { ACCELERATION, CAR_SPECS, COUPLER_GAP, CoverIndex, engineOf, flipCursor, trainKey, trainOn, UnderCache, type Cursor, type Sim, type Train } from "../sim";
 import { BookingTable } from "./bookings";
 import { STAND_SHORT } from "../economy/sections";
-import { next, waysFrom, type PinnedTest } from "./graph";
+import { next, walkOn, waysFrom, type PinnedTest } from "./graph";
 import { planWay, WayMemory } from "./plan";
 import { mouthWay } from "./dead-ends";
 
@@ -222,9 +222,8 @@ export class Router {
   private readonly waits = new Map<number, Waiting>();
   /** The pieces along a train's way as its last walk followed them, and how far (mm) from its front each one's far end is. */
   private readonly alongIds: number[] = [];
-  /** Per piece, the train over it (its id; −1: more than one), as of `underTick` (`otherUnder`). */
-  private readonly under = new Map<number, number>();
-  private underTick = -1;
+  /** Per piece, the train over it, worked out once a tick (`otherUnder`). */
+  private readonly coverIndex = new CoverIndex();
   private readonly alongAt: number[] = [];
 
   /**
@@ -238,6 +237,8 @@ export class Router {
   /** `behind` and `keep`'s copy of a train's cover (a release may ask for others' while they read it). */
   private readonly ownUnder = new Map<number, number>();
   private underAt = -1;
+  /** Per train (id): the stamp its holds in `bookings` were worked out for (`coverStamp`). */
+  private readonly underStamps = new Map<number, number>();
   /** Asks refused because another train's car was over the points or crossing on a road that fouls (`fouledUnder`). */
   refusedUnder = 0;
 
@@ -245,18 +246,41 @@ export class Router {
     this.bookings = new BookingTable(host.layout);
   }
 
-  /** The table as of this sim tick: the track under every train (one with no other train about: none needed). */
+  /**
+   * The table as of this sim tick: the track under every train (none with no other train about). Per train, its holds
+   * are worked out again only when what its cover depends on has changed (`coverStamp`): its axles' pieces and paths,
+   * a nose or tail near enough a joint for its overhang to reach over, the track and the switches.
+   */
   private underNow(): BookingTable {
     const { sim, layout } = this.host;
     if (this.underAt === sim.ticks) return this.bookings;
     this.underAt = sim.ticks;
-    this.bookings.clear();
-    if (sim.trainCount < 2) return this.bookings;
+    const stamps = this.underStamps;
+    if (sim.trainCount < 2) {
+      if (stamps.size > 0) {
+        this.bookings.clear();
+        stamps.clear();
+      }
+      return this.bookings;
+    }
     for (const id of sim.trainIds()) {
       const t = sim.getTrain(id);
-      if (!t || t.derailed) continue;
-      for (const [p, m] of this.underCache.of(layout, t)) this.bookings.hold(p, id, m, "under");
+      const stamp = !t || t.derailed ? 0 : coverStamp(layout, t);
+      if (stamps.get(id) === stamp) continue;
+      this.bookings.releaseAll(id, "under");
+      if (stamp === 0) {
+        stamps.delete(id);
+        continue;
+      }
+      stamps.set(id, stamp);
+      for (const [p, m] of this.underCache.of(layout, t!)) this.bookings.hold(p, id, m, "under");
     }
+    if (stamps.size > sim.trainCount)
+      for (const id of [...stamps.keys()])
+        if (!sim.getTrain(id)) {
+          this.bookings.releaseAll(id, "under");
+          stamps.delete(id);
+        }
     if (sim.ticks % 600 === 0) this.underCache.prune((id) => !!sim.getTrain(id));
     return this.bookings;
   }
@@ -659,12 +683,8 @@ export class Router {
 
   /** The engine of the train on (or over) these points (−1: none found). */
   private standingOn(pieceId: number): number {
-    const sim = this.host.sim;
-    for (const id of sim.trainIds()) {
-      const t = sim.getTrain(id);
-      if (t && !t.derailed && sim.piecesUnder(id).has(pieceId)) return (t.cars.find((c) => c.kind === "engine") ?? t.cars[0]).id;
-    }
-    return -1;
+    const t = trainOn(this.host.sim, (p) => p === pieceId, { by: "cars" });
+    return t ? engineOf(t) : -1;
   }
 
   /**
@@ -904,15 +924,9 @@ export class Router {
     return out;
   }
 
-  /** Is another train (not `trainId`) on this piece? */
+  /** Is another train (not `trainId`) on this piece, by an axle? */
   private otherOn(pieceId: number, trainId: number): boolean {
-    const sim = this.host.sim;
-    for (const id of sim.trainIds()) {
-      if (id === trainId) continue;
-      const t = sim.getTrain(id);
-      if (t && !t.derailed && t.bogies.some((b) => b.pieceId === pieceId)) return true;
-    }
-    return false;
+    return trainOn(this.host.sim, (p) => p === pieceId, { except: trainId, onRails: true }) !== undefined;
   }
 
   /**
@@ -1050,21 +1064,26 @@ export class Router {
    */
   private roadFree(pieceId: number, exit: number, need: number, trainId: number, avoid: ReadonlySet<number>): boolean {
     const layout = this.host.layout;
-    let at = pieceId;
     let len = 0;
-    for (let k = 0; k < WALK && len < need; k++) {
-      const n = next(layout, at, exit);
-      if (!n) return false;
-      if (avoid.has(n.pieceId) || this.otherOn(n.pieceId, trainId)) return false;
-      const ways = waysFrom(layout, n.pieceId, n.entry);
-      if (ways.length === 0) return false;
-      if (ways.length > 1) return true;
-      const p = layout.getPiece(n.pieceId)!;
-      len += pathLength(getPieceDef(p.type, p.flipped).paths[ways[0].path].geom);
-      at = n.pieceId;
-      exit = ways[0].exit;
-    }
-    return len >= need;
+    let free: boolean | null = null;
+    if (need <= 0) return true;
+    walkOn(
+      layout,
+      pieceId,
+      exit,
+      (id, _entry, ways) => {
+        if (avoid.has(id) || this.otherOn(id, trainId) || ways.length === 0) free = false;
+        else if (ways.length > 1) free = true;
+        else {
+          const p = layout.getPiece(id)!;
+          len += pathLength(getPieceDef(p.type, p.flipped).paths[ways[0].path].geom);
+          return len < need;
+        }
+        return false;
+      },
+      WALK,
+    );
+    return free ?? len >= need;
   }
 
   /** Are these points locked for trains other than the one holding `h`? */
@@ -1142,7 +1161,7 @@ export class Router {
     const theirs = waysFrom(layout, w.pieceId, lock.entry)[lock.state]?.path;
     if (mine === undefined || theirs === undefined || mine === theirs) return false;
     const p = layout.getPiece(w.pieceId)!;
-    return ((crossMasks(getPieceDef(p.type, p.flipped))[mine] >> theirs) & 1) === 0;
+    return ((overlaps(getPieceDef(p.type, p.flipped))[mine] >> theirs) & 1) === 0;
   }
 
   /**
@@ -1263,14 +1282,7 @@ export class Router {
 
   /** Is another train's car over this piece (not `train`'s own)? The pieces under the trains, worked out once a tick. */
   private otherUnder(pieceId: number, train: Train): boolean {
-    const sim = this.host.sim;
-    if (this.underTick !== sim.ticks) {
-      this.underTick = sim.ticks;
-      this.under.clear();
-      for (const id of sim.trainIds()) for (const p of sim.piecesUnder(id)) this.under.set(p, this.under.has(p) && this.under.get(p) !== id ? -1 : id);
-    }
-    const o = this.under.get(pieceId);
-    return o !== undefined && o !== train.id;
+    return this.coverIndex.otherOver(this.host.sim, this.host.sim.ticks, pieceId, train.id);
   }
 
   /**
@@ -1300,6 +1312,29 @@ function trainLength(train: Train): number {
 }
 
 const NO_HOLDERS: ReadonlySet<number> = new Set();
+
+/** More than any car's overhang past its end axle (mm): a nose or tail within it of a joint may reach over it. */
+const OVERHANG = 24;
+
+/** The length of the path a cursor is on. */
+function pathEnd(layout: Layout, c: Cursor): number {
+  const p = layout.getPiece(c.pieceId);
+  return p ? pathLength(getPieceDef(p.type, p.flipped).paths[c.pathIndex].geom) : 0;
+}
+
+/**
+ * What a train's cover (`UnderCache`) depends on, as a number (never 0): its axles' pieces and paths, whether its nose
+ * or tail is within an overhang of a joint, the track's revision and the switches.
+ */
+function coverStamp(layout: Layout, t: Train): number {
+  let stamp = (Math.imul(layout.revision, 31) ^ layout.switchesVersion ^ (t.cars.length << 20)) | 0;
+  for (const x of t.bogies) stamp = (Math.imul(stamp, 0x01000193) ^ (x.pieceId * 16 + x.pathIndex)) | 0;
+  const f = t.bogies[0];
+  const r = t.bogies[t.bogies.length - 1];
+  const near = (pathEnd(layout, f) - f.s < OVERHANG ? 1 : 0) | (r.s < OVERHANG ? 2 : 0);
+  stamp = (Math.imul(stamp, 0x01000193) ^ near) | 0;
+  return stamp === 0 ? 1 : stamp;
+}
 
 /** The cursor `speedCap` works with (no allocation per call). */
 const capAt: Cursor = { pieceId: -1, pathIndex: 0, reversed: false, s: 0 };

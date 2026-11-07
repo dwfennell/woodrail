@@ -33,7 +33,7 @@
 import { SIM_HZ, type Sim, type Train, type TurnSeen } from "./sim";
 import { CAR_SPECS } from "./cars";
 import type { Cursor } from "./cursor";
-import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, type Layout } from "../track";
+import { connectorRef, doubleTrack, getPieceDef, pathsFoul, pathExitConnector, pathLength, pieceOfRef, type Layout } from "../track";
 import type { Sections } from "../economy/sections";
 import type { Stalls } from "../economy/stalls";
 import type { Router } from "../routing/router";
@@ -453,7 +453,7 @@ export class Invariants {
         const p = layout.getPiece(pieceId);
         if (!p) continue;
         const def = getPieceDef(p.type, p.flipped);
-        if (def.paths.length < 2 || def.gated || def.signal) continue;
+        if (def.paths.length < 2 || def.gated || def.signal || doubleTrack(def)) continue;
         let list = on.get(pieceId);
         if (!list) on.set(pieceId, (list = []));
         list.push(id);
@@ -469,13 +469,9 @@ export class Invariants {
         const ps = [...new Set(t.bogies.filter((b) => b.pieceId === pieceId).map((b) => b.pathIndex))];
         return ps.length > 0 ? ps : def.paths.map((_, i) => i);
       };
-      const meet = (a: number, b: number): boolean => {
-        if (a === b) return true;
-        const x = def.paths[a];
-        const y = def.paths[b];
-        // (A diamond's paths cross; points' paths that share no end lie side by side, as a crossover's straights.)
-        return !def.isSwitch || x.from === y.from || x.from === y.to || x.to === y.from || x.to === y.to;
-      };
+      // (Paths that foul, as `track/points.ts` has them: a diamond's cross, a switch's meet by its stem; a crossover's
+      // straights lie side by side.)
+      const meet = (a: number, b: number): boolean => pathsFoul(def, a, b);
       for (let i = 0; i < ids.length; i++)
         for (let j = i + 1; j < ids.length; j++) {
           const pa = pathsOf(ids[i]);

@@ -29,6 +29,8 @@ export interface OnOptions {
   standing?: boolean;
   /** By axles (default) or by cars. */
   by?: OnBy;
+  /** Not trains off the rails (by cars they never count). */
+  onRails?: boolean;
 }
 
 /** Is train `t` on this piece, by `by`? */
@@ -51,6 +53,7 @@ export function trainOn(sim: OccupancySim, pieces: ReadonlySet<number> | ((piece
     const t = sim.getTrain(id);
     if (!t) continue;
     if (opts.standing && t.speed >= 1) continue;
+    if (opts.onRails && t.derailed) continue;
     if (by === "cars") {
       if (t.derailed) continue;
       for (const p of sim.piecesUnder(id)) if (has(p)) return t;
