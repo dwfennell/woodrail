@@ -211,7 +211,6 @@ export class HarnessRun implements InvariantWorld {
     this.ownLines = !!scenario.ownLines;
     this.checks = new Invariants(this, {
       restore: true,
-      turns: true,
       maxStill: this.maxStill,
       trains: () => this.engines.map((engine, key) => ({ key, engine })),
       name: (k) => `train ${k}`,
@@ -346,6 +345,11 @@ export class HarnessRun implements InvariantWorld {
 
   drive(train: Train): number {
     return drive(train);
+  }
+
+  /** Busy where it stands by its own choice: at its stop, or turning back at the end of the line (`greenHeld`). */
+  busy(train: Train, engine: number): boolean {
+    return !!this.routes.get(engine)?.at || train.turnback >= 0;
   }
 
   /** The player's switch positions (the default each is restored to): as laid, then each lever tap's (the router's). */
@@ -546,6 +550,9 @@ export class HarnessRun implements InvariantWorld {
     return this.report;
   }
 
+  /** Called after each tick's checks (the reservation shadow, routing/shadow.ts): it may read, never change, the run. */
+  afterStep: ((run: HarnessRun) => void) | null = null;
+
   /** One tick, in the economy's order (the sim, routes come to and left, the router), then the checks. */
   step(): void {
     this.checks.beforeTick();
@@ -636,6 +643,7 @@ export class HarnessRun implements InvariantWorld {
       }
     });
     this.checks.check();
+    this.afterStep?.(this);
   }
 
   private record(): void {

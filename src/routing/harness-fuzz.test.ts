@@ -29,6 +29,38 @@ const LONG = ENV.ROUTING_FUZZ !== undefined;
 /** Expected to fail today, and the step expected to fix each (spec §13). */
 const FAILS: Partial<Record<Invariant, string>> = {};
 
+/**
+ * The routing redesign's step 0 invariants (`NEW_INVARIANTS`: docs/superpowers/specs/2026-11-07-routing-redesign.md §4)
+ * known to break on these seeds today, by seed, and why: the plain fuzz's (`KNOWN_NEW`) and with signals
+ * (`KNOWN_NEW_SIGNALS`). Found by the long fuzz (`npm run fuzz:long`, 200 seeds × 1800 s). A seed listed that ran and
+ * no longer breaks fails the guard below, so the lists only shrink.
+ */
+// (From the long fuzz on 2026-11-07, 200 seeds × 1800 s: the old invariants held on every seed; oneOwner and netActed
+// broke on none. Each break here comes within the first 30 s of its seed, so a run of 30 s or more sees it.)
+const MID = "stalls give way by turning a train round mid-line (redesign step 1)";
+const GREEN = "held by sections (a slot or section wait) standing at a signal that shows clear (#31; redesign step 4: signals show the table)";
+const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
+  midTurn: { 42: MID, 66: MID, 77: MID, 94: MID, 96: MID, 110: MID, 111: MID, 152: MID, 157: MID, 161: MID, 190: MID },
+};
+const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
+  midTurn: { 42: MID, 66: MID, 77: MID, 94: MID, 96: MID, 110: MID, 111: MID, 152: MID, 157: MID, 161: MID, 190: MID },
+  greenHeld: { 14: GREEN, 30: GREEN, 37: GREEN, 66: GREEN, 69: GREEN, 76: GREEN, 105: GREEN, 119: GREEN, 160: GREEN, 174: GREEN, 192: GREEN },
+};
+
+/** Of these runs (seeds FIRST + k), those that broke `inv` and aren't known to; and the known ones that ran and didn't. */
+function againstKnown<R>(runs: R[], inv: Invariant, broke: (r: R) => { count: number; first: string[] }, name: (r: R) => string, known: Partial<Record<Invariant, Record<number, string>>>): { unknown: string[]; fixed: string[] } {
+  const list = known[inv] ?? {};
+  const unknown: string[] = [];
+  const fixed: string[] = [];
+  runs.forEach((r, k) => {
+    const seed = FIRST + k;
+    const b = broke(r);
+    if (b.count > 0 && !(seed in list)) unknown.push(`${name(r)}: ${b.first[0]}`);
+    if (b.count === 0 && seed in list) fixed.push(`seed ${seed}: ${list[seed]}`);
+  });
+  return { unknown, fixed };
+}
+
 describe(`routing fuzz: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × ${SECONDS} s`, () => {
   let reports: Report[] | undefined;
   const run = () =>
@@ -44,8 +76,9 @@ describe(`routing fuzz: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × 
     }));
   for (const inv of INVARIANTS) {
     const check = () => {
-      const broke = run().filter((r) => r.broke[inv].count > 0);
-      expect(broke.map((r) => `${r.name}: ${r.broke[inv].first[0]}`)).toEqual([]);
+      const { unknown, fixed } = againstKnown(run(), inv, (r) => r.broke[inv], (r) => r.name, KNOWN_NEW);
+      expect(unknown).toEqual([]);
+      expect(fixed, "known breaks that no longer break (take them off)").toEqual([]);
     };
     const step = FAILS[inv];
     const timeout = LONG ? 24 * 3600_000 : 60_000;
@@ -88,11 +121,9 @@ describe(`routing fuzz with signals: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRS
   const timeout = LONG ? 24 * 3600_000 : 120_000;
   for (const inv of INVARIANTS)
     it(inv, () => {
-      expect(
-        run()
-          .filter((r) => r.marked.broke[inv].count > 0)
-          .map((r) => `${r.marked.name}: ${r.marked.broke[inv].first[0]}`),
-      ).toEqual([]);
+      const { unknown, fixed } = againstKnown(run(), inv, (r) => r.marked.broke[inv], (r) => r.marked.name, KNOWN_NEW_SIGNALS);
+      expect(unknown).toEqual([]);
+      expect(fixed, "known breaks that no longer break (take them off)").toEqual([]);
     }, timeout);
   it("a stall only with a signal ring (or where the seed stalls without signals)", () => {
     const odd = run().filter((r) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals" && w !== "loop-signal"));

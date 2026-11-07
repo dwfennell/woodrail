@@ -300,7 +300,7 @@ const SHARED: Case[] = [
  * Giving way (economy/stalls.ts, the user 2026-11-05: "everything stops even though it could easily keep going"): a ring
  * of waits is broken where the track ahead allows, by a hand-run train taking another road, going forwards. Nothing
  * turns a train round to give way (the user, firm, 2026-11-07: "trains should not turn around except at the end of
- * lines"; every case checks `turnBack`): a ring with no road out ahead is said stuck, steadily, on each train's card.
+ * lines"; every case checks `midTurn`): a ring with no road out ahead is said stuck, steadily, on each train's card.
  */
 /** Stuck for good, each "in the way" of another, from one stall on: no turning, no ping-pong. */
 const stuckSteadily = (n: number, s: number) => (r: Report) => {

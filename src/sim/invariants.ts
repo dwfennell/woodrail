@@ -15,23 +15,36 @@
  * - **redRun:** a train's front axle crosses a signal's joint while it's red, unless it was past braking for it when it
  *   turned red (counted in `redLate`, not a break).
  * - **blockOne:** a plain signal's block has two trains in it that came in through its signal (not one set Always green).
- * - **turnBack:** a lever-on train turned round (its cars end for end) other than at the end of its line: with no new
- *   end-of-line arrival (`Train.lastTurn`: a buffer, track that just stops, close behind a train standing at one) since
- *   it last turned (the user, firm, 2026-11-07: "trains should not turn around except at the end of lines"). Opt-in
- *   (`turns`): the harness's layouts, where no player turns a train by hand (a lever, Reverse, Continue).
+ * - **oneOwner:** two trains on one set of points or crossing at once, on paths that meet (routing redesign §4 step 0:
+ *   one owner per piece where ways meet; a crossover's two straights don't meet).
+ * - **greenHeld:** a lever-on train standing `GREEN_HELD_S` at a signal it faces that shows clear, not busy at a stop
+ *   (issue #31: "the signal ahead of it is green"). Said once a stand.
+ * - **midTurn:** a train turned round not at the end of its line (`Sim.onTurn`: `turnNow` with track ahead), nor by
+ *   the player's Reverse on a ring line (the firm rule: trains turn only at the end of their line).
+ * - **netActed:** a train sections granted a move (and the router holds nothing against) stood `NET_S` held by
+ *   another train nose to nose, against its side, or short of points or a crossing it's on (`Sim.heldBy`): the
+ *   physical guards caught what the grant let through. Said once a stand.
  *
  * Checks read state only: running them never changes how a train moves (trajectory hashes identical with them on).
  */
-import { SIM_HZ, type Sim, type Train } from "./sim";
+import { SIM_HZ, type Sim, type Train, type TurnSeen } from "./sim";
+import { CAR_SPECS } from "./cars";
 import type { Cursor } from "./cursor";
-import { connectorRef, getPieceDef, pathExitConnector, pieceOfRef, type Layout } from "../track";
+import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, type Layout } from "../track";
 import type { Sections } from "../economy/sections";
 import type { Stalls } from "../economy/stalls";
 import type { Router } from "../routing/router";
 import { next, waysFrom } from "../routing/graph";
 import { planChoice, planWay, ROUTE_COSTS } from "../routing/plan";
 
-export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "turnBack"] as const;
+export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed"] as const;
+
+/**
+ * The invariants added by the routing redesign's step 0 (docs/superpowers/specs/2026-11-07-routing-redesign.md §4):
+ * known to break on some maps and seeds today, each such listed beside its test with why (`KNOWN_NEW` lists), so the
+ * gates stay green and the lists shrink as the reservation core lands.
+ */
+export const NEW_INVARIANTS: readonly Invariant[] = ["oneOwner", "greenHeld", "midTurn", "netActed"];
 export type Invariant = (typeof INVARIANTS)[number];
 
 /** What the checks run on. Read afresh each check (a harness's save round-trip swaps the sim and its services). */
@@ -49,6 +62,11 @@ export interface InvariantWorld {
   owner?(engine: number): number;
   /** A train's net drive toward its front (as `Economy.drive`). */
   drive(train: Train): number;
+  /**
+   * Is this standing train busy where it is by its own choice (at a stop: loading, its dwell, spacing; turning back),
+   * not held? (`greenHeld`; default: never.)
+   */
+  busy?(train: Train, engine: number): boolean;
 }
 
 /** A broken invariant, as told to `onBreak`. */
@@ -70,8 +88,6 @@ export interface InvariantOptions {
   maxStill?: number;
   /** Check restore (points back to their default): the harness's layouts, where nothing else moves points. */
   restore?: boolean;
-  /** Check turnBack (turned round only at the end of the line): the harness's layouts, where no player turns a train. */
-  turns?: boolean;
   /**
    * The trains to check: each a key (per-train state is kept by it) and its engine. Default: every train on the sim,
    * by its routed engine (else its first engine, else its first car), keyed by that car's id.
@@ -101,6 +117,12 @@ const RESTORE_TICKS = SIM_HZ;
 const GHOST_TICKS = SIM_HZ;
 /** How far (pieces) behind an axle the next one may be. */
 const SPLIT_DEPTH = 6;
+/** greenHeld: how long (s) a train may stand at a clear signal it faces before it's a break. */
+export const GREEN_HELD_S = 5;
+/** greenHeld: how far past a mark's stop point (mm, front axle to the joint) a train still stands "at" it. */
+const GREEN_NEAR = 30;
+/** netActed: how long (s) a granted train may stand held by another train's guards before it's a break. */
+export const NET_S = 1;
 
 interface TrainMemo {
   /** wrongRoad: the train id, drive sign and piece its front was last on. */
@@ -116,14 +138,11 @@ interface TrainMemo {
   ghostSaid: boolean;
   /** The tick it was last checked (forgotten when not seen for a while). */
   seen: number;
-  /** turnBack: where its front and rear axles were as last seen (`turnSeen`: they have been). */
-  turnSeen: boolean;
-  frontX: number;
-  frontZ: number;
-  rearX: number;
-  rearZ: number;
-  /** turnBack: the end-of-line arrival (`lastTurn.tick`) its last turn was for (−1: none yet). */
-  turnUsed: number;
+  /** greenHeld: ticks stood at a clear signal (and said, once a stand); netActed: ticks stood held so (and said). */
+  green: number;
+  greenSaid: boolean;
+  netHeld: number;
+  netSaid: boolean;
 }
 
 export class Invariants {
@@ -159,6 +178,12 @@ export class Invariants {
   private blocksAt = "";
   /** Has `beforeTick` been called since the last check (else the last check's note stands for it)? */
   private noted = false;
+  /** midTurn: the sim whose turns are watched (`Sim.onTurn`; again after a save round-trip swaps it), and turns seen. */
+  private turnSim: Sim | null = null;
+  private readonly turnsSeen: TurnSeen[] = [];
+  private detached = false;
+  /** Turns round seen, by how (the harness's and the disagreement script's counts). */
+  readonly turns = { lineEnd: 0, now: 0, lift: 0, midLine: 0 };
 
   constructor(
     private readonly world: InvariantWorld,
@@ -215,10 +240,7 @@ export class Invariants {
   /** A train's per-train state forgotten (a harness's reload: its front starts afresh). */
   forget(key: number): void {
     const m = this.memo.get(key);
-    if (m) {
-      m.roadTrain = -1;
-      m.turnSeen = false;
-    }
+    if (m) m.roadTrain = -1;
   }
 
   /**
@@ -243,7 +265,7 @@ export class Invariants {
       if (t.derailed) continue;
       let m = this.memo.get(key);
       if (!m) {
-        m = { roadTrain: -1, roadSign: 0, roadPiece: -1, lockPiece: -1, still: 0, ghostFrom: -1, ghostSaid: false, seen: tick, turnSeen: false, frontX: 0, frontZ: 0, rearX: 0, rearZ: 0, turnUsed: -1 };
+        m = { roadTrain: -1, roadSign: 0, roadPiece: -1, lockPiece: -1, still: 0, ghostFrom: -1, ghostSaid: false, seen: tick, green: 0, greenSaid: false, netHeld: 0, netSaid: false };
         this.memo.set(key, m);
       }
       m.seen = tick;
@@ -251,10 +273,12 @@ export class Invariants {
       // (Fronts every call: a front coming onto a piece is seen on the tick it does.)
       if (full) this.checkSplit(t, key, engine);
       this.checkLockRun(t, key, engine, m);
-      if (this.opts.turns) this.checkTurn(t, key, engine, m);
       if (this.world.routed(engine)) this.checkRoad(t, key, engine, m);
       if (full) this.checkStill(t, key, engine, m);
+      if (full) this.checkGreen(t, key, engine, m);
+      if (full) this.checkNet(t, key, engine, m);
     }
+    this.watchTurns();
     // (Signals every call, as fronts: a front crossing a joint is seen on the tick it does.)
     this.checkSignals(names);
     if (!this.noted) this.noteSignals();
@@ -280,9 +304,173 @@ export class Invariants {
       }
     }
     if (this.opts.restore) this.checkRestore(tick);
+    this.checkOwners(names);
     // (Trains gone a while: their memo goes, so a long game doesn't keep every engine it ever had.)
     if (this.memo.size > 64) for (const [k, m] of this.memo) if (tick - m.seen > 10 * SIM_HZ) this.memo.delete(k);
   }
+
+  /** Stop watching the sim's turns (a host's `off()`). */
+  detach(): void {
+    this.detached = true;
+    if (this.turnSim && this.turnSim.onTurn === this.onTurnSeen) this.turnSim.onTurn = null;
+    this.turnSim = null;
+  }
+
+  private readonly onTurnSeen = (e: TurnSeen): void => {
+    if (!this.detached) this.turnsSeen.push(e);
+  };
+
+  /**
+   * midTurn: the sim's turns, watched from the first check (`Sim.onTurn`; again on a new sim), each judged at the next
+   * check: at the end of its line, or the player's own (a lift), or a break.
+   */
+  private watchTurns(): void {
+    const sim = this.world.sim;
+    if (this.detached) return;
+    if (this.turnSim !== sim) {
+      if (this.turnSim && this.turnSim.onTurn === this.onTurnSeen) this.turnSim.onTurn = null;
+      this.turnSim = sim;
+      sim.onTurn = this.onTurnSeen;
+    }
+    for (const e of this.turnsSeen) {
+      if (e.how === "line-end") this.turns.lineEnd++;
+      else if (e.how === "lift") this.turns.lift++;
+      else this.turns.now++;
+      if (e.how === "now" && !e.atLineEnd) {
+        this.turns.midLine++;
+        this.break("midTurn", `train ${e.trainId} turned round mid-line on piece ${e.pieceId} (not at a line end)`, undefined, e.pieceId);
+      }
+    }
+    this.turnsSeen.length = 0;
+  }
+
+  /**
+   * greenHeld: a lever-on train standing at a signal (a mark) it faces, its front axle within its stop point and
+   * `GREEN_NEAR` past it, the signal clear, not busy at a stop, for `GREEN_HELD_S`: said once a stand.
+   */
+  private checkGreen(t: Train, key: number, engine: number, m: TrainMemo): void {
+    const { sim, layout } = this.world;
+    const net = this.world.drive(t);
+    if (t.speed !== 0 || net === 0 || layout.signalCount === 0 || this.world.busy?.(t, engine)) {
+      m.green = 0;
+      m.greenSaid = false;
+      return;
+    }
+    const at = this.signalFaced(t, net > 0);
+    if (at === null || !sim.signalList().find((g) => g.key === at)?.clear) {
+      m.green = 0;
+      m.greenSaid = false;
+      return;
+    }
+    m.green += this.every;
+    if (!m.greenSaid && m.green >= GREEN_HELD_S * SIM_HZ) {
+      m.greenSaid = true;
+      this.break("greenHeld", `${this.name(key, engine)} stood ${GREEN_HELD_S} s at signal ${at}, which shows clear (piece ${t.bogies[0].pieceId})`, engine, t.bogies[0].pieceId);
+    }
+  }
+
+  /** The signal (its key, a mark's) a train's leading axle stands at, facing it (within `GREEN_NEAR` of its stop point); or null. */
+  private signalFaced(t: Train, forward: boolean): number | null {
+    const { layout } = this.world;
+    const b = forward ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+    const p = layout.getPiece(b.pieceId);
+    if (!p) return null;
+    const def = getPieceDef(p.type, p.flipped);
+    // (Running engine last, its leading axle heads the other way along its path.)
+    const reversed = forward ? b.reversed : !b.reversed;
+    const exit = pathExitConnector(def, b.pathIndex, reversed);
+    if (exit === -1) return null;
+    const mark = layout.signalAt(connectorRef(b.pieceId, exit));
+    if (!mark) return null;
+    const len = pathLength(def.paths[b.pathIndex].geom);
+    const toJoint = forward ? len - b.s : b.s;
+    const inset = CAR_SPECS[(forward ? t.cars[0] : t.cars[t.cars.length - 1]).kind].bogieInset;
+    // (The mark's stop point: the nose 6 mm short of the joint, its axle the bogie's inset further.)
+    return toJoint <= 6 + inset + GREEN_NEAR ? -1 - mark.id : null;
+  }
+
+  /**
+   * netActed: a train with a move granted by sections (the router holding nothing against it) standing `NET_S` held by
+   * another train nose to nose, against its side or short of points or a crossing (`Sim.heldBy`, not "follow": following
+   * a train going its way is the rule on circuits): said once a stand.
+   */
+  private checkNet(t: Train, key: number, engine: number, m: TrainMemo): void {
+    const { sim, sections, router } = this.world;
+    const how = t.speed === 0 ? sim.heldHow(t.id) : null;
+    const granted = how !== null && how !== "follow" && how !== "turn" && how !== "signal" && !!sections.stateOf(engine)?.move && router.waitOf(engine) === null;
+    if (!granted) {
+      m.netHeld = 0;
+      m.netSaid = false;
+      return;
+    }
+    m.netHeld += this.every;
+    if (!m.netSaid && m.netHeld >= NET_S * SIM_HZ) {
+      m.netSaid = true;
+      const by = sim.heldBy(t.id);
+      this.break("netActed", `${this.name(key, engine)}, its move granted, held ${how} by train ${by} (piece ${t.bogies[0].pieceId})`, engine, t.bogies[0].pieceId);
+    }
+  }
+
+  /**
+   * oneOwner: no two trains on one set of points or crossing at once on paths that meet (share an end, or cross: a
+   * diamond's). A crossover's two straights don't meet; a train with no axle on the piece (under a car only) is taken
+   * as on every path. Said once per piece and pair while it lasts.
+   */
+  private checkOwners(names: ReadonlyMap<number, { key: number; engine: number }>): void {
+    const { sim, layout } = this.world;
+    if (sim.trainIds().length < 2) {
+      this.owners.clear();
+      return;
+    }
+    const on = new Map<number, number[]>();
+    for (const id of sim.trainIds()) {
+      for (const pieceId of sim.piecesUnder(id)) {
+        const p = layout.getPiece(pieceId);
+        if (!p) continue;
+        const def = getPieceDef(p.type, p.flipped);
+        if (def.paths.length < 2 || def.gated || def.signal) continue;
+        let list = on.get(pieceId);
+        if (!list) on.set(pieceId, (list = []));
+        list.push(id);
+      }
+    }
+    const now = new Set<string>();
+    for (const [pieceId, ids] of on) {
+      if (ids.length < 2) continue;
+      const p = layout.getPiece(pieceId)!;
+      const def = getPieceDef(p.type, p.flipped);
+      const pathsOf = (id: number): number[] => {
+        const t = sim.getTrain(id)!;
+        const ps = [...new Set(t.bogies.filter((b) => b.pieceId === pieceId).map((b) => b.pathIndex))];
+        return ps.length > 0 ? ps : def.paths.map((_, i) => i);
+      };
+      const meet = (a: number, b: number): boolean => {
+        if (a === b) return true;
+        const x = def.paths[a];
+        const y = def.paths[b];
+        // (A diamond's paths cross; points' paths that share no end lie side by side, as a crossover's straights.)
+        return !def.isSwitch || x.from === y.from || x.from === y.to || x.to === y.from || x.to === y.to;
+      };
+      for (let i = 0; i < ids.length; i++)
+        for (let j = i + 1; j < ids.length; j++) {
+          const pa = pathsOf(ids[i]);
+          const pb = pathsOf(ids[j]);
+          if (!pa.some((a) => pb.some((b) => meet(a, b)))) continue;
+          const k = `${pieceId}:${Math.min(ids[i], ids[j])}:${Math.max(ids[i], ids[j])}`;
+          now.add(k);
+          if (this.owners.has(k)) continue;
+          const name = (id: number) => {
+            const n = names.get(id);
+            return n ? this.name(n.key, n.engine) : `train ${id}`;
+          };
+          this.break("oneOwner", `${name(ids[i])} and ${name(ids[j])} both on ${def.isSwitch ? "points" : "crossing"} ${pieceId}`, names.get(ids[i])?.engine, pieceId);
+        }
+    }
+    this.owners = now;
+  }
+
+  /** oneOwner: the pieces and pairs said, while they last. */
+  private owners = new Set<string>();
 
   /** Before a tick: each train's front axle and each signal's aspect (for `checkSignals`). */
   private noteSignals(): void {
@@ -579,31 +767,6 @@ export class Invariants {
    * No split, by the bogies' pieces and paths (not by axle distance: loose joints open a few mm): each axle's place
    * joins the next one's along the track, behind it, with each on a path through the piece it's on.
    */
-  /**
-   * turnBack: turned round since the last call, as a turn at the end of the line (`Sim.turnAround`), `Sim.turnNow`, or a
-   * lever thrown the other way (`flipTrain`) leave it: its front axle now nearer where its rear one was than where its
-   * front one was (a tick's run is a few mm; a train's length is far more). Fine only for a new end-of-line arrival:
-   * `lastTurn` set since its last turn.
-   */
-  private checkTurn(t: Train, key: number, engine: number, m: TrainMemo): void {
-    const n = t.world.length;
-    if (n < 2) return;
-    const f = t.world[0];
-    const r = t.world[n - 1];
-    if (m.turnSeen && (f.x - m.rearX) ** 2 + (f.z - m.rearZ) ** 2 < (f.x - m.frontX) ** 2 + (f.z - m.frontZ) ** 2) {
-      const at = t.lastTurn?.tick ?? -1;
-      // (Driven: a lever on. A train standing lever off turned by hand isn't the router's or sections'.)
-      if (at < 0 || at === m.turnUsed) {
-        if (this.world.drive(t) !== 0) this.break("turnBack", `${this.name(key, engine)} turned round short of the end of its line${t.lastTurn ? ` (its last end: piece ${t.lastTurn.pieceId})` : ""}`, engine, t.bogies[0]?.pieceId);
-      } else m.turnUsed = at;
-    }
-    m.turnSeen = true;
-    m.frontX = f.x;
-    m.frontZ = f.z;
-    m.rearX = r.x;
-    m.rearZ = r.z;
-  }
-
   private checkSplit(t: Train, key: number, engine: number): void {
     const { layout } = this.world;
     for (let i = 0; i + 1 < t.bogies.length; i++) {
