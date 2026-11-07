@@ -48,7 +48,10 @@ const minutes = num(await sql(`SELECT formatDateTime(toStartOfDay(timestamp), '%
 const [totals] = num(await sql(`SELECT COUNT(DISTINCT index1) AS players, SUM(_sample_interval) AS sessions FROM woodrail_stats WHERE blob1 = 'start' AND ${SINCE}`), "players", "sessions");
 const [errors] = num(await sql(`SELECT SUM(_sample_interval) AS times FROM woodrail_stats WHERE blob1 = 'error' AND ${SINCE}`), "times");
 const [played] = num(await sql(`SELECT ROUND(SUM(_sample_interval * double1)) AS minutes FROM woodrail_stats WHERE blob1 = 'end' AND ${SINCE}`), "minutes");
-write("goals", num(await sql(`SELECT blob3 AS goal, COUNT(DISTINCT index1) AS players FROM woodrail_stats WHERE blob1 = 'goal' AND ${SINCE} GROUP BY goal ORDER BY players DESC`), "players"));
+// Goals in the game's order (src/game/goals.ts), so the chart reads as how far players get.
+const goalOrder = [...readFileSync("src/game/goals.ts", "utf8").matchAll(/^\s*id: "([a-z0-9-]+)"/gm)].map((m) => m[1]);
+const reached = num(await sql(`SELECT blob3 AS goal, COUNT(DISTINCT index1) AS players FROM woodrail_stats WHERE blob1 = 'goal' AND ${SINCE} GROUP BY goal`), "players");
+write("goals", reached.map((r) => ({ ...r, order: goalOrder.indexOf(r.goal) + 1 || 999 })).sort((a, b) => a.order - b.order));
 
 // Feedback and railway snapshots, from the Worker (newest first; its lists hold the latest 100).
 // A report's build id is its build time (base 36 ms): the deploy run it falls in says where it was played. GitHub
