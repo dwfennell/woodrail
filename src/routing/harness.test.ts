@@ -369,6 +369,17 @@ const GIVE_WAY: Case[] = [
       "the hand-run ones keep going: 5+ turns at the buffers each": (r) => r.turns.slice(1).forEach((t) => expect(t.buffer).toBeGreaterThanOrEqual(5)),
     },
   },
+  {
+    // (Fuzz seed 125: the routed train turns back to the loop behind it and lets the boxed-in one out. Before: no stop,
+    // all three stuck.)
+    scenario: S.boxedPastLoop,
+    checks: {
+      "payoff: the routed train 5+ stops in 5 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(5),
+      "never stuck": noStall,
+      "the routed one gave way": (r) => expect(r.gaveWay.routed).toBeGreaterThanOrEqual(1),
+      "the hand-run ones keep going: 5+ turns at the buffers each": (r) => r.turns.slice(1).forEach((t) => expect(t.buffer).toBeGreaterThanOrEqual(5)),
+    },
+  },
 ];
 
 /**

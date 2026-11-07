@@ -1,5 +1,5 @@
 import { trainKey, type Sim, type Train } from "../sim";
-import { wayRound } from "../routing/give-way";
+import { letsBy, wayRound } from "../routing/give-way";
 import { CHECK_TICKS, type Sections } from "./sections";
 
 /**
@@ -29,7 +29,9 @@ import { CHECK_TICKS, type Sections } from "./sections";
  *   lie, as ever. (The user's map, 2026-11-05: a hand-run train back from the forest yard stood at the points, which lay
  *   for the branch the routed train waited on, while the mill spur on their other road was free.)
  * - **A routed train** gives way only where, turned, it has a way to its next stop with no turn-back and not over the
- *   train in its way (`wayRound`: round a ring, a loop round, a wye or a balloon). Else turning would only bring it back.
+ *   train in its way (`wayRound`: round a ring, a loop round, a wye or a balloon); or where the train in its way is a
+ *   hand-run one boxed into a dead end with its next stop, and points (a passing loop's) are behind it: turned back to
+ *   them, it lets that one out, and they pass there (`letsBy`; fuzz seed 125). Else turning would only bring it back.
  * No livelock: a train that gave way doesn't again for `YIELD_AGAIN_S`, and never again to the same train till that one
  * has got somewhere (come to its next stop, or turned at the end of the line): boxed in, it would only come back to it
  * (a hand-run train between a buffer and the train whose stop is behind it). A ring then is broken by another of its
@@ -311,7 +313,7 @@ export class Stalls {
           // road and still waits on it: the points thrown didn't let it go (its way on held all the same), so it turns.)
           const again = !!was && was.by === byKey && was.goal === progress.goal && was.turn === progress.turn;
           if (again && !was.road) continue;
-          if (pass && (!host.goal || !wayRound(sim.layout, t, host.goal(engine), sim.piecesUnder(by.id)))) continue;
+          if (pass && (!host.goal || !(wayRound(sim.layout, t, host.goal(engine), sim.piecesUnder(by.id)) || (!host.routed(this.lineEngine(by)) && letsBy(sim.layout, this.trainsNow(), t, by, host.goal(engine)))))) continue;
           // (A hand-run train takes another road at the points just ahead, if one's free; else it turns round.)
           const road = !pass && !again && !!host.otherRoad?.(id, by.id);
           const turned = road ? t : sim.turnNow(id);
@@ -338,6 +340,13 @@ export class Stalls {
         if (e >= 0) found.delete(e);
       }
     }
+  }
+
+  /** The trains on the track now. */
+  private trainsNow(): Train[] {
+    const out: Train[] = [];
+    for (const id of this.sim.trainIds()) out.push(this.sim.getTrain(id)!);
+    return out;
   }
 
   /** How far a train has got: its goal (a routed one's next stop or aim; −1: none) and its last end-of-line turn (tick). */

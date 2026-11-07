@@ -208,17 +208,12 @@ describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines an
 });
 
 /**
- * Seeds a route still makes worse, each with why: one, below. The convoys into a dead end the user decided to keep
+ * Seeds a route still makes worse, each with why. None now. The convoys into a dead end the user decided to keep
  * (decision (4), 2026-11-02, and again 2026-11-06: rail-road.md) aren't listed by seed: they're recognised by their shape
  * as they stall (`boxedConvoy`, boxed.ts: a hand-run train boxed in between the end of the line and the routed train, the
  * routed stop behind it, the card's fix a passing loop), and only that shape is excused. (Listed here till 2026-11-06:
  * 74, 77, 79, 121, 127, 135, 183 and 7. 77 isn't worse any more; the rest are that shape, as are the 20 seeds the
- * hand-run runs' giving way, f54d0712, newly showed: before it both runs stalled. 68, boxed in on a line with a passing loop,
- * was listed for a day: now the loop lets them pass, `boxedOnLoopLine`.)
+ * hand-run runs' giving way, f54d0712, newly showed: before it both runs stalled. 68 and 125, boxed in on a line with a
+ * passing loop, were listed for a day: now the loop lets them pass, `boxedOnLoopLine` and `boxedPastLoop`.)
  */
-const KNOWN_WORSE: Record<string, string> = {
-  // (2026-11-06, the user: land the fixes, this next. The boxed shape past a passing loop, on the single line beyond it,
-  // so the card doesn't say to lay one and `boxedConvoy` doesn't excuse it. TODO(claude/routing-boxed-loop): the routed
-  // train gets round by the loop; then take it off.)
-  "fuzz seed 125": "boxed in on a line with a passing loop; follow-up: routed trains should use the loop",
-};
+const KNOWN_WORSE: Record<string, string> = {};
