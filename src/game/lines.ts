@@ -26,6 +26,19 @@ export function lineOf(economy: Economy, engineCarId: number): Line | undefined 
   return id === undefined ? undefined : economy.lines.get(id);
 }
 
+/**
+ * A colour's line name no line has yet: "Red line", else "Red line 2", "Red line 3"… (past eight lines the colours come
+ * round again, and two lines of one name couldn't be told apart in the Lines list).
+ */
+export function freeName(economy: Economy, colourName: string): string {
+  const taken = new Set([...economy.lines.values()].map((l) => l.name));
+  const base = `${colourName} line`;
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base} ${n}`)) n++;
+  return `${base} ${n}`;
+}
+
 /** A new line's colour and name: the first colour no line has (then round again). */
 export function nextColour(economy: Economy): { colour: string; name: string } {
   const used = new Set([...economy.lines.values()].map((l) => l.colour));
@@ -35,7 +48,7 @@ export function nextColour(economy: Economy): { colour: string; name: string } {
 
 /** A line made for this engine, with these stops, its train heading for the first. (Replaces any line it ran.) */
 export function startLine(economy: Economy, engineCarId: number, stops: RouteStopDef[], id = nextLineId(economy), look = nextColour(economy)): Line {
-  const line: Line = { id, colour: look.colour, name: `${look.name} line`, stops: [...stops] };
+  const line: Line = { id, colour: look.colour, name: freeName(economy, look.name), stops: [...stops] };
   economy.lines.set(id, line);
   economy.lineIdOf.set(engineCarId, id);
   economy.setRoute(engineCarId, line.stops.length > 0 ? { stops: line.stops, next: 0 } : null);
@@ -47,7 +60,7 @@ export function startLine(economy: Economy, engineCarId: number, stops: RouteSto
  * the next free colour. Trains are put on it later (`joinLine`).
  */
 export function createLine(economy: Economy, stops: readonly RouteStopDef[], look = nextColour(economy), id = nextLineId(economy)): Line {
-  const line: Line = { id, colour: look.colour, name: `${look.name} line`, stops: stops.map(copyStop) };
+  const line: Line = { id, colour: look.colour, name: freeName(economy, look.name), stops: stops.map(copyStop) };
   economy.lines.set(id, line);
   return line;
 }
@@ -186,7 +199,11 @@ export function recolourLine(economy: Economy, id: number, colour: string): void
   const to = LINE_COLOURS.find((c) => c.colour === colour);
   if (!line || !to) return;
   const from = LINE_COLOURS.find((c) => c.colour === line.colour);
-  if (from && line.name === `${from.name} line`) line.name = `${to.name} line`;
+  // (Its own colour's name, numbered or not: it takes the new colour's, one no other line has.)
+  if (from && (line.name === `${from.name} line` || new RegExp(`^${from.name} line \\d+$`).test(line.name))) {
+    line.name = "";
+    line.name = freeName(economy, to.name);
+  }
   line.colour = colour;
 }
 

@@ -229,3 +229,13 @@ describe("what a line carries", () => {
     expect(economy.lineLoadsLately(createLine(economy, [{ depotId: mill, action: "auto" }]).id)).toBe(0);
   });
 });
+
+describe("line names", () => {
+  it("past eight lines the colours come round again, the names numbered so no two are the same", () => {
+    const w = small();
+    const names = Array.from({ length: 10 }, () => createLine(w.economy, [{ depotId: w.forest, action: "auto" }]).name);
+    expect(names.slice(0, 2)).toEqual(["Red line", "Blue line"]);
+    expect(new Set(names).size).toBe(10);
+    expect(names[8]).toBe("Red line 2");
+  });
+});
