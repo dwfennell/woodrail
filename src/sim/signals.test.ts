@@ -181,3 +181,46 @@ describe("signals: a path signal at rest, and what a signal's card says (signals
     expect(sim.markWhy(on).why).toBe("forced");
   });
 });
+
+describe("signals: a path signal past points where two roads meet (redRun on signal-added-still-stuck.txt, 2026-11-07)", () => {
+  it("shows the way of the train nearest it: clear as the one with its way runs past, though one moved first stands held on the other road", () => {
+    // Two roads (B, C) meet at points S onto the approach A; a mark at A's far end, and points S2 in its block beyond
+    // (a path signal). Trains on both roads, heading for it.
+    const layout = new Layout();
+    const s = layout.addPiece("switch", { x: 0, z: 0, heading: 0 }, 0, false);
+    const a = appendPiece(layout, "straight-216", false, connectorRef(s, 0));
+    const s2 = appendPiece(layout, "switch", false, connectorRef(a, 1));
+    appendPiece(layout, "buffer", false, connectorRef(appendPiece(layout, "straight-216", false, connectorRef(s2, 1)), 1));
+    const b = [appendPiece(layout, "straight-216", false, connectorRef(s, 1))];
+    b.push(appendPiece(layout, "straight-216", false, connectorRef(b[0], 1)));
+    const c = [appendPiece(layout, "straight-216", false, connectorRef(s, 2))];
+    c.push(appendPiece(layout, "straight-216", false, connectorRef(c[0], 1)));
+    const mark = layout.addSignal(connectorRef(a, 1));
+    const sim = new Sim(layout);
+    const toward = (pieceId: number, at: number): number => {
+      const r = sim.addTrain(["engine"], { pieceId, pathIndex: 0, reversed: true, s: at });
+      if (r.kind !== "placed") throw new Error(r.kind);
+      sim.setLever(sim.getTrain(r.trainId)!.cars[0].id, 1);
+      return r.trainId;
+    };
+    // The held one, moved first each tick, in sight of the mark; the one with its way, further back on the other road.
+    const held = toward(c[0], 190);
+    const goes = toward(b[1], 150);
+    // (The router refuses the held one the block, the other's is locked for it; and the held one stands short of the
+    // points, as sections hold a train there: a stand-in for both, the thing under test being the aspect.)
+    const goesEngine = sim.getTrain(goes)!.cars[0].id;
+    sim.pathLocks = { locks: (t) => (t.id === held ? goesEngine : -2), way: () => -1, version: () => 0 };
+    sim.speedCap = (t) => (t.id === held ? 0 : Infinity);
+    expect(sim.signalList().find((g) => g.key === -1 - mark)!.junction).toBe(true);
+    let crossed: boolean | null = null;
+    for (let i = 0; i < 8 * 120 && crossed === null; i++) {
+      const was = sim.getTrain(goes)!.bogies[0].pieceId;
+      const clear = sim.markClear(mark);
+      sim.tick();
+      if (was === a && sim.getTrain(goes)!.bogies[0].pieceId === s2) crossed = clear;
+    }
+    expect(sim.redSignalKeyAhead(held)).toBe(-1 - mark);
+    // (It ran past it on its way: shown clear as it did, not the held one's red.)
+    expect(crossed).toBe(true);
+  });
+});
