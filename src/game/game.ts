@@ -976,6 +976,7 @@ export class Game {
     const stations = () => set("stations", [...this.landscapeView.stationClocks].map(([id, matrix]) => [id, { key: STATION_CLOCK_HANDS, matrix }] as const));
     const yards = () => set("yards", this.depotView.yardClocks);
     this.landscapeView.onClocks = stations;
+    this.landscapeView.onSigns = () => this.redraw();
     this.depotView.onClocks = yards;
     this.kitView.onClocks = (clocks) => set("kits", clocks);
     stations();
@@ -1690,7 +1691,8 @@ export class Game {
 
   /** What a town's sign shows beside its name (Game mode: what it wants; see `SignBadge`). */
   setSignBadge(townId: number, badge: SignBadge | null): void {
-    this.landscapeView.setSignBadge(townId, badge);
+    // (A new picture on the board: it casts no new shadow.)
+    if (this.landscapeView.setSignBadge(townId, badge)) this.redraw();
   }
 
   /**

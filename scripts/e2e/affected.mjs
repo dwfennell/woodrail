@@ -247,6 +247,8 @@ export const RULES = [
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
   ["src/ui/store-rows.ts", ["warehouse"]],
   ["src/ui/town-ledger.ts", [...TOWNS]],
+  // The town name board (its good and count): drawn as towns grow, beside their cards.
+  ["src/render/town-sign.ts", ["growth", "civic", "locked"]],
   ["src/ui/piece-info.ts", ["names", "feature-tips"]],
 
   // Game rules (src/game: by file; anything else there falls to SMOKE).

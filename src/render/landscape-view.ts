@@ -1,5 +1,5 @@
+export type { SignBadge } from "./town-sign";
 import { yardParts } from "../game/depot-footprint";
-import type { CargoKind } from "../economy/cargo";
 import {
   BoxGeometry,
   CanvasTexture,
@@ -55,6 +55,7 @@ import {
 } from "../landscape";
 import { RISER_HEIGHT } from "../track";
 import type { Layout } from "../track";
+import { drawSign, iconFontReady, loadIconFont, sameBadge, type SignBadge } from "./town-sign";
 import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
 import { buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
@@ -177,6 +178,11 @@ export class LandscapeView {
   readonly stationClocks = new Map<number, Matrix4>();
   /** The towns whose station clocks each tile drew, by tile key. */
   private readonly clockTowns = new Map<number, number[]>();
+  /** Called when signs were painted again outside a change of their own (the icon font loaded): draw a frame. */
+  onSigns: (() => void) | null = null;
+  private fontWait = false;
+  private disposed = false;
+
   /** Called when `stationClocks` changes (a tile built again: a station moved, upgraded or put back). */
   onClocks: (() => void) | null = null;
 
@@ -195,6 +201,7 @@ export class LandscapeView {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.dropPending();
     disposeTree(this.group);
     for (const p of this.aroundParts.values()) disposeSceneryPart(p);
@@ -930,15 +937,42 @@ export class LandscapeView {
     this.group.add(group);
   }
 
-  /** What a town's sign shows beside its name (null: just the name). Repaints only the sign's own picture. */
-  setSignBadge(townId: number, badge: SignBadge | null): void {
+  /**
+   * What a town's sign shows beside its name (null: just the name). Repaints only the sign's own picture, and only when
+   * what it shows changed. True if it was painted (draw a frame).
+   */
+  setSignBadge(townId: number, badge: SignBadge | null): boolean {
+    if (sameBadge(this.badges.get(townId) ?? null, badge)) return false;
     if (badge) this.badges.set(townId, badge);
     else this.badges.delete(townId);
+    return this.paintSign(townId);
+  }
+
+  /** Paint a sign's picture again (its name and badge); false if it has none. */
+  private paintSign(townId: number): boolean {
     const m = this.signs.get(townId);
     const name = this.signNames.get(townId);
-    if (!m || !name || !(m.map instanceof CanvasTexture)) return;
+    if (!m || !name || !(m.map instanceof CanvasTexture)) return false;
+    const badge = this.badges.get(townId) ?? null;
     drawSign(m.map.image as HTMLCanvasElement, name, badge);
     m.map.needsUpdate = true;
+    if (badge) this.repaintWithFont();
+    return true;
+  }
+
+  /**
+   * A badge's good is drawn in the icon font: painted before it has loaded, it would be a box. Paint the badged signs
+   * again once it has (once: the font loads for the page), and say so (`onSigns`: draw a frame).
+   */
+  private repaintWithFont(): void {
+    if (this.fontWait || iconFontReady()) return;
+    this.fontWait = true;
+    void loadIconFont().then(() => {
+      if (this.disposed) return;
+      let painted = false;
+      for (const id of this.badges.keys()) painted = this.paintSign(id) || painted;
+      if (painted) this.onSigns?.();
+    });
   }
 
   private makeSign(name: string, badge: SignBadge | null): MeshStandardMaterial {
@@ -946,6 +980,7 @@ export class LandscapeView {
     canvas.width = 512;
     canvas.height = 128;
     drawSign(canvas, name, badge);
+    if (badge) this.repaintWithFont();
     const tex = new CanvasTexture(canvas);
     tex.colorSpace = SRGBColorSpace;
     tex.anisotropy = 4;
@@ -955,88 +990,6 @@ export class LandscapeView {
 
 }
 
-
-/**
- * Beside a town's name: a count of plank bundles delivered (Sandbox), or what the town wants now with a bar filling
- * toward its next level (Game mode).
- */
-export type SignBadge = { count: number } | { wants: CargoKind; got: number; of: number };
-
-/** A good's little picture on a sign, about 44 × 52 px from (x, y). */
-function drawGood(ctx: CanvasRenderingContext2D, kind: CargoKind, x: number, y: number): void {
-  if (kind === "log") {
-    ctx.fillStyle = "#9a6a3c";
-    for (let k = 0; k < 3; k++) ctx.fillRect(x, y + 4 + k * 16, 44, 12);
-    ctx.fillStyle = "#e3bf8c";
-    for (let k = 0; k < 3; k++) ctx.fillRect(x + 38, y + 4 + k * 16, 6, 12);
-    return;
-  }
-  if (kind === "stone") {
-    // Three grey blocks, two below and one on top.
-    ctx.fillStyle = "#b9b4aa";
-    ctx.fillRect(x, y + 28, 20, 22);
-    ctx.fillRect(x + 24, y + 28, 20, 22);
-    ctx.fillRect(x + 12, y + 4, 20, 22);
-    return;
-  }
-  if (kind === "grain" || kind === "flour") {
-    // A sack (golden grain, white flour) with a tie, and a blue band on flour.
-    ctx.fillStyle = kind === "grain" ? "#d9a441" : "#f1ebdd";
-    ctx.beginPath();
-    ctx.roundRect(x + 4, y + 12, 36, 38, 10);
-    ctx.fill();
-    ctx.fillStyle = "#c8442f";
-    ctx.fillRect(x + 16, y + 4, 12, 10);
-    if (kind === "flour") {
-      ctx.fillStyle = "#2f6db5";
-      ctx.fillRect(x + 4, y + 28, 36, 7);
-    }
-    return;
-  }
-  // Planks: three stacked boards with a red strap.
-  ctx.fillStyle = "#e3bf8c";
-  for (let k = 0; k < 3; k++) ctx.fillRect(x, y + 4 + k * 16, 44, 12);
-  ctx.fillStyle = "#c8442f";
-  ctx.fillRect(x + 18, y, 8, 52);
-}
-
-/** Paint a town's name board: its name, and its badge (see `SignBadge`). */
-function drawSign(canvas: HTMLCanvasElement, name: string, badge: SignBadge | null): void {
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#2f5d3a";
-  ctx.fillRect(0, 0, 512, 128);
-  ctx.strokeStyle = "#f3e3c3";
-  ctx.lineWidth = 8;
-  ctx.strokeRect(10, 10, 492, 108);
-  ctx.fillStyle = "#f8efdc";
-  ctx.font = "800 64px Nunito, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  if (!badge) {
-    ctx.fillText(name, 256, 68, 470);
-    return;
-  }
-  ctx.fillText(name, 196, 68, 340);
-  const x = 384;
-  if ("count" in badge) {
-    drawGood(ctx, "planks", x, 36);
-    ctx.fillStyle = "#f8efdc";
-    ctx.font = "800 44px Nunito, system-ui, sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText(String(badge.count), x + 54, 68, 70);
-    return;
-  }
-  // What it wants, how many of how many, and a bar filling toward its next level.
-  drawGood(ctx, badge.wants, x - 6, 22);
-  ctx.fillStyle = "#f8efdc";
-  ctx.font = "800 36px Nunito, system-ui, sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText(`${badge.got}/${badge.of}`, x + 46, 50, 76);
-  ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-  ctx.fillRect(x - 6, 86, 122, 16);
-  ctx.fillStyle = "#f0b847";
-  ctx.fillRect(x - 6, 86, Math.round((122 * badge.got) / Math.max(1, badge.of)), 16);
-}
 
 /** Free a group's geometries, instance buffers and own materials (shared ones from Materials are kept). */
 function disposeTree(root: Group): void {
