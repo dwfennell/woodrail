@@ -1,4 +1,5 @@
 import { Box3, DoubleSide, Euler, Group, Matrix4, MeshBasicMaterial, MOUSE, Plane, Raycaster, Shape, ShapeGeometry, Vector2, Vector3, Mesh, type BufferGeometry, type Object3D, type TOUCH } from "three";
+import { loopSignalHold } from "../economy/loop-signal";
 import { Editor, pieceCentre, poseCentre, poseForCentre, TRAIN_ON_TRACK, type Placement, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { copyPointerMotion, createPointerMotion, facingAlong, notePointer, type PointerMotion } from "./place-facing";
@@ -1061,6 +1062,9 @@ export class Interaction {
   /** A signal card's title: red or green now, and why (signals audit U6), from the sim (`Sim.markWhy`). */
   private markTitle(id: number): string {
     const w = this.game.sim.markWhy(id);
+    // (Inside a passing loop's road, holding a train with its tail over the loop's points: no train gets into the loop
+    // past it (issue #31). Said first: it's what to change.)
+    if (!w.clear && w.why !== "held" && loopSignalHold(this.game.layout, this.game.sim, id)) return "Signal · red: inside the passing loop, a train's tail is over the points. Move it to the loop's end";
     switch (w.why) {
       case "held":
         return "Signal · red: held here";

@@ -18,7 +18,8 @@ import { fuzz, ringFuzz } from "./scenarios";
  * - **redForNothing:** a train never stands at a plain block's red for more than two ticks with its block clear of other
  *   trains, the signal not held, and no grant it waits for (`Sections.gateAt`).
  * - Every harness invariant (`redRun`: no train runs a red; `deadlock`), and a stall only with a signal ring or where the
- *   seed stalls without signals.
+ *   seed stalls without signals. (A ring through a signal laid inside a passing loop's road, a train held at it with its
+ *   tail over the loop's points, is said "loop-signal": that signal is the one to move. Ring fuzz seeds 2 and 6.)
  *
  * Waits at a waiting point for a grant with nothing on the block (`gatedEmpty`) are a line's trains keeping to single-line
  * working beyond the block, not a fault in themselves: the longest is reported (`SIGNAL_FUZZ_SHOW=1`), not checked.
@@ -176,7 +177,7 @@ describe(`signal fuzz: pairs laid as a player does, ${SEEDS} + ${SEEDS} seeds ×
       expect(run().filter((r) => r.marked.broke[inv].count > 0).map((r) => `${r.marked.name}: ${r.marked.broke[inv].first[0]}`)).toEqual([]);
     }, timeout);
   it("a stall only with a signal ring (or where the seed stalls without signals)", () => {
-    const odd = run().filter((r) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals"));
+    const odd = run().filter((r) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals" && w !== "loop-signal"));
     expect(odd.map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
   }, timeout);
   it("the pairs were tested: blocks with trains in them, and trains held at a red", () => {

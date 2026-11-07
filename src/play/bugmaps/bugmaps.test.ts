@@ -78,14 +78,12 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] 
   // managed: never asked to wait, it never gave a turn. Now the way goes on toward the stop after, and a one-train
   // line of signals sharing a network takes its turns (`Sections.line`). Stuck 300 s with no stop; now 8 stops.)
   { file: "signals-mill-wait.txt", seconds: 300, arrivals: 4, what: "QA: a towns line held at the mill by a hopper shuttle sharing its track" },
-  // (Issues #31 and #32, 2026-11-07 (build mw5rjr7b): four lines' trains and a hand-run hopper train in a ring of waits,
-  // each held for the next, all standing 600 s. #31's: the timber train stood at a signal placed inside the passing
-  // loop's road, its block reaching the hand-run train, its tail over the loop's points: under the signals' rules the
-  // ring is real, and the hand-run train in it now gives way (`Stalls.throughSignals`). #32's: the player's signal at
-  // the sawmill let it pull into the loop, but sections sent the goods train in behind it, the other road empty; now an
-  // empty road comes first (`Sections.wayOn`) and they run with nobody turning round. 6+ stops each in 300 s.)
-  { file: "signal-green-held.txt", seconds: 300, arrivals: 4, what: "issue #31: four lines and a hand-run train in a ring of waits through signals" },
-  { file: "signal-added-still-stuck.txt", seconds: 300, arrivals: 4, what: "issue #32: the same, a signal added as the card said" },
+  // (Issue #32, 2026-11-07 (build mw5rjr7b): four lines' trains and a hand-run hopper train stood 600 s in a ring of
+  // waits, a signal added at the sawmill as the card said. Sections had sent the goods train into the passing loop
+  // behind the timber train standing there, the loop's other road empty; now an empty road comes first
+  // (`Sections.wayOn`) and they run as laid, nobody turning round. #31's map, the same without that signal, is a real
+  // ring (a signal inside the loop road holds a train over its points): its cards say so (signal-green-held.test.ts).)
+  { file: "signal-added-still-stuck.txt", seconds: 300, arrivals: 4, what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added" },
 ];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {

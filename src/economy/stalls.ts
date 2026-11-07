@@ -1,3 +1,4 @@
+import { loopSignalHold } from "./loop-signal";
 import { trainKey, type Sim, type Train } from "../sim";
 import { letsBy, wayRound } from "../routing/give-way";
 import { CHECK_TICKS, type Sections } from "./sections";
@@ -75,7 +76,13 @@ export type Stuck =
    * In a ring of waits through signals (signals spec §6): each stands at a red signal with a train in the block (or on
    * the way) beyond. Too many trains for the signals placed: adding a signal, or putting a train away, helps.
    */
-  | { kind: "signals"; by: number };
+  | { kind: "signals"; by: number }
+  /**
+   * In a ring of waits where a train (`by`) stands at a signal inside a passing loop's road, its tail over the loop's
+   * points (`loopSignalHold`, issue #31): no train gets into the loop past it. Moving that signal (`mark`) to the loop
+   * road's end is the fix.
+   */
+  | { kind: "loop-signal"; by: number; mark: number };
 
 /** What stalls read of the economy (or the harness). */
 export interface StallsHost {
@@ -238,19 +245,18 @@ export class Stalls {
         if (by && engine >= 0 && now - (this.waiting.get(start) ?? now) >= STARVED_S * 120) found.set(engine, { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) });
         continue;
       }
-      // (A ring of trains following each other through signals: too many trains for the signals. One with trains held
-      // by sections in it (single track, trains meeting) isn't, though some stand at reds: a signal can't help there
-      // (issue #32), and a hand-run train in it is the one in the way: moving it, or giving it a route, is the fix.)
-      const signals = why === "ring" && this.throughSignals(chain);
-      const loose = why === "ring" && !signals ? this.handRunIn(chain) : null;
+      // (A ring with a train at a signal inside a passing loop, its tail over the points: that signal, to move. Else a
+      // ring with a red signal in it: too many trains for the signals.)
+      const inLoop = why === "ring" ? this.loopSignalIn(chain) : null;
+      const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal");
       for (const id of chain) {
         const t = sim.getTrain(id)!;
         // (The held train itself is waiting by rule: its card already says the line is full.)
         if (!on.has(id)) continue;
+        const by = sim.getTrain(on.get(id)!);
         const engine = this.lineEngine(t);
-        const by = loose && loose !== t ? loose : sim.getTrain(on.get(id)!);
         if (engine < 0 || !by) continue;
-        found.set(engine, signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
+        found.set(engine, inLoop ? { kind: "loop-signal", ...inLoop } : signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
     }
     // (Rings that have held `YIELD_S`: one of their trains gives way, where one can. Its ring's trains aren't stuck.)
@@ -287,16 +293,16 @@ export class Stalls {
     for (const [k, t] of this.yielded) if (now - t >= YIELD_AGAIN_S * 120) this.yielded.delete(k);
     if (this.gaveTo.size > 0) for (const [k, g] of this.gaveTo) if (!sim.trainByKey(k) || !sim.trainByKey(g.by)) this.gaveTo.delete(k);
     for (const [key, ring] of rings) {
-      // (Held long enough: since its first train was found in it. Trains following each other through signals: adding a
-      // signal is the fix. With trains held by sections in it, some at reds, it gives way as any ring does (issue #32:
-      // four lines' trains and a hand-run one met on single track; "Add a signal" was done, and all stood on).)
+      // (Held long enough: since its first train was found in it. Through a red signal: adding a signal is the fix.)
       let held = Infinity;
+      let signals = false;
       for (const id of ring) {
+        if (sim.heldHow(id) === "signal") signals = true;
         const t = sim.getTrain(id);
         const s = t && this.since.get(this.lineEngine(t));
         held = Math.min(held, s ? now - s.tick : 0);
       }
-      if (this.throughSignals(ring) || held < YIELD_S * 120) continue;
+      if (signals || held < YIELD_S * 120) continue;
       const last = this.tried.get(key);
       if (last !== undefined && now - last < YIELD_RETRY_S * 120) continue;
       let gave: Train | null = null;
@@ -345,26 +351,16 @@ export class Stalls {
     }
   }
 
-  /**
-   * Is this ring of waits one of trains following each other through signals: one at least at a red for a train on its
-   * block, and none held by sections (a train meeting another on single track: there a signal doesn't help)?
-   */
-  private throughSignals(ids: readonly number[]): boolean {
-    let signal = false;
+  /** A train of these standing at a signal inside a passing loop, its tail over the loop's points: it and the signal. */
+  private loopSignalIn(ids: readonly number[]): { by: number; mark: number } | null {
+    const { sim } = this;
+    if (sim.layout.signalCount === 0) return null;
     for (const id of ids) {
-      if (this.sim.heldHow(id) === "signal") signal = true;
-      const t = this.sim.getTrain(id);
-      if (t) for (const car of t.cars) if (car.kind === "engine" && this.sections.waitOf(car.id)) return false;
-    }
-    return signal;
-  }
-
-  /** A hand-run train (lever on, no route) among these, or null (none, or no routes to tell by). */
-  private handRunIn(ids: readonly number[]): Train | null {
-    if (!this.host.routed) return null;
-    for (const id of ids) {
-      const t = this.sim.getTrain(id);
-      if (t && !this.host.routed(this.lineEngine(t))) return t;
+      const key = sim.redSignalKeyAhead(id);
+      // (A mark's key: −1 − its id. An old signal piece stands where it's laid, not at a joint inside a road.)
+      if (key >= 0 || key === -1) continue;
+      const hold = loopSignalHold(sim.layout, sim, -1 - key);
+      if (hold && hold.trainId === id) return { by: nameOf(sim.getTrain(id)!), mark: -1 - key };
     }
     return null;
   }
