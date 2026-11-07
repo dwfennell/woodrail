@@ -15,6 +15,10 @@
  * - **redRun:** a train's front axle crosses a signal's joint while it's red, unless it was past braking for it when it
  *   turned red (counted in `redLate`, not a break).
  * - **blockOne:** a plain signal's block has two trains in it that came in through its signal (not one set Always green).
+ * - **turnBack:** a lever-on train turned round (its cars end for end) other than at the end of its line: with no new
+ *   end-of-line arrival (`Train.lastTurn`: a buffer, track that just stops, close behind a train standing at one) since
+ *   it last turned (the user, firm, 2026-11-07: "trains should not turn around except at the end of lines"). Opt-in
+ *   (`turns`): the harness's layouts, where no player turns a train by hand (a lever, Reverse, Continue).
  *
  * Checks read state only: running them never changes how a train moves (trajectory hashes identical with them on).
  */
@@ -27,7 +31,7 @@ import type { Router } from "../routing/router";
 import { next, waysFrom } from "../routing/graph";
 import { planChoice, planWay, ROUTE_COSTS } from "../routing/plan";
 
-export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne"] as const;
+export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "turnBack"] as const;
 export type Invariant = (typeof INVARIANTS)[number];
 
 /** What the checks run on. Read afresh each check (a harness's save round-trip swaps the sim and its services). */
@@ -66,6 +70,8 @@ export interface InvariantOptions {
   maxStill?: number;
   /** Check restore (points back to their default): the harness's layouts, where nothing else moves points. */
   restore?: boolean;
+  /** Check turnBack (turned round only at the end of the line): the harness's layouts, where no player turns a train. */
+  turns?: boolean;
   /**
    * The trains to check: each a key (per-train state is kept by it) and its engine. Default: every train on the sim,
    * by its routed engine (else its first engine, else its first car), keyed by that car's id.
@@ -110,6 +116,14 @@ interface TrainMemo {
   ghostSaid: boolean;
   /** The tick it was last checked (forgotten when not seen for a while). */
   seen: number;
+  /** turnBack: where its front and rear axles were as last seen (`turnSeen`: they have been). */
+  turnSeen: boolean;
+  frontX: number;
+  frontZ: number;
+  rearX: number;
+  rearZ: number;
+  /** turnBack: the end-of-line arrival (`lastTurn.tick`) its last turn was for (−1: none yet). */
+  turnUsed: number;
 }
 
 export class Invariants {
@@ -201,7 +215,10 @@ export class Invariants {
   /** A train's per-train state forgotten (a harness's reload: its front starts afresh). */
   forget(key: number): void {
     const m = this.memo.get(key);
-    if (m) m.roadTrain = -1;
+    if (m) {
+      m.roadTrain = -1;
+      m.turnSeen = false;
+    }
   }
 
   /**
@@ -226,7 +243,7 @@ export class Invariants {
       if (t.derailed) continue;
       let m = this.memo.get(key);
       if (!m) {
-        m = { roadTrain: -1, roadSign: 0, roadPiece: -1, lockPiece: -1, still: 0, ghostFrom: -1, ghostSaid: false, seen: tick };
+        m = { roadTrain: -1, roadSign: 0, roadPiece: -1, lockPiece: -1, still: 0, ghostFrom: -1, ghostSaid: false, seen: tick, turnSeen: false, frontX: 0, frontZ: 0, rearX: 0, rearZ: 0, turnUsed: -1 };
         this.memo.set(key, m);
       }
       m.seen = tick;
@@ -234,6 +251,7 @@ export class Invariants {
       // (Fronts every call: a front coming onto a piece is seen on the tick it does.)
       if (full) this.checkSplit(t, key, engine);
       this.checkLockRun(t, key, engine, m);
+      if (this.opts.turns) this.checkTurn(t, key, engine, m);
       if (this.world.routed(engine)) this.checkRoad(t, key, engine, m);
       if (full) this.checkStill(t, key, engine, m);
     }
@@ -561,6 +579,31 @@ export class Invariants {
    * No split, by the bogies' pieces and paths (not by axle distance: loose joints open a few mm): each axle's place
    * joins the next one's along the track, behind it, with each on a path through the piece it's on.
    */
+  /**
+   * turnBack: turned round since the last call, as a turn at the end of the line (`Sim.turnAround`), `Sim.turnNow`, or a
+   * lever thrown the other way (`flipTrain`) leave it: its front axle now nearer where its rear one was than where its
+   * front one was (a tick's run is a few mm; a train's length is far more). Fine only for a new end-of-line arrival:
+   * `lastTurn` set since its last turn.
+   */
+  private checkTurn(t: Train, key: number, engine: number, m: TrainMemo): void {
+    const n = t.world.length;
+    if (n < 2) return;
+    const f = t.world[0];
+    const r = t.world[n - 1];
+    if (m.turnSeen && (f.x - m.rearX) ** 2 + (f.z - m.rearZ) ** 2 < (f.x - m.frontX) ** 2 + (f.z - m.frontZ) ** 2) {
+      const at = t.lastTurn?.tick ?? -1;
+      // (Driven: a lever on. A train standing lever off turned by hand isn't the router's or sections'.)
+      if (at < 0 || at === m.turnUsed) {
+        if (this.world.drive(t) !== 0) this.break("turnBack", `${this.name(key, engine)} turned round short of the end of its line${t.lastTurn ? ` (its last end: piece ${t.lastTurn.pieceId})` : ""}`, engine, t.bogies[0]?.pieceId);
+      } else m.turnUsed = at;
+    }
+    m.turnSeen = true;
+    m.frontX = f.x;
+    m.frontZ = f.z;
+    m.rearX = r.x;
+    m.rearZ = r.z;
+  }
+
   private checkSplit(t: Train, key: number, engine: number): void {
     const { layout } = this.world;
     for (let i = 0; i + 1 < t.bogies.length; i++) {

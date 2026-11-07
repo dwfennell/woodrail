@@ -620,6 +620,10 @@ export class Router {
     this.locksVersion++;
     for (const [e, o] of this.holding) {
       if (e === engine || o.want.get(pieceId) !== lock.state) continue;
+      // (Not to a hand-run train: it takes points as they lie on its own look, once moving (`askHand`). Handed one while
+      // standing, it let it go on its look, back to the first: two standing trains passed the lock to and fro, each
+      // waiting on the other, and the points could never be thrown for either (`giveWayRoad`).)
+      if (this.hand.has(e)) continue;
       const asked = o.asked.find((w) => w.pieceId === pieceId);
       // (Only if the points give it its road as they lie: a wye's lever at another end may be set otherwise.)
       if (asked && pointsWayFrom(this.host.layout, pieceId, asked.entry, asked.ways) !== asked.state) continue;
