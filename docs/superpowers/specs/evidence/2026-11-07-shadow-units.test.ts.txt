@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+import { appendPiece, connectorRef, Layout } from "../track";
+import { chain } from "../economy/loop-fixtures";
+import { HarnessRun, type Scenario } from "./harness";
+import { ReservationShadow } from "./shadow";
+
+/**
+ * Evidence for the routing redesign's second look (docs/superpowers/specs/2026-11-07-routing-redesign.md §6, F3): the
+ * shadow books whole pieces, so on a piece with two roads that never meet (a double straight) a train on one road
+ * refuses a booking on the other. Two shuttles, one on each road of a double-track line (two double straights, each
+ * road its own track out to buffers, no way between them), never come near each other, yet about a quarter of their
+ * bookings are refused by the other train, and the shadow counts them as sharing "points" and following close.
+ *
+ * This pins today's (wrong) behaviour so the fix shows: once the table's unit is a path with an overlaps table (§6 F3,
+ * step 2b), flip these to `refusals === 0` and every count 0.
+ */
+const doubleShuttles: Scenario = {
+  name: "two shuttles on the two roads of one double-track line",
+  seconds: 300,
+  build: (layout) => {
+    const x1 = layout.addPiece("double-straight", { x: 0, z: 0, heading: 0 });
+    const x2 = appendPiece(layout, "double-straight", false, connectorRef(x1, 1), 0);
+    const end = (x: number, c: number) => {
+      const ids = chain(layout, ["straight-216", "straight-216", "depot-forest"], connectorRef(x, c));
+      appendPiece(layout, "buffer-turnback", false, connectorRef(ids[2], 1));
+      return ids;
+    };
+    const wt = end(x1, 0);
+    const wb = end(x1, 2);
+    const et = end(x2, 1);
+    const eb = end(x2, 3);
+    return {
+      trains: [
+        { pieceId: wt[1], reversed: true, stops: [et[2], wt[2]], cars: ["engine", "timber", "timber"] },
+        { pieceId: eb[1], reversed: true, stops: [wb[2], eb[2]], cars: ["engine", "timber", "timber"] },
+      ],
+    };
+  },
+};
+
+describe("the shadow's booking unit (redesign §6 F3)", () => {
+  it("double track: a train on one road refuses bookings on the other (today: the unit is the piece)", () => {
+    const h = new HarnessRun(new Layout(), doubleShuttles);
+    const shadow = new ReservationShadow(h);
+    let refusals = 0;
+    let bookings = 0;
+    h.afterStep = () => {
+      const before = shadow.bookings;
+      shadow.tick();
+      if (shadow.bookings === before) return;
+      for (const b of shadow.last.values()) {
+        bookings++;
+        if (b.refusal?.kind === "train") refusals++;
+      }
+    };
+    h.run(300);
+    // (2026-11-07: 1675 of 6000 refused; shared-points 2, follow-close 13. The two trains never meet.)
+    expect(bookings).toBeGreaterThan(1000);
+    expect(refusals / bookings).toBeGreaterThan(0.1);
+    expect(shadow.counts["shared-points"]).toBeGreaterThan(0);
+  });
+});
