@@ -67,7 +67,10 @@ describe(`routing fuzz: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × 
 
 /**
  * The same seeds with 0 to 6 signal marks on random joints (signals spec §10.1): every invariant holds (`redRun` and
- * `blockOne` too), and a stall the seed doesn't have without them is a ring of signals (kind "signals").
+ * `blockOne` too), and a stall the seed doesn't have without them is a ring through signals: of trains following each
+ * other (kind "signals"), or of trains meeting on single track, held by sections at the signals' waiting points (kind
+ * "in-way": a signal doesn't help there, it gives way where it can; issue #32, `Stalls.throughSignals`). Seeds 11, 77,
+ * 78, 89, 142, 180 and 196 are such: the same stalls as before, said "signals" then, with as many stops or more.
  */
 describe(`routing fuzz with signals: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRST}` : ""} × ${SECONDS} s`, () => {
   let reports: { plain: Report; marked: Report }[] | undefined;
@@ -94,7 +97,7 @@ describe(`routing fuzz with signals: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRS
       ).toEqual([]);
     }, timeout);
   it("a stall only with a signal ring (or where the seed stalls without signals)", () => {
-    const odd = run().filter((r) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals"));
+    const odd = run().filter((r) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals" && w !== "in-way"));
     expect(odd.map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
   }, timeout);
 });
