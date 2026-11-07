@@ -639,7 +639,8 @@ The `heldFree` invariant (F6) runs the shadow beside the checks (opt-in: the fuz
 | `fuzz:long -- --seeds 40 --seconds 600` | 0 old invariants broken; 5 seeds stalled (7, 19, 34, 37, 39: a train too many); greenHeld on 37 (known) | the same 5 stalled, the same greenHeld; heldFree (new) on 22, 34, 37 |
 | bug maps (7, 300-600 s) | known: netActed ×2 (mill, #32), oneOwner (route-stuck) | netActed gone from both; heldFree (new) known on 4 |
 | sections QA known breaks | 2 | 1 (a spare put right behind a train in a loop road no longer runs onto its points) |
-| greenHeld long-fuzz list | 11 seeds | 9 (14 and 30 don't break on the merged base) |
+| full `fuzz:long` (200 seeds × 1800 s) | old invariants held; 53 seeds stalled (said stuck: a train too many, or head on now nothing turns); greenHeld on 7 | the same 53 stalled, seed for seed and cause for cause; the same 7 greenHeld; midTurn on none; heldFree (new) on 18 plain and 19 with signals |
+| greenHeld long-fuzz list | 11 seeds | 7 (14, 30, 76 and 160 don't break on the merged base) |
 | shadow:report maps: shared-points | 9 (1 run) | 13 (1 run) (step 2b's car ends count more; 15 in 2 runs with 2b alone) |
 | shadow:report rings: follow-close | 16564 | 5480 (2b: a follower's nose and a leader's tail on one plain piece is shared-piece now, 303 → 1716) |
 | shadow:report signals: green-unbooked | 66 | 155 (2b: bookings never join, so more greens are seen with no booking behind them: step 4's class) |

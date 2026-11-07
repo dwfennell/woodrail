@@ -47,7 +47,7 @@ const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
 };
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 77: FREE, 89: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 186: FREE, 188: FREE },
-  // (14 and 30 came off on the merged base, 76 and 160 with step 3 (2026-11-07, the full long fuzz).)
+  // (14, 30, 76 and 160 came off on the merged base, before step 3 (2026-11-07, the full long fuzz on both).)
   greenHeld: { 37: GREEN, 66: GREEN, 69: GREEN, 105: GREEN, 119: GREEN, 174: GREEN, 192: GREEN },
 };
 
