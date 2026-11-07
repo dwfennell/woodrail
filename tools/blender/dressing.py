@@ -204,7 +204,7 @@ def traveller(k):
     g.add(k.cyl(k.paint(DARK), 4.3, 0.6, 0, 16.1, 0, 4.3, 28))
     g.add(k.box(k.paint("#7a3b26"), 7, 5.5, 2.4, 0.6, 7.4, 0.65, 0))
     for x in (5.6, 9.2):
-        g.add(k.box(k.paint(GOLD), 0.6, 5.6, 2.5, 0.15, x, 0.6, 0))
+        g.add(k.box(k.paint(GOLD), 0.6, 5.6, 2.7, 0.15, x, 0.6, 0))  # (proud of the case's sides, not 0.05 off them)
     g.add(k.ring(k.paint(DARK), 1.1, 0.35, 7.4, 6.2, 0, True, math.pi))
     return g
 
@@ -272,7 +272,8 @@ def street_bench(k):
         g.add(k.box(k.wood, 22, 1.8, 1.4, 0.5, 0, 9 + i * 2.6, -2.8))
     for e in (-9, 9):
         g.add(k.box(iron, 1.8, 5.3, 6, 0.4, e, 0, 0.2))
-        g.add(k.box(iron, 1.4, 8, 1.4, 0.4, e, 5.3, -2.8))
+        # (1.6 deep, the slats 1.4: as deep, their faces fought for the same pixels.)
+        g.add(k.box(iron, 1.4, 8, 1.6, 0.4, e, 5.3, -2.8))
         g.add(k.box(iron, 1.6, 1.2, 6, 0.5, e, 8.4, 0.4))
     return g
 
@@ -309,8 +310,9 @@ def phone_box(k):
     for y in (8, 15, 22):
         g.add(k.box(red, 11.6, 1, 11.6, 0.2, 0, y - 0.5, 0))
     for x in (-1.9, 1.9):
-        g.add(k.box(red, 1, 26, 11.6, 0.2, x, 2, 0))
-        g.add(k.box(red, 11.6, 26, 1, 0.2, 0, 2, x))
+        # (25.8 high: their tops level with the glass's fought for the same pixels.)
+        g.add(k.box(red, 1, 25.8, 11.6, 0.2, x, 2, 0))
+        g.add(k.box(red, 11.6, 25.8, 1, 0.2, 0, 2, x))
     g.add(k.box(red, 14, 3, 14, 0.8, 0, 29, 0))
     top = k.cyl(red, 9, 2.6, 0, 32, 0, 5, 4)
     top.rotation.y = math.pi / 4
@@ -1384,7 +1386,7 @@ def industry_harbour(k):
     # The derrick: a stone footing, a red mast with a cream cap, a winch at its foot; the jib turns on its top.
     mx, mz = 199, 105
     g.add(k.box(k.paint(SEA_STONE[1]), 10, 3, 10, 1.2, mx, PAD, mz))
-    g.add(k.cyl(k.paint(RED), 2.8, 55, mx, PAD + 3, mz, 2.2, 16))
+    g.add(k.cyl(k.paint(RED), 2.8, 54.8, mx, PAD + 3, mz, 2.2, 16))  # (its top under the cap's)
     g.add(k.cyl(k.paint(CREAM), 3.2, 2, mx, PAD + 56, mz, 3.2, 16))
     g.add(k.cylZ(k.paint(DARK), 2, 6, mx, PAD + 7, mz - 6, 12))
     return g

@@ -108,7 +108,8 @@ def semi_detached_floor(k, ground=False):
 def villa_floor(k, ground=False):
     """A storey of the villa, with its stone band along the top (or its porch and door)."""
     g = _wall(k, Node(), "#efe7d6", 40, 104, STOREY, r=2, front=(-40, -26, 26, 40), sides=(-8, 8), win=(8, 11))
-    g.add(k.box(k.paint(STONE), 42, 2, 106, 0.6, 0, STOREY - 2, 0))
+    # (Its top half a millimetre under the wall's: level, the two tops fought for the same pixels.)
+    g.add(k.box(k.paint(STONE), 42, 2, 106, 0.6, 0, STOREY - 2.5, 0))
     if ground:
         g.add(H.villa_entrance(k))
     return g

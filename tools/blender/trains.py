@@ -434,7 +434,7 @@ def passenger_first_class():
             box(paint(GOLD), (2.6, 0.7, 1.6), (dx + 0.4 + s * 1.4, y + s * 0.95, TOP + 20.4), r=0.3, seg=1)
     # A gold lamp on the roof at each end.
     for e in (-1, 1):
-        cylinder(paint(GOLD), 1.8, 3, (e * (bl / 2 - 6), 0, TOP + h + 4), "Z", 12, 0.5)
+        cylinder(paint(GOLD), 1.8, 3, (e * (bl / 2 - 6), 0, TOP + h + 4.3), "Z", 12, 0.5)  # (clear of the roof's faces)
 
 
 def caboose_classic():

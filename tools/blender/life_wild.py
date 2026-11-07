@@ -186,7 +186,7 @@ def elephant(k):
     grey = "#9a9ea6"
     q = quad(k, grey, 34, 18, 18, 12, 3.8)
     e, head, tail = q.g, q.head, q.tail
-    e.add(k.box(k.paint(TOY.red), 14, 2, 19, 0.8, 0, 28.5, 0), k.box(k.paint(GOLD), 14.4, 1, 19.4, 0.4, 0, 28, 0), k.box(k.paint(TOY.red), 12, 7, 19.2, 1, 0, 22, 0))
+    e.add(k.box(k.paint(TOY.red), 14, 2, 19, 0.8, 0, 28.5, 0), k.box(k.paint(GOLD), 14.4, 1, 19.4, 0.4, 0, 28, 0), k.box(k.paint(TOY.red), 12, 6.8, 19.2, 1, 0, 22, 0))  # (its top under the gold's, not level with it)
     m = k.paint(grey)
     head.add(k.ball(m, 8, 4, 2, 0), eyes(k, 10.4, 5, 3.6, 0.8))
     for s in (-1, 1):

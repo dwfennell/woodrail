@@ -27,20 +27,11 @@ const server = await createServer({
 });
 await server.listen();
 const PAGE = server.resolvedUrls.local[0];
-const CHROMIUM =
-  process.env.CHROMIUM_PATH ??
-  (existsSync("/opt/pw-browsers/chromium")
-    ? "/opt/pw-browsers/chromium"
-    : undefined);
+const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({
   executablePath: CHROMIUM,
   headless: false,
-  args: [
-    "--headless=new",
-    "--use-gl=angle",
-    "--use-angle=swiftshader",
-    "--enable-unsafe-swiftshader",
-  ],
+  args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
 });
 const p = await b.newPage({
   viewport: { width: W, height: H },
@@ -51,35 +42,18 @@ await p.addInitScript((tier) => {
   localStorage.setItem("woodrail.helpSeen", "1");
   localStorage.setItem("woodrail.quality", tier);
 }, TIER);
-const settle = () =>
-  p.evaluate(() =>
-    Promise.race([
-      window.woodrail.settled(3),
-      new Promise((r) => setTimeout(r, 20000)),
-    ]),
-  );
+const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, {
   timeout: 240000,
 });
-await p.evaluate(() =>
-  [...document.querySelectorAll(".title-card.mode-game button")]
-    .find((x) => !x.hidden && x.classList.contains("primary"))
-    .click(),
-);
-await p.waitForFunction(
-  () =>
-    window.woodrail?.mode?.() === "game" &&
-    !window.woodrail.title.shown &&
-    !!document.querySelector("#loading.done"),
-  null,
-  { timeout: 180000 },
-);
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, {
+  timeout: 180000,
+});
 await settle();
 await p.keyboard.press("Escape");
-await p.evaluate(() =>
-  document.querySelector(".coach:not([hidden]) .coach-skip")?.click(),
-);
+await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
 const at = await p.evaluate(() => {
   const w = window.woodrail;
   const t = w.world.landscape.towns[0];
@@ -128,22 +102,13 @@ await settle();
 const M = await p.evaluate(({ y }) => {
   const w = window.woodrail;
   const V = w.camera.position.constructor;
-  const a = new V(
-    (575 / innerWidth) * 2 - 1,
-    -(440 / innerHeight) * 2 + 1,
-    -1,
-  ).unproject(w.camera);
-  const d = new V((575 / innerWidth) * 2 - 1, -(440 / innerHeight) * 2 + 1, 1)
-    .unproject(w.camera)
-    .sub(a);
+  const a = new V((575 / innerWidth) * 2 - 1, -(440 / innerHeight) * 2 + 1, -1).unproject(w.camera);
+  const d = new V((575 / innerWidth) * 2 - 1, -(440 / innerHeight) * 2 + 1, 1).unproject(w.camera).sub(a);
   const t = (y + 40 - a.y) / d.y;
   return {
     x: a.x + d.x * t,
     z: a.z + d.z * t,
-    theta: Math.atan2(
-      w.camera.position.x - w.controls.target.x,
-      w.camera.position.z - w.controls.target.z,
-    ),
+    theta: Math.atan2(w.camera.position.x - w.controls.target.x, w.camera.position.z - w.controls.target.z),
   };
 }, at);
 // (Or given, as "x,z": the same map's mound from a desktop run, for a phone's view, where that spot isn't the mound.)
@@ -243,24 +208,14 @@ if (process.env.OVERLAP) {
           });
           return;
         }
-        if (
-          bb.max.x < M.x - 40 ||
-          bb.min.x > M.x + 40 ||
-          bb.max.z < M.z - 40 ||
-          bb.min.z > M.z + 40
-        )
-          return;
+        if (bb.max.x < M.x - 40 || bb.min.x > M.x + 40 || bb.max.z < M.z - 40 || bb.min.z > M.z + 40) return;
         let path = [];
         for (let q = o; q; q = q.parent) path.push(q.name || q.type);
         out.push({
           path: path.slice(0, 4).join("<"),
           mat: o.material?.type,
-          tris:
-            (o.geometry.index?.count ?? o.geometry.attributes.position.count) /
-            3,
-          box: [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z].map(
-            (x) => Math.round(x),
-          ),
+          tris: (o.geometry.index?.count ?? o.geometry.attributes.position.count) / 3,
+          box: [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z].map((x) => Math.round(x)),
           visible: o.visible,
           layers: o.layers.mask,
           receive: o.receiveShadow,
@@ -274,10 +229,7 @@ if (process.env.OVERLAP) {
   console.log(JSON.stringify(r));
 }
 const shot = async (name, dist) => {
-  const half = Math.min(
-    Math.floor(Math.min(W, H) / 2) - 1,
-    Math.max(48, Math.round(Number(process.env.CROP ?? 60000) / dist)),
-  );
+  const half = Math.min(Math.floor(Math.min(W, H) / 2) - 1, Math.max(48, Math.round(Number(process.env.CROP ?? 60000) / dist)));
   await p.screenshot({
     path: `${OUT}/${TAG}-${name}.png`,
     clip: {
@@ -289,9 +241,7 @@ const shot = async (name, dist) => {
   });
 };
 const DISTS = (process.env.DISTS ?? "900,1600,2400").split(",").map(Number);
-const THETAS = (process.env.THETAS ?? `${M.theta.toFixed(2)},0.98,2.2,-0.6`)
-  .split(",")
-  .map(Number);
+const THETAS = (process.env.THETAS ?? `${M.theta.toFixed(2)},0.98,2.2,-0.6`).split(",").map(Number);
 for (const theta of THETAS) {
   for (const dist of DISTS) {
     await p.evaluate(
@@ -321,9 +271,7 @@ for (const theta of THETAS) {
             });
           if (off === "shadows") w.stage.sun.castShadow = on;
           if (off === "bump") {
-            w.mats.paint.bumpMap = on
-              ? (window.__bump ??= w.mats.paint.bumpMap)
-              : null;
+            w.mats.paint.bumpMap = on ? (window.__bump ??= w.mats.paint.bumpMap) : null;
             window.__bump ??= w.mats.paint.bumpMap;
             w.mats.paint.needsUpdate = true;
           }
