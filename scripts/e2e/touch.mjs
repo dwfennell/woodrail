@@ -4057,6 +4057,8 @@ async function routeKeep(ctx, p, tapSel) {
       return { goods, came };
     };
     // Both trains on their lines, each with both its stops.
+    // (A line's name and its stop count, "Blue line:2". Lines stand alone, so a full run's earlier groups leave their
+    // trainless lines on this shared page and these get the next free names, "Blue line 2".)
     window.__keepLines = () => E.map((e) => { const id = w.economy.lineIdOf.get(e); const l = w.economy.lines.get(id); return `${l?.name ?? "none"}:${w.economy.routeOf(e)?.stops.length ?? 0}`; });
     window.__keepRun(20);
     const q = at(L.getPiece(more).pose);
@@ -4122,7 +4124,7 @@ async function routeKeep(ctx, p, tapSel) {
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   await frames(p);
   const laid = await p.evaluate(({ sawmillPiece }) => ({ pieces: window.woodrail.layout.pieceCount, joined: [0, 1].every((c) => window.woodrail.layout.joinedConnector(sawmillPiece * 8 + c) !== -1), lines: window.__keepLines() }), setup);
-  check("route-keep: a straight laid from the tray next to the sawmill (the line's stop, its way in): both trains keep their lines and stops", laid.pieces === before + 1 && laid.joined && JSON.stringify(laid.lines) === JSON.stringify(lines0) && lines0.every((l) => /line:2$/.test(l)), JSON.stringify({ before, lines0, ...laid }));
+  check("route-keep: a straight laid from the tray next to the sawmill (the line's stop, its way in): both trains keep their lines and stops", laid.pieces === before + 1 && laid.joined && JSON.stringify(laid.lines) === JSON.stringify(lines0) && lines0.every((l) => /line( \d+)?:2$/.test(l)), JSON.stringify({ before, lines0, ...laid }));
   // Undo (the HUD's button, tapped), then redo (Ctrl+Shift+Z).
   const { tapButton, tapOn } = mapHelpers(p);
   await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
