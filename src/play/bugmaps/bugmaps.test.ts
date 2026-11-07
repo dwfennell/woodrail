@@ -78,6 +78,12 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string }[] 
   // managed: never asked to wait, it never gave a turn. Now the way goes on toward the stop after, and a one-train
   // line of signals sharing a network takes its turns (`Sections.line`). Stuck 300 s with no stop; now 8 stops.)
   { file: "signals-mill-wait.txt", seconds: 300, arrivals: 4, what: "QA: a towns line held at the mill by a hopper shuttle sharing its track" },
+  // (Issue #32, 2026-11-07 (build mw5rjr7b): four lines' trains and a hand-run hopper train stood 600 s in a ring of
+  // waits, a signal added at the sawmill as the card said. Sections had sent the goods train into the passing loop
+  // behind the timber train standing there, the loop's other road empty; now an empty road comes first
+  // (`Sections.wayOn`) and they run as laid, nobody turning round. #31's map, the same without that signal, is a real
+  // ring (a signal inside the loop road holds a train over its points): its cards say so (signal-green-held.test.ts).)
+  { file: "signal-added-still-stuck.txt", seconds: 300, arrivals: 4, what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added" },
 ];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {

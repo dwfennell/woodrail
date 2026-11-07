@@ -57,6 +57,8 @@ export type TrainState =
   | { kind: "stuck"; why: "too-many" }
   | { kind: "stuck"; why: "parked"; by?: number }
   | { kind: "stuck"; why: "signals"; by: number }
+  /** A train (`by`, maybe this one) at a signal inside a passing loop, its tail over the points (`mark`: that signal). */
+  | { kind: "stuck"; why: "loop-signal"; by: number; mark: number }
   /** Standing with its lever on, for want of anything better known: `by`, the train the sim or sections say it's behind. */
   | { kind: "held-up"; by?: number }
   /**
@@ -161,6 +163,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
       }
       if (s.kind === "parked") return { kind: "stuck", why: "parked", by: s.by };
       if (s.kind === "signals") return { kind: "stuck", why: "signals", by: s.by };
+      if (s.kind === "loop-signal") return { kind: "stuck", why: "loop-signal", by: s.by, mark: s.mark };
       return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop, by: s.by };
     }
   // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
@@ -403,6 +406,9 @@ const OR_MOVE = ", or move the parked train";
 /** A line with a train too many: the quick fix, the card's Remove (highlighted beside it). */
 const OR_REMOVE = ", or remove a train";
 
+/** The fix for a signal inside a passing loop holding a train over the points (issue #31): the engine and signal cards. */
+export const LOOP_SIGNAL_FIX = "Move that signal to the loop's end";
+
 /** Said once ever, when a line's trains wait for each other on a long stretch a signal could split (signals spec §7). */
 export const FOLLOW_TIP = "Trains on this line wait for the whole stretch. A signal here lets them follow · Show me where";
 
@@ -477,7 +483,8 @@ export function engineView(
       if (not) return { status: notLoadingText(not.why, not.kind, nameOf(not.depot.id), not.taker ? nameOf(not.taker.id) : "", !!not.takerFull), blocker: null };
     }
   }
-  const blocker = blockerOf(sim, economy, s);
+  // (Itself the train at the signal inside the loop: nobody else to show.)
+  const blocker = s.kind === "stuck" && s.why === "loop-signal" && sim.findCar(s.by)?.train === found.train ? null : blockerOf(sim, economy, s);
   // (Where it is, asked only for one with no line to be named by: a train on a line is named by that.)
   const place = blocker && blocker.car >= 0 && (!blocker.line || blocker.how === "parked" || blocker.how === "stopped") ? placeOf(blocker.car) : "";
   // A line with a train too many (no passing loop for it): a loop is the lasting fix, but taking a train off the track
@@ -559,6 +566,12 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (The quick fix named too, the card's Remove: QA 2026-11-04, two engines on the starter line both waited.)
       if (s.why === "too-many") return `Stuck: this line has a train too many. Add a passing loop${OR_REMOVE}`;
       if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal";
+      // (Issue #31: a signal inside a passing loop's road holds a train with its tail over the loop's points; no train
+      // gets into the loop past it. Named: the train (this one or another), the fix the signal's own card says too.)
+      if (s.why === "loop-signal") {
+        const own = sim.findCar(engineCarId)?.train === sim.findCar(s.by)?.train;
+        return `Stuck: ${own ? "it stands" : `${trainLabel(sim, s.by)} stands`} at a signal inside the passing loop, its tail over the points. ${LOOP_SIGNAL_FIX}`;
+      }
       if (s.why === "parked") return `Stuck: ${who && who.car >= 0 ? inTheWay(who, place) : SPARE_CUT}`;
       // (Left standing, named by where it is: moving it is the fix. Two lines' trains with no passing loop where they
       // meet: one lets them pass. Else moving one is.)

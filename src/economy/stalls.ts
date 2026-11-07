@@ -1,3 +1,4 @@
+import { loopSignalHold } from "./loop-signal";
 import { trainKey, type Sim, type Train } from "../sim";
 import { letsBy, wayRound } from "../routing/give-way";
 import { CHECK_TICKS, type Sections } from "./sections";
@@ -75,7 +76,13 @@ export type Stuck =
    * In a ring of waits through signals (signals spec §6): each stands at a red signal with a train in the block (or on
    * the way) beyond. Too many trains for the signals placed: adding a signal, or putting a train away, helps.
    */
-  | { kind: "signals"; by: number };
+  | { kind: "signals"; by: number }
+  /**
+   * In a ring of waits where a train (`by`) stands at a signal inside a passing loop's road, its tail over the loop's
+   * points (`loopSignalHold`, issue #31): no train gets into the loop past it. Moving that signal (`mark`) to the loop
+   * road's end is the fix.
+   */
+  | { kind: "loop-signal"; by: number; mark: number };
 
 /** What stalls read of the economy (or the harness). */
 export interface StallsHost {
@@ -238,7 +245,9 @@ export class Stalls {
         if (by && engine >= 0 && now - (this.waiting.get(start) ?? now) >= STARVED_S * 120) found.set(engine, { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) });
         continue;
       }
-      // (A ring with a red signal in it: too many trains for the signals.)
+      // (A ring with a train at a signal inside a passing loop, its tail over the points: that signal, to move. Else a
+      // ring with a red signal in it: too many trains for the signals.)
+      const inLoop = why === "ring" ? this.loopSignalIn(chain) : null;
       const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal");
       for (const id of chain) {
         const t = sim.getTrain(id)!;
@@ -247,7 +256,7 @@ export class Stalls {
         const by = sim.getTrain(on.get(id)!);
         const engine = this.lineEngine(t);
         if (engine < 0 || !by) continue;
-        found.set(engine, signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
+        found.set(engine, inLoop ? { kind: "loop-signal", ...inLoop } : signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
     }
     // (Rings that have held `YIELD_S`: one of their trains gives way, where one can. Its ring's trains aren't stuck.)
@@ -340,6 +349,20 @@ export class Stalls {
         if (e >= 0) found.delete(e);
       }
     }
+  }
+
+  /** A train of these standing at a signal inside a passing loop, its tail over the loop's points: it and the signal. */
+  private loopSignalIn(ids: readonly number[]): { by: number; mark: number } | null {
+    const { sim } = this;
+    if (sim.layout.signalCount === 0) return null;
+    for (const id of ids) {
+      const key = sim.redSignalKeyAhead(id);
+      // (A mark's key: −1 − its id. An old signal piece stands where it's laid, not at a joint inside a road.)
+      if (key >= 0 || key === -1) continue;
+      const hold = loopSignalHold(sim.layout, sim, -1 - key);
+      if (hold && hold.trainId === id) return { by: nameOf(sim.getTrain(id)!), mark: -1 - key };
+    }
+    return null;
   }
 
   /** The trains on the track now. */

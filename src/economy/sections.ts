@@ -1238,6 +1238,10 @@ export class Sections {
         // (A train on no line about: the road it would come onto at the far end, the way those points rest, last. They
         // pass there, each on its own road.)
         if (!loose && roads.length === 2 && info.loose.length > 0 && this.restRoad(topo, loop, outBy) === roads[0]) roads = [roads[1], roads[0]];
+        // (A road with a train on it, one it may follow out, after an empty one: behind it, it waits for that train to
+        // go, and that one may wait for what this one holds (issue #32: a goods train was sent in behind a timber train
+        // standing in a loop, the other road empty, and four trains stood in a ring of waits for good).)
+        if (!loose && calls === undefined && roads.length === 2 && this.slotUser(info, roads[0], st.engine) !== -1 && this.slotUser(info, roads[1], st.engine) === -1) roads = [roads[1], roads[0]];
         for (const r of roads) {
           if (r !== calls && !into.includes(r)) continue;
           // (One it may follow, going out the same way, isn't in its way: see `follows`.)
