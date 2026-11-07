@@ -1467,7 +1467,17 @@ function mapHelpers(p) {
   const tapOn = async (what) => {
     await showing(what);
     const [x, y] = await onScreen(what);
-    await tapped(p, () => p.touchscreen.tap(x, y));
+    try {
+      await tapped(p, () => p.touchscreen.tap(x, y));
+    } catch (e) {
+      // (A tap that made no click: what was under it, and what was open, said.)
+      const under = await p.evaluate(([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        const open = [...document.querySelectorAll(".hud .card, .line-sheet, .lines-view, .menu")].filter((c) => !c.hidden && c.getBoundingClientRect().height > 0).map((c) => c.className.split(" ").slice(0, 2).join("."));
+        return { at: [Math.round(x), Math.round(y)], el: el ? `${el.tagName}.${String(el.className).split(" ").join(".")}` : null, open, planning: document.querySelector(".hud")?.classList.contains("planning") };
+      }, [x, y]);
+      throw new Error(`${e.message.split("\n")[0]} ${JSON.stringify({ what, ...under })}`);
+    }
   };
   const tapButton = async (sel) => {
     await p.waitForFunction((sel) => { const b = document.querySelector(sel); return !!b && b.offsetParent !== null; }, sel, { timeout: 30000 });
