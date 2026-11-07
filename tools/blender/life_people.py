@@ -40,7 +40,7 @@ def station_master(k):
     g.add(band(k, GOLD, 6.9, 7.4, 0.25))
     g.add(kepi(k, coat))
     g.add(k.box(k.paint(TOY.white), 0.6, 1.4, 2.4, 0.2, 3.4, 9.6, 0))
-    watch = k.group(k.cylX(k.paint(GOLD), 1.5, 0.6, 0, -0.3, 0, 16), k.cylX(k.paint(TOY.cream), 1.1, 0.7, 0.05, -0.3, 0, 16))
+    watch = k.group(k.cylX(k.paint(GOLD), 1.5, 0.6, 0, -0.3, 0, 16), k.cylX(k.paint(TOY.cream), 1.1, 0.7, 0.15, -0.3, 0, 16))  # (its back inside the gold case, not level with it)
     g.add(hold(arm(k, coat, -1, 1.3, "watch-arm"), watch, 0.6, 0, -0.5).parent)
     g.add(arm(k, coat, 1, 0.1))
     return g

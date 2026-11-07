@@ -33,7 +33,7 @@ def step(k, x, z, w, ry=0):
 
 def plate(k, x, y, z, color=TOY.white):
     """A little enamel house-number plate on a wall facing +x."""
-    return k.group(k.box(k.paint(TOY.black), 1.0, 3.4, 4.4, 0.4, x + 0.4, y - 0.2, z), k.box(k.paint(color), 1.4, 3.0, 4.0, 0.4, x + 0.6, y, z))
+    return k.group(k.box(k.paint(TOY.black), 1.0, 3.4, 4.4, 0.4, x + 0.4, y - 0.2, z), k.box(k.paint(color), 1.2, 3.0, 4.0, 0.4, x + 0.7, y, z))
 
 
 # ——— The assets ———
@@ -275,7 +275,8 @@ def timber_house(k, door=True):
         g.add(k.box(oak, 1.6, 18, 2, 0.3, 24.2, 20, z), k.box(oak, 1.6, 20, 2, 0.3, 18.2, 0, z))
     g.add(k.box(oak, 1.6, 2, 34, 0.3, 24.2, 19, 0), k.box(oak, 1.6, 2, 34, 0.3, 24.2, 36.5, 0))
     for s in (-1, 1):
-        brace = k.box(oak, 1.4, 12, 1.8, 0.3, 24.2, 23, s * 10)
+        # (At 24.4, not the beams' 24.2: its back clear of the window's behind it, not in one plane with it.)
+        brace = k.box(oak, 1.4, 12, 1.8, 0.3, 24.4, 23, s * 10)
         brace.rotation.x = s * 0.6  # rotateX: turns it in place
         g.add(brace)
     g.add(timber_house_entrance(k) if door else winX(k, 18, 6, 0, 6, 8))

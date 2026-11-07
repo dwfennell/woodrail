@@ -280,7 +280,7 @@ def windmill(k):
     for i in range(4):
         arm = Node()
         arm.add(k.box(k.wood, 1.8, 42, 2, 0.4, 0, 0, 0))
-        arm.add(k.box(k.paint(TOY.white), 1.2, 30, 10, 0.4, 0.4, 10, 5.5))
+        arm.add(k.box(k.paint(TOY.white), 1.2, 29.5, 10, 0.4, 0.4, 10, 5.5))  # (its top under the top slat's)
         for j in range(4):
             arm.add(k.box(k.wood, 1.6, 1, 11, 0.2, 0.8, 12 + j * 9, 5.5))
         arm.rotation.x = (i * math.pi) / 2
