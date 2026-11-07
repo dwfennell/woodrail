@@ -40,7 +40,21 @@ describe("the boxed-in convoy (decision 4) is recognised by its shape, and only 
     };
     expect(atFirstStall(flipped)).toBe(true);
   });
+  // (Since 2026-11-07 nothing turns a train round to give way: these stand too, the same shape with a passing loop
+  // behind the routed train, and a train queued behind them.)
+  it("boxed in past a passing loop (fuzz seed 125's layout): boxed in", () => {
+    expect(atFirstStall(S.boxedPastLoop)).toBe(true);
+  });
+  it("a routed train come into a line's end behind a hand-run one, a passing loop behind it (seed 77's): boxed in", () => {
+    expect(atFirstStall(S.deadEndMouthThrown)).toBe(true);
+  });
   // (Other kinds of routed stall: the never-worse check still fails on each.)
+  it("two routed trains head on round an oval: not", () => {
+    expect(atFirstStall(S.routedHeadOnRing)).toBe(false);
+  });
+  it("a routed train head on with a hand-run one at a spur's points, nothing boxed in: not", () => {
+    expect(atFirstStall(S.routedMeetsHandRun)).toBe(false);
+  });
   it("two routed trains head on along one line (no hand-run train): not", () => {
     expect(atFirstStall(S.headOnTwoLines)).toBe(false);
   });

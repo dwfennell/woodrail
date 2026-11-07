@@ -6,10 +6,17 @@
  * run end to end, the one behind following the other into the dead end (§16 Q9); with a route, single-line working lets
  * only one train into the dead end, so they stand, said stuck "in the way" with the card's fix a passing loop. Kept so:
  * "a route never makes it worse" (harness-fuzz.test.ts) excuses a stall of exactly this shape, and only it.
+ *
+ * Since 2026-11-07 nothing turns a train round short of the end of its line (the user, firm), so the shape is any such
+ * true deadlock: the routed train's way runs into the box (its next stop there, or the line's end there to reverse at),
+ * whether or not a passing loop is elsewhere on the line (behind the routed train, it can't be reached going forwards);
+ * and trains queued behind the two, waiting on one of them, stand with them. (From 2026-11-05 to 2026-11-07 a train
+ * turned round to give way here: fuzz seeds 68, 74 and 125.)
  */
 import { getPieceDef, type Layout } from "../track";
 import { flipCursor, type Cursor, type Train } from "../sim";
 import { next, waysFrom } from "./graph";
+import { plan } from "./plan";
 import type { HarnessRun } from "./harness";
 
 /** How far (pieces) a box is walked: further than any line the fuzz lays. */
@@ -68,6 +75,28 @@ function plainToEnd(layout: Layout, c: Cursor, others: ReadonlySet<number>): Set
  * of a stuck routed one, and boxed in too. Anything else (two routed trains, too many for a line, a parked train, signals,
  * a hand-run train with a road out, a stop not behind it) isn't.
  */
+/**
+ * Does a train's way on to piece `goal` (its front's way, planned) run into `box`, `by`'s: its goal there, a piece
+ * beyond `by`, or its reverse at the line's end there? Not just over `by`'s own pieces and on: standing on points, `by`
+ * may be on its way to another road.
+ */
+function wayInto(layout: Layout, t: Train, goal: number, box: ReadonlySet<number>, by: Train): boolean {
+  if (goal < 0 || t.bogies.length === 0) return false;
+  if (box.has(goal)) return true;
+  const own = new Set(by.bogies.map((b) => b.pieceId));
+  const beyond = (id: number) => box.has(id) && !own.has(id);
+  const c = t.bogies[0];
+  const piece = layout.getPiece(c.pieceId);
+  if (!piece) return false;
+  const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
+  const exit = c.reversed ? path.from : (path.to ?? -1);
+  const n = exit < 0 ? null : next(layout, c.pieceId, exit);
+  if (!n) return false;
+  if (beyond(n.pieceId)) return true;
+  const p = plan(layout, { pieceId: n.pieceId, entry: n.entry, lead: true }, goal);
+  return !!p && p.steps.some((s) => beyond(s.pieceId) || (s.reverse && box.has(s.pieceId)));
+}
+
 export function boxedConvoy(run: HarnessRun): boolean {
   const { sim, layout } = run;
   const trains = sim.trainIds().map((id) => sim.getTrain(id)!);
@@ -75,22 +104,29 @@ export function boxedConvoy(run: HarnessRun): boolean {
   const stuck = trains.filter((t) => run.stalls.stuckOf(engineOf(t)) !== null);
   const routed = stuck.filter((t) => run.routed(engineOf(t)));
   if (routed.length === 0) return false;
-  const routedEngines = new Set(routed.map(engineOf));
+  /** The convoys' trains (engines): each stuck routed train and the hand-run one boxed in ahead of it. */
+  const convoy = new Set<number>();
   for (const r of routed) {
     const why = run.stalls.stuckOf(engineOf(r))!;
-    if (why.kind !== "in-way" || !why.loop) return false;
+    if (why.kind !== "in-way") return false;
     const h = sim.findCar(why.by)?.train;
     if (!h || run.routed(engineOf(h)) || !stuck.includes(h)) return false;
+    // (Boxed in on the side away from the routed train, which waits on it: its way runs into the box, to its stop there
+    // or to the line's end to reverse at.)
     const box = boxOf(layout, trains, h, new Set(r.bogies.map((b) => b.pieceId)));
-    const goal = run.target(engineOf(r));
-    if (!box || goal < 0 || !box.has(goal) || r.bogies.some((b) => box.has(b.pieceId))) return false;
+    if (!box || r.bogies.some((b) => box.has(b.pieceId)) || !wayInto(layout, r, run.target(engineOf(r)), box, h)) return false;
+    convoy.add(engineOf(r));
+    convoy.add(engineOf(h));
   }
   for (const h of stuck) {
     if (routed.includes(h)) continue;
     const why = run.stalls.stuckOf(engineOf(h))!;
-    if (why.kind !== "in-way" || !routedEngines.has(why.by)) return false;
+    if (why.kind !== "in-way") return false;
     const by = sim.findCar(why.by)!.train;
-    if (!boxOf(layout, trains, h, new Set(by.bogies.map((b) => b.pieceId)))) return false;
+    // (Boxed in by a routed train of the convoy, or queued behind one of the convoy's trains, waiting on it.)
+    if (convoy.has(engineOf(h)) && run.routed(engineOf(by)) && boxOf(layout, trains, h, new Set(by.bogies.map((b) => b.pieceId)))) continue;
+    if (!run.routed(engineOf(h)) && convoy.has(engineOf(by))) continue;
+    return false;
   }
   return true;
 }
