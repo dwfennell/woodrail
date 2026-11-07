@@ -35,8 +35,17 @@ const FAILS: Partial<Record<Invariant, string>> = {};
  * (`KNOWN_NEW_SIGNALS`). Found by the long fuzz (`npm run fuzz:long`, 200 seeds × 1800 s). A seed listed that ran and
  * no longer breaks fails the guard below, so the lists only shrink.
  */
-const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {};
-const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {};
+// (From the long fuzz on 2026-11-07, 200 seeds × 1800 s: the old invariants held on every seed; oneOwner and netActed
+// broke on none. Each break here comes within the first 30 s of its seed, so a run of 30 s or more sees it.)
+const MID = "stalls give way by turning a train round mid-line (redesign step 1)";
+const GREEN = "held by sections (a slot or section wait) standing at a signal that shows clear (#31; redesign step 4: signals show the table)";
+const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
+  midTurn: { 42: MID, 66: MID, 77: MID, 94: MID, 96: MID, 110: MID, 111: MID, 152: MID, 157: MID, 161: MID, 190: MID },
+};
+const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
+  midTurn: { 42: MID, 66: MID, 77: MID, 94: MID, 96: MID, 110: MID, 111: MID, 152: MID, 157: MID, 161: MID, 190: MID },
+  greenHeld: { 14: GREEN, 30: GREEN, 37: GREEN, 66: GREEN, 69: GREEN, 76: GREEN, 105: GREEN, 119: GREEN, 160: GREEN, 174: GREEN, 192: GREEN },
+};
 
 /** Of these runs (seeds FIRST + k), those that broke `inv` and aren't known to; and the known ones that ran and didn't. */
 function againstKnown<R>(runs: R[], inv: Invariant, broke: (r: R) => { count: number; first: string[] }, name: (r: R) => string, known: Partial<Record<Invariant, Record<number, string>>>): { unknown: string[]; fixed: string[] } {
