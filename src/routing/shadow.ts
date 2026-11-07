@@ -34,6 +34,9 @@
  *   (its tail over them, as a rule): where it stands it blocks every way through them (the user: "we are being too
  *   particular about exactly where our trains are positioned"; #31). By what holds it today, and whether a signal is
  *   just ahead of it (`onPointsBy`). The core never ends a booking with a train over points.
+ * - **follow-close:** as ran-unbooked, but the booking met a train ahead running away from it, the way it goes: close
+ *   following by today's follow gap, a piece or less behind. The core would hold it a piece further back (it frees
+ *   track a piece at a time). Granularity, not a danger.
  * - **strayed:** a train's front came onto a piece off its last booking (it went another road at points than the core
  *   would have booked). Not a fault: how often the core's way and today's differ.
  */
@@ -44,7 +47,7 @@ import type { InvariantWorld } from "../sim/invariants";
 import { waysFrom } from "./graph";
 import { planChoice, planWay, ROUTE_COSTS } from "./plan";
 
-export const KINDS = ["held-free", "ran-unbooked", "shared-points", "shared-piece", "green-unbooked", "red-booked", "held-on-points", "strayed"] as const;
+export const KINDS = ["held-free", "ran-unbooked", "shared-points", "shared-piece", "green-unbooked", "red-booked", "held-on-points", "follow-close", "strayed"] as const;
 export type Kind = (typeof KINDS)[number];
 
 /** Books afresh every this many ticks (as sections' asks: 10 a second). */
@@ -63,7 +66,7 @@ export const ON_POINTS_S = 2;
 const MAX_STEPS = 400;
 
 /** Why a booking failed: a piece another train holds (`by`, its key), a signal held at red, too far, or nowhere to go. */
-export type Refusal = { kind: "train"; by: number; pieceId: number } | { kind: "signal"; pieceId: number } | { kind: "far" } | { kind: "room" };
+export type Refusal = { kind: "train"; by: number; pieceId: number; entry: number } | { kind: "signal"; pieceId: number } | { kind: "far" } | { kind: "room" };
 
 /** One train's booking this check. */
 export interface Booking {
@@ -274,7 +277,7 @@ export class ReservationShadow {
     }
     const o = this.owner.get(nextId);
     if (o !== undefined && o !== key) {
-      walk.refusal = { kind: "train", by: o, pieceId: nextId };
+      walk.refusal = { kind: "train", by: o, pieceId: nextId, entry };
       return false;
     }
     const nextPiece = layout.getPiece(nextId);
@@ -311,6 +314,25 @@ export class ReservationShadow {
     return false;
   }
 
+  /**
+   * Was the booking refused by a train running away from it along the same way: moving, its axle on the refused piece
+   * heading out by another end than the one this booking came in by?
+   */
+  private followingAway(r: Refusal | null): boolean {
+    if (!r || r.kind !== "train") return false;
+    const { sim, layout } = this.world;
+    const f = sim.findCar(r.by);
+    const u = f?.train;
+    if (!u || u.speed <= 0) return false;
+    const net = this.world.drive(u);
+    const p = layout.getPiece(r.pieceId);
+    if (!p) return false;
+    const def = getPieceDef(p.type, p.flipped);
+    for (const b of u.bogies) if (b.pieceId === r.pieceId) return pathExitConnector(def, b.pathIndex, net >= 0 ? b.reversed : !b.reversed) !== r.entry;
+    // (Under its car only, no axle on the piece: by its front's heading, it's ahead of us going on.)
+    return true;
+  }
+
   /** Has this train points or a crossing under it (any car)? */
   private overPoints(t: Train): boolean {
     for (const id of this.world.sim.piecesUnder(t.id)) {
@@ -340,7 +362,7 @@ export class ReservationShadow {
       if (m.front !== -1 && m.booked.size > 0 && !m.booked.has(front) && t.speed > 0) this.say("strayed", key, `${this.label(t)} went onto piece ${front}, off its booking`);
       m.front = front;
     }
-    if (booking.ok) m.booked = new Set(booking.pieces.map((p) => p.pieceId));
+    m.booked = booking.ok ? new Set(booking.pieces.map((p) => p.pieceId)) : new Set();
     const standing = t.speed === 0 && net !== 0 && !busy && t.turnback < 0;
     // held-free.
     if (standing && booking.ok && booking.pieces.length > 0) {
@@ -375,8 +397,9 @@ export class ReservationShadow {
     if (t.speed > 0 && !booking.ok && !inSlot && booking.refusal?.kind !== "room") {
       if (!m.runSaid) {
         m.runSaid = true;
-        this.refused(booking.refusal);
-        this.say("ran-unbooked", key, `${this.label(t)} running on piece ${front} with no way on to a waiting point (${refusalText(booking.refusal)})`);
+        const follow = this.followingAway(booking.refusal);
+        if (!follow) this.refused(booking.refusal);
+        this.say(follow ? "follow-close" : "ran-unbooked", key, `${this.label(t)} running on piece ${front} with no way on to a waiting point (${refusalText(booking.refusal)})`);
       }
     } else if (booking.ok || t.speed === 0) m.runSaid = false;
     // Signals: the one it's at or coming to.
