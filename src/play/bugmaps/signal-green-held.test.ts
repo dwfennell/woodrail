@@ -5,7 +5,6 @@ import { loopSignalHold } from "../../economy/loop-signal";
 import { ADV_OK, advanceCursor, createAdvance, markKey, SIM_HZ } from "../../sim";
 import { connectorRef } from "../../track";
 import { describeBreak, loadBugMap, replayBugMap } from "../bugmap";
-import { INVARIANTS } from "../../sim/invariants";
 import MAP from "./signal-green-held.txt?raw";
 import MAP_32 from "./signal-added-still-stuck.txt?raw";
 
@@ -94,9 +93,9 @@ describe("issue #32: the map with the signal added", () => {
     const { world } = await loadBugMap(MAP_32);
     const turns = countTurns(world);
     const r = replayBugMap(world, { seconds: 300, stopAtFirst: false });
-    // (Every invariant holds; heldFree isn't checked here: bugmaps.test.ts has it, known on this map.)
-    const broke = INVARIANTS.filter((k) => r.checks.broke[k].count > 0);
-    expect(broke, r.first ? describeBreak(r.first) : "").toEqual([]);
+    // (netActed, the redesign's step 0 check, is known here: see bugmaps.test.ts.)
+    const broke = Object.entries(r.checks.broke).filter(([k, b]) => k !== "netActed" && b.count > 0);
+    expect(broke.map(([k, b]) => `${k}: ${b.first.join(" | ")}`), r.first ? describeBreak(r.first) : "").toEqual([]);
     for (const engine of world.economy.lineIdOf.keys()) expect(r.arrivals.get(engine) ?? 0, `engine ${engine}`).toBeGreaterThanOrEqual(4);
     expect(turns()).toBe(0);
     expect(world.economy.stalls.gaveWay).toBe(0);

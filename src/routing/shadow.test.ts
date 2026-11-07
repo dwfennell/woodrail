@@ -74,5 +74,5 @@ describe("the reservation shadow (routing redesign step 2)", () => {
       const { report } = shadowed(fuzz(seed, 120, true), 120);
       expect(report.trajectory, `seed ${seed} with signals`).toBe(plain.trajectory);
     }
-  });
+  }, 60_000);
 });

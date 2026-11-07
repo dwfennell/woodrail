@@ -104,8 +104,24 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     arrivals: 4,
     what: "QA: a towns line held at the mill by a hopper shuttle sharing its track",
     // (91.6 s: engine 30, its move granted, stood held "cross" by the hopper shuttle on points 49's junction: sections
-    // gave it a way through points a train they don't manage was on; the sim's crossing guard caught it. Since routing
-    // redesign step 3 the router refuses points another train's car is over on a road that fouls: it waits short.)
+    // gave it a way through points a train they don't manage was on; the sim's crossing guard caught it.)
+    // (netActed came off with redesign step 3: points another train's car is over on a fouling road are refused.)
+    known: [{ invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
+  },
+  // (Issue #32, 2026-11-07 (build mw5rjr7b): four lines' trains and a hand-run hopper train stood 600 s in a ring of
+  // waits, a signal added at the sawmill as the card said. Sections had sent the goods train into the passing loop
+  // behind the timber train standing there, the loop's other road empty; now an empty road comes first
+  // (`Sections.wayOn`) and they run as laid, nobody turning round. #31's map, the same without that signal, is a real
+  // ring (a signal inside the loop road holds a train over its points): its cards say so (signal-green-held.test.ts).
+  // 600 s: at 530 s the hopper train ran past the path signal after the loop's points, shown red: the held train on the
+  // other road, moved first, showed its red, not the nearest one's way (`Sim.comingTo`; signals.test.ts).)
+  {
+    file: "signal-added-still-stuck.txt",
+    seconds: 600,
+    arrivals: 8,
+    what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added",
+    // (87.6 s: engine 52, its move granted, held "cross" by the hand-run train on points 49: as signals-mill-wait.)
+    // (netActed came off with redesign step 3: points another train's car is over on a fouling road are refused.)
     known: [{ invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
   },
   // (Issue #31, 2026-11-07: "I don't understand why this train is stuck... the signal ahead of it is green" (mw5rjr7b).
@@ -115,11 +131,10 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
   // shuttle (engine 48) runs: 58 stops in 600 s. The green the user saw is the next signal on, past each train's own red
   // (signal 36 is 891 mm on from engine 30). Replayed on main 2026-11-07: still stuck, every invariant held.)
   {
-    file: "signal-green-held.txt",
+    file: "issue-31-green-ahead.txt",
     seconds: 600,
     arrivals: 20,
     what: "issue #31: four trains stuck at signals from the start, a ring of slot waits",
-    // (7.4 s: engine 52, on no line, stands in the ring though the core would book it 4 pieces on: §4.1.)
     known: [{ invariant: "heldFree", why: "engine 52 held in the ring of slot waits though the booking core would let it go (redesign steps 4–6)" }],
     stuck: {
       30: "ring of slot waits at signals (30 → 44 → 34 → 52): redesign steps 4–6",
@@ -128,18 +143,15 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
       52: "ring of slot waits at signals (on no line): redesign steps 4–6",
     },
   },
-  // (Issue #32, 2026-11-07 (build mw5rjr7b): four lines' trains and a hand-run hopper train stood 600 s in a ring of
-  // waits, a signal added at the sawmill as the card said. Sections had sent the goods train into the passing loop
-  // behind the timber train standing there, the loop's other road empty; now an empty road comes first
-  // (`Sections.wayOn`) and they run as laid, nobody turning round. #31's map, the same without that signal, is a real
-  // ring (a signal inside the loop road holds a train over its points): its cards say so (signal-green-held.test.ts).)
+  // (Issue #32, two minutes after #31: "added a signal but all trains are still stuck". The same map with signal 43 laid
+  // between engine 34 and the points ahead of it: the same ring, the same four stuck, engine 48 alone running.)
   {
-    file: "signal-added-still-stuck.txt",
-    seconds: 300,
-    arrivals: 4,
-    what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added",
-    // (87.6 s, before routing redesign step 3: engine 52, its move granted, held "cross" by the hand-run hopper train on
-    // points 49, as the mill's map. Now it waits short of them.)
+    file: "issue-32-signal-added.txt",
+    seconds: 600,
+    arrivals: 10,
+    what: "issue #32: a signal added to #31's map, with signal 43",
+    // (Since Sections.wayOn takes the loop's empty road first, these run. 87.6 s: netActed as above.)
+    // (netActed came off with redesign step 3: points another train's car is over on a fouling road are refused.)
     known: [{ invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
   },
 ];

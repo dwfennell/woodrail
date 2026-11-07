@@ -23,6 +23,7 @@
     "replay": "node scripts/replay.mjs",
     "shadow:report": "node scripts/shadow-report.mjs",
     "feedback": "node scripts/fetch-feedback.mjs",
+    "activity": "op run --env-file scripts/activity.env -- node scripts/activity.mjs",
     "snapshots": "node scripts/fetch-snapshots.mjs",
     "e2e:roads": "node scripts/e2e/roads.mjs",
     "e2e:draw": "node scripts/e2e/draw.mjs",
