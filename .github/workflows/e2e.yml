@@ -26,7 +26,7 @@ on:
         default: false
 
 concurrency:
-  group: e2e-${{ inputs.ref || github.ref }}
+  group: e2e-${{ inputs.ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
