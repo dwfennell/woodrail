@@ -532,6 +532,69 @@ are useful even if we stop there: they make today's bugs visible and measured.
 
 ---
 
+### 4.1 What steps 0 and 2 found (2026-11-07)
+
+**Step 0, the new invariants** (`src/sim/invariants.ts`: `oneOwner`, `greenHeld`, `midTurn`, `netActed`). They found:
+
+- **The long fuzz** (`npm run fuzz:long`: 200 seeds × 30 game minutes, plain and with signals):
+  - The old invariants held on every seed. `oneOwner` and `netActed` broke on none.
+  - `midTurn` broke on 11 seeds, the same in both variants: 42, 66, 77 (×7), 94, 96, 110, 111, 152, 157, 161 (×46) and
+    190. Each is a stall giving way by turning a train round mid-line, which step 1 takes out.
+  - `greenHeld` broke on 11 seeds with signals: 14, 30, 37, 66, 69, 76, 105, 119, 160, 174 and 192. In each, a train
+    stands 5 s or more at a signal showing clear, held by a sections slot or section wait, with no red ahead. That's
+    #31's class.
+  - All are listed in `harness-fuzz.test.ts` (`KNOWN_NEW`, `KNOWN_NEW_SIGNALS`).
+- **Bug maps:** two new maps, `issue-31-green-ahead.txt` and `issue-32-signal-added.txt`.
+  - In both, four trains (engines 30, 34, 44, 52) never move in 600 s. They're in a ring of sections' slot waits at
+    red path signals, and two of them stand with points under them. Only the hopper train runs.
+  - `oneOwner` breaks on #29's map: train 15 follows train 1 onto points 176 and stands on them when train 1 stops.
+    This is the same class as following through points on `route-stuck.txt`.
+  - `netActed` breaks on `signals-mill-wait.txt`: a grant through points the unmanaged hopper shuttle holds.
+- **Unit tests:** the 7 giving-way harness cases and 6 sections-QA worlds break `midTurn`; 2 put-down QA worlds break
+  `oneOwner`.
+- **What it all shows:** every known break is a deadlock-breaking turn, a green that lies, or two trains sharing points.
+  Those are the three things the reservation core rules out by construction.
+
+**Step 2, the shadow** (`npm run shadow:report`, 40 seeds × 600 s each part, and the 7 bug maps; 127 runs in 1.2 min on
+4 cores):
+
+| | fuzz | with signals | rings | bug maps |
+|---|---|---|---|---|
+| held-free (held, the core would let it go) | 14 (3 runs) | 16 (5) | 0 | 23 (4 of 7) |
+| green-unbooked (shows clear, the core couldn't book past) | 0 | 67 (6) | 0 | 15 (3) |
+| red-booked (shows red, the core would book past) | 0 | 1 | 0 | 23 (3) |
+| held-on-points (held with points under it) | 0 | 4 (2) | 0 | 42 (5) |
+| shared-points (two trains on one set of points) | 0 | 0 | 5 (5) | 8 (2) |
+| ran-unbooked (ran into a stretch with no way on) | 0 | 0 | 0 | 8 (2) |
+| follow-close (granularity: following a piece or less behind) | 203 | 171 | 16564 | 214 |
+| shared-piece (granularity: onto a plain piece another is on) | 0 | 0 | 303 | 80 |
+
+- **What holds a held-free train today:** sections' slot waits (fuzz: 14 of 14; with signals: 15 of 16). On the maps,
+  `line-wait-for` 13, a red signal 8 and `line-wait` 2. Today's holds are too big, and the core is looser; that's #29's
+  class.
+- **held-on-points by what holds the train:**
+  - On the maps: "held-up", with nothing on its card, 20 times (all on #29's map); a red signal it stands at 11 times; a
+    line wait 8 times.
+  - In #31 and #32, engines 34 and 44 are held at signals with points under them from 1.9 s. That's the user's "too
+    particular about where trains are positioned", in numbers. §3.12a's forgiving placement is the fix.
+- **#31 and #32:**
+  - The shadow would let engine 52 go at once (4 pieces on), and on #32 engine 44 too (11 pieces on, past the red
+    signal the player added). So the core might break that ring.
+  - A snapshot can't prove it: that needs step 4's signals on the table, or step 5.
+- **Rings are mostly granularity:** close following, a piece or less behind a moving train. The core frees track a
+  piece at a time, so it would keep followers a piece further back. That's a small throughput cost to measure in step
+  6 (`balance:sweep`), not a fault.
+- **The shadow's own cost:**
+  - 10 µs a booking on the fuzz layouts, and 22 µs on the bug maps (the game's own maps, with real stops).
+  - That's 1.5 µs and 6.3 µs a sim tick, with every train booking 10 times a second.
+  - The core, asking only as §3.4 says (near its booking's end, or woken), would book far less often than that.
+  - The shadow is test-only. Nothing in the game imports it, so it costs a production build nothing.
+- **It holds nothing.** Trajectory hashes are identical to the branch point (`7b59224`) over the harness scenarios,
+  the fuzz, the signal fuzz, sections QA and the town-ring fuzz: 476 sims, 175813 simulated seconds. The #29 and #31
+  maps' 600 s replays match too (`scripts/trajectory`).
+- **Not done:** keeping train ids across a turn round (step 0's table). It would change the trajectory hashes, so it
+  moves to step 3. The shadow keys trains by their first engine's car id, which survives a turn.
+
 ## 5. Summary for a non-programmer
 
 - Today five different parts of the game each have their own opinion about which train may use which bit of track, and
