@@ -1,7 +1,7 @@
 # The end-to-end suites in parallel, on what would land: the ref merged with main. See docs/agents/e2e.md, "CI".
 #
 #   plan    merge main in; pick the suites (affected + smoke, or the given ones, or all: dispatch with `all`, or a
-#           push whose head commit message says [e2e all]) and split them into shards
+#           push whose head commit message has a line [e2e all]) and split them into shards
 #           balanced by rough duration (scripts/e2e/ci.mjs, scripts/e2e/durations.json); build dist/ once
 #   shard   one per runner: its suites as the landing gate runs them, one retry each
 #   unit    vitest, sharded
@@ -67,12 +67,13 @@ jobs:
       - id: plan
         env:
           SUITES: ${{ inputs.suites }}
-          ALL: ${{ inputs.all || contains(github.event.head_commit.message, '[e2e all]') }}
+          ALL: ${{ inputs.all }}
           MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
-          # (A push may name its suites in the head commit's message: "[e2e: signals touch:blocker,defaults]".)
-          if [ -z "$SUITES" ]; then SUITES=$(printf '%s' "$MESSAGE" | sed -n 's/.*\[e2e: *\([^]]*\)\].*/\1/p' | head -1); fi
+          # (A push may name its suites in the head commit's message, on a line of its own: "[e2e: signals touch:blocker]".)
+          if printf '%s\n' "$MESSAGE" | grep -qx '\[e2e all\] *'; then ALL=true; fi
+          if [ -z "$SUITES" ]; then SUITES=$(printf '%s\n' "$MESSAGE" | sed -n 's/^\[e2e: *\([^]]*\)\] *$/\1/p' | tail -1); fi
           args=()
           if [ "$ALL" = "true" ]; then args+=(--all); elif [ -n "$SUITES" ]; then args+=(--suites "$SUITES"); fi
           node .ci/scripts/e2e/ci.mjs plan "${args[@]}" > plan.json
