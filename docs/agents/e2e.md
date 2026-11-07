@@ -163,3 +163,35 @@ wait is two. Three things made that worse than it has to be, and `lib/fast.mjs` 
 To see where a suite's time goes: `E2E_PROFILE=1 npm run e2e:<suite>` (`lib/profile.mjs`) times every Playwright call
 by the line of the suite that made it (inclusive up its own call chain), and prints the top lines after each group and
 for the run (`E2E_PROFILE_TOP=n` lines). A helper's line (`settled`, `boot`, `drag`) shows everything through it.
+
+## CI: the suites on GitHub Actions (`.github/workflows/e2e.yml`)
+
+Every push to a `claude/**` branch (not one that touches only `docs/**`) runs the e2e suites in parallel on GitHub's
+runners, on **the branch merged with main**, so a green run holds for what would land. A newer push to the same branch
+cancels the older run. To run it on demand: Actions → e2e → Run workflow, with `ref` (a branch or sha), and either
+`suites` (the gate's form: `signals touch:blocker,defaults click:desktop`) or `all`.
+
+The jobs:
+
+- **plan + build**: merges main (a conflict fails here, naming the files), then `node scripts/e2e/ci.mjs plan`: the
+  suites from `scripts/e2e/affected.mjs origin/main --json` plus `SMOKE` (or the ones given, or all), split into shards
+  of about 9 minutes each, at most 16, longest first onto the least loaded shard. A grouped suite over 8 minutes is
+  split by its groups (`E2E_ONLY`); a shard's units of one suite run as one invocation. Durations are rough, from
+  `scripts/e2e/durations.json`. It also runs `npm run build` (typecheck + vite) once; a shard that needs `dist/`
+  (e2e:tray) downloads it instead of building.
+- **shard N**: one runner a shard (4 cores, SwiftShader, Playwright's own Chromium, cached): each suite as the gate
+  runs it (`npm run -s e2e:<suite>`, `E2E_ONLY=…` for groups); it passes on exit 0 and the gate's pass line. A failure
+  is retried once (the groups that passed are cached, so only the failed ones run again); a second failure is real.
+  A suite is killed past 2.5× its estimate (15–55 min).
+- **unit 1/4 … 4/4**: vitest, `--shard`.
+- **e2e**: the one check to gate on. It passes only when every shard reported and every suite passed (a flaky pass,
+  green on its retry, counts as a pass and is marked ⚠️).
+
+**Reading results.** The `e2e` job's summary has a table: suite (and groups), result, seconds, shard. The artifact
+`e2e-results` holds `e2e-results.json`: `ok`, `tree` (the tested merge's `git rev-parse HEAD^{tree}`: match it against
+what you land), `sha` (the ref), `main` (the main merged in), each unit's result, seconds and pass line, and
+`measured` (seconds per suite or one-group unit: copy them into `durations.json` when the shards drift out of
+balance). A failed shard uploads `e2e-logs-<N>`: `e2e-logs/<suite>.log` (both attempts) and `e2e-out/` (screenshots).
+In the shard's own log each suite is a folded group; a failed one says `::error::<unit> failed twice`.
+
+Locally: `node scripts/e2e/ci.mjs plan --pretty [--all | --suites "…"]` prints the shards without running anything.
