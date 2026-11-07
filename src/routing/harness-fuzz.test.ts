@@ -39,16 +39,16 @@ const FAILS: Partial<Record<Invariant, string>> = {};
 // broke on none. Each break here comes within the first 30 s of its seed, so a run of 30 s or more sees it.)
 const GREEN = "held by sections (a slot or section wait) standing at a signal that shows clear (#31; redesign step 4: signals show the table)";
 // (midTurn's 11 seeds came off with step 1: nothing turns a train round mid-line now.)
-// (heldFree, added with step 2b: from `npm run fuzz:long -- --seeds 40 --seconds 600`, 2026-11-07. Each a train held by
+// (heldFree, added with step 2b: from the full `npm run fuzz:long` (200 seeds × 1800 s), 2026-11-07. Each a train held by
 // sections' slot wait though the booking core would book it a way on: holds too big, step 5's.)
 const FREE = "held by sections' slot wait though the booking core would let it go (redesign step 5: sections grant by booking)";
 const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
-  heldFree: { 22: FREE, 34: FREE, 37: FREE },
+  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 183: FREE, 186: FREE, 188: FREE },
 };
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
-  heldFree: { 22: FREE, 34: FREE, 37: FREE },
-  // (14 and 30 came off on the merged base (2026-11-07): main's fixes since the list was made.)
-  greenHeld: { 37: GREEN, 66: GREEN, 69: GREEN, 76: GREEN, 105: GREEN, 119: GREEN, 160: GREEN, 174: GREEN, 192: GREEN },
+  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 77: FREE, 89: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 186: FREE, 188: FREE },
+  // (14 and 30 came off on the merged base, 76 and 160 with step 3 (2026-11-07, the full long fuzz).)
+  greenHeld: { 37: GREEN, 66: GREEN, 69: GREEN, 105: GREEN, 119: GREEN, 174: GREEN, 192: GREEN },
 };
 
 /** Of these runs (seeds FIRST + k), those that broke `inv` and aren't known to; and the known ones that ran and didn't. */
