@@ -94,8 +94,8 @@ export interface Report {
    * (§16 Q3). `begun`: stalls begun; `stuck`: per train, ticks it stood said to be stuck, and why it last was.
    */
   stalls: { begun: number; stuck: number[]; why: (Stuck["kind"] | null)[] };
-  /** Trains that gave way to break a ring of waits (stalls.ts), and of those, routed ones (gone a way round). */
-  gaveWay: { any: number; routed: number };
+  /** Trains that gave way to break a ring of waits (stalls.ts): hand-run ones taking another road ahead (none turn). */
+  gaveWay: { any: number };
   longestStill: number[];
   /** Times a train's front came onto a piece through facing points with a choice, and the switch throws seen. */
   facing: number;
@@ -247,7 +247,7 @@ export class HarnessRun implements InvariantWorld {
       stoodFrom: this.specs.map(() => ({ near: Infinity, far: -Infinity })),
       waits: 0,
       stalls: { begun: 0, stuck: this.specs.map(() => 0), why: this.specs.map(() => null) },
-      gaveWay: { any: 0, routed: 0 },
+      gaveWay: { any: 0 },
     };
     this.still = this.specs.map(() => 0);
     this.lastTurn = this.specs.map(() => -1);
@@ -501,7 +501,6 @@ export class HarnessRun implements InvariantWorld {
     this.lineOf = lines;
     this.report.stalls.begun += this.stalls.begun;
     this.report.gaveWay.any += this.stalls.gaveWay;
-    this.report.gaveWay.routed += this.stalls.gaveWayRouted;
     this.wire();
     this.router.restore(defaults);
     saved.forEach((s, k) => {
@@ -542,8 +541,7 @@ export class HarnessRun implements InvariantWorld {
     this.report.stalls.begun += this.stalls.begun;
     this.stalls.begun = 0;
     this.report.gaveWay.any += this.stalls.gaveWay;
-    this.report.gaveWay.routed += this.stalls.gaveWayRouted;
-    this.stalls.gaveWay = this.stalls.gaveWayRouted = 0;
+    this.stalls.gaveWay = 0;
     this.report.pieces = this.checks.pieces;
     this.report.facing = this.checks.facing;
     this.report.redLate = this.checks.redLate;

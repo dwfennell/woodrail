@@ -218,14 +218,16 @@ no line there, asks for its moves among them all, so they meet only at passing l
 5. **No early release:** a lock holds until the last axle clears.
 6. **Nothing breaks a wait** (§16 Q3, step 5b): no train turns back short of the end of the track. A wait that can't end
    (a ring, a line's held train in the way, a parked train) is a stall: the trains stand, and their cards say what to do.
-   **Except giving way** (2026-11-05, the user: "so easy to get into a deadlock ... everything stops even though it
-   could easily keep going"; `Stalls.giveWay`): a ring of waits held 2 s (`YIELD_S`, before it's said at 5 s) is broken
-   where the track allows, by one of its trains turning round where it stands (`Sim.turnNow`, as at the end of the
-   line). A hand-run train ("goes anywhere") first, wherever there's room to turn it; else a routed one only where,
-   turned, it has a way to its next stop with no turn-back and not over the train in its way (`wayRound`: round a ring,
-   a loop round, a wye, a balloon). No ping-pong: a train that gave way doesn't again for 10 s (`YIELD_AGAIN_S`), nor
-   to the same train till that one has got somewhere (its next stop changed, or it turned at an end). A ring nobody can
-   break is a stall, said as before; so is one through signals, and a chain to a parked train.
+   **Giving way** (2026-11-05, the user: "so easy to get into a deadlock ... everything stops even though it could
+   easily keep going"; `Stalls.giveWay`): a ring of waits held 2 s (`YIELD_S`, before it's said at 5 s) is broken where
+   the track ahead allows, by a hand-run train ("goes anywhere") in it taking another road, going forwards: the facing
+   points just ahead of it thrown to a free road (`Router.giveWayRoad`, back to the player's way once it has passed or
+   if it doesn't take them). No ping-pong: not again to the same train till that one has got somewhere. **Nothing turns
+   a train round to give way** (the user, firm, 2026-11-07: "trains should not turn around except at the end of
+   lines"): from 2026-11-05 to 2026-11-07 a hand-run train, or a routed one with a way round behind it (`wayRound`,
+   `letsBy`), turned round where it stood; no more. A train reverses only where its line ends (a buffer, track that
+   just stops, a terminus stop, a line's planned reverse); the fuzz checks it (`turnBack`, src/sim/invariants.ts). A
+   ring with no road out ahead is a stall, said as before; so is one through signals, and a chain to a parked train.
 7. **Unplanned trains** (hand-run) lock the points just ahead as they lie while moving (nothing is ever set for them),
    stop short of points another train holds for a road that meets theirs, and otherwise take the points as they lie
    (step 7).
@@ -305,8 +307,8 @@ with a hint toward the fix.
 | Waiting for points another train holds | Stops short and waits | "Waiting for the train on the Blue line to pass the points" |
 | Two lines' trains on single track with no passing loop (a ring) | Both stand, each at its end of the line (§16 Q3) | "Stuck: the train on the Blue line is in the way. Add a passing loop here" |
 | Trains in each other's way for good, a loop there or one line's (a ring; nose to nose) | Both stand (§16 Q3) | "Stuck: the train on the Blue line is in the way. Put one away" |
-| A routed train and one with no route head on (a ring) | The one with no route turns round and goes another way (§5 rule 6, giving way) | Nothing to say: they run on |
-| Two routed trains head on, one with a way round to its stop the other way | That one turns round and goes round (§5 rule 6) | Nothing to say: they run on |
+| A routed train and one with no route in a ring, facing points just ahead of the one with no route with a free road | The one with no route takes that road, forwards (§5 rule 6, giving way) | Nothing to say: they run on |
+| Trains head on with no road out ahead of either (a way round behind one, or a loop behind) | Both stand: nothing turns round short of the end of its line (§5 rule 6, 2026-11-07) | "Stuck: … is in the way. Add a passing loop here" / "Move it or give it a route" / "Move one of them" |
 | A line over room, its held train in the others' way | They stand | "Stuck: too many trains for this line. Put one away or add a loop" |
 | A parked train (lever off) at the end of a chain of waits | They stand | "Stuck: a parked train is in the way. Move it" |
 | The only way is backwards (a dead end, no loop) | It reverses, as it must | Once per line: "Add a loop at the end so it can turn round." |

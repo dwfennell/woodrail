@@ -8,6 +8,8 @@ could take a look at the OpenTTD routing code for inspiration."
 
 **Firm rule (the user):** trains never turn round except at the end of their line.
 
+**Second look (2026-11-07):** §6 lists what the first round missed (forgiving placement, booking units, save, retry) and adds a step 2b.
+
 **Built (2026-11-07, the user: "yes start steps 0-2"):** step 0 (the new invariants, the #31/#32 bug maps and a
 liveness check, known lists) and step 2 (the reservation table in shadow, `src/routing/shadow.ts`, and
 `npm run shadow:report`). Step 1 is built on its own branch. What each found is in §4.1 below.
@@ -507,6 +509,7 @@ Trajectory hashes will change from step 3 on. Each step says what it expects to 
 | 0 | **Better nets first.** Add #31 and #32 as bug maps with *liveness* checks (each train makes progress or is said stuck by a named cause), not only invariants. New invariants: `oneOwner` (no piece under two trains' bogies unless coupling), `greenHeld` (a train standing at a green signal it faces), `midTurn` (a turn not at a line end and not asked for by the player), `netActed` (`followCap` or `resolveContacts` stopped a train that the core let go). Keep train ids across `turnAround`. | Tests, plus one sim change (stable ids). | The new invariants will fail today on some fuzz seeds. Record them as `KNOWN` lists, which shrink in later steps. Risk: low. | S–M |
 | 1 | **Ban mid-line turns now** (the firm rule). Remove `Stalls.giveWay`'s turn pass and the "road give-way retried as a turn". Keep the road give-way for the moment. | Jams that were turned out of become stuck cards. | Run fuzz:long and the town-ring fuzz. Count seeds that become stuck and add them to `KNOWN`. These are what the core must fix. Risk: visible stuck trains in players' maps until step 6. Ship it together with step 6, or behind a flag until then, if that count is high. | S |
 | 2 | **Reservation table in shadow.** Build the table and the waiting-point map (§3.2, §3.3). Each tick, compute what the core *would* hold. Hold nothing. Log where today's system lets a train onto a piece the shadow says another train holds, and where a train is held although the shadow would let it go. | No behaviour change. Hashes identical. | Measure walk times, asks per second and memory (perf harness). The disagreement log is a map of today's bugs. Risk: low. | M |
+| 2b | **Correct the shadow** (second look, §6.3): book by piece and path, bookings never join, hold by car ends, `heldFree`. Rerun the report. | No behaviour change. | the shadow-units test flips. Risk: low. | S |
 | 3 | **Points held by reservation.** The router's locks write into the table and read it. A routed train's hold to the next clear point is the reservation; hand-run `askHand` uses the table. | Points only. Behaviour is near identical. | touch `wye`, `slips`, `double-three-way`, `route-keep`, `blocker`. Risk: the lever-tap rules (§16 Q1). | M |
 | 4 | **Signals show the table.** Aspect = reservation past it (§3.6). Delete `gateAt`, `refreshGate`, `pathFor`. A signal that isn't a safe waiting point is passed, and its card says why (fixes B5 by rule, not by refusing placement). | #31's class goes. | e2e:signals, signal-fuzz (`greenOnTrain`, `redForNothing`, `greenHeld`), `signals-mill.test.ts`. Risk: aspects at rest look different, so the shots need retaking. | M |
 | 5 | **Sections grant by reserving.** `grant` takes the move's pieces in the table, all or none, and `sectionUser` reads owners instead of scanning. Release follows the tail. `cutMoves` goes, since a hold can't be cut. | Following gets closer, because pieces free behind the tail. | fuzz:long, the town-ring fuzz and the bug maps. `oneOwner` must pass everywhere. Risk: throughput changes, so run `balance:sweep`. | L |
@@ -609,3 +612,318 @@ are useful even if we stop there: they make today's bugs visible and measured.
   build.
 - It would be done in about nine small steps. Each one is checked by the existing stress tests and bug-map replays
   before it ships, and the first steps change nothing players see.
+
+---
+
+## 6. Second look (2026-11-07): what the first round missed
+
+**The user:** "take a fresh look at our code and the open ttd code and see if we can clean things up one more time...
+there could be some subtleties we missed in the first round", and "I feel like we are being too particular about
+exactly where our trains are positioned". The firm rule stands: trains turn round only at the end of a line.
+
+**How.** OpenTTD master (commit `ecb0799f`, cloned 2026-11-07) read again, this time `train_cmd.cpp` line by line
+around `TryPathReserve`, `ChooseTrainTrack`, `ExtendTrainReservation`, `CheckNextTrainTile`, `TrainLocoHandler`,
+`ReverseTrainDirection`, `FreeTrainTrackReservation` and `Train::Crash`, plus `pbs.cpp`, `signal.cpp`, `rail_cmd.cpp`
+(what building and removing does to reservations), `station_cmd.cpp` and YAPF's `yapf_rail.cpp`, `yapf_costrail.hpp`
+and `yapf_destrail.hpp`. Ideas only, no code (GPL-2, see Status). Against that: this doc, `src/routing/shadow.ts`
+(step 2), main's sections, sim signals and router (including `fc14654`, `9b15353` and `b63d5b7`, which landed on main
+after this branch was cut), and the give-way removal on `claude/no-turnaround-give-way` (step 1).
+
+**Corrections to §1.** Two small ones:
+- The reservation goes to the safe position *nearest* the train along the route found. YAPF walks back from the best
+  node and keeps the last safe tile it sees, among nodes whose parent passed fewer than 2 signals
+  (`yapf_rail.cpp` `FindSafePositionOnNode`). In practice it never covers a later path signal the train faces.
+- Reserved track costs the pathfinder extra only within the first 5 signals of the search (`ReservationCost`). The
+  "nearest safe tile" search for lost trains doesn't price reserved track: it leaves it out entirely (`CFollowTrackFreeRail`).
+
+### 6.1 Findings
+
+Each finding gives the OpenTTD behaviour, what we do, what goes wrong in Woodrail, and a recommendation. They're
+ordered by how much they matter. F1 and F2 are the "too particular" ones.
+
+**F1. Safety never depends on the train fitting. The tail keeps what it stands on.**
+- **OpenTTD:**
+  - Tiles under the train are always reserved: `TrainController` reserves each tile the front enters (`:3507`), and
+    `ReserveTrackUnderConsist` runs after loading and after a crash.
+  - They're freed only as the last vehicle leaves them (`ClearPathReservation`, `:3560`).
+  - Only the moving front's tile is ever tested for safety (`IsSafeWaitingPosition`). Nothing checks that the whole
+    train fits the block or the platform. A train longer than a platform stops at its far end with its tail out
+    behind (`GetTrainStopLocation`).
+  - A tail over points at a signal simply keeps those points reserved, and other reservations can't take them
+    (`TryReserveTrack`).
+- **We:**
+  - "Fits" is in the *definition* of a waiting point. Slots and signal waiting points are built per train length,
+    rounded to 16 mm (`topologyOf`, `ROAD_MARGIN` = 12 mm). §3.3 and §3.12a keep that.
+  - So whether a train may wait, pass or stand somewhere hinges on a sum of millimetres, and on its length bucket.
+  - Coupling a wagon at a stop changes the bucket, and with it every slot id the train's state refers to.
+- **What goes wrong:**
+  - Town-ring fuzz seeds 4, 23, 26 and 30 (`ON_WYE` in `economy/give-way.test.ts` on the step-1 branch): the routed
+    train "comes to stand past where it should have stood short of the points", on the wye, and the hand-run train
+    behind waits for good.
+  - #31: a train held at a signal inside a loop road with its tail on the points.
+  - Both happen because "where may it stand" was decided by a mm sum, and the train stood a little off it.
+- **Recommendation:** split the two questions §3.12a runs together.
+  1. **Safety:** a train always holds every piece under it, whatever its length and wherever it stopped. That alone
+     makes any position safe: nothing else can enter what it covers.
+  2. **Where a booking may end:** the waiting point is tested only at the train's *front*: a joint (a slot's exit, a
+     signal's joint, a line end).
+     - "Clear of points" is checked once, when the booking is made, by walking back a train's length from that joint.
+     - It's a preference, not a gate: a booking that can't end clear of points may still end there when nothing else
+       is free. The train then holds those points until it leaves, and its card says "Long train: its tail is over the
+       points" with the fix.
+     - That keeps §3.12a's pull-forward and stop-short as choices that cost nothing when they don't apply, never as
+       reasons to refuse.
+  3. **Fit uses a car's slack, not 12 mm.** Where fit is asked (loop roads for passing, the room rule's loop count),
+     margins are about half a car (40 mm), and the topology is keyed per *network* by its longest train, as today's
+     `network()` already does. That way two trains on one network never see different slot ids.
+
+**F2. "At the signal" is a fact of the booking, not a distance.**
+- **OpenTTD:**
+  - A path signal is green only while a reservation runs through it.
+  - It turns red when the front *enters* the signal's tile (`TrainController :3553`), a discrete event.
+  - A train waits at the edge of the tile before. No code asks how many mm short of the signal the nose is.
+- **We have six separate mm tolerances for one idea:**
+  - sections' `STAND_SHORT` (6) and `ROAD_MARGIN` (12);
+  - the sim's `MARK_STAND` (6) and `STAND_SLOP` (2, added by `b63d5b7` for #31, "a hair past its stop point");
+  - the router's `OVERLAP` (30);
+  - the `greenHeld` invariant's `GREEN_NEAR` (30), and the shadow's `SIGNAL_NEAR` (300).
+- **What goes wrong:** #31 itself. The train stood 1 mm past the stop point, the sim read that as passing, and the
+  signal showed green while sections held the train. `STAND_SLOP` papers over that one case. Any two of the six can
+  disagree again.
+- **Recommendation (step 4):**
+  - A signal's aspect for a train is "does its booking pass this joint". "Has passed" is "its front axle crossed the
+    joint", a piece-boundary event the cursor already reports.
+  - Where the nose comes to rest then changes nothing. Braking aims at the booking's end; stopping a few mm early or
+    late is harmless.
+  - Delete `STAND_SLOP` and `MARK_STAND`, and the distance tests in `redAhead` for marks. `greenHeld` reads the booking
+    instead of `GREEN_NEAR`.
+
+**F3. The booking unit must be a path, with an overlaps table, not a whole piece.**
+- **OpenTTD:** one bit per track per tile. `TryReserveRailTrack` fails on the track itself or any track it crosses on
+  that tile. Parallel tracks on one tile are independent.
+- **We:** §3.2 holds a piece whole, and the shadow does (`owner` keyed by piece id). §3.8 said holding a whole switch
+  "serializes a little more" at big junctions. It missed the pieces with two roads that never meet: `double-straight`,
+  `double-curve`, the straight roads of a `crossover`, and signal gantries.
+- **Evidence:** `docs/superpowers/specs/evidence/2026-11-07-shadow-units.test.ts.txt` (it needs step 2's `shadow.ts`, so it lives as text until the redesign branch merges; copy it to `src/routing/shadow-units.test.ts` there, where it passes). Two shuttles on the two roads of a double-track line never come
+  near each other, yet **1675 of 6000 bookings (28%) are refused by the other train**. The shadow also counts them as
+  `shared-points` (2) and `follow-close` (13). On double track the core as written would hold an up train for a down
+  train. That's throughput lost on every double-track layout, and a ring of waits is possible where two double-track
+  lines cross.
+- **Two different definitions of "points" disagree here too:**
+  - The shadow's `overPoints` counts any piece with more than one path, so a double straight counts.
+  - The sim uses geometry (`pathsApart`, `pathsMeet`).
+  - sections uses `branches` and `blockEdge`; `oneOwner` uses "paths that meet"; `boxed.ts` uses `waysFrom > 1`.
+- **Recommendation (step 2b, before step 3):**
+  - The unit is (piece, path). One overlaps table per piece type: paths that share an end or come within a track's
+    width, as `pathsMeet` already works out.
+  - One shared helper answers both "is this a choice of way" and "do these two paths foul", and every place above uses
+    it.
+  - Rerun `shadow:report`. The shared-piece and held-on-points counts will drop where they were double track.
+
+**F4. Bookings never join end to end. The shadow doesn't check this yet.**
+- **OpenTTD:** `IsWaitingPositionFree` (`pbs.cpp :439`) wants the safe tile *and the tile after it* unreserved
+  (except at a depot or block signal). `TryReservePath` gives up on a waiting position that isn't free.
+- **We:** §3.4 step 2 says so. `ReservationShadow.walkOn` returns at a slot's exit, an open end or a rule-3 joint
+  without looking at the next piece.
+- **What goes wrong:** a booking ending at a loop road's far end while the piece past it belongs to a train coming the
+  other way. Both stand nose to nose at the switch (the shape of town-ring seed 22, nose to nose on the wye), and nothing breaks
+  it without a turn.
+- **Recommendation:** add the check to the shadow now (step 2b) and rerun its report, so the held-free counts aren't
+  optimistic. Keep it in the core.
+
+**F5. A train can start anywhere. It books from where it stands.**
+- **OpenTTD:**
+  - `TryPathReserve` follows the train's own reservation (`FollowTrainReservation`). If that ends at a safe tile, it's
+    done. If not, it books on from the end.
+  - A train with no reservation starts from its own tile.
+  - `first_tile_okay` lets a train standing on a safe tile (leaving a station, after a reverse) count as already
+    booked.
+  - Nowhere does a train have to *be* at a safe position to be allowed to start.
+  - When a signal is built on reserved track, the owner's reservation is freed and booked again. That's skipped when
+    the train stands stopped or loading at a safe position (`rail_cmd.cpp :1197-1209`).
+- **We:**
+  - Today `Sections.recover` does the same in spirit for a train in a section with no move.
+  - But "put down anywhere", "loaded from a save", "a signal laid under it" and "coupled into a longer train" are four
+    paths through four different guards.
+- **What goes wrong:** the town-ring `FACING` seeds (6, 13, 21, 24, 29), two trains put down facing each other on the
+  ring, and the spur case (Willow back out with its front on the points). With nothing turning now, these stand. Some
+  are true deadlocks, and the cards say so.
+- **Recommendation:**
+  - One entry point: hold what's under the train, then book on from its front.
+  - Plus one small forgiving move that OpenTTD doesn't need but we do, since kids drop trains anywhere. A train
+    standing with points under it, whose booking fails, may still book **just far enough forwards to clear those
+    points**, if those pieces are free and nobody has booked them.
+    - That can't make things worse. It's already in the stretch, so moving inside it blocks no way it doesn't block
+      now.
+    - It frees the points for everyone else.
+    - It never passes a held signal and never turns.
+  - The card still says it's stuck if the rest of the way stays blocked.
+
+**F6. Keep a slow periodic retry under the event-driven asks.**
+- **OpenTTD:** a stuck train retries `TryPathReserve` every `path_backoff_interval` (20 ticks) whatever happened
+  (`TrainLocoHandler :4093`). After a signal is removed, the retry picks up the new layout. It doesn't need to be told
+  what changed.
+- **We:** §3.4 says "There's no asking every N ticks". The asks come only on near-the-end, on a wake from a release,
+  and on a layout, route or points change.
+- **What goes wrong:** one missed wake (a release through a path the wait list doesn't key, a lever tap, a lift
+  bridge lowering, a crane clearing a wreck) is a train that stands for good with its way free. That's exactly the
+  class the user notices ("why is this train stuck"), and the invariants don't catch it (§2.2).
+- **Recommendation:**
+  - Event-driven asks, *plus* a retry every 1 s for any train standing refused. That's a few µs a second (the shadow
+    measured 10–22 µs a booking), and nothing at all on an idle map with no refused train.
+  - Turn the shadow's `held-free` into an invariant, `heldFree`: refused, but the booking would succeed, for 5 s.
+    Every lost wake then becomes a failing seed.
+
+**F7. Bookings survive a save, in OpenTTD by being saved.**
+- **OpenTTD:** reservation bits are tile state and are saved. After a load only `ReserveTrackUnderConsist` re-adds
+  the tiles under trains (`afterload.cpp :2055`).
+- **We:** §3.2 says "derived, not saved": rebuild under trains, then each train books ahead.
+- **What goes wrong:** two trains approaching one single-track stretch from opposite loops. The one already in it
+  (booked through, moving) is saved mid-stretch. On load, if the other books first, it takes the far end, and the
+  first stands mid-line facing it with no waiting point. That's a deadlock made by the save.
+  - The shadow orders "moving first" for this reason. But order alone isn't enough: the first train's booking can need
+    a road at a loop that the other's booking takes.
+- **Recommendation:** save each train's booking as its end joint plus the path chosen through each switch. That's a
+  few numbers per train in `lineSaved`, next to sections' `savedPlace`. On load: hold what's under each train, re-take
+  each saved booking, and only then book anew. Old saves without it book in the shadow's order. §3.2's "no
+  save-format change" is dropped.
+
+**F8. Free track behind the car's end, not the axle.**
+- **OpenTTD:** a tile is freed when the last *vehicle* leaves it.
+- **We:**
+  - `Sim.piecesUnder` stops at the end axles ("a switch just ahead under the front's overhang is still its to throw").
+  - Cars overhang their bogies by 18–20 mm (`bogieInset`), plus buffers.
+  - §3.5 frees "when the tail bogie leaves a piece".
+- **What goes wrong:** a crossing or switch freed while the last car's body still hangs over it. A train booking the
+  other path of a diamond runs into the overhang. Today `crossCap` catches that physically. Under the core it would
+  be `netActed`.
+- **Recommendation:** hold and free by the cars' ends (buffer faces), with the end axles as today only for throwing
+  points.
+
+**F9. One-way must be declared, not learned.**
+- **OpenTTD:** one-way-ness is explicit. One-way path signals can't be passed from behind, the tile before the back of
+  one is safe as an end of line, and followers treat that back as a dead end.
+- **We:**
+  - §3.3 rule 3 (automatic waiting points on one-way track) is "keyed by the network's users' routes".
+  - The shadow learns it from the directions trains have been seen running (`dirs`).
+  - Hand-run trains have no route. A lever reversed by the player makes "one-way" track two-way at once, with trains
+    already waiting at rule-3 points facing it.
+- **Recommendation:** rule 3 only where every train using that track is routed and every route runs it the same way.
+  The set is rebuilt when a route, lever or line membership changes. Any hand-run train on the network turns rule 3
+  off there, so the network falls back to slots. Never learn it from history.
+
+**F10. Price booked and occupied track when choosing a way, everywhere there's a choice.**
+- **OpenTTD:** YAPF adds `rail_pbs_cross_penalty` (3 tiles) per reserved track and `rail_pbs_station_penalty` (8) per
+  reserved platform tile, within the first 5 signals. So trains pick a free road or platform by themselves.
+- **We:**
+  - Main's `fc14654` (#32's root cause) does this at loop roads only: "an empty road before one with a train on it".
+  - The shadow uses `ROAD_SLACK` 2000 mm.
+  - Stops with two platforms or depot tracks, and the way round a ring, don't do it.
+- **What goes wrong:** town-ring `AGAINST` (seeds 8 and 9 with a loop): the routed train plans its way round the ring
+  against a hand-run train going round non-stop, so it waits 22 s on seed 8 and is starved on seed 9.
+- **Recommendation:** in the core's walk, rank each choice by plan cost plus a penalty per piece booked or stood on by
+  another train within the walk. One rule replaces `fc14654`'s special case, `ROAD_SLACK`, and the "first free depot
+  track" of §3.9.
+
+**F11. What a booking does on a route change, a lever off, a crash, an edit.** OpenTTD's answers, and ours:
+
+| Event | OpenTTD | Recommendation for Woodrail |
+|---|---|---|
+| Order changed | Nothing freed; the new destination applies from the reservation's end. | Same. A route edit never shortens a booking. (Today `cutMoves` can take a grant back.) |
+| Train stopped | Keeps its reservation. | Lever off: free the booking ahead past its braking distance, keep what's under it. A parked train must not hold a far loop road. Its card says "parked". |
+| Crash | Free ahead (unless stuck); the wreck's tiles stay reserved. | As §4's crane note. The wreck holds its pieces until the crane lifts it. |
+| Track removed | Refused under a train. Under a reservation: free the owner's ahead, then book again. | Same: taking up a booked piece frees that train's booking from the cut on and books again. Under a train, already refused or derailing as today. |
+| Signal built on booked track | Free the owner's ahead and book again, unless it stands stopped at a safe position. | Same. A standing train keeps its booking; the new signal's waiting point applies to its next one. |
+| Signal removed | Nothing freed; the train extends from its end. | Same. |
+| Reverse | Free ahead unless stuck, flip, book again with `first_tile_okay`. | Only at a line end, or the player's lever (§3.10). |
+
+**F12. OpenTTD reverses in more places than we will. Keep ours stricter.**
+- **OpenTTD:** besides end of line, a train may reverse after leaving a station if YAPF finds the way back cheaper
+  (`YapfTrainCheckReverse`, `train_flip_reverse_allowed` = All by default), and at red signals with
+  `reverse_at_signals`.
+- **We:** neither. The firm rule allows only buffers, open ends, a terminus stop, a line's planned reverse, and §3.3
+  rule 4 (a standing train at the line's own end).
+- **Recommendation:** keep it so. Note that rule 4 uses `END_BEHIND_SLACK` (120 mm). Under F1 it's decided at booking
+  time by "the line ends here and a train stands there", not by a distance.
+
+**Agreed with the first round, confirmed by the code:**
+- All or nothing.
+- Never further than the first safe position.
+- Never ending on points.
+- A train at a mid-line stop must book its exit first (OpenTTD advances to the next order and pathfinds past the
+  platform, `ChooseTrainTrack :2893`).
+- Line ends are safe.
+- The aspect is the reservation.
+- Every signal a path signal. That avoids OpenTTD's mixed-signal trap: block signals look only at trains, never at
+  reservations, so a block signal can show green into a block another train has booked (`signal.cpp`
+  `UpdateSignalsAroundSegment`). The only "another train is on my reservation" guard is in `TryPathReserve`, and its
+  comment blames mixing and edits.
+
+### 6.2 Cleanups: duplicated and dead code
+
+**Duplicated (the booking table makes one copy of each):**
+- **"Which train is on these pieces"** is asked about ten ways: sections' `standingOn`, `inWayOf`, `slotUser`,
+  `sectionUser`, `heldIn`, `offWay`, `clearOrAhead`; the sim's `onPieces` and `blockOccupant`; `boxed.ts`'s
+  `plainToEnd`. All become an owner lookup.
+- **Walking the way ahead from a cursor** is written at least seven times: sections' `edgeAhead`, `walkAlong`, `wayOn`;
+  the router's lock walk; the sim's `pathFor`, `redAhead`, `endAhead`; `boxed.ts`'s `plainToEnd`; the shadow's
+  `walkOn`. One iterator (`routing/graph.ts`, next to `waysFrom`) with a chooser (as the points lie, or by plan) would
+  do for all.
+- **"Points"**: five definitions (F3). Make it one helper.
+- **A train's name**: sections' `nameOf`, stalls' `lineEngine`, `boxed.ts`'s `engineOf`, sections' `lineIdOfTrain`,
+  and the sim's `trainKey`/`trainByKey`. `trainKey` exists only because `turnAround` makes a new id. Once ids are
+  stable (step 3), delete `trainKey`.
+- **Stop distances**: the six mm tolerances (F2) become one, or none.
+- **`CHECK_TICKS`** = 12 in both `sections.ts` and `shadow.ts`.
+- The redesign's `RESERVE_MAX` (§3.4, about 60) and the shadow's `MAX_WALK` (80) are the same constant. Pick one.
+
+**Dead, or about to be, after step 1 (`claude/no-turnaround-give-way`):**
+- `Stalls.gaveWayRoad` now always equals `gaveWay` ("kept for the tests"). Fold it into `gaveWay`.
+- `Sim.turnNow` is still used by `continue-on.ts`, the crane's "Continue on". The crane *lifts and turns* a train
+  where it stands. Check with the user whether that counts as a mid-line turn. It's the player's tap, so it's like the
+  lever, and `midTurn` should treat it so.
+- On main, `economy/loop-signal.ts` (`9b15353`) adds a stuck card and a Signal-tool tint: "inside the passing loop, a
+  train's tail is over the points. Move it to the loop's end". Under F1 and §3.12a the game forgives that signal
+  instead. Delete it in step 4.
+  - **Merge note:** step 1's branch predates `9b15353`, and both rewrite `Stalls` around the ring loop. Expect a
+    conflict in `stalls.ts` (the `loop-signal` stuck kind) and in `bugmaps.test.ts`.
+  - `fc14654` already runs #32's map. The redesign branch's `issue-32-signal-added.txt` entry, which expects four
+    trains stuck, will need its `stuck` list emptied after merging.
+- The road give-way (`Router.giveWayRoad`, `thrownTaken`, `THROWN_TAKE_TICKS`, `THROWN_AGAIN_TICKS`,
+  `GIVE_WAY_LOOK`, `StallsHost.otherRoad`) is a second way to throw points under a hand-run train. It goes in step 8
+  as planned. Under the core a hand-run train books as the points lie, and a ring of waits stands, said stuck.
+- `boxed.ts` grew on step 1's branch to excuse any boxed-in true deadlock. It stays until step 6's `KNOWN` lists are
+  empty. Then delete it.
+
+**Made redundant by the table (in addition to §3.14's list):**
+- the room rule's per-length topology (keep one per network, F1);
+- `savedPlace`'s admission-only save (it grows into F7's booking save);
+- the shadow's own `dirs` (F9).
+
+### 6.3 Changes to the step plan
+
+| # | Change |
+|---|---|
+| 2b | **New, small, before step 3: correct the shadow and rerun its report.** Book by (piece, path) with an overlaps table (F3, the evidence test flips). Bookings never join (F4). Hold by car ends (F8). One "points" helper. Add `heldFree` as a known-list invariant (F6). Rerun `npm run shadow:report` and update §4.1's table. No behaviour change: hashes identical. |
+| 3 | Also: stable train ids (moved here in §4.1), and delete `trainKey`. The router's locks become (piece, path) holds. |
+| 4 | Also: the aspect is "booking passes this joint"; "passed" is the front axle crossing it (F2). Delete `STAND_SLOP`, `MARK_STAND` and `loop-signal.ts`'s card and tint. `greenHeld` reads the booking. |
+| 5 | Also: safety by holding what's under the train, whatever its length. Fit is a preference with the long-train card (F1), and margins are half a car. One entry point for put down, load, signal laid under it and coupled (F5), with the clear-the-points move. The 1 s retry (F6). The booking saved (F7: a small save-format addition, old saves rebuilt). F11's event table. |
+| 6 | Also: rule 3 only where every user is routed the same way, never learned (F9). The lever-off rule (F11). |
+| 7 | Release by car ends is already in from 2b. Unchanged otherwise. |
+| 8 | Also: the choice penalty for booked and occupied track (F10), replacing `fc14654`'s special case and `ROAD_SLACK`. Town-ring `AGAINST` seeds 8 and 9 come off `KNOWN_LOOP`. |
+| 9 | Also: the shared walk iterator and train-name helper (§6.2). |
+
+Gates are unchanged. Step 5 now needs a save round-trip test mid-stretch (two trains, one single line, saved while
+the first is in it; on load, neither stands mid-line facing the other). The harness's `saveAndLoad` can script it.
+
+### 6.4 In plain words
+
+- OpenTTD doesn't care whether a train fits. A train always keeps the track it stands on, so wherever it stops it's
+  safe. We made "fits, to the millimetre" part of the rules, and that's why trains that stop a little off cause jams.
+  Fix: keep what's under the train, always. "Fits" only helps pick a better place to stop.
+- A signal should be red or green because of what the train booked, never because its nose is 1 mm one side of a line.
+- Double track was being booked as if it were one track. A train on one side held up a train on the other. The test
+  shows over a quarter of bookings refused that way.
+- Keep a slow retry for stuck trains, as OpenTTD does, so a missed "you can go now" never leaves a train stuck for good.
+- Save the bookings, so loading a game can't hand the single line to the wrong train.
+- One new small step (2b) fixes the shadow first, so its numbers are right before anything changes for players.

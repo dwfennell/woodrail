@@ -37,13 +37,10 @@ const FAILS: Partial<Record<Invariant, string>> = {};
  */
 // (From the long fuzz on 2026-11-07, 200 seeds × 1800 s: the old invariants held on every seed; oneOwner and netActed
 // broke on none. Each break here comes within the first 30 s of its seed, so a run of 30 s or more sees it.)
-const MID = "stalls give way by turning a train round mid-line (redesign step 1)";
 const GREEN = "held by sections (a slot or section wait) standing at a signal that shows clear (#31; redesign step 4: signals show the table)";
-const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
-  midTurn: { 42: MID, 66: MID, 77: MID, 94: MID, 96: MID, 110: MID, 111: MID, 152: MID, 157: MID, 161: MID, 190: MID },
-};
+// (midTurn's 11 seeds came off with step 1: nothing turns a train round mid-line now.)
+const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {};
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
-  midTurn: { 42: MID, 66: MID, 77: MID, 94: MID, 96: MID, 110: MID, 111: MID, 152: MID, 157: MID, 161: MID, 190: MID },
   greenHeld: { 14: GREEN, 30: GREEN, 37: GREEN, 66: GREEN, 69: GREEN, 76: GREEN, 105: GREEN, 119: GREEN, 160: GREEN, 174: GREEN, 192: GREEN },
 };
 
@@ -240,12 +237,23 @@ describe(`a route never makes it worse: ${SEEDS} seeds × ${SECONDS} s, lines an
 });
 
 /**
- * Seeds a route still makes worse, each with why. None now. The convoys into a dead end the user decided to keep
+ * Seeds a route still makes worse, each with why. The convoys into a dead end the user decided to keep
  * (decision (4), 2026-11-02, and again 2026-11-06: rail-road.md) aren't listed by seed: they're recognised by their shape
  * as they stall (`boxedConvoy`, boxed.ts: a hand-run train boxed in between the end of the line and the routed train, the
  * routed stop behind it, the card's fix a passing loop), and only that shape is excused. (Listed here till 2026-11-06:
  * 74, 77, 79, 121, 127, 135, 183 and 7. 77 isn't worse any more; the rest are that shape, as are the 20 seeds the
  * hand-run runs' giving way, f54d0712, newly showed: before it both runs stalled. 68 and 125, boxed in on a line with a
- * passing loop, were listed for a day: now the loop lets them pass, `boxedOnLoopLine` and `boxedPastLoop`.)
+ * passing loop, were listed for a day: then the loop let them pass, `boxedOnLoopLine` and `boxedPastLoop`.)
+ *
+ * Since 2026-11-07 nothing turns a train round short of the end of its line (the user, firm: "trains should not turn
+ * around except at the end of lines"). The seeds giving way by a turn had kept running now stand, said stuck, in both
+ * runs or the routed one. The boxed-in ones (74, 127, and 125's shape: the loop behind the routed train) are recognised
+ * by `boxedConvoy`, its shape widened to them; the one left:
  */
-const KNOWN_WORSE: Record<string, string> = {};
+const KNOWN_WORSE: Record<string, string> = {
+  // (Both runs jam at 12 s, the same way: two hand-run trains in the line's end by B meet head on there, one back from
+  // the buffer; no road out ahead of either, and nothing turns. The routed train then waits behind them: 2 stops come
+  // to with the route against 4 all hand-run, which is when each got stuck, not a stall the route made. Was all
+  // hand-run 186 stops, routed 224, while a hand-run train turned round to give way.)
+  "fuzz seed 77": "two hand-run trains head on in a line's end in both runs: a true deadlock, nothing turns",
+};
