@@ -93,7 +93,8 @@
     "e2e:feature-tips": "node scripts/e2e/lib/run.mjs tools/e2e/feature-tips.mjs",
     "build:artifact": "node scripts/artifact-build.mjs",
     "build:itch": "node scripts/itch-build.mjs",
-    "blueprints:page": "node scripts/blueprint-page.mjs"
+    "blueprints:page": "node scripts/blueprint-page.mjs",
+    "wiki": "node scripts/wiki.mjs"
   },
   "repository": {
     "type": "git",
