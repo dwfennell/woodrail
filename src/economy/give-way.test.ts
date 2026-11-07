@@ -197,9 +197,9 @@ const KNOWN_HAND: Record<number, string> = { 6: FACING, 13: FACING, 15: `${HEAD_
  * traffic already goes would help: a follow-up.
  */
 const AGAINST = "its way round the ring runs against a hand-run train going round non-stop";
-/** With a loop laid, since 2026-11-07 (nothing turns mid-line), also: as `ON_WYE` and `HEAD_ON` above, head on round the ring, and `KNOWN_HAND`'s. */
+/** With a loop laid, since 2026-11-07 (nothing turns mid-line), also: as `ON_WYE` and `HEAD_ON` above, head on round the ring, and `KNOWN_HAND`'s but 29 (the loop lets them pass). */
 const RING_HEAD_ON = "head on round the ring, the routed train one way and the hand-run one the other";
-const KNOWN_LOOP: Record<number, string> = { 4: ON_WYE, 8: AGAINST, 9: AGAINST, 12: RING_HEAD_ON, 28: RING_HEAD_ON, ...KNOWN_HAND };
+const KNOWN_LOOP: Record<number, string> = { 4: ON_WYE, 8: AGAINST, 9: AGAINST, 12: RING_HEAD_ON, 28: RING_HEAD_ON, 6: FACING, 13: FACING, 15: KNOWN_HAND[15], 21: FACING, 24: FACING };
 
 describe(`a route never makes it worse, with depots: ${SEEDS} town-ring layouts × 180 s`, () => {
   const deal = (seed: number, routed: boolean, loop = false) => {
