@@ -64,7 +64,7 @@ export async function loadBugMap(text: string): Promise<BugMap> {
  * (the sim and economy don't use it today; anything that does stays repeatable). `stopAtFirst`: stop at the first break.
  * `events`: what the player did after the copy (a lever tap, Go), scripted at a time, as the routing harness's are.
  */
-export function replayBugMap(world: World, opts: { seconds?: number; seed?: number; stopAtFirst?: boolean; events?: ScriptedTap[] } = {}): Replayed {
+export function replayBugMap(world: World, opts: { seconds?: number; seed?: number; stopAtFirst?: boolean; events?: ScriptedTap[]; onTick?: (world: World) => void } = {}): Replayed {
   const { seconds = 600, seed = 1, stopAtFirst = true } = opts;
   const events = [...(opts.events ?? [])].sort((a, b) => a.at - b.at);
   let e = 0;
@@ -90,6 +90,7 @@ export function replayBugMap(world: World, opts: { seconds?: number; seed?: numb
         if (now && !at.get(engine)) arrivals.set(engine, (arrivals.get(engine) ?? 0) + 1);
         at.set(engine, now);
       }
+      opts.onTick?.(world);
       if (ticks % SIM_HZ === 0) stands(world, live, standing, longestStand);
       if (first && stopAtFirst) break;
     }

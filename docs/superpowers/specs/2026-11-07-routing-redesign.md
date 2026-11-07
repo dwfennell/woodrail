@@ -8,6 +8,10 @@ could take a look at the OpenTTD routing code for inspiration."
 
 **Firm rule (the user):** trains never turn round except at the end of their line.
 
+**Built (2026-11-07, the user: "yes start steps 0-2"):** step 0 (the new invariants, the #31/#32 bug maps and a
+liveness check, known lists) and step 2 (the reservation table in shadow, `src/routing/shadow.ts`, and
+`npm run shadow:report`). Step 1 is built on its own branch. What each found is in §4.1 below.
+
 **Sources.** OpenTTD's source on GitHub (master, read 2026-11-07 through raw.githubusercontent.com): `src/pbs.cpp`,
 `src/pbs.h`, `src/signal.cpp`, `src/train_cmd.cpp`, `src/pathfinder/yapf/yapf_rail.cpp`,
 `src/pathfinder/yapf/yapf_costrail.hpp`, `src/pathfinder/follow_track.hpp`, and

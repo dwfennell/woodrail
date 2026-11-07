@@ -21,6 +21,7 @@
     "fuzz:long": "node scripts/fuzz-long.mjs",
     "balance:sweep": "node scripts/balance-sweep.mjs",
     "replay": "node scripts/replay.mjs",
+    "shadow:report": "node scripts/shadow-report.mjs",
     "feedback": "node scripts/fetch-feedback.mjs",
     "e2e:roads": "node scripts/e2e/roads.mjs",
     "e2e:draw": "node scripts/e2e/draw.mjs",
