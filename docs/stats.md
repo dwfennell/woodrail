@@ -1,13 +1,19 @@
 # Play stats ("Help improve Woodrail")
 
 Anonymous play stats, opt-in. They answer how many people play, on what, where, for how long, how far they get
-through the goals, and what errors they hit.
+through the goals, and what errors they hit. The same yes shares railway snapshots: now and then a copy of the
+player's railway, to see what people build (below).
 
 ## What the player sees
 
 - After their first goal in Game mode (or 10 minutes into Sandbox, which has no goals), once: a card, "Help improve
-  Woodrail? Share anonymous play stats…", with **No thanks** and **Yes, share**.
-- In the ☰ menu: **💛 Help improve Woodrail**, which shows the choice and changes it.
+  Woodrail? Share anonymous play stats (…) and now and then a copy of your railway…", with **No thanks** and **Yes,
+  share**.
+- A player who said yes before the question mentioned railways (`woodrail.stats` is `yes`, `woodrail.stats.maps`
+  unset) is asked once more, at their next goal: "Can we also have a copy of your railway now and then?", with **Just
+  stats** and **Yes, share it**. Until they answer, no snapshots.
+- In the ☰ menu: **💛 Help improve Woodrail**, which shows the choice and changes it: **Stop sharing** (both), or while
+  sharing, **Not my railway** / **Share my railway too**.
 - Nothing leaves the device before a yes. Events from before the answer (this session's start, the goal that led to
   the question) wait in memory: sent on a yes, dropped on a no.
 - The menu item and the question show only in a build with somewhere to send stats (below).
@@ -24,11 +30,37 @@ The game's side is `src/stats/stats.ts`; the Worker's is `cloud/src/stats.ts`.
 | `error` | an uncaught error (3 a session at most) | its message, cut to 200 characters |
 
 Each batch also carries a random id made on the device on a yes (dropped on a no), the build, the host (`itch`,
-`pages`, `local`, `other`) and the device (`phone`, `tablet`, `desktop`). No railways, town names, sync codes or IP
+`pages`, `local`, `other`) and the device (`phone`, `tablet`, `desktop`). No railways (those are snapshots, below), town names, sync codes or IP
 addresses are stored.
 
 Events go up in one small POST a minute after the first, or as a beacon when the page hides. An idle game sends
 nothing.
+
+## Railway snapshots
+
+The game's side is `src/stats/snapshots.ts`; the Worker's is `cloud/src/snapshots.ts`.
+
+- **Game mode only**, and only once **Join two towns** and **Put an engine on the track** are both done: someone who
+  opens the game and doesn't play sends none.
+- Then one as each goal ticks (the first as the engine goes on), and one a minute into a stretch of building, at most
+  every 15 minutes. 20 a device in all (`woodrail.stats.maps.sent`); the Worker keeps 30 a device at most. Nothing on
+  a timer of its own: an idle game sends nothing.
+- What's sent: the "Copy map for a bug report" text (Game mode's save: the railway, its session, goals, stickers and
+  progress; gzipped), the goals done, why (`goal:<id>` or `building`), the stats' device id, build, host and device.
+  The save holds the town names the game gave them, never the player's.
+- `POST /v1/snapshots`, from the game's own pages (feedback's origin check: itch, the GitHub site, claude.ai, local),
+  a few a minute per IP. Stored in R2 (`snapshots/<id>/…`), so they work on itch too, which has no cloud saves.
+- **Reading them** (admin only, `ADMIN_KEY`; see `cloud/README.md`):
+
+  ```sh
+  export WOODRAIL_CLOUD_URL=https://woodrail-cloud.<subdomain>.workers.dev ADMIN_KEY=…
+  npm run snapshots                      # the latest 100, across devices
+  npm run snapshots -- <device id>       # one device's, oldest first, each a file
+  npm run replay -- snapshots-<id>/01-goal-place-train.txt
+  ```
+
+  Or load one in a dev server with `#load=<the text>` (`src/persist/bug-map.ts`). The device id is the stats' one, so
+  a device's snapshots line up with its goals and minutes in Analytics Engine (`index1`).
 
 ## Where it goes
 
@@ -70,7 +102,10 @@ itch.io's own analytics (views, browser plays, referrers) count everyone who ope
 
 ## Tests
 
-- `npm test` (`src/stats/stats.test.ts`): consent, batching, caps.
-- `npm --prefix cloud test` (`cloud/test/stats.test.ts`): the endpoint, its checks, and that saves' CORS is unchanged.
+- `npm test` (`src/stats/stats.test.ts`, `snapshots.test.ts`): consent (and the second question), batching, caps;
+  snapshots' gate, building and cap.
+- `npm --prefix cloud test` (`cloud/test/stats.test.ts`, `snapshots.test.ts`): the endpoints, their checks, the admin
+  reads, the per-device cap, and that saves' CORS is unchanged.
 - `npm run e2e:stats`: on a phone, the first goal, the question, a yes, the batch the Worker reads (a `goal` point
-  for join-two), the menu's Stop sharing, and no question after a reload.
+  for join-two), no snapshot yet; an engine dragged from the tray, and the snapshot the Worker's check takes, which
+  reads back as the railway; the menu's Stop sharing, and no question after a reload.

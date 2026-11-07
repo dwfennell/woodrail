@@ -10,6 +10,9 @@
  * Events wait in memory and go up in one small POST when the page hides or a minute after the first one waiting, so
  * an idle game sends nothing. Before the player has answered, events are held in memory only: sent if they say yes
  * (the session's start and the goal that led to the question), dropped if they say no or leave first.
+ *
+ * The same yes covers railway snapshots (snapshots.ts): now and then a copy of the railway, under the same id. A player
+ * who said yes before the question said so (no answer kept for it) is asked again, once, and can share stats only.
  */
 
 export type Consent = "yes" | "no" | null;
@@ -46,6 +49,8 @@ export interface StatsDeps {
 
 const CONSENT_KEY = "woodrail.stats";
 const ID_KEY = "woodrail.stats.id";
+/** Railway snapshots too: "yes" or "no" (unset: said yes before the question mentioned them, or not yet asked). */
+const MAPS_KEY = "woodrail.stats.maps";
 /** How long events wait for others before they go up (ms). */
 export const BATCH_MS = 60_000;
 /** The most a batch holds; more than that waiting are dropped (a loop gone wrong shouldn't flood the Worker). */
@@ -75,10 +80,13 @@ export class Stats {
   private waiting = false;
   private errors = 0;
   private consentNow: Consent;
+  private mapsNow: Consent;
 
   constructor(private readonly d: StatsDeps) {
     const c = get(d.storage, CONSENT_KEY);
     this.consentNow = c === "yes" || c === "no" ? c : null;
+    const m = get(d.storage, MAPS_KEY);
+    this.mapsNow = m === "yes" || m === "no" ? m : null;
   }
 
   /** Can this build send stats at all? (No: nothing is asked, and the menu item doesn't show.) */
@@ -90,14 +98,29 @@ export class Stats {
     return this.consentNow;
   }
 
-  /** Should the player be asked now? (Once, ever: a no is kept, and the menu can still turn it on.) */
-  get shouldAsk(): boolean {
-    return this.available && this.consentNow === null;
+  /** Railway snapshots shared (stats are, and the player said yes to these too). */
+  get shareMaps(): boolean {
+    return this.consentNow === "yes" && this.mapsNow === "yes";
   }
 
+  /**
+   * Should the player be asked now? (Once, ever: a no is kept, and the menu can still turn it on. Or once more: a yes
+   * to stats from before snapshots, which the question didn't mention.)
+   */
+  get shouldAsk(): boolean {
+    return this.available && (this.consentNow === null || this.asksAboutMaps);
+  }
+
+  /** The question is the one about snapshots alone: stats are shared, snapshots not yet answered. */
+  get asksAboutMaps(): boolean {
+    return this.consentNow === "yes" && this.mapsNow === null;
+  }
+
+  /** Stats and railway snapshots, yes or no together (the question, and the menu's switch). */
   setConsent(yes: boolean): void {
     this.consentNow = yes ? "yes" : "no";
     set(this.d.storage, CONSENT_KEY, this.consentNow);
+    this.setMaps(yes);
     if (!yes) {
       // A no: the id goes too, and nothing waiting is sent.
       set(this.d.storage, ID_KEY, null);
@@ -106,6 +129,33 @@ export class Stats {
       this.waiting = true;
       this.d.later(() => this.flush(false), BATCH_MS);
     }
+  }
+
+  /** Railway snapshots alone, yes or no (stats as they are). */
+  setMaps(yes: boolean): void {
+    this.mapsNow = yes ? "yes" : "no";
+    set(this.d.storage, MAPS_KEY, this.mapsNow);
+  }
+
+  /** This device's random id, made now if there's none; null unless the player said yes. */
+  deviceId(): string | null {
+    if (this.consentNow !== "yes") return null;
+    let id = get(this.d.storage, ID_KEY);
+    if (!id || !/^[0-9a-f]{16}$/.test(id)) {
+      id = this.d.randomId();
+      set(this.d.storage, ID_KEY, id);
+    }
+    return id;
+  }
+
+  /** The build, host and device each batch carries. */
+  get about(): { build: string; host: string; device: string } {
+    return { build: this.d.build, host: this.d.host, device: this.d.device };
+  }
+
+  /** The Worker's address (empty: none). */
+  get url(): string {
+    return this.d.url.replace(/\/$/, "");
   }
 
   /** Records an event, unless the player said no (not yet answered: held, unsent, till they do). */
@@ -123,16 +173,13 @@ export class Stats {
   /** Sends what's waiting (now, as the page hides: `leaving`). */
   flush(leaving: boolean): void {
     this.waiting = false;
-    if (this.queue.length === 0 || this.consentNow !== "yes") return;
-    let id = get(this.d.storage, ID_KEY);
-    if (!id || !/^[0-9a-f]{16}$/.test(id)) {
-      id = this.d.randomId();
-      set(this.d.storage, ID_KEY, id);
-    }
+    if (this.queue.length === 0) return;
+    const id = this.deviceId();
+    if (id === null) return;
     const batch: StatBatch = { id, build: this.d.build, host: this.d.host, device: this.d.device, events: this.queue };
     this.queue = [];
     try {
-      this.d.send(`${this.d.url.replace(/\/$/, "")}/v1/stats`, JSON.stringify(batch), leaving);
+      this.d.send(`${this.url}/v1/stats`, JSON.stringify(batch), leaving);
     } catch {
       // Not sent: stats are never worth a retry.
     }
