@@ -347,6 +347,11 @@ export class HarnessRun implements InvariantWorld {
     return drive(train);
   }
 
+  /** Busy where it stands by its own choice: at its stop, or turning back at the end of the line (`greenHeld`). */
+  busy(train: Train, engine: number): boolean {
+    return !!this.routes.get(engine)?.at || train.turnback >= 0;
+  }
+
   /** The player's switch positions (the default each is restored to): as laid, then each lever tap's (the router's). */
   defaultOf(pieceId: number): number {
     return this.router.defaultOf(pieceId);
