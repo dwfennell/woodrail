@@ -10,6 +10,7 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run build`
 - `npm run build:artifact`: a build to publish as a claude.ai Artifact (see `docs/artifact-builds.md`)
 - `npm run build:itch`: a build for itch.io, zipped (`woodrail-itch.zip`); releases push it there (see `docs/itch-builds.md`)
+- `/publish-to-itch`: the release skill: checks, the devlog post (`docs/devlogs/`), moving the `itch` branch (which ships to players: only when the user asks)
 - `E2E_PROFILE=1 npm run e2e:<suite>`: where a suite's time goes, by its script's lines, per group (`scripts/e2e/lib/profile.mjs`). The speed levers (the test clock, moves a few to a frame, device scale 1, Battery saver): `scripts/e2e/lib/fast.mjs`, `docs/agents/e2e.md` "Speed"
 - `npm run fuzz:long [-- --seeds 200 --seconds 1800]`: the long routing fuzz with every train invariant, sharded over the cores; for release points (about 30 game minutes a seed)
 - `npm run balance:sweep [-- --from 0 --to 200 --jobs 4]`: the `BALANCE=1` play-through over a range of player seeds, each checked against the bands at 180 min; for balance changes and release points (about a minute of CPU a seed)

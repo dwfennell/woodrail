@@ -5,6 +5,9 @@ The game is on itch.io as well as GitHub Pages. GitHub Pages deploys every push 
 
 ## Releasing
 
+Agents: use the `/publish-to-itch` skill (`.claude/skills/publish-to-itch/SKILL.md`). It runs the checks below, writes the
+release's devlog post (`docs/devlogs/vX.Y.Z.md`) and hands it to the user to post on itch.
+
 1. Pick a commit on `main` that's been played on GitHub Pages for a while. Run `npm run fuzz:long` on it (the release
    check in `AGENTS.md`).
 2. Move the `itch` branch to it:
