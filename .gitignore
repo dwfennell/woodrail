@@ -24,3 +24,5 @@ feedback-*.txt
 feedback-*.txt.json
 .e2e-cache/
 perf-out/
+# The activity dashboard's numbers (`npm run activity`, docs/activity.md)
+activity-out/

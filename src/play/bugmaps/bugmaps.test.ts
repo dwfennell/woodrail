@@ -111,11 +111,13 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
   // waits, a signal added at the sawmill as the card said. Sections had sent the goods train into the passing loop
   // behind the timber train standing there, the loop's other road empty; now an empty road comes first
   // (`Sections.wayOn`) and they run as laid, nobody turning round. #31's map, the same without that signal, is a real
-  // ring (a signal inside the loop road holds a train over its points): its cards say so (signal-green-held.test.ts).)
+  // ring (a signal inside the loop road holds a train over its points): its cards say so (signal-green-held.test.ts).
+  // 600 s: at 530 s the hopper train ran past the path signal after the loop's points, shown red: the held train on the
+  // other road, moved first, showed its red, not the nearest one's way (`Sim.comingTo`; signals.test.ts).)
   {
     file: "signal-added-still-stuck.txt",
-    seconds: 300,
-    arrivals: 4,
+    seconds: 600,
+    arrivals: 8,
     what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added",
     // (87.6 s: engine 52, its move granted, held "cross" by the hand-run train on points 49: as signals-mill-wait.)
     known: [{ invariant: "netActed", why: "a grant through points a hand-run train holds (redesign step 5: grants reserve)" }],
@@ -144,7 +146,7 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     file: "issue-32-signal-added.txt",
     seconds: 600,
     arrivals: 10,
-    what: "issue #32: a signal added to #31's map, run 600 s (the 300 s run is signal-added-still-stuck.txt)",
+    what: "issue #32: a signal added to #31's map, with signal 43",
     // (Since Sections.wayOn takes the loop's empty road first, these run. 87.6 s: netActed as above.)
     known: [{ invariant: "netActed", why: "a grant through points a hand-run train holds (redesign step 5: grants reserve)" }],
   },
