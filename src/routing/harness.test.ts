@@ -359,6 +359,16 @@ const GIVE_WAY: Case[] = [
       "never stuck": noStall,
     },
   },
+  {
+    // (Fuzz seed 68: the points thrown for the boxed-in train's road by the loop are kept for it while it runs on to them,
+    // so it passes the routed one there. Before: put back before it got to them, 1 stop, then all three stuck.)
+    scenario: S.boxedOnLoopLine,
+    checks: {
+      "payoff: the routed train 5+ stops in 5 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(5),
+      "never stuck": noStall,
+      "the hand-run ones keep going: 5+ turns at the buffers each": (r) => r.turns.slice(1).forEach((t) => expect(t.buffer).toBeGreaterThanOrEqual(5)),
+    },
+  },
 ];
 
 /**

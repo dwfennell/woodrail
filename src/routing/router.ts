@@ -44,8 +44,8 @@ export const HAND_LOOK = 80;
 /** How far ahead (mm) a hand-run train giving way looks for points to take another road at (`giveWayRoad`). */
 export const GIVE_WAY_LOOK = 700;
 /**
- * Points thrown for a hand-run train (giving way, or out of a dead end) that it hasn't locked in this many ticks (half a
- * second) go back (`thrownTaken`).
+ * Points thrown for a hand-run train (giving way, or out of a dead end) go back if it stands this many ticks (half a
+ * second) without having locked them (`thrownTaken`).
  */
 export const THROWN_TAKE_TICKS = 60;
 /** Put back so, they aren't thrown again for that train while it stands for this many ticks (5 s): no flapping. */
@@ -91,7 +91,7 @@ export type LeverResult = { ok: true } | { refused: "under-train" } | { deferred
 /** What the router asks of the game (the economy): its routed trains and their stops, and sections' hints. */
 export interface RouterHost {
   readonly layout: Layout;
-  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "ticks" | "trainCount" | "hasSignals" | "pathSignalAt">;
+  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "trainByKey" | "ticks" | "trainCount" | "hasSignals" | "pathSignalAt">;
   /** The routed engines, in the order they're steered (the economy's routes). */
   readonly routed: { readonly size: number; keys(): Iterable<number>; has(engine: number): boolean };
   /** The piece of a routed engine's next stop (or the via point it's aimed at on the way, §3.5); −1 while none on the map. */
@@ -182,10 +182,10 @@ export class Router {
   gaveWayThrows = 0;
   /**
    * Points thrown for a hand-run train (giving way, `giveWayRoad`; out of a dead end, `outOfDeadEnd`), not yet locked by
-   * it: when (sim tick) and for which train (`trainKey`). Not taken within `THROWN_TAKE_TICKS`, they go back to the
-   * player's way (`thrownTaken`).
+   * it: for which train (`trainKey`, and its id then: turned round, it's another), and since when it has stood (sim tick).
+   * They're kept for it (`locked`) while it runs on to them; not taken, they go back to the player's way (`thrownTaken`).
    */
-  private readonly thrownAt = new Map<number, { tick: number; key: number }>();
+  private readonly thrownAt = new Map<number, { key: number; train: number; still: number }>();
   /** Points put back so: for which train and when, not thrown for it again while it stands (`THROWN_AGAIN_TICKS`). */
   private readonly putBackFor = new Map<number, { tick: number; key: number }>();
   /**
@@ -307,7 +307,7 @@ export class Router {
 
   /** Are these points locked for a train (set for its way, §3.2)? */
   locked(pieceId: number): boolean {
-    return this.locks.has(pieceId);
+    return this.locks.has(pieceId) || this.thrownAt.has(pieceId);
   }
 
   /** The trains (engines) holding the lock on these points; none: empty. */
@@ -816,7 +816,7 @@ export class Router {
     if (back && train.speed <= 0 && back.key === trainKey(train) && sim.ticks - back.tick < THROWN_AGAIN_TICKS) return option;
     this.laid();
     layout.setSwitchState(pieceId, pointsStateFor(layout, pieceId, entry, out));
-    if (!lock) this.thrownAt.set(pieceId, { tick: sim.ticks, key: trainKey(train) });
+    if (!lock) this.thrownAt.set(pieceId, { key: trainKey(train), train: train.id, still: sim.ticks });
     this.outThrows++;
     this.onSwitch?.(pieceId);
     return out;
@@ -907,7 +907,7 @@ export class Router {
           this.laid();
           layout.setSwitchState(n.pieceId, pointsStateFor(layout, n.pieceId, n.entry, w.option));
           this.gaveWayThrows++;
-          this.thrownAt.set(n.pieceId, { tick: sim.ticks, key: trainKey(train) });
+          this.thrownAt.set(n.pieceId, { key: trainKey(train), train: train.id, still: sim.ticks });
           this.onSwitch?.(n.pieceId);
           return true;
         }
@@ -923,11 +923,14 @@ export class Router {
 
   /**
    * Points thrown for a hand-run train (`giveWayRoad`, `outOfDeadEnd`): once the train has locked them (it goes over them
-   * as they lie), they go back as any lock's do when it's let go. Not locked within `THROWN_TAKE_TICKS`, the road didn't
-   * take: back to the player's way now. (Before, they were left thrown till some train next locked them. Giving way: the
-   * train's way on held all the same, or it turned round, or another broke the ring; fuzz seed 95 on cf529c9a, "points
-   * 11 left at 0 (default 1), no train on them". Out of a dead end: thrown by a train's look while it stood, held by
-   * sections, and a standing train locks nothing; fuzz seed 77, "points 5 left at 1 (default 0)" for 2.9 s.)
+   * as they lie), they go back as any lock's do when it's let go. Till then they're kept for it while it runs on to them
+   * (a hand-run train locks points only within its stopping distance: thrown 600 mm ahead, it takes seconds to get
+   * there). Not taken (it has stood `THROWN_TAKE_TICKS`, turned round, or gone), the road didn't take: back to the
+   * player's way now. (Before 2026-11-06 they were left thrown till some train next locked them: giving way, the train's
+   * way on held all the same, or it turned round, or another broke the ring, fuzz seed 95 on cf529c9a, "points 11 left
+   * at 0 (default 1), no train on them"; out of a dead end, thrown by a train's look while it stood, held by sections,
+   * seed 77, "points 5 left at 1 (default 0)" for 2.9 s. Then, for a while, put back after half a second whatever the
+   * train did, before a train given a road far off could get to them: seeds 68 and 125.)
    */
   private thrownTaken(): void {
     const { layout, sim } = this.host;
@@ -935,7 +938,12 @@ export class Router {
       if (!layout.getPiece(id) || this.locks.has(id)) {
         this.thrownAt.delete(id);
         this.putBackFor.delete(id);
-      } else if (sim.ticks - t.tick >= THROWN_TAKE_TICKS) {
+        continue;
+      }
+      const train = sim.trainByKey(t.key);
+      if (train && train.id === t.train && train.speed >= 1) t.still = sim.ticks;
+      else if (train && train.id === t.train && sim.ticks - t.still < THROWN_TAKE_TICKS) continue;
+      else {
         this.thrownAt.delete(id);
         this.putBack(id);
         this.putBackFor.set(id, { tick: sim.ticks, key: t.key });

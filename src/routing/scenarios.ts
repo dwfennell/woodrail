@@ -888,8 +888,71 @@ export const deadEndMouthThrown: Scenario = {
   },
 };
 
+/**
+ * Boxed in on a line with a passing loop (fuzz seeds 68 and 125, small: 68's layout by hand). `⊐ A ══ ══ (loop, its
+ * side road stop M) ══ ══ (siding points) ══ ══ B ⊐`, the loop's near points lying for the side road. The routed train
+ * runs M ⇄ B; two hand-run ones shuttle. It comes to stand in the loop's main road bound for B, a hand-run train boxed in
+ * at each end, the one by B on its stop and facing it: each waits on the other. The loop's side road is free, but the
+ * hand-run train goes the way the points lie, onto the routed train's road, and had turned once already.
+ */
+export const boxedOnLoopLine: Scenario = {
+  name: "boxed in on a line with a passing loop",
+  seconds: 5 * 60,
+  build: (layout) => {
+    const [a, , w2] = chain(layout, [STOP, S, S]);
+    appendPiece(layout, BUFFER, false, connectorRef(a, 0));
+    const l = loopOn(layout, connectorRef(w2, 1), [S, S], [STOP]);
+    const m = chain(layout, [S, S], connectorRef(l.s2, 0));
+    const sw = appendPiece(layout, "switch", false, connectorRef(m[1], 1));
+    const siding = chain(layout, [C, S, S], connectorRef(sw, 2), [true]);
+    appendPiece(layout, BUFFER, false, connectorRef(siding[2], 1));
+    const [, e2, b] = chain(layout, [S, S, STOP], connectorRef(sw, 1));
+    appendPiece(layout, BUFFER, false, connectorRef(b, 1));
+    layout.setSwitchState(l.s1, 1);
+    return {
+      trains: [
+        { pieceId: m[1], reversed: true, stops: [l.side[1], b], cars: CARS },
+        { pieceId: w2, reversed: true, cars: CARS },
+        { pieceId: e2, reversed: true, cars: CARS },
+      ],
+    };
+  },
+};
+
+/**
+ * Boxed in past a passing loop (fuzz seed 125, small: its layout by hand). `⊐ A ══ ══ (loop) ══ ══ (loop) ══ ══ (siding
+ * points) ══ ══ B ⊐`. The routed train runs A ⇄ B; two hand-run ones shuttle. It comes to stand on the single line past
+ * the second loop, bound for B, a hand-run train boxed in by B on its stop: each waits on the other. Neither has a way
+ * round; but behind the routed train is the loop. Turned back to it (`letsBy`), it lets the boxed one out, and they pass.
+ */
+export const boxedPastLoop: Scenario = {
+  name: "boxed in past a passing loop",
+  seconds: 5 * 60,
+  build: (layout) => {
+    const [a, w1, w2] = chain(layout, [STOP, S, S]);
+    appendPiece(layout, BUFFER, false, connectorRef(a, 0));
+    const l1 = loopOn(layout, connectorRef(w2, 1), [S, S], [S]);
+    const m1 = chain(layout, [S, S], connectorRef(l1.s2, 0));
+    const l2 = loopOn(layout, connectorRef(m1[1], 1), [S, S], [S]);
+    const m2 = chain(layout, [S, S], connectorRef(l2.s2, 0));
+    const sw = appendPiece(layout, "switch", false, connectorRef(m2[1], 1));
+    const siding = chain(layout, [C, S, S], connectorRef(sw, 2), [true]);
+    appendPiece(layout, BUFFER, false, connectorRef(siding[2], 1));
+    const [, e2, b] = chain(layout, [S, S, STOP], connectorRef(sw, 1));
+    appendPiece(layout, BUFFER, false, connectorRef(b, 1));
+    void w1;
+    return {
+      trains: [
+        { pieceId: m2[0], stops: [a, b], next: 1, line: 1, cars: CARS },
+        { pieceId: e2, cars: CARS },
+        { pieceId: l1.main[1], reversed: true, cars: CARS },
+      ],
+    };
+  },
+};
+
 /** Giving way's cases. */
-export const GIVE_WAY: readonly Scenario[] = [routedMeetsHandRun, routedHeadOnRing, handRunBoxedIn, handRunRoadHeld, deadEndMouthThrown];
+export const GIVE_WAY: readonly Scenario[] = [routedMeetsHandRun, routedHeadOnRing, handRunBoxedIn, handRunRoadHeld, deadEndMouthThrown, boxedOnLoopLine, boxedPastLoop];
 
 // ── Seeded fuzz over the loop fixtures ──────────────────────────────────────────────────────────────────────────────
 
