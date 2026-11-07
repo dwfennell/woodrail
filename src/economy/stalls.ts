@@ -117,8 +117,6 @@ export class Stalls {
   begun = 0;
   /** Trains that gave way (took another road ahead to break a ring), for tests and the play-through. */
   gaveWay = 0;
-  /** The same count (kept for the tests and the play-through that read it): every give-way is by another road now. */
-  gaveWayRoad = 0;
   /**
    * Whom each train last gave way to, by `trainKey`: that train's key, and its goal and last end-of-line turn then (it
    * has got somewhere once either has changed).
@@ -320,7 +318,6 @@ export class Stalls {
         continue;
       }
       this.gaveWay++;
-      this.gaveWayRoad++;
       this.tried.delete(key);
       for (const id of ring) {
         const t = sim.getTrain(id);

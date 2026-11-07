@@ -131,3 +131,49 @@ export function underByEnds(layout: Layout, train: Train, out: Map<number, numbe
   walkTrack(layout, rear, rearInset, (p, path) => add(p, path));
   return out;
 }
+
+/**
+ * `underByEnds` kept per train for a hot path: the span between the end axles is worked out again only when an axle has
+ * come onto another piece or path, or the track changed; the overhangs past the end axles (a car's nose reaching over
+ * the next joint) every call, as they move with the train along a piece.
+ */
+export class UnderCache {
+  private readonly spans = new Map<number, { at: number[]; rev: number; sw: number; joints: number; span: Map<number, number> }>();
+  private readonly out = new Map<number, number>();
+
+  /**
+   * The pieces and paths under the train, end to end: into `out` if given, else a map kept and reused (read it before
+   * the next call).
+   */
+  of(layout: Layout, train: Train, out: Map<number, number> = this.out): ReadonlyMap<number, number> {
+    out.clear();
+    const b = train.bogies;
+    if (b.length === 0 || train.cars.length === 0) return out;
+    let hit = this.spans.get(train.id);
+    let same = !!hit && hit.rev === layout.revision && hit.sw === layout.switchesVersion && hit.joints === layout.jointsVersion && hit.at.length === b.length;
+    for (let i = 0; same && i < b.length; i++) if (hit!.at[i] !== b[i].pieceId * 8 + b[i].pathIndex) same = false;
+    if (!same) {
+      const span = new Map<number, number>();
+      const frontInset = CAR_SPECS[train.cars[0].kind].bogieInset;
+      const rearInset = CAR_SPECS[train.cars[train.cars.length - 1].kind].bogieInset;
+      let d = (train.cars.length - 1) * COUPLER_GAP - frontInset - rearInset;
+      for (const car of train.cars) d += CAR_SPECS[car.kind].length;
+      for (const x of b) span.set(x.pieceId, (span.get(x.pieceId) ?? 0) | (1 << x.pathIndex));
+      walkTrack(layout, b[b.length - 1], Math.max(0, d), (p, path) => void span.set(p, (span.get(p) ?? 0) | (1 << path)), trainChooser(train.memory));
+      hit = { at: b.map((x) => x.pieceId * 8 + x.pathIndex), rev: layout.revision, sw: layout.switchesVersion, joints: layout.jointsVersion, span };
+      this.spans.set(train.id, hit);
+    }
+    for (const [p, m] of hit!.span) out.set(p, m);
+    const add = (p: number, path: number) => void out.set(p, (out.get(p) ?? 0) | (1 << path));
+    walkTrack(layout, b[0], CAR_SPECS[train.cars[0].kind].bogieInset, add);
+    const rear: Cursor = { ...b[b.length - 1] };
+    flipCursor(layout, rear);
+    walkTrack(layout, rear, CAR_SPECS[train.cars[train.cars.length - 1].kind].bogieInset, add);
+    return out;
+  }
+
+  /** Forget trains no longer on the sim (call now and then). */
+  prune(alive: (trainId: number) => boolean): void {
+    for (const id of this.spans.keys()) if (!alive(id)) this.spans.delete(id);
+  }
+}

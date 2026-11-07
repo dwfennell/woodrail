@@ -104,8 +104,9 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     arrivals: 4,
     what: "QA: a towns line held at the mill by a hopper shuttle sharing its track",
     // (91.6 s: engine 30, its move granted, stood held "cross" by the hopper shuttle on points 49's junction: sections
-    // gave it a way through points a train they don't manage was on; the sim's crossing guard caught it.)
-    known: [{ invariant: "netActed", why: "a grant through points the unmanaged hopper shuttle holds (redesign step 5: grants reserve)" }, { invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
+    // gave it a way through points a train they don't manage was on; the sim's crossing guard caught it. Since routing
+    // redesign step 3 the router refuses points another train's car is over on a road that fouls: it waits short.)
+    known: [{ invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
   },
   // (Issue #31, 2026-11-07: "I don't understand why this train is stuck... the signal ahead of it is green" (mw5rjr7b).
   // Five trains on a network of signals; four (engines 30, 34, 44, 52) stand at red path signals from the first second,
@@ -137,8 +138,9 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     seconds: 300,
     arrivals: 4,
     what: "issue #32: four lines and a hand-run train meeting at a passing loop, a signal added",
-    // (87.6 s: engine 52, its move granted, held "cross" by the hand-run hopper train on points 49: as the mill's map.)
-    known: [{ invariant: "netActed", why: "a grant through points the hand-run hopper train holds (redesign step 5: grants reserve)" }, { invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
+    // (87.6 s, before routing redesign step 3: engine 52, its move granted, held "cross" by the hand-run hopper train on
+    // points 49, as the mill's map. Now it waits short of them.)
+    known: [{ invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
   },
 ];
 

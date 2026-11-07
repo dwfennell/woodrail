@@ -318,7 +318,9 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
       return seen;
     };
     const two = line(1);
-    expect(texts(two, trains(two), 120)).toContain("Waiting for the Red line train");
+    // (Or, since routing redesign step 3, short of the loop's points while the other's last car is still over them.)
+    const t2 = texts(two, trains(two), 120);
+    expect(t2.has("Waiting for the Red line train") || t2.has("Waiting for the train on the Red line to pass the points"), [...t2].join(" | ")).toBe(true);
     const three = line(1);
     const seen3 = texts(three, trains(three, [{ piece: three.east[1], back: true, next: 1 }]), 60);
     expect(seen3).toContain("Waiting: lay 1 more passing loop for 3 trains, or remove a train");

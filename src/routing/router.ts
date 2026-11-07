@@ -13,8 +13,9 @@
  * short of them and waits (`RouteWait`), as a routed train does, for as long as that train holds them. Nothing turns it
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
-import { connectorRef, getPieceDef, pairLeverState, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, flipCursor, trainKey, type Cursor, type Sim, type Train } from "../sim";
+import { connectorRef, getPieceDef, junction, leverPoints, masksFoul, pairLeverState, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
+import { ACCELERATION, CAR_SPECS, COUPLER_GAP, crossMasks, engineOf, flipCursor, trainKey, UnderCache, type Cursor, type Sim, type Train } from "../sim";
+import { BookingTable } from "./bookings";
 import { STAND_SHORT } from "../economy/sections";
 import { next, waysFrom, type PinnedTest } from "./graph";
 import { planWay, WayMemory } from "./plan";
@@ -72,11 +73,10 @@ interface Waiting {
 /** Pieces and paths a train has been given (sections' granted way: `follow`). */
 export type AvoidTest = (pieceId: number, pathIndex: number) => boolean;
 
-/** Is this piece points (a switch with a lever: not a signal, a deck or a lift)? */
+/** Is this piece points (a switch with a lever: not a signal, a deck or a lift; `track/points.ts`)? */
 function isPoints(layout: Layout, pieceId: number): boolean {
   const p = layout.getPiece(pieceId);
-  const def = p && getPieceDef(p.type, p.flipped);
-  return !!def?.isSwitch && !def.gated && !def.signal;
+  return !!p && leverPoints(getPieceDef(p.type, p.flipped));
 }
 
 /** Switch defaults as saved: `[pieceId, state]`, only where the default differs from how the switch is set (§4). */
@@ -149,6 +149,8 @@ interface Want {
   pinned?: boolean;
   /** A hand-run train's points with another train on them: looked at for a lock against it, not locked (step 7). */
   seen?: boolean;
+  /** Its road over them where it has no choice (`ways` 1: a crossing, trailing points), for `fouledUnder`. */
+  path?: number;
 }
 
 /**
@@ -225,7 +227,70 @@ export class Router {
   private underTick = -1;
   private readonly alongAt: number[] = [];
 
-  constructor(private readonly host: RouterHost) {}
+  /**
+   * The booking table (routing redesign step 3): every train holds the pieces and paths its cars cover, buffer face to
+   * buffer face (§6 F1, F8), worked out at most once a sim tick when asked (`underNow`). Points or a crossing under
+   * another train's car on a road that fouls the one asked for are refused: the train waits short of them instead of
+   * running onto them (where the sim's crossing guard used to stop it, on them).
+   */
+  readonly bookings: BookingTable;
+  private readonly underCache = new UnderCache();
+  /** `behind` and `keep`'s copy of a train's cover (a release may ask for others' while they read it). */
+  private readonly ownUnder = new Map<number, number>();
+  private underAt = -1;
+  /** Asks refused because another train's car was over the points or crossing on a road that fouls (`fouledUnder`). */
+  refusedUnder = 0;
+
+  constructor(private readonly host: RouterHost) {
+    this.bookings = new BookingTable(host.layout);
+  }
+
+  /** The table as of this sim tick: the track under every train (one with no other train about: none needed). */
+  private underNow(): BookingTable {
+    const { sim, layout } = this.host;
+    if (this.underAt === sim.ticks) return this.bookings;
+    this.underAt = sim.ticks;
+    this.bookings.clear();
+    if (sim.trainCount < 2) return this.bookings;
+    for (const id of sim.trainIds()) {
+      const t = sim.getTrain(id);
+      if (!t || t.derailed) continue;
+      for (const [p, m] of this.underCache.of(layout, t)) this.bookings.hold(p, id, m, "under");
+    }
+    if (sim.ticks % 600 === 0) this.underCache.prune((id) => !!sim.getTrain(id));
+    return this.bookings;
+  }
+
+  /**
+   * Another train's car over these points or this crossing on a road that fouls the one `w` takes (not that road
+   * itself: a train on the same road, following or head on, is the locks' and the sim's business): its engine; −1: none.
+   */
+  private fouledUnder(w: Want, trainId: number): number {
+    if (this.host.sim.trainCount < 2 || w.state < 0) return -1;
+    const { layout, sim } = this.host;
+    const p = layout.getPiece(w.pieceId);
+    if (!p) return -1;
+    const def = getPieceDef(p.type, p.flipped);
+    if (def.paths.length < 2 || def.gated) return -1;
+    const path = w.ways > 1 ? waysFrom(layout, w.pieceId, w.entry)[w.state]?.path : w.path;
+    if (path === undefined) return -1;
+    for (const h of this.underNow().holdsOn(w.pieceId)) {
+      if (h.key === trainId) continue;
+      const others = h.mask & ~(1 << path);
+      if (others === 0 || !masksFoul(def, others, 1 << path)) continue;
+      const t = sim.getTrain(h.key);
+      if (t) return engineOf(t);
+    }
+    return -1;
+  }
+
+  /** A crossing (or points with no choice from here) whose road `path` another train's car fouls (`fouledUnder`)? */
+  private crossingFouled(pieceId: number, entry: number, path: number, trainId: number): boolean {
+    if (this.host.sim.trainCount < 2) return false;
+    const p = this.host.layout.getPiece(pieceId);
+    if (!p || !junction(getPieceDef(p.type, p.flipped))) return false;
+    return this.fouledUnder({ pieceId, state: 0, ways: 1, entry, d: 0, path }, trainId) !== -1;
+  }
 
   /** One sim tick: routed trains ask for the points ahead, a few times a second (a train covers a few mm a tick). */
   tick(): void {
@@ -508,7 +573,8 @@ export class Router {
   /** Release behind (§3.2): each lock is let go once the train's last axle is off its points (having been on them). */
   private behind(engine: number, train: Train, h: Holding): void {
     if (h.held.size === 0) return;
-    const under = this.host.sim.piecesUnder(train.id);
+    // (By the cars' ends, not the end axles (§6 F8): let go once the last car's body is off them.)
+    const under = this.underCache.of(this.host.layout, train, this.ownUnder);
     for (const [id, l] of h.held) {
       if (under.has(id)) l.entered = true;
       else if (l.entered) this.release(engine, h, id);
@@ -521,7 +587,7 @@ export class Router {
    */
   private keep(engine: number, train: Train, h: Holding, want: readonly Want[] | null): void {
     if (h.held.size === 0) return;
-    const under = this.host.sim.piecesUnder(train.id);
+    const under = this.underCache.of(this.host.layout, train, this.ownUnder);
     for (const [id, l] of h.held) {
       if (under.has(id)) continue;
       if (want?.some((w) => w.pieceId === id && w.state === l.state)) continue;
@@ -539,6 +605,7 @@ export class Router {
     const { layout, sim } = this.host;
     let stop: Want | null = null;
     let by = -2;
+    const trainId = sim.findCar(engine)?.train.id ?? -1;
     for (const w of want) {
       const mine = h.held.get(w.pieceId);
       if (mine?.state === w.state) continue;
@@ -551,6 +618,13 @@ export class Router {
       }
       if (other === undefined && pointsWayFrom(layout, w.pieceId, w.entry, w.ways) !== w.state && sim.pointsHeld(w.pieceId)) {
         by = this.standingOn(w.pieceId);
+        break;
+      }
+      // (A train keeps the track under it (step 3): another's car over them on a road that fouls this one.)
+      const under = this.fouledUnder(w, trainId);
+      if (under !== -1) {
+        by = under;
+        this.refusedUnder++;
         break;
       }
     }
@@ -794,7 +868,8 @@ export class Router {
       // (Another train on them: only looked at (locked against it, it waits for the one they're locked for); it
       // locks nothing there or beyond.)
       const occupied = this.otherOn(n.pieceId, train.id);
-      if (isPoints(layout, n.pieceId)) want.push({ pieceId: n.pieceId, state: option, ways: ways.length, entry: n.entry, d, seen: occupied || undefined });
+      if (isPoints(layout, n.pieceId)) want.push({ pieceId: n.pieceId, state: option, ways: ways.length, entry: n.entry, d, seen: occupied || undefined, path: ways.length === 1 ? w.path : undefined });
+      else if (ways.length === 1 && this.crossingFouled(n.pieceId, n.entry, w.path, train.id)) want.push({ pieceId: n.pieceId, state: 0, ways: 1, entry: n.entry, d, seen: true, path: w.path });
       if (occupied) break;
       const p = layout.getPiece(n.pieceId)!;
       d += pathLength(getPieceDef(p.type, p.flipped).paths[w.path].geom);
@@ -847,6 +922,7 @@ export class Router {
    * held beyond, and the points and who holds them are returned (it waits short of them).
    */
   private askHand(engine: number, h: Holding, want: readonly Want[], moving: boolean): { stop: Want; by: number } | null {
+    const trainId = this.host.sim.findCar(engine)?.train.id ?? -1;
     for (let i = 0; i < want.length; i++) {
       const w = want[i];
       const mine = h.held.get(w.pieceId);
@@ -854,6 +930,16 @@ export class Router {
       // they're needed for isn't kept waiting on one that waits itself. It still stands short of points locked against it.)
       if (!moving && mine && !mine.entered) this.release(engine, h, w.pieceId);
       else if (mine?.state === w.state) continue;
+      // (A train keeps the track under it (step 3): another's car over them on a road that fouls its own. It waits.)
+      const under = this.fouledUnder(w, trainId);
+      if (under !== -1) {
+        for (let j = i; j < want.length; j++) {
+          const l = h.held.get(want[j].pieceId);
+          if (l && !l.entered) this.release(engine, h, want[j].pieceId);
+        }
+        this.refusedUnder++;
+        return { stop: w, by: under };
+      }
       const lock = this.locks.get(w.pieceId);
       const other = lock ? [...lock.holders].find((e) => e !== engine) : undefined;
       if (lock && other !== undefined) {
@@ -1134,6 +1220,9 @@ export class Router {
       // (Points with no choice from here (trailing through them) locked for another train (a hand-run one's way as they
       // lie, step 7, or a route's): asked for, so it shares them coming the same way, or waits short of them.)
       if (ways.length === 1 && this.lockedForOthers(n.pieceId, h)) want.push({ pieceId: n.pieceId, state: 0, ways: 1, entry: n.entry, d });
+      // (A crossing, or points it trails through, with another train's car over them on a road that fouls its own:
+      // asked for, so it's refused and waits short of them, step 3.)
+      else if (ways.length === 1 && this.crossingFouled(n.pieceId, n.entry, ways[0].path, train.id)) want.push({ pieceId: n.pieceId, state: 0, ways: 1, entry: n.entry, d, path: ways[0].path });
       let w = ways[0];
       if (ways.length > 1) {
         const followed = follow ? ways.filter((x) => follow(n.pieceId, x.path)) : [];

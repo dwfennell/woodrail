@@ -85,8 +85,7 @@ describe("the user's map, small (2026-11-05): a routed train behind a hand-run o
       expect(r.stops).toBeGreaterThanOrEqual(1);
       // (The jam on the points, known: a fix flips this. Nobody turns to get out of it.)
       expect(r.stuck).toBeGreaterThan(60);
-      expect(w.economy.stalls.gaveWay).toBe(w.economy.stalls.gaveWayRoad);
-      expect(w.economy.stalls.gaveWayRoad).toBeGreaterThanOrEqual(1);
+      expect(w.economy.stalls.gaveWay).toBeGreaterThanOrEqual(1);
       expect(w.economy.router.gaveWayThrows).toBeGreaterThanOrEqual(1);
       // (The player's way at the points is still theirs.)
       expect(w.economy.router.defaultOf(sw)).toBe(before);

@@ -24,8 +24,11 @@ describe("line-wait-for: a held train names the train it waits for", () => {
     const named = [...said].filter((t) => t.startsWith("Waiting for"));
     if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env?.SHOW) console.log("SAID", JSON.stringify([...said]));
     expect(named.length, JSON.stringify([...said])).toBeGreaterThan(0);
+    expect(named.some((t) => t.includes("to clear the line")), JSON.stringify([...said])).toBe(true);
     for (const t of named) {
-      expect(t).toMatch(/^Waiting for [A-Z][a-z]+ \((hopper|passenger|timber|goods|mail) train\) to clear the line( to the [a-z]+)?$/);
+      // (Or, since routing redesign step 3, short of points another train's last car is still over: the router's wait.)
+      if (t.endsWith("to pass the points")) expect(t).toMatch(/^Waiting for (the train on the [A-Z][a-z]+ line|[A-Z][a-z]+ \((hopper|passenger|timber|goods|mail) train\)) to pass the points$/);
+      else expect(t).toMatch(/^Waiting for [A-Z][a-z]+ \((hopper|passenger|timber|goods|mail) train\) to clear the line( to the [a-z]+)?$/);
       expect(t).not.toMatch(/\d/);
     }
   }, 120_000);

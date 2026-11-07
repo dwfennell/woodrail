@@ -321,6 +321,8 @@ export class Sim {
   private readonly pathChoice: boolean[] = [];
   /** Path signals: what the nearest train coming to each saw this tick, and last tick (shown: `updateSignals`). */
   private junctionNear = new Map<number, boolean>();
+  /** How far (mm) the train whose answer `junctionNear` holds is from the signal's stop point (−1: passing it). */
+  private readonly junctionDist = new Map<number, number>();
   /** Path signals at rest (no train coming): clear while no train is on the block, not held (`updateSignals`). */
   private readonly pathRest = new Map<number, boolean>();
   private junctionSeen = new Map<number, boolean>();
@@ -1904,6 +1906,7 @@ export class Sim {
     const seen = this.junctionNear;
     this.junctionNear = this.junctionSeen;
     this.junctionNear.clear();
+    this.junctionDist.clear();
     this.junctionSeen = seen;
     if (this.pathSignals === 0) return;
     for (const g of this.signals!) {
@@ -2209,16 +2212,28 @@ export class Sim {
    * Is this signal red for this train? A plain block's by its aspect; a path signal's by the train's own way (and it's
    * noted as coming to it, for its aspect: `junctionSeen`).
    */
-  private redFor(train: Train, g: SignalAt): { by: number } | null {
+  private redFor(train: Train, g: SignalAt, dist: number): { by: number } | null {
     // (A waiting point's train with no move past it granted: red for it, whatever the block (sections' wait names who).)
     if (g.junction && this.gatedFor(g) === train.id) {
-      if (!this.junctionNear.has(g.key)) this.junctionNear.set(g.key, false);
+      this.nearSeen(g.key, false, dist);
       return { by: -1 };
     }
     if (!g.junction) return this.aspects.get(g.key) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
     const r = this.pathFor(train, g);
-    if (!this.junctionNear.has(g.key)) this.junctionNear.set(g.key, r.clear);
+    this.nearSeen(g.key, r.clear, dist);
     return r.clear ? null : { by: r.by };
+  }
+
+  /**
+   * A path signal shows what the nearest train coming to it sees (routing redesign §6 F2: the train that will pass it
+   * next, not whichever train looked first that tick: a farther train's red once showed in front of a nearer one that
+   * held its way past, which then ran it, as the invariants saw it).
+   */
+  private nearSeen(key: number, clear: boolean, dist: number): void {
+    const was = this.junctionDist.get(key);
+    if (was !== undefined && was <= dist) return;
+    this.junctionDist.set(key, dist);
+    this.junctionNear.set(key, clear);
   }
 
   /** Is the piece some signal guards trains coming from (`SignalAt.pieceId`) within sight ahead of this train's front? */
@@ -2248,7 +2263,7 @@ export class Sim {
 
   /** A train is passing this path signal (past its stop point, short of its joint): shown clear while it does. */
   private passing(key: number): void {
-    if (!this.junctionNear.has(key)) this.junctionNear.set(key, true);
+    this.nearSeen(key, true, -1);
   }
 
   /** The red signal a train is running toward (by key), how far its stop point is ahead of the front axle, and who holds it; or null. */
@@ -2286,7 +2301,7 @@ export class Sim {
         if (c.s <= stopAt) dist = walked + stopAt - c.s;
         else if (k > 0 && c.pieceId !== piece) dist = walked - (c.s - stopAt);
         else if (k === 0 && standing && c.s <= stopAt + STAND_SLOP) dist = 0;
-        const red = g && dist >= 0 ? this.redFor(train, g) : null;
+        const red = g && dist >= 0 ? this.redFor(train, g, dist) : null;
         if (red) return { key: g!.key, dist, by: red.by };
         // (A path signal it's passing, past its stop point: shown clear for it.)
         if (g?.junction && dist < 0 && k === 0) this.passing(g.key);
@@ -2301,7 +2316,7 @@ export class Sim {
             passed = key;
             if (this.signalByKey.get(key)!.junction) this.passing(key);
           } else {
-            const red = this.redFor(train, this.signalByKey.get(key)!);
+            const red = this.redFor(train, this.signalByKey.get(key)!, Math.max(0, dist));
             if (red) return { key, dist: Math.max(0, dist), by: red.by };
             passed = key;
           }
