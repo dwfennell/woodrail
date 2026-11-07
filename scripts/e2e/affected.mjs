@@ -153,6 +153,8 @@ export const RULES = [
   ["scripts/e2e/feedback-flow.mjs", ["touch:feedback", "click:feedback"]],
   ["scripts/e2e/pin-clocks.mjs", [...SMOKE, "station-clock", "signals", "life", "gl-lost"]],
   ["scripts/e2e/affected.mjs", []],
+  // CI's planner and runner (.github/workflows/e2e.yml): no suite of its own; the workflow's own run is its test.
+  [["scripts/e2e/ci.mjs", "scripts/e2e/durations.json", ".github/**"], []],
   ["scripts/e2e/phone-audit.mjs", []],
   ["scripts/e2e/track-pieces.mjs", [TOUCH_PIECES]],
   ["tools/e2e/**", []], // (each file maps to its own suite: see suiteOfScript)

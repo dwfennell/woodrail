@@ -1,0 +1,30 @@
+{
+ "_about": "Rough seconds per e2e suite (and per group for the split suites), for CI's shard balancing (scripts/e2e/ci.mjs). Seeded from the suites' headers and affected.mjs's GROUP_SECONDS (a 4-core box with SwiftShader); refresh from a CI run's e2e-results.json ('measured'). A suite missing here: 300. A group missing: its suite's seconds shared out over its groups.",
+ "overhead": 45,
+ "suites": {
+  "touch": 2400, "click": 2400, "draw": 5400, "roads": 600, "names": 720, "cloud": 1200, "tutorial": 180,
+  "joints": 240, "ramps": 300, "tray": 180, "decks": 240, "kits": 240, "kits-game": 300, "station-clock": 240,
+  "big-stations": 300, "landscaping": 180, "station-upgrade": 300, "station-touches": 300, "lift": 240, "loop": 240,
+  "research": 180, "growth": 300, "copy-map": 120, "town-drag": 240, "town-shape": 120, "school": 300, "sites": 2220,
+  "train-parts": 240, "train-summary": 480, "not-loading": 180, "engine-names": 120, "civic": 300, "paint-picker": 240,
+  "stickers": 180, "stats": 120, "workshop": 300, "warehouse": 360, "water": 480, "focus-ring": 240, "hopper-load": 90,
+  "locked": 360, "signals": 420, "learn-more": 120, "life": 240, "low-bridge": 720, "depot-tracks": 360, "post": 240,
+  "gl-lost": 240, "gl-lost-desktop": 120, "leftovers": 720, "sandbox-chains": 600, "airport": 480, "airship": 480,
+  "circus": 360, "grand": 360, "clockmaker": 240, "power": 360, "radio": 360, "secrets": 360, "crane": 240,
+  "tunnels": 360, "rack": 180, "metro": 180, "feature-tips": 360, "tech-tree-5": 240
+ },
+ "groups": {
+  "touch": {
+   "sandbox-shelves": 39, "map-taps": 20, "select-drag": 165, "redrawn": 7, "flick": 12, "lever-pins": 49, "under-car": 10,
+   "toast-through": 2, "trap": 36, "dead-end": 13, "routes": 125, "defaults": 43, "restore": 125, "wait": 58, "wye": 59,
+   "stuck": 109, "stuck-lines": 103, "forward": 28, "hand-wait": 33, "leave-now": 17, "via": 47, "follow": 12,
+   "route-keep": 35, "tight-curves": 105, "blocker": 50, "train-card": 33, "place-facing": 27, "front-join": 24,
+   "tabs-reach": 46, "feedback": 19, "route-ux": 100, "route-ux-more": 72, "route-reorder": 95, "route-share": 61,
+   "route-ring": 75, "slips": 116, "double-three-way": 62, "turntable-taps": 87, "game-shelves": 51
+  },
+  "draw": {
+   "qa-slant-23-there": 420, "qa-slant-30-back": 420, "qa-slant-10-back": 420, "qa-slant-m23-back": 420,
+   "qa-slant-10-there": 420, "qa-slant-40-back": 420, "qa-terrace": 420, "qa-terrace-2": 420
+  }
+ }
+}
