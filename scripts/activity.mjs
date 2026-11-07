@@ -21,8 +21,8 @@ if (!ACCOUNT || !TOKEN || !ADMIN_KEY) {
   process.exit(2);
 }
 mkdirSync(OUT, { recursive: true });
-// (`local`: the dev server, our own play.)
-const SINCE = `timestamp > NOW() - INTERVAL '${DAYS}' DAY AND blob5 != 'local'`;
+// (`local`, the dev server, and `pages`, our GitHub Pages test copy: our own play.)
+const SINCE = `timestamp > NOW() - INTERVAL '${DAYS}' DAY AND blob5 NOT IN ('local', 'pages')`;
 
 async function sql(query) {
   const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/analytics_engine/sql`, { method: "POST", headers: { Authorization: `Bearer ${TOKEN}` }, body: `${query} FORMAT JSON` });
@@ -51,8 +51,21 @@ const [played] = num(await sql(`SELECT ROUND(SUM(_sample_interval * double1)) AS
 write("goals", num(await sql(`SELECT blob3 AS goal, COUNT(DISTINCT index1) AS players FROM woodrail_stats WHERE blob1 = 'goal' AND ${SINCE} GROUP BY goal ORDER BY players DESC`), "players"));
 
 // Feedback and railway snapshots, from the Worker (newest first; its lists hold the latest 100).
-const feedback = (await admin("/feedback")).map((r) => ({ day: day(r.at), kind: r.kind, title: r.title, issue: r.issue || "" }));
+// A report's build id is its build time (base 36 ms): the deploy run it falls in says where it was played. GitHub
+// Pages is our own test copy, so a report from it is most likely ours; itch's are players'.
+const runs = (workflow, from) => gh(["run", "list", "--workflow", workflow, "--limit", "300", "--json", "createdAt,updatedAt"]).map((r) => ({ from, start: Date.parse(r.createdAt), end: Date.parse(r.updatedAt) + 60_000 }));
+const deploys = [...runs("release-itch.yml", "itch"), ...runs("deploy-pages.yml", "GitHub Pages (us)")];
+const builtBy = (build) => {
+  const at = parseInt(build ?? "", 36);
+  return deploys.find((r) => at >= r.start && at <= r.end)?.from ?? "other";
+};
+const feedback = [];
+for (const r of await admin("/feedback")) {
+  const report = await (await fetch(`${CLOUD}/feedback/${r.id}`)).json();
+  feedback.push({ day: day(r.at), kind: r.kind, title: r.title, from: builtBy(report.build), issue: r.issue || "" });
+}
 write("feedback", feedback);
+const ours = (f) => f.from.startsWith("GitHub Pages");
 const snapshots = await admin("/v1/snapshots");
 
 // GitHub: releases (the itch versions) and open issues.
@@ -67,5 +80,5 @@ const [itch] = read("itch-totals", [{}]);
 // One row a day, every source side by side.
 const days = [...new Set([...players, ...minutes, ...itchDaily].map((r) => r.day))].sort();
 const on = (rows, d, key) => rows.find((r) => r.day === d)?.[key] ?? 0;
-write("daily", days.map((d) => ({ day: d, players: on(players, d, "players"), sessions: on(players, d, "sessions"), new_games: on(players, d, "new_games"), minutes: on(minutes, d, "minutes"), itch_views: on(itchDaily, d, "views"), itch_plays: on(itchDaily, d, "plays"), feedback: feedback.filter((f) => f.day === d).length, snapshots: snapshots.filter((s) => day(s.at) === d).length })));
-write("summary", [{ as_of: new Date().toISOString().slice(0, 10), days: DAYS, players: totals?.players ?? 0, sessions: totals?.sessions ?? 0, minutes: played?.minutes ?? 0, errors: errors?.times ?? 0, snapshots: snapshots.length, snapshot_players: new Set(snapshots.map((s) => s.id)).size, feedback: feedback.length, open_issues: issues.length, itch_as_of: itch.as_of ?? "", itch_window: itch.window ?? "", itch_views: itch.views ?? 0, itch_plays: itch.browser_plays ?? 0, itch_collections: itch.collections ?? 0, itch_ratings: itch.ratings ?? 0, itch_impressions_7d: itch.impressions_7d ?? 0, itch_ctr_7d: itch.ctr_7d ?? 0 }]);
+write("daily", days.map((d) => ({ day: d, players: on(players, d, "players"), sessions: on(players, d, "sessions"), new_games: on(players, d, "new_games"), minutes: on(minutes, d, "minutes"), itch_views: on(itchDaily, d, "views"), itch_plays: on(itchDaily, d, "plays"), feedback: feedback.filter((f) => f.day === d && !ours(f)).length, snapshots: snapshots.filter((s) => day(s.at) === d).length })));
+write("summary", [{ as_of: new Date().toISOString().slice(0, 10), days: DAYS, players: totals?.players ?? 0, sessions: totals?.sessions ?? 0, minutes: played?.minutes ?? 0, errors: errors?.times ?? 0, snapshots: snapshots.length, snapshot_players: new Set(snapshots.map((s) => s.id)).size, feedback: feedback.filter((f) => !ours(f)).length, feedback_ours: feedback.filter(ours).length, open_issues: issues.length, itch_as_of: itch.as_of ?? "", itch_window: itch.window ?? "", itch_views: itch.views ?? 0, itch_plays: itch.browser_plays ?? 0, itch_collections: itch.collections ?? 0, itch_ratings: itch.ratings ?? 0, itch_impressions_7d: itch.impressions_7d ?? 0, itch_ctr_7d: itch.ctr_7d ?? 0 }]);

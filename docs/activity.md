@@ -17,7 +17,7 @@ It holds only totals: no device ids, no maps. Its numbers are files attached to 
    browse & tags, itch front page, or the site's name).
 2. **The rest**: `npm run activity`. It runs `scripts/activity.mjs` under `op run`, which takes the Cloudflare token
    and `ADMIN_KEY` from the Woodrail note in 1Password (`scripts/activity.env` holds only references) and never
-   shows them. It reads Analytics Engine (90 days, our own `local` play left out), the Worker's feedback and
+   shows them. It reads Analytics Engine (90 days, our own `local` and `pages` play left out), the Worker's feedback and
    snapshot lists, and GitHub, and writes `activity-out/daily.json`, `summary.json`, `goals.json`, `feedback.json`
    and `releases.json`.
 3. **Upload**: each file to the dashboard as an asset, then point its dataset's `source.url` at the new upload and
