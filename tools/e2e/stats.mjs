@@ -1,11 +1,15 @@
 // End-to-end: "Help improve Woodrail" (docs/stats.md) on a 390×844 phone with touch, in Game mode. A new game sends
 // nothing. The player joins two towns (the first goal); a moment after its toast, the one-time question. Still nothing
 // sent. They tap "Yes, share"; on leaving the page the batch goes up holding the game's start and the goal, and the
-// Worker's own reading of it (cloud/src/stats.ts `points`) makes a "goal" data point for join-two. The ☰ menu shows
-// the choice, and "Stop sharing" turns it off; a reload doesn't ask again.
+// Worker's own reading of it (cloud/src/stats.ts `points`) makes a "goal" data point for join-two. No railway snapshot
+// yet: then they drag an engine from the tray onto their line, "Put an engine on the track" ticks, and a snapshot goes
+// up that the Worker's own check takes (cloud/src/snapshots.ts `parseSnapshot`) and that reads back as their railway,
+// engine and all. The ☰ menu shows the choice, and "Stop sharing" turns it off; a reload doesn't ask again.
 //
-// Harness shortcut (named; not what's tested): the stats endpoint is answered by the page's route here, not a running
-// Worker, and the batch is read with the Worker's own parser. The Worker's handling is cloud/test/stats.test.ts's.
+// Harness shortcuts (named; not what's tested): the stats and snapshot endpoints are answered by the page's route here,
+// not a running Worker, and what's sent is read with the Worker's own parsers. The Worker's handling is
+// cloud/test/stats.test.ts's and cloud/test/snapshots.test.ts's. The line between the towns is laid by the game's
+// pathfinder through the editor (as e2e:stickers); the engine is dragged from the tray, the player's way.
 //
 // Usage: npm run e2e:stats [-- <out dir>]   (default out: e2e-out/stats)
 import { existsSync, mkdirSync } from "node:fs";
@@ -21,6 +25,8 @@ process.env.VITE_STATS_URL = STATS;
 const { points } = await import(`${ROOT}/cloud/src/stats.ts`);
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5396, strictPort: false }, logLevel: "error" });
 await server.listen();
+// (Through Vite: snapshots.ts imports its neighbours without extensions, as the Worker's bundler takes them.)
+const { parseSnapshot } = await server.ssrLoadModule(`${ROOT}/cloud/src/snapshots.ts`);
 const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -33,8 +39,15 @@ p.on("console", (m) => {
 });
 /** Every batch the game sent, as the Worker reads it. */
 const batches = [];
+/** Every railway snapshot, as the Worker checks it. */
+const snaps = [];
 await ctx.route(`${STATS}/**`, async (route) => {
   const body = route.request().postData() ?? "";
+  if (route.request().url().endsWith("/v1/snapshots")) {
+    snaps.push(parseSnapshot(JSON.parse(body)));
+    await route.fulfill({ status: 201, headers: { "Access-Control-Allow-Origin": "*" }, body: "{}" });
+    return;
+  }
   batches.push({ raw: JSON.parse(body), points: points(JSON.parse(body)) });
   await route.fulfill({ status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
 });
@@ -72,7 +85,10 @@ const start = async (fresh) => {
   await settle();
   await p.keyboard.press("Escape");
 };
-/** The player's track from one town's station to another's: the game's pathfinder, through the editor (as e2e:stickers). */
+/**
+ * The player's track from one town's station to another's: the game's pathfinder, through the editor (as
+ * e2e:stickers). The pose of a straight in its middle, or null if it couldn't.
+ */
 const link = (from, to) =>
   p.evaluate(
     async ({ from, to }) => {
@@ -84,11 +100,48 @@ const link = (from, to) =>
       const z = w.world.stations.get(to);
       for (const [i, j] of [[1, 0], [1, 1], [0, 0], [0, 1]]) {
         if (a === undefined || z === undefined || w.layout.joinedConnector(connectorRef(a, i)) >= 0) continue;
-        if (play(w.world.layout, w.editor(), connectorRef(a, i), connectorRef(z, j), { blocked: rulesFor(w.world), maxPieces: 120, fiddle: 3 }).ok) return true;
+        const before = new Set(w.layout.pieceIds());
+        if (!play(w.world.layout, w.editor(), connectorRef(a, i), connectorRef(z, j), { blocked: rulesFor(w.world), maxPieces: 120, fiddle: 3 }).ok) continue;
+        const laid = [...w.layout.pieceIds()].filter((id) => !before.has(id) && w.layout.getPiece(id).type.startsWith("straight"));
+        w.invalidate();
+        return laid.length ? w.layout.getPiece(laid[Math.floor(laid.length / 2)]).pose : null;
       }
-      return false;
+      return null;
     },
     { from, to },
+  );
+const cdp = await ctx.newCDPSession(p);
+const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+/** Drag with a finger from `from` to `to`, in steps (as e2e:engine-names). */
+const drag = async (from, to) => {
+  await touch("touchStart", from.x, from.y);
+  for (let k = 1; k <= 20; k++) {
+    await touch("touchMove", from.x + ((to.x - from.x) * k) / 20, from.y + ((to.y - from.y) * k) / 20);
+    await p.waitForTimeout(30);
+  }
+  await p.waitForTimeout(300);
+  await touch("touchEnd", 0, 0);
+  await p.waitForTimeout(800);
+};
+/** Where a world point (on the ground) is on the screen. */
+const onScreen = (pt) =>
+  p.evaluate((pt) => {
+    const w = window.woodrail;
+    const c = new w.camera.position.constructor(pt.x, pt.y ?? 0, pt.z).project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    return { x: r.left + ((c.x + 1) / 2) * r.width, y: r.top + ((1 - c.y) / 2) * r.height };
+  }, pt);
+/** The middle of the first visible element matching `selector` whose label starts with `text`. */
+const centre = (selector, text) =>
+  p.evaluate(
+    ({ selector, text }) => {
+      const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0 && (!text || (e.querySelector(".label")?.textContent ?? e.textContent).trim().startsWith(text)));
+      if (!el) return null;
+      el.scrollIntoView({ inline: "center" });
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    },
+    { selector, text },
   );
 /** The page left and come back to, as a browser says it (the game saves once a leaving, till the page is back). */
 const leave = () => p.evaluate(() => (dispatchEvent(new PageTransitionEvent("pagehide")), dispatchEvent(new PageTransitionEvent("pageshow"))));
@@ -109,8 +162,8 @@ const pair = await p.evaluate(() => {
   const [a, z] = by("Larkfield") && by("Elderwick") ? [by("Larkfield"), by("Elderwick")] : [ts[0], ts[1]];
   return { a: a.id, z: z.id, names: `${a.name} → ${z.name}` };
 });
-const linked = (await link(pair.a, pair.z)) || (await link(pair.z, pair.a));
-check("the player joins two towns", linked, pair.names);
+const linePose = (await link(pair.a, pair.z)) ?? (await link(pair.z, pair.a));
+check("the player joins two towns", !!linePose, pair.names);
 await p.waitForFunction(() => window.woodrail.goals().isDone("join-two"), null, { timeout: 30000, polling: 500 }).catch(() => {});
 check("…Join two towns is done", await p.evaluate(() => window.woodrail.goals().isDone("join-two")));
 await p.waitForFunction(() => { const c = document.querySelector(".stats-card"); return c && !c.hidden; }, null, { timeout: 30000 }).catch(() => {});
@@ -132,6 +185,39 @@ check("…and the goal: a “goal” point for join-two", sent.some((pt) => pt.b
 check("…from a phone, with an anonymous id", sent.every((pt) => pt.blobs[5] === "phone" && /^[0-9a-f]{16}$/.test(pt.indexes[0])));
 const nothingPersonal = JSON.stringify(batches.map((x) => x.raw));
 check("…holding no railway, town names or codes", !nothingPersonal.includes(pair.names.split(" → ")[0]) && nothingPersonal.length < 2000, `${nothingPersonal.length} bytes`);
+check("…and no railway snapshot yet: no engine on the track", snaps.length === 0, `${snaps.length} snapshots`);
+
+// 3b. An engine from the tray onto the line: "Put an engine on the track", and the first railway snapshot.
+if (linePose) {
+  await p.evaluate((pose) => {
+    const w = window.woodrail;
+    w.director.glideTo(new w.camera.position.constructor(pose.x, 0, pose.z), 500, { duration: 0.1 });
+  }, linePose);
+  await p.waitForTimeout(800);
+  await settle();
+  await tap(".tabs button", "Trains");
+  await p.waitForTimeout(1500);
+  await tap(".scroller .tray-item.tray-group", "Engines");
+  await p.waitForTimeout(500);
+  const engineAt = await centre(".scroller .tray-item:not(.tray-group):not(.tray-back)", "Engine");
+  if (engineAt) await drag(engineAt, await onScreen(linePose));
+  await settle();
+}
+await p.waitForFunction(() => window.woodrail.goals().isDone("place-train"), null, { timeout: 30000, polling: 500 }).catch(() => {});
+check("the player drags an engine onto the line: “Put an engine on the track” done", await p.evaluate(() => window.woodrail.goals().isDone("place-train")));
+for (let i = 0; i < 40 && snaps.length === 0; i++) await p.waitForTimeout(250);
+const snap = snaps[0];
+check("a railway snapshot sent, and the Worker's check takes it", snaps.length === 1 && typeof snap === "object", JSON.stringify(snaps).slice(0, 200));
+if (typeof snap === "object") {
+  check("…under the stats' device id, for that goal", snap.id === sent[0]?.indexes[0] && snap.why === "goal:place-train" && snap.goals === 2 && snap.device === "phone", JSON.stringify({ ...snap, map: undefined }));
+  const back = await p.evaluate(async (map) => {
+    const { readMapText } = await import("/src/persist/bug-map.ts");
+    const copy = await readMapText(map);
+    const all = Object.values(copy?.keys ?? {}).join("");
+    return { mode: copy?.mode, keys: Object.keys(copy?.keys ?? {}).length, goals: all.includes('"place-train"'), hasEngine: all.includes('"engine"') };
+  }, snap.map);
+  check("…and its map reads back as this railway, engine and all", back.mode === "game" && back.keys > 0 && back.goals && back.hasEngine, JSON.stringify(back));
+}
 
 // 4. The ☰ menu: the choice, and Stop sharing.
 await tap(".hud button[title='Menu'], button[aria-label='Menu']");

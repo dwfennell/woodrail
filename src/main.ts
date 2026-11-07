@@ -142,6 +142,7 @@ import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
 import { CloudCard } from "./ui/cloud-card";
+import { Snapshots } from "./stats/snapshots";
 import { pageStats } from "./stats/stats";
 import { gpuOnlyEnabled } from "./render/gpu-only";
 import "./style.css";
@@ -1414,6 +1415,27 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     scheduleSave();
   }
 
+  /** Railway snapshots for a player who shares them (stats/snapshots.ts): Game mode, once they're two goals in. */
+  const snapshots = new Snapshots({
+    stats,
+    storage: (() => {
+      try {
+        return localStorage;
+      } catch {
+        return null;
+      }
+    })(),
+    mapText: async () => {
+      if (mode !== "game" || !playing) return null;
+      save();
+      return mapText("game");
+    },
+    // (Not keepalive: a map can be past its 64 KB. text/plain keeps it a simple request, no preflight.)
+    send: (to, body) => void fetch(to, { method: "POST", body, headers: { "Content-Type": "text/plain" } }).catch(() => {}),
+    now: () => Date.now(),
+    later: (fn, ms) => setTimeout(fn, ms),
+  });
+  const goalDone = (id: string) => goals.isDone(id);
   /** Game mode's progress as last saved (null: not yet, in this mode's railway), to tell when it's changed. */
   let progressSig: string | null = null;
 
@@ -1424,6 +1446,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    */
   function scheduleSave(kind: EditKind = "layout"): void {
     cloud?.edited(mode, kind);
+    if (kind === "layout" && mode === "game") snapshots.edited(goalDone, () => goals.doneCount);
     clearTimeout(saveTimer);
     saveTimer = window.setTimeout(save, 600);
   }
@@ -1910,7 +1933,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       saveGoals(goals.ids());
       cloud?.edited(mode, "progress");
       if (announce) {
-        for (const g of fresh) stats.record({ e: "goal", id: g.id, n: goals.doneCount });
+        for (const g of fresh) {
+          stats.record({ e: "goal", id: g.id, n: goals.doneCount });
+          snapshots.goal(g.id, goalDone, goals.doneCount);
+        }
         // The first goal ticked: a moment later (after its toast), the one-time "Help improve" question.
         if (stats.shouldAsk) statsAskTimer = window.setTimeout(askStats, 3600);
         const titles = fresh.map(goalTickTitle);

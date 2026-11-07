@@ -14,6 +14,8 @@ on another device. The game's side of it is `src/persist/cloud.ts`, and its card
 | `POST /feedback` | "Report a bug or give feedback": stored under `feedback/<id>/`, and a GitHub issue opened if `GITHUB_TOKEN` is set (see `docs/feedback.md`). |
 | `GET /feedback/:id`, `/map`, `/shot.jpg` | A report, its map, its picture (the id is unguessable). |
 | `GET /feedback` | The latest reports, with `Authorization: Bearer <ADMIN_KEY>`. |
+| `POST /v1/snapshots` | A railway snapshot from a player who shares stats and their railway (see `docs/stats.md`). |
+| `GET /v1/snapshots`, `/:id`, `/:id/:at` | The latest snapshots, one device's, one's map: with the admin key (`npm run snapshots`). |
 
 - `:mode` is `sandbox` or `game`.
 - **The sync code** goes in the `X-Woodrail-Code` header, never in the URL, so it stays out of logs. It's three words

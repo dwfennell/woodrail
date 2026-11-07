@@ -22,6 +22,7 @@
     "balance:sweep": "node scripts/balance-sweep.mjs",
     "replay": "node scripts/replay.mjs",
     "feedback": "node scripts/fetch-feedback.mjs",
+    "snapshots": "node scripts/fetch-snapshots.mjs",
     "e2e:roads": "node scripts/e2e/roads.mjs",
     "e2e:draw": "node scripts/e2e/draw.mjs",
     "e2e:touch": "node scripts/e2e/touch.mjs",
