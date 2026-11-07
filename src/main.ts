@@ -63,7 +63,7 @@ import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
 import { HEALTH_WORDS, lineHealth, type LineHealth } from "./game/line-health";
 import { wouldRepeat } from "./ui/route-drag";
-import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, stopCursors, viaLegs } from "./game/route-path";
+import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, runsLength, stopCursors, viaLegs } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
 import { ribbonScale, RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
@@ -3956,6 +3956,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let routeShown = "";
   /** Planning the open engine's line: taps on places add them as stops. */
   let planning = false;
+  /** How many lines the card offers a train on no line to run (those it can reach, nearest first). */
+  const JOIN_SHOWN = 3;
   /** How long (ms) Delete in the line sheet waits for its second tap. */
   const LEAVE_ASK_MS = 4000;
   /** The stop whose chip was tapped (its actions shown), or −1. */
@@ -5083,15 +5085,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Edit (or Plan a route): the line sheet, where its stops and trains are changed (and a train taken off it).
     head.append(button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)));
     box.append(head);
-    // On no line, with lines on the map: run one of them (a tap), as well as planning its own.
+    // On no line, with lines on the map: run one of them (a tap), as well as planning its own. Only lines track leads
+    // to from this train, at most `JOIN_SHOWN` of them, nearest first (lines stand alone now: there may be many, and
+    // the card would grow past the screen); the rest in the Lines list, a tap away.
     if (!line && !planning && game.economy.lines.size > 0) {
       const join = document.createElement("div");
       join.className = "route-join";
       join.append(Object.assign(document.createElement("span"), { className: "route-hint", textContent: "Or run a line:" }));
-      // (A line no track leads to from this train, to any of its stops, is greyed: it couldn't run it.)
       const front = trainFront(carId);
-      let greyed = false;
-      for (const l of game.economy.lines.values()) {
+      const reach = [...game.economy.lines.values()].flatMap((l) => {
+        let best = Infinity;
+        for (const st of l.stops) {
+          const piece = game.economy.depot(st.depotId)?.pieceId;
+          const leg = front && piece !== undefined ? legFromCursor(game.layout, front, piece) : null;
+          if (leg) best = Math.min(best, runsLength(leg));
+        }
+        return best < Infinity || !front ? [{ l, best }] : [];
+      });
+      reach.sort((a, b) => a.best - b.best);
+      for (const { l } of reach.slice(0, JOIN_SHOWN)) {
         const b = button(l.name, "route-join-line", `Run this train on ${l.name}`, () => {
           routeEdit(() => joinLine(game.economy, carId, l.id));
           showRoute();
@@ -5099,24 +5111,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           scheduleSave();
         });
         b.style.setProperty("--line", l.colour);
-        const reaches = !front || l.stops.some((st) => {
-          const piece = game.economy.depot(st.depotId)?.pieceId;
-          return piece !== undefined && legFromCursor(game.layout, front, piece) !== null;
-        });
-        if (!reaches) {
-          b.disabled = true;
-          b.title = `No track leads from this train to ${l.name}`;
-          greyed = true;
-        }
         join.append(b);
       }
-      box.append(join);
-      if (greyed) {
-        const hint = document.createElement("div");
-        hint.className = "route-hint";
-        hint.textContent = "Greyed: no track leads from this train to that line";
-        box.append(hint);
-      }
+      if (reach.length > JOIN_SHOWN || reach.length < game.economy.lines.size) join.append(button("All lines…", "route-join-all", "Every line, in the Lines list", () => openLines()));
+      if (join.childElementCount > 1) box.append(join);
     }
     // Editing a line its other trains run too: it says so.
     if (planning && riders > 1) {
