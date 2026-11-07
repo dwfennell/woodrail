@@ -13,7 +13,8 @@ import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
-import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
+import { connectedPairs, hillsOfLand, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
+import { isHilliness, LEGACY_HILLS, type Hilliness } from "./landscape/hills";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
@@ -138,6 +139,7 @@ import { hintSeen, loadChainHints, loadMuted, markHintSeen, saveChainHints, save
 import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game/chains";
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
+import { DEFAULT_CHOICES, NewGameSheet, type NewGameChoices } from "./ui/new-game";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
@@ -203,10 +205,14 @@ function saveFlag(key: string): void {
   }
 }
 
-/** A map asked for in the link (`#seed-12345`), to share or replay a particular map. */
-function linkedSeed(): number | null {
-  const m = /^#seed-(\d{1,9})$/.exec(location.hash);
-  return m ? Number(m[1]) : null;
+/**
+ * A map asked for in the link (`#seed-12345`), to share or replay a particular map: its hills as such a link has always
+ * made them (`LEGACY_HILLS`), or as it says (`#seed-12345-gentle`: `landscape/hills.ts`).
+ */
+function linkedSeed(): { seed: number; hills: Hilliness } | null {
+  const m = /^#seed-(\d{1,9})(?:-([a-z]+))?$/.exec(location.hash);
+  if (!m || (m[2] !== undefined && !isHilliness(m[2]))) return null;
+  return { seed: Number(m[1]), hills: (m[2] as Hilliness | undefined) ?? LEGACY_HILLS };
 }
 
 /**
@@ -217,16 +223,16 @@ function linkedSeed(): number | null {
 let olderSave = false;
 
 function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fromSave: boolean } {
-  const seed = linkedSeed();
-  const mode = seed !== null ? "sandbox" : loadLastMode();
+  const link = linkedSeed();
+  const mode = link !== null ? "sandbox" : loadLastMode();
   // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title.
   const resumed = takeResume() === mode;
   const saved = loadFromStorage(mode);
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
   if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
-  if (seed !== null) {
-    const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
-    return { world: same ? saved.value : createWorld(seed, false, true, false), mode, linked: true, fromSave: !!same };
+  if (link !== null) {
+    const same = saved?.ok && saved.value.landscape.seed === link.seed && !saved.value.landscape.starter && hillsOfLand(saved.value.landscape) === link.hills;
+    return { world: same ? saved.value : createWorld(link.seed, false, true, false, link.hills), mode, linked: true, fromSave: !!same };
   }
   return { world: saved?.ok ? saved.value : buildStarterWorld(mode === "game"), mode, linked: resumed, fromSave: !!saved?.ok };
 }
@@ -567,12 +573,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       selectMore: () => interaction.selectMore(),
       selectJoined: () => interaction.selectJoined(),
       doneSelecting: () => interaction.doneSelecting(),
-      newLayout: () => {
-        saveLastBuilt(mode, null);
-        setWorld(createWorld(Math.floor(Math.random() * 1_000_000), false, true, mode === "game"));
-        cloud?.edited(mode);
-        game.frameLayout();
-      },
+      newLayout: () =>
+        newGameSheet.open({
+          mode,
+          warn: "This map is put away for a new one.",
+          start: ({ hills }) => {
+            saveLastBuilt(mode, null);
+            setWorld(createWorld(Math.floor(Math.random() * 1_000_000), false, true, mode === "game", hills));
+            cloud?.edited(mode);
+            game.frameLayout();
+          },
+        }),
       resetStarter: () => {
         saveLastBuilt(mode, null);
         setWorld(buildStarterWorld(mode === "game"));
@@ -588,7 +599,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lowerHills: () => setLowering(!lowering),
       clearRuin: () => clearShownRuin(),
       restoreRuin: () => restoreShownRuin(),
-      newGame: () => newGame(),
+      newGame: () => newGameSheet.open({ mode: "game", warn: "Your railway and its goals start again.", start: ({ hills }) => newGame(hills) }),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
       copyMap: () => void copyMap(),
@@ -1561,7 +1572,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         titleCloud.showEntry(() => title.root.classList.remove("cloud-open"));
       }
     : undefined;
-  const title = new TitleScreen(document.body, { play, loadCloud }, { thumbnails });
+  const newGameSheet = new NewGameSheet(document.body);
+  // The title's New game and New map ask what the map's to be like first (the new-game sheet), then make it.
+  const title = new TitleScreen(document.body, { play: (next, fresh) => (fresh ? newGameSheet.open({ mode: next, start: (c) => play(next, true, c) }) : play(next, false)), loadCloud }, { thumbnails });
 
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
   let pausedBeforeTitle = false;
@@ -6037,11 +6050,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     goalsPanel.reset();
   }
 
-  /** Game mode, in play: start again on the starter map with no goals done. */
-  function newGame(): void {
+  /** Game mode, in play: start again on the starter map with no goals done, with these hills (the new-game sheet's). */
+  function newGame(hills: Hilliness): void {
     resetGoals();
     saveLastBuilt("game", null);
-    setWorld(freshGameWorld());
+    setWorld(freshGameWorld(Math.random, hills));
     syncPlaceStyles();
     townLife.reset();
     passengersOn();
@@ -6051,21 +6064,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** Leave the title for a mode: carry on with its railway, or start it afresh. */
-  function play(next: GameMode, fresh: boolean): void {
+  function play(next: GameMode, fresh: boolean, choices: NewGameChoices = DEFAULT_CHOICES): void {
     // From the opening screen: its toys go first, and the screen paints without them before a map is built (building
     // holds the page for a moment, and a toy canvas left showing through it can flash white).
     if (overOpening) {
       if (leaving) return;
       leaving = true;
       toys?.stop();
-      requestAnimationFrame(() => setTimeout(() => begin(next, fresh), 0));
+      requestAnimationFrame(() => setTimeout(() => begin(next, fresh, choices), 0));
       return;
     }
-    begin(next, fresh);
+    begin(next, fresh, choices);
   }
 
   /** Load or make the mode's world, and play. */
-  function begin(next: GameMode, fresh: boolean): void {
+  function begin(next: GameMode, fresh: boolean, choices: NewGameChoices = DEFAULT_CHOICES): void {
     interaction.guideSpots = [];
     leaving = false;
     if (fresh && next === "game") resetGoals();
@@ -6073,7 +6086,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh) {
       // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
       if (hasOlderSave(next)) loadFromStorage(next);
-      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000), false, true, false));
+      setWorld(next === "game" ? freshGameWorld(Math.random, choices.hills) : createWorld(Math.floor(Math.random() * 1_000_000), false, true, false, choices.hills));
       restoreSession(next, false);
       cloud?.edited(next);
     } else if (next !== mode) {

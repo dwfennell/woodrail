@@ -229,7 +229,9 @@ describe("second tiers: Mines II, Foundry II, Joinery, Tool works", () => {
 
   it("a mine and a foundry really make more once upgraded", () => {
     const run = (role: "mine" | "foundry", learn: string[]) => {
-      const w = buildStarterWorld();
+      // (Hilly: the starter map's first station has hillside by it there, for the mine to dig; the gentler default's
+      // start is open ground.)
+      const w = buildStarterWorld(true, "hilly");
       const station = w.stations.get(w.landscape.towns[0].id)!;
       const piece = appendPiece(w.layout, `depot-${role}`, false, connectorRef(station, 0))!;
       syncIndustries(w);

@@ -3,6 +3,7 @@ import {
   checkPlacement,
   coastOf,
   FEAT_RUIN,
+  DEFAULT_HILLS,
   generateLandscape,
   generatePlot,
   MIN_TOWN_SPACING,
@@ -85,7 +86,8 @@ describe("map sites: generation", () => {
         expect(land.depots).toEqual(plain.depots);
       }
       for (const starter of [true, false]) {
-        const plain = generateLandscape(seed, { starter });
+        // (A new map's start, with the new-game sheet's default hills, as `startLand` makes it.)
+        const plain = generateLandscape(seed, { starter, hills: DEFAULT_HILLS });
         const land = startLand(seed, starter);
         expect(land.towns).toEqual(plain.towns);
         expect(land.depots).toEqual(plain.depots);

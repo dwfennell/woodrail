@@ -29,7 +29,7 @@ if (maps[mapId]) url = `${BASE}?dev#load=${readFileSync(`${REPO}/tools/perf/maps
 const t0 = Date.now();
 await page.goto(url);
 await page.waitForFunction(() => window.woodrail?.title, null, { timeout: 600000 });
-await page.evaluate((fresh) => { if (!window.woodrail.title.shown) return; const b = [...document.querySelectorAll(fresh ? ".title-card.mode-game button" : ".title-card button")]; b.find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click(); }, !maps[mapId]);
+await page.evaluate((fresh) => { if (!window.woodrail.title.shown) return; const b = [...document.querySelectorAll(fresh ? ".title-card.mode-game button" : ".title-card button")]; b.find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()); }, !maps[mapId]);
 await page.waitForFunction(() => window.woodrail.framesDrawn > 3 && document.querySelector("#loading.done") && !window.woodrail.title.shown, null, { timeout: 600000 });
 await page.waitForTimeout(5000);
 const sample = async (label) => {

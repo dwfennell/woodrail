@@ -91,8 +91,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .menu-item { min-height: 44px; text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 11px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
 .menu-item:hover { background: #ead7b8; }
 .menu-item:disabled { opacity: 0.45; cursor: default; }
-/* A menu item asking before it acts (New game): as the route's Leave asks. */
-.menu-item.asking, .menu-item.asking:hover { background: #b0391f; color: #fff; }
 /* Between the menu's groups (playing, settings, help, leaving, the bug report): a faint saw line. */
 .menu-sep { flex: none; height: 2px; margin: 3px 10px; border: 0; border-radius: 1px; background: rgba(150, 100, 50, 0.16); }
 .narrow-only { display: none; }
@@ -635,6 +633,26 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .title-buttons { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) { .title-screen:not([hidden]), .title-logo .wb { animation: none; } }
+/* The new-game sheet (src/ui/new-game.ts): what the next map's to be like, a row a choice, over the title or the map. */
+.new-game-shade { position: fixed; inset: 0; z-index: 70; background: rgba(40, 28, 16, 0.35); }
+.new-game-shade[hidden] { display: none; }
+.card.new-game-sheet { position: fixed; z-index: 71; top: 50%; bottom: auto; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px)); max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; align-items: stretch; gap: 12px; padding: 18px 18px 18px; border-radius: 20px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); }
+.new-game-sheet[hidden] { display: none; }
+.new-game-sheet > .card-title { font-size: 22px; color: #4a3220; text-align: center; }
+.new-game-warn { margin: -4px 0 0; text-align: center; font-weight: 700; font-size: 14px; color: var(--warn-ink); }
+.new-game-warn[hidden] { display: none; }
+.new-game-rows { display: flex; flex-direction: column; gap: 14px; }
+.new-game-row { display: flex; flex-direction: column; gap: 8px; }
+.new-game-label { font-weight: 800; font-size: 15px; color: #6a4a2c; }
+.new-game-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.chip.new-game-step { height: auto; min-height: 64px; padding: 8px 4px 7px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 14px; line-height: 1.1; }
+.new-game-pic { width: 32px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
+.new-game-blurb { margin: 0; min-height: 1.4em; font-size: 14px; color: #5c4632; text-align: center; }
+.new-game-foot { justify-content: stretch; gap: 8px; }
+.new-game-sheet .new-game-foot .chip { flex: 1; height: 48px; min-height: 48px; }
+.new-game-foot .new-game-start { flex: 2; }
+/* (A phone upright: the four steps two by two, each wide enough for its name.) */
+@media (max-width: 440px) { .new-game-steps { grid-template-columns: repeat(2, 1fr); } .chip.new-game-step { flex-direction: row; min-height: 52px; gap: 8px; } }
 /* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening. The
    opening screen keeps its name and its train just where they were (the bar goes, keeping its room); the title's own
    name stays hidden, and its cards fade in below the train (their top set from where the train ends). */

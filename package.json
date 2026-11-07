@@ -61,6 +61,7 @@
     "e2e:train-summary": "node scripts/e2e/lib/run.mjs tools/e2e/train-summary.mjs",
     "e2e:not-loading": "node scripts/e2e/lib/run.mjs tools/e2e/not-loading.mjs",
     "e2e:engine-names": "node scripts/e2e/lib/run.mjs tools/e2e/engine-names.mjs",
+    "e2e:new-game": "node scripts/e2e/lib/run.mjs tools/e2e/new-game.mjs",
     "e2e:civic": "node scripts/e2e/lib/run.mjs tools/e2e/civic.mjs",
     "e2e:paint-picker": "node scripts/e2e/lib/run.mjs tools/e2e/paint-picker.mjs",
     "e2e:stickers": "node scripts/e2e/lib/run.mjs tools/e2e/stickers.mjs",

@@ -1264,7 +1264,7 @@ async function ghostMatch() {
     q.on("pageerror", (e) => errors.push(e.message));
     const enterGame = async () => {
       await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: 180000 });
-      await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+      await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
       await q.waitForFunction(() => window.woodrail.mode() === "game" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 180000 });
       await q.evaluate(() => {
         const help = document.querySelector(".help");
@@ -1280,7 +1280,7 @@ async function ghostMatch() {
       await q.evaluate(async (seed) => {
         const { createWorld } = await import("/src/game/world.ts");
         const { saveToStorage } = await import("/src/persist/save.ts");
-        saveToStorage(createWorld(seed, true), "game");
+        saveToStorage(createWorld(seed, true, true, true, "hilly"), "game");
       }, c.seed);
       await q.reload({ timeout: 180000 });
     }
@@ -1298,7 +1298,7 @@ async function ghostMatch() {
     await settled(q);
     // (The title can come back over a fresh game while it settles: Continue, as a player would. See `loopOffStraight`.)
     if (await q.evaluate(() => window.woodrail.title.shown)) {
-      await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary")?.click());
+      await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary")?.click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
       await q.waitForFunction(() => !window.woodrail.title.shown, null, { timeout: 120000 }).catch(() => {});
       await settled(q);
       await q.evaluate(() => {
@@ -1432,7 +1432,7 @@ async function underSlant() {
   q.on("pageerror", (e) => errors.push(e.message));
   await q.goto(URL, { timeout: 180000 });
   await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-  await q.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+  await q.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await q.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await settled(q);
   await q.keyboard.press("Escape");
@@ -1907,7 +1907,7 @@ async function loopOffStraight() {
   // Game mode's start (seed 7's starting map), as e2e:touch starts it: the Game card's main button, then the help closed.
   await q.goto(URL.replace(/#.*$/, ""), { timeout: 180000 });
   await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: 180000 });
-  await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+  await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await q.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null && window.woodrail.mode() === "game", null, { timeout: 180000 });
   await q.evaluate(() => {
     const help = document.querySelector(".help");
@@ -2013,7 +2013,7 @@ async function loopOffStraight() {
   // (The title can come back over a fresh game while it settles: Continue, as a player would.)
   const titleAgain = await q.evaluate(() => window.woodrail.title.shown);
   if (titleAgain) {
-    await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary")?.click());
+    await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary")?.click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
     await q.waitForFunction(() => !window.woodrail.title.shown, null, { timeout: 120000 }).catch(() => {});
     await settled(q);
     await q.evaluate((s) => {

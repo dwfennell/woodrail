@@ -133,6 +133,8 @@ async function measureTier(browser, url, tier) {
     if (!w.title.shown) return;
     const b = [...document.querySelectorAll(".title-card button")];
     b.find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click();
+    // (New game opens the new-game sheet: Hilly, the land this was written on, and Start.)
+    (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click());
   });
   await page.waitForFunction(() => window.woodrail.framesDrawn > 3 && document.querySelector("#loading.done") && !window.woodrail.title.shown, null, { timeout: 300000 });
   await page.evaluate(() => {

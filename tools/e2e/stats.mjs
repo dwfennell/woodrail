@@ -67,6 +67,8 @@ const start = async (fresh) => {
   await p.evaluate((fresh) => {
     const btns = [...document.querySelectorAll(".title-card.mode-game button")].filter((x) => !x.hidden);
     (fresh ? btns.find((x) => x.classList.contains("primary")) : btns.find((x) => /Continue/i.test(x.textContent)) ?? btns[0]).click();
+    // (New game opens the new-game sheet: Hilly, the land this was written on, and Start.)
+    (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click());
   }, fresh);
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await settle();

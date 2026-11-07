@@ -80,7 +80,7 @@ async function enter(page) {
   await page.waitForFunction(() => window.woodrail?.title, null, { timeout: 300000 });
   await page.evaluate(() => {
     if (!window.woodrail.title.shown) return;
-    [...document.querySelectorAll(".title-card button")].find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click();
+    [...document.querySelectorAll(".title-card button")].find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click());
   });
   await page.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 300000 });
   await page.keyboard.press("Escape");

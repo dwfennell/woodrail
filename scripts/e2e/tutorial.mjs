@@ -32,7 +32,7 @@ async function firstVisit(ctx) {
   p.on("pageerror", (e) => errors.push(String(e)));
   await p.goto(URL);
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: 180000 });
-  await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+  await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: 120000 });
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   return p;
@@ -116,7 +116,7 @@ const hold = async (p, key, ms) => {
     q.on("pageerror", (e) => errors.push(String(e)));
     await q.goto(URL, { waitUntil: "domcontentloaded", timeout: LOAD_MS });
     await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: LOAD_MS });
-    await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+    await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
     await q.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: LOAD_MS });
     check("every step done, a reload before Let's play doesn't start it again", !(await coach(q)), JSON.stringify(await coach(q)));
     await q.close();
@@ -126,7 +126,7 @@ const hold = async (p, key, ms) => {
   check("Let's play closes it, and Show me lights up", !(await coach(p)) && nudged, `nudge ${nudged}`);
   await p.reload({ timeout: LOAD_MS });
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: LOAD_MS });
-  await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+  await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: LOAD_MS });
   check("not shown again on this device (nor the help card)", !(await coach(p)) && !(await helpShown(p)));
   await p.evaluate(() => [...document.querySelectorAll(".menu .menu-item")].find((b) => b.textContent === "Show controls").click());
@@ -204,7 +204,7 @@ for (const [w, h] of [[360, 740], [667, 375]]) {
     // A reload part way through goes on from there (QA 2026-11-03: "Move around 1 of 4" again).
     await p.reload({ timeout: LOAD_MS });
     await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: LOAD_MS });
-    await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+    await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
     await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: LOAD_MS });
     await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
     const c1b = await coach(p);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FIELD_STOCK, SITE_ROLES } from "../landscape";
+import { FIELD_STOCK, HILLINESS, SITE_ROLES } from "../landscape";
 import { SECRET_KINDS } from "../track/kits";
 
 /**
@@ -15,6 +15,8 @@ const id = z.number().int().min(0);
 export const landscapeSchema = z.object({
   seed: z.number().int(),
   starter: z.boolean(),
+  /** How hilly the map is (`Landscape.hills`); missing in saves from before the choice (their hills as made then). */
+  hills: z.enum(HILLINESS).optional(),
   nextBuildingId: id,
   /** Where the sea is; missing in saves from before the coast (no sea). */
   coast: z.object({ side: z.enum(["n", "e", "s", "w"]), plot: z.number().int().min(-30000).max(30000) }).optional(),

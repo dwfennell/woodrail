@@ -1592,7 +1592,7 @@ async function twoRoutes(ctx, p) {
   await p.waitForTimeout(1500);
   await p.reload();
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
   const reloaded = await p.evaluate((where) => {
     const w = window.woodrail;
@@ -1744,7 +1744,7 @@ async function leverDefault(ctx, p) {
   await p.waitForTimeout(1500);
   await p.reload();
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
   const s3 = await p.evaluate((id) => ({ there: !!window.woodrail.layout.getPiece(id), way: window.woodrail.layout.switchState(id), def: window.woodrail.economy.router.defaultOf(id) }), id);
   // (Since routing step 4, points off their default that no train holds go back to it at routing's first look after a
@@ -2968,7 +2968,7 @@ async function putAwayButton(p) {
     const h = window.woodrail.hud;
     const toast = h.toast.bind(h);
     h.toast = (m, ...rest) => (window.__trapSaid.push(m), toast(m, ...rest));
-    document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click();
+    document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click());
   });
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
   await frames(p);
@@ -5145,7 +5145,7 @@ async function openMode(mode, { settle = false } = {}) {
   await p.goto(URL);
   // The mode's card on the title screen: its main button (Continue, or the fresh start without a save).
   await p.waitForFunction((m) => !!window.woodrail && document.querySelector(`.title-card.mode-${m} .title-buttons .primary`) !== null, mode, { timeout: 180000 });
-  await p.evaluate((m) => document.querySelector(`.title-card.mode-${m} .title-buttons .primary`).click(), mode);
+  await p.evaluate((m) => document.querySelector(`.title-card.mode-${m} .title-buttons .primary`).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()), mode);
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
   // A first visit shows the camera tutorial (or, before it, the help over everything): close it as a player would.
   await p.evaluate(() => {

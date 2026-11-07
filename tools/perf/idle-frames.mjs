@@ -14,7 +14,7 @@ for (const mode of ["sandbox", "game"]) {
   await page.waitForFunction(() => window.woodrail?.title?.shown !== undefined, null, { timeout: 240000 });
   if (mode === "game") {
     await page.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-    await page.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+    await page.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
     await page.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   }
   await page.waitForTimeout(10000);
