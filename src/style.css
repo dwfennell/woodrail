@@ -273,7 +273,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    Stop, Leave now and the way; the line; the train's own tools. Groups 10 px apart, chips 8 px apart (DESIGN.md). */
 .engine-card:not([hidden]) { align-items: stretch; }
 .engine-card .engine-name { align-self: center; }
-/* What it carries, one line under the name (cut with "…"), and Throw away at its end (only while there are goods). */
+/* What it carries, one line under the name (cut with "…"), and Delete cargo at its end (only while there are goods). */
 .engine-load { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; margin-top: -6px; }
 .engine-load[hidden], .engine-load > [hidden] { display: none; }
 .engine-summary { flex: 0 1 auto; min-width: 0; font-size: 13px; font-weight: 700; color: #6a4a2c; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -281,7 +281,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-summary > .summary-about:not(:last-child)::after { content: " · "; }
 .engine-summary > .summary-load[hidden] { display: none; }
 .engine-load:has(> .empty-all:not([hidden])) { justify-content: space-between; }
-/* Throw away: the goods are gone (not unloaded anywhere), so it's in the warning ink and asks first. */
+/* Delete cargo: the goods are gone (not unloaded anywhere), so it's in the warning ink and asks first. */
 .engine-load > .empty-all { flex: none; height: 44px; padding: 0 12px; font-size: 14px; background: transparent; color: var(--warn-ink); box-shadow: inset 0 0 0 2px rgba(176, 57, 31, 0.45); }
 .engine-load > .empty-all.asking { background: var(--warn-ink); color: #fff; box-shadow: none; }
 .car-load { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; margin-top: -4px; }

@@ -194,8 +194,8 @@ const SWAP_TITLE = "Move the engine to the other end of its train";
 const ENGINE_DECOUPLE_TITLE = "Uncouple the engine from its cars";
 const CAR_DECOUPLE_TITLE = "Uncouple this wagon (and those behind it) from the cars on the engine's side";
 const EMPTY_CAR_TITLE = "Tip this wagon's goods out (they're thrown away)";
-const EMPTY_TRAIN_TITLE = "Throw away every wagon's goods (they're gone: not unloaded anywhere). Tap, then tap again";
-const EMPTY_TRAIN_LABEL = "🗑 Throw away";
+const EMPTY_TRAIN_TITLE = "Delete every wagon's cargo (it's gone: not unloaded anywhere). Tap, then tap again";
+const EMPTY_TRAIN_LABEL = "🗑 Delete cargo";
 
 /**
  * Grey a button that would only be refused now (`why` says why, as its tooltip), or bring it back (`why` ""). It stays
@@ -313,7 +313,7 @@ export class Hud {
   /** Room on the engine card for Game mode's own rows (where the train delivers), filled by main. */
   readonly engineExtra = el("div", "engine-extra");
   /** The train summary under the status: cars, speed, line; and what's on board (two lines, each cut with "…"). */
-  /** The load row under the engine's name: the summary and Throw away. */
+  /** The load row under the engine's name: the summary and Delete cargo. */
   private readonly engineLoad = el("div", "engine-load");
   private readonly engineSummary = el("div", "engine-summary");
   private readonly summaryAbout = el("div", "summary-about");
@@ -686,7 +686,7 @@ export class Hud {
     this.engineCard.append(this.followBtn);
     // Top to bottom by purpose (impeccable critique of 2026-11-05, the user's layout B): what it carries, a line under
     // its name; what it's doing and the fix for it; Go or Stop, Leave now and the way; its line; the train's own tools.
-    // What it carries, in one line, and Throw away beside it (two taps: the goods are gone, not unloaded anywhere).
+    // What it carries, in one line, and Delete cargo beside it (two taps: the goods are gone, not unloaded anywhere).
     this.emptyTrainBtn = button(EMPTY_TRAIN_LABEL, EMPTY_TRAIN_TITLE, () => this.askEmpty(h.emptyTrain), "chip text empty-all");
     this.emptyTrainBtn.hidden = true;
     this.engineSummary.append(this.summaryAbout, this.summaryLoad);
@@ -2044,17 +2044,17 @@ export class Hud {
     this.engineLoad.hidden = this.engineSummary.hidden && this.emptyTrainBtn.hidden;
   }
 
-  /** Throw away asking ("Throw away? Tap again"), and the timer that stops it asking. */
+  /** Delete cargo asking ("Delete cargo? Tap again"), and the timer that stops it asking. */
   private emptyAsk = 0;
   /**
-   * Throw away (the engine card): the first tap asks, a second while it asks throws the goods away (`act`). As New game
+   * Delete cargo (the engine card): the first tap asks, a second while it asks throws the goods away (`act`). As New game
    * and the line's Forget ask: the goods are gone, and there's no undo for them.
    */
   private askEmpty(act: () => void): void {
     const b = this.emptyTrainBtn;
     if (!b.classList.contains("asking")) {
       b.classList.add("asking");
-      b.textContent = "Throw away? Tap again";
+      b.textContent = "Delete cargo? Tap again";
       window.clearTimeout(this.emptyAsk);
       this.emptyAsk = window.setTimeout(() => this.stopEmptyAsk(), ASK_MS);
       return;
@@ -2072,7 +2072,7 @@ export class Hud {
   }
 
   /**
-   * Empty (the wagon card) and Throw away (the engine card): shown while there are goods to tip out, greyed with `why`
+   * Empty (the wagon card) and Delete cargo (the engine card): shown while there are goods to tip out, greyed with `why`
    * ("Stop the train first") while they'd be refused, "" for not. Main sets it only when that changes.
    */
   setEmpty(car: { shown: boolean; why: string }, train: { shown: boolean; why: string }): void {

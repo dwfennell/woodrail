@@ -4112,7 +4112,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * Empty (the wagon card) or Throw away (the engine card, `all`): tip the goods out where the train stands, thrown away
+   * Empty (the wagon card) or Delete cargo (the engine card, `all`): tip the goods out where the train stands, thrown away
    * (`Economy.dump`). Not undoable: undo is the track's and the land's, and no train action (Decouple, Swap ends) or
    * crane work is in it. A coach's riders stay on. The toast says what went, and a place on the map that takes it.
    */
@@ -4149,7 +4149,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * Empty and Throw away on the open card: shown while there are goods to tip out, greyed while the train moves. Keyed
+   * Empty and Delete cargo on the open card: shown while there are goods to tip out, greyed while the train moves. Keyed
    * by the car, the loads' stamp and whether it stands: the buttons are touched only when one changes.
    */
   let emptyKey = "";

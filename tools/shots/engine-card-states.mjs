@@ -1,6 +1,6 @@
 // The engine card in its states, on the live game (`MOCK=tools/shots/engine-card-states.mjs node
-// tools/shots/engine-card.mjs <out>`): stuck behind a parked engine, standing at a stop (Stop and Leave now), Throw
-// away asking, the line's edit view, and off its line (Take off line, tapped twice). Pictures for
+// tools/shots/engine-card.mjs <out>`): stuck behind a parked engine, standing at a stop (Stop and Leave now), Delete
+// cargo asking, the line's edit view, and off its line (Take off line, tapped twice). Pictures for
 // docs/agents/shots/engine-card-*. Harness shortcut, not what's pictured: the sim and economy ticked ahead of
 // SwiftShader's frames, as e2e:touch's `__keepRun` does.
 export default async function (p, shot, setup) {
@@ -47,7 +47,7 @@ export default async function (p, shot, setup) {
   console.log("at stop:", await say());
   await shot("engine-card-2-at-stop");
 
-  // Throw away: the first tap asks.
+  // Delete cargo: the first tap asks.
   await click(".engine-card .empty-all");
   await p.waitForTimeout(300);
   await shot("engine-card-3-throw-away-ask");
