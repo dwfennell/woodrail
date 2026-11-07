@@ -9,6 +9,7 @@ import { FULL_PAY, townLevel } from "./towns";
 import { hasPostOffice, postLine, POST_TECH } from "./post";
 import { DEPOT_NAMES, depotName, type World } from "./world";
 import { townLinks } from "../roads/graph";
+import { listed } from "../lib/words";
 
 /**
  * A town's card in Game mode (the town ledger): where it stands and what it's growing into, what it still needs, its
@@ -102,8 +103,7 @@ const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
 export function buysText(learned: ReadonlySet<string>): string | null {
   const foods = FOOD_TECH.filter(([k, tech]) => FULL_PAY.has(k) && learned.has(tech)).map(([k]) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`);
   if (foods.length === 0) return null;
-  const list = foods.length === 1 ? foods[0] : `${foods.slice(0, -1).join(", ")} and ${foods[foods.length - 1]}`;
-  return `Always buys ${list} at full pay`;
+  return `Always buys ${listed(foods)} at full pay`;
 }
 const makerOf = (kind: CargoKind): Exclude<DepotRole, "town"> | undefined => MAKERS.find((r) => RECIPES[r].gives.includes(kind));
 
@@ -169,7 +169,7 @@ export function roadLine(world: World, townId: number): string | null {
   const names = (townLinks(world.landscape).get(townId) ?? []).map((id) => world.landscape.towns.find((t) => t.id === id)?.name ?? "").filter(Boolean);
   if (names.length === 0) return null;
   const shown = names.length <= 3 ? names : [...names.slice(0, 2), `${names.length - 2} more`];
-  return `Joined by road to ${shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`}`;
+  return `Joined by road to ${listed(shown)}`;
 }
 
 /** Mix `v` into hash `h`. */

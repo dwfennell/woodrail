@@ -13,6 +13,7 @@ import { CLEAR_PRICE, harbourStranded, restorePrice, restoredType, SITE_NAMES } 
 import type { Progress } from "./progress";
 import { pieceThing, THING_RULES } from "./things";
 import { DEPOT_NAMES, INDUSTRY_ROLE, type World } from "./world";
+import { listed } from "../lib/words";
 
 /**
  * Restoring an old industry's ruin (map sites, step 2: spec 2026-10-21-map-sites-design.md §7): its stub of track
@@ -256,9 +257,6 @@ export function nearestRuin(land: Landscape, role: SiteRole, from: readonly { x:
 
 /** What each kind of old industry does, in a word for its payoff line ("It grows grain"). */
 const MAKES: Record<SiteRole, string> = { farm: "grows", quarry: "cuts", mine: "digs up", harbour: "ships" };
-
-/** "a, b or c" (`last` "or"), "a and b". */
-const listed = (items: readonly string[], last: string) => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} ${last} ${items.at(-1)}`);
 
 /**
  * Where a good goes, from the recipes: the industries whose work uses it ("the mill" for grain), and "a town" if towns

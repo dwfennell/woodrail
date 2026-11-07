@@ -1,14 +1,11 @@
-import { createRouteStep, createSample, getPieceDef, pathLength, routeFrom, samplePath, TRACK_THICKNESS, type Layout } from "../track";
+import { createRouteStep, createSample, getPieceDef, pathLengthOf, routeFrom, samplePath, TRACK_THICKNESS, type Layout } from "../track";
 import type { Cursor } from "../sim";
 import { SEARCH, type PinnedTest } from "../routing/graph";
 import { walkTo, type At, type KeepTest, type PathRun, type Leg } from "../routing/plan";
 
 export type { Leg, PathRun } from "../routing/plan";
 
-const lengthOf = (layout: Layout, pieceId: number, pathIndex: number): number => {
-  const piece = layout.getPiece(pieceId)!;
-  return pathLength(getPieceDef(piece.type, piece.flipped).paths[pathIndex].geom);
-};
+const lengthOf = pathLengthOf;
 
 /** Total length of some runs (mm). */
 export const runsLength = (runs: readonly PathRun[]): number => runs.reduce((t, r) => t + Math.abs(r.s1 - r.s0), 0);

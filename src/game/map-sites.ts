@@ -40,6 +40,7 @@ import { COIN_ICON } from "../economy/cargo";
 import { kindsOf, type Bag } from "../economy/goods";
 import { costTag } from "../ui/cost-tag";
 import type { PieceTypeId } from "../track";
+import { capital, listed } from "../lib/words";
 
 /**
  * The map's own sites (spec docs/superpowers/specs/2026-10-21-map-sites-design.md): on every plot an old industry or
@@ -777,8 +778,7 @@ export function describeLand(land: Landscape): string {
   // (A secret: something in the mist, not what. src/game/secrets.ts.)
   const hidden = (land.secrets ?? []).some((s) => !s.found) ? " ❔ Something lies hidden here." : "";
   if (parts.length === 0) return `Open countryside.${hidden}`;
-  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
-  return list.charAt(0).toUpperCase() + list.slice(1) + "." + hidden;
+  return capital(listed(parts)) + "." + hidden;
 }
 
 /** The standing ruin whose yard or stub (with a little to spare: its fence, its sign) is at plan point (x, z), or −1. */

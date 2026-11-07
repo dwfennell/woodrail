@@ -5,3 +5,4 @@ export * from "./nearest";
 export * from "./engine-names";
 export * from "./track-walk";
 export * from "./occupancy";
+export * from "./train-cars";

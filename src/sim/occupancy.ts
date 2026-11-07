@@ -62,11 +62,6 @@ export function trainOn(sim: OccupancySim, pieces: ReadonlySet<number> | ((piece
   return undefined;
 }
 
-/** A train's name for waits and cards: its first engine's car id (else its first car's). */
-export function engineOf(t: Train): number {
-  for (const c of t.cars) if (c.kind === "engine") return c.id;
-  return t.cars[0]?.id ?? -1;
-}
 
 /**
  * Per piece, the train over it by cars (its id; −1: more than one), worked out once a sim tick and kept till the next.

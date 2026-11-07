@@ -5,6 +5,7 @@ import { depotPoint } from "./harbours";
 import type { Progress } from "./progress";
 import { PRICES } from "./towns";
 import type { World } from "./world";
+import { addTo } from "../economy/goods";
 
 /**
  * The train ferry abroad (Game mode's Train ferry; docs/superpowers/specs/2026-11-04-water-transport.md §5, choice E1):
@@ -151,7 +152,7 @@ export class Ferries {
           const n = price > 0 ? Math.min(economy.wagonCapacity, Math.floor((p.coins - coins) / price)) : economy.wagonCapacity;
           if (n <= 0) continue;
           economy.setCargo(id, good, n);
-          goods[good] = (goods[good] ?? 0) + n;
+          addTo(goods, good, n);
           coins += n * price;
         }
         p.coins -= coins;

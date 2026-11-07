@@ -6,6 +6,8 @@ import type { CarKind } from "../sim";
 import { appendPiece, connectorRef, type Layout, type PieceTypeId } from "../track";
 import { chain, loopOn } from "../economy/loop-fixtures";
 import type { HarnessRun, Scenario, ScriptedEvent, TrainSpec } from "./harness";
+import { driveOf } from "../sim/train-cars";
+import { rng } from "../lib/rng";
 
 const S: PieceTypeId = "straight-216";
 const C: PieceTypeId = "curve-large";
@@ -964,17 +966,8 @@ export const GIVE_WAY: readonly Scenario[] = [routedMeetsHandRun, routedHeadOnRi
 
 // ── Seeded fuzz over the loop fixtures ──────────────────────────────────────────────────────────────────────────────
 
-/** A small seeded random (mulberry32). */
-export function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+/** A small seeded random (mulberry32): lib/rng.ts's, kept exported here for the tests that import it from here. */
+export { rng };
 
 /**
  * A random line from the loop fixtures: a shuttle between buffers with 0–2 passing loops (some with a stop on a road),
@@ -1184,7 +1177,7 @@ export function twoWays(via: boolean, alone = false): { scenario: Scenario; log:
     run.engines.forEach((engine, k) => {
       const t = run.sim.findCar(engine)?.train;
       if (!t || !roads) return;
-      const net = t.cars.reduce((n, c) => n + (c.kind === "engine" ? c.lever * c.facing : 0), 0);
+      const net = driveOf(t);
       if (net === 0) return;
       const front = (net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]).pieceId;
       if (front === was[k]) return;

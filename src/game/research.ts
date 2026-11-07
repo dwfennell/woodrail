@@ -4,6 +4,7 @@ import type { Bag } from "../economy/goods";
 import type { ResearchCost } from "./blueprints";
 import type { Progress } from "./progress";
 import { built, needMet, ready, techOf } from "./tech";
+import { addTo } from "../economy/goods";
 
 /**
  * Research (Game mode): every blueprint is learned at a school, a depot beside a town that trains bring goods to (spec:
@@ -428,7 +429,7 @@ export function deliver(p: Progress, kind: CargoKind, n: number, ok?: (id: strin
   if (r.current !== null && (!ok || ok(r.current))) {
     const take = Math.min(n, lacking(p, kind));
     if (take > 0) {
-      r.got[kind] = (r.got[kind] ?? 0) + take;
+      addTo(r.got, kind, take);
       taken += take;
     }
   }
@@ -436,7 +437,7 @@ export function deliver(p: Progress, kind: CargoKind, n: number, ok?: (id: strin
     const take = Math.min(n - taken, aheadLacking(p, kind));
     if (take > 0) {
       const bag = r.early.get(r.next) ?? {};
-      bag[kind] = (bag[kind] ?? 0) + take;
+      addTo(bag, kind, take);
       r.early.set(r.next, bag);
       taken += take;
     }

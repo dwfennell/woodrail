@@ -13,6 +13,7 @@ import { flipCursor, type Cursor, type Sim, type Train } from "../sim";
 /** What `roadFacing` and `mouthWay` look at: the trains. */
 type Trains = Pick<Sim, "trainIds" | "getTrain">;
 import { next, SEARCH, waysFrom } from "./graph";
+import { driveOf } from "../sim/train-cars";
 
 export interface DeadEnds {
   /** Piece → its region (index into `mouths`). */
@@ -128,11 +129,6 @@ function build(layout: Layout): DeadEnds {
 }
 
 /** A train's net drive toward its front (sign only matters; 0: not driven), from its engines' levers. */
-function driveOf(t: Train): number {
-  let net = 0;
-  for (const c of t.cars) if (c.kind === "engine") net += c.lever * c.facing;
-  return net;
-}
 
 /**
  * Out of points `pieceId` by `exit`, as the points beyond lie, up to the next points with a choice (or the end): is a

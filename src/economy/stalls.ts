@@ -1,6 +1,7 @@
 import { loopSignalHold } from "./loop-signal";
 import { trainKey, type Sim, type Train } from "../sim";
 import { CHECK_TICKS, type Sections } from "./sections";
+import { driveOf, engineOf } from "../sim/train-cars";
 
 /**
  * Stalls: trains stuck for good, said on their cards (routing spec §16 Q3). Nothing turns a train back short of the end
@@ -96,15 +97,8 @@ export interface StallsHost {
 }
 
 /** A train's name in waits: its engine, or its first car if it has none (as sections name trains). */
-function nameOf(t: Train): number {
-  return t.cars.find((c) => c.kind === "engine")?.id ?? t.cars[0].id;
-}
-
-function drive(t: Train): number {
-  let net = 0;
-  for (const car of t.cars) if (car.kind === "engine") net += car.lever * car.facing;
-  return net;
-}
+const nameOf = engineOf;
+const drive = driveOf;
 
 export class Stalls {
   /** Stuck trains (by engine) and why, as of the last check. */

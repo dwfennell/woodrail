@@ -4,7 +4,7 @@
  * steering, sections' ways (`wayOn`), and the way drawn on the map (`walkTo`) all choose by `planWay`, so the map and
  * the train agree (step 4).
  */
-import { getPieceDef, MAX_CONNECTORS, pathLength, pointsWayFrom, type Layout } from "../track";
+import { getPieceDef, MAX_CONNECTORS, pathLength, pathLengthOf, pointsWayFrom, type Layout } from "../track";
 import { next, SEARCH, TURN_COST, waysFrom, type PinnedTest } from "./graph";
 
 /** A stretch of one path of one piece, from s0 to s1 along the path's own geometry (s0 > s1 when run backwards). */
@@ -148,10 +148,7 @@ export const ROUTE_FORWARD = ENV.ROUTE_FORWARD !== "0";
 /** The costs every plan is made with: the router, sections, the drawn line and the harness all choose by these. */
 export const ROUTE_COSTS: PlanCosts = ROUTE_FORWARD ? MM_COSTS : PIECE_COSTS;
 
-function lengthOf(layout: Layout, pieceId: number, path: number): number {
-  const p = layout.getPiece(pieceId)!;
-  return pathLength(getPieceDef(p.type, p.flipped).paths[path].geom);
-}
+const lengthOf = pathLengthOf;
 
 /** A found plan: what it costs, and its steps from the start up to (not into) the target's piece. */
 export interface Plan {

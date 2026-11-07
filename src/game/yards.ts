@@ -4,6 +4,7 @@ import type { Pose } from "../track";
 import { BARGE_LOADS, MAX_BARGES, MAX_BOATS, type Fleet, landingMoorL, landingWhy } from "./boats";
 import { depotPoint } from "./harbours";
 import type { World } from "./world";
+import { addTo } from "../economy/goods";
 
 /**
  * Yards (the user, 2026-11-05: "boats should come from yards, built from goods delivered by train, not bought
@@ -105,7 +106,7 @@ export function tickYards(world: World, fleet: Fleet): YardEvent[] {
       const take = Math.min((n ?? 0) - (o.got[kind] ?? 0), d.piles[CARGO[kind].index]);
       if (take <= 0) continue;
       d.piles[CARGO[kind].index] -= take;
-      o.got[kind] = (o.got[kind] ?? 0) + take;
+      addTo(o.got, kind, take);
     }
     if (progressOf(o) < 1) continue;
     economy.yardOrders.delete(id);

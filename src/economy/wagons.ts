@@ -6,6 +6,7 @@
  */
 import type { CarKind } from "../sim";
 import { CARGO, CARRIES, GOODS_ICON, type CargoKind } from "./cargo";
+import { listed } from "../lib/words";
 
 /** A wagon, drawn in the game's icon font (src/icons/u1F683-coach): one glyph for every kind, its name says which. */
 export const WAGON_ICON = "🚃";
@@ -33,7 +34,7 @@ export function wagonsFor(kind: CargoKind): CarKind[] {
 
 /** Names joined for a line: "Hopper", "Goods van or Cold van", "A, B or C". */
 function either(names: readonly string[]): string {
-  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+  return listed(names, "or");
 }
 
 /** The wagon (or wagons) that carry `kind`, by name: "Hopper", "Goods van or Cold van"; "" if nothing carries it. */

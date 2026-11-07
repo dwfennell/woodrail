@@ -5,6 +5,7 @@ import type { Bag } from "../economy/goods";
 import type { Progress } from "./progress";
 import { PRICES } from "./towns";
 import type { World } from "./world";
+import { addTo } from "../economy/goods";
 
 /**
  * Harbours (Game mode, Phase D): a depot by the water whose quay boats call at by themselves. A boat comes in from the
@@ -343,7 +344,7 @@ export class HarbourTrade {
     let n = 0;
     for (const v of Object.values(o)) n += v ?? 0;
     if (n + BUY_LOT > BUY_MAX) return false;
-    o[kind] = (o[kind] ?? 0) + BUY_LOT;
+    addTo(o, kind, BUY_LOT);
     this.orders.set(depotId, o);
     return true;
   }
@@ -390,7 +391,7 @@ export class HarbourTrade {
         p.coins -= price;
         coins += price;
         world.economy.land(d, k, 1);
-        goods[k] = (goods[k] ?? 0) + 1;
+        addTo(goods, k, 1);
       }
     }
     let n = 0;

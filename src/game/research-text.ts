@@ -5,6 +5,7 @@ import { describeNeed, type Need } from "./blueprints";
 import { aheadLacking, canResearch, chainBlock, chainOf, coinsShort, costOf, lacks, missingNeeds, nowTarget, QUEUE_MAX, queueOf, queuePlace, READING_ROOM, studying, studyLeft, studyTime } from "./research";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./tech";
 import { ruleOf } from "./things";
+import { capital, listed } from "../lib/words";
 
 /**
  * Research in words and states, for the Research picker (the board's web), the HUD's pill and the school's card.
@@ -92,8 +93,8 @@ function needToDo(p: Progress, n: Need): string {
   }
 }
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const and = (xs: string[]) => (xs.length < 2 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+const cap = capital;
+const and = (xs: string[]) => listed(xs);
 
 /**
  * How a locked tray tile is unlocked, in plain words, and the research to open the picker on (null if none can show
@@ -240,8 +241,7 @@ export function researchCard(p: Progress, id: string, school: string | null): Re
 /** The toast as taking one out of the queue takes the queued ones that need it too: "Removed Mills and Bakery too". */
 export function removedText(ids: readonly string[]): string {
   const names = ids.map(shortLabel);
-  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
-  return `Removed ${list} too`;
+  return `Removed ${listed(names)} too`;
 }
 
 /** "Farming, then Dairy, then Bakery". */

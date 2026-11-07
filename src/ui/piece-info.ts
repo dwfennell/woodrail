@@ -9,6 +9,7 @@ import { INDUSTRY_ROLE } from "../game/world";
 import type { CarKind, CarLook } from "../sim";
 import { isFit, isJoin, isKit, KITS, SECRET_KINDS, SECRET_NAMES, secretKitOf, type KitTypeId, type PieceTypeId } from "../track";
 import type { TrayItem } from "./tray-catalogue";
+import { capital, listed } from "../lib/words";
 
 /**
  * What a thing is called, and a line on what it does: the piece card's title and hint (a placed piece tapped), and the
@@ -186,7 +187,6 @@ const PIECE_FACTS: Partial<Record<PieceTypeId, string>> = {
   "tunnel-mouth": "Or Draw across a hill: the line goes under.",
 };
 
-const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** A placed piece's name and what it does. Every piece type has one (pieces.test / piece-info.test). */
 export function pieceInfo(type: PieceTypeId): ItemInfo {
@@ -202,7 +202,6 @@ export function pieceInfo(type: PieceTypeId): ItemInfo {
 /** Has this piece type a name of its own (not the fallbacks)? For the test that every catalogue piece is named. */
 export const hasOwnName = (type: PieceTypeId): boolean => !!(PIECES[type] ?? KIT_INFO[type]) || isFit(type) || isJoin(type);
 
-const listed = (xs: readonly string[]): string => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
 /** What a wagon or coach is for. */
 const CAR_DETAIL: Record<CarKind, string> = {

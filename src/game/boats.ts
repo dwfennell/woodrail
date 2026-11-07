@@ -3,6 +3,7 @@ import { isWater, type Landscape } from "../landscape";
 import type { Pose } from "../track";
 import { depotPoint, QUAY } from "./harbours";
 import type { World } from "./world";
+import { addTo } from "../economy/goods";
 
 /**
  * Boats the player routes (Game mode's River barges; docs/superpowers/specs/2026-11-04-water-transport.md §3): a tug
@@ -500,7 +501,7 @@ export class Fleet {
         const n = Math.min(room, d.piles[i]);
         if (n <= 0) continue;
         d.piles[i] -= n;
-        b.load[k] = (b.load[k] ?? 0) + n;
+        addTo(b.load, k, n);
         b.loadedAt[k] = d.id;
         picked += n;
       }

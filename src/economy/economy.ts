@@ -13,6 +13,8 @@ import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone } from "../routing/via";
 import { RoadVehicles } from "../roads/vehicles";
+import { driveOf } from "../sim/train-cars";
+import { addTo } from "./goods";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -1504,7 +1506,7 @@ export class Economy {
       if (d.role === "town" && this.placeWants && this.placeWants(d.townId, kind) > 0) {
         const plan = this.placePlans.get(d.townId);
         if (plan) {
-          plan.got[kind] = (plan.got[kind] ?? 0) + 1;
+          addTo(plan.got, kind, 1);
           this.wantsStamp++;
           this.onPlaceGoods?.(d);
           return;
@@ -1518,7 +1520,7 @@ export class Economy {
       // Goods for a station's delivery van (roads spec D5): onto its yard, for a town off the line (not this one).
       if (d.role === "town" && this.toVan?.(d, kind)) {
         const yard = this.vanYard.get(d.id) ?? {};
-        yard[kind] = (yard[kind] ?? 0) + 1;
+        addTo(yard, kind, 1);
         this.vanYard.set(d.id, yard);
         this.wantsStamp++;
         this.onVanYard?.(d);
@@ -1549,11 +1551,11 @@ export class Economy {
     if (kind === "planks") this.delivered.set(townId, (this.delivered.get(townId) ?? 0) + 1);
     this.wantsStamp++;
     const got = this.deliveredGoods.get(townId) ?? {};
-    got[kind] = (got[kind] ?? 0) + 1;
+    addTo(got, kind, 1);
     this.deliveredGoods.set(townId, got);
     if (this.joinedByRoad?.(townId)) {
       const road = this.roadGot.get(townId) ?? {};
-      road[kind] = (road[kind] ?? 0) + 1;
+      addTo(road, kind, 1);
       this.roadGot.set(townId, road);
     }
   }
@@ -2547,9 +2549,7 @@ export class Economy {
 
   /** Net drive of a train's engines toward its front (sign only matters). */
   drive(train: Train): number {
-    let net = 0;
-    for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
-    return net;
+    return driveOf(train);
   }
 
   private depotLength(d: DepotState): number {

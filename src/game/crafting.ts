@@ -1,6 +1,6 @@
 import { CARGO, CARGO_KINDS, CARGO_SLOTS, type CargoKind } from "../economy/cargo";
 import { RECIPES, WORKSHOP_CAP, type DepotRole, type DepotState } from "../economy/economy";
-import { covers, kindsOf, minus, total, type Bag } from "../economy/goods";
+import { addTo, type Bag, covers, kindsOf, minus, total } from "../economy/goods";
 import { costTag } from "../ui/cost-tag";
 import type { Progress } from "./progress";
 import { costOf as researchCost } from "./research";
@@ -270,7 +270,7 @@ export function costOf(wants: ReadonlyMap<ThingId, number>): { goods: Bag; coins
   for (const [id, n] of wants) {
     const rule = ruleOf(id);
     if (!rule) continue;
-    for (const k of kindsOf(rule.cost)) goods[k] = (goods[k] ?? 0) + rule.cost[k]! * n;
+    for (const k of kindsOf(rule.cost)) addTo(goods, k, rule.cost[k]! * n);
     coins += (rule.coins ?? 0) * n;
   }
   return { goods, coins };

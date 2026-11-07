@@ -1,6 +1,7 @@
 import { kitOf, getPieceDef, pathLength, type KitStopWho, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, advanceCursor, createAdvance, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { ticks } from "./constants";
+import { driveOf } from "../sim/train-cars";
 
 /** Coming up to the stop point. */
 const COMING = 0;
@@ -257,9 +258,7 @@ export class KitStops {
 
   /** Is the train's lever on (its engines driving it one way or the other)? */
   private driven(train: Train): boolean {
-    let net = 0;
-    for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
-    return net !== 0;
+    return driveOf(train) !== 0;
   }
 }
 

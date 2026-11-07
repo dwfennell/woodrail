@@ -1,5 +1,5 @@
 import type { Bag } from "../economy/goods";
-import { kindsOf, minus, plus, total } from "../economy/goods";
+import { addInto, addTo, kindsOf, minus, plus, total } from "../economy/goods";
 import type { CargoKind } from "../economy/cargo";
 import type { DepotState } from "../economy";
 import { LandEditor } from "../landscape/edit";
@@ -54,9 +54,9 @@ export function roadBonus(world: World, townId: number): Bag {
 export function growthOf(world: World, townId: number): Bag {
   const received = receivedBy(world, townId);
   const bonus = roadBonus(world, townId);
-  for (const k of kindsOf(bonus)) received[k] = (received[k] ?? 0) + bonus[k]!;
+  addInto(received, bonus);
   const gift = world.economy.grandGift.get(townId);
-  if (gift) for (const k of kindsOf(gift)) received[k] = (received[k] ?? 0) + gift[k]!;
+  if (gift) addInto(received, gift);
   return received;
 }
 
@@ -173,7 +173,7 @@ export class TownLife {
     this.game.economy.grandTake = (d, kind) => {
       for (const [id, plan] of this.game.economy.grandPlans) {
         if (plan.townId !== d.townId || stageLacks(id, plan, kind) <= 0) continue;
-        plan.got[kind] = (plan.got[kind] ?? 0) + 1;
+        addTo(plan.got, kind, 1);
         this.grandIn = true;
         return true;
       }

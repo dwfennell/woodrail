@@ -1,6 +1,7 @@
 import type { Economy } from "../economy";
 import type { Sim, Train } from "../sim";
 import { trainState } from "./engine-status";
+import { driveOf } from "../sim/train-cars";
 
 /**
  * Continue, on an engine's card: a train waiting to turn back where the track just stops (perhaps being worked at a
@@ -18,8 +19,7 @@ export function canContinue(sim: Sim, economy: Economy, engineCarId: number): bo
 
 /** Does an engine lead this train the way it's driven (not pushing its wagons)? */
 function engineLeads(t: Train): boolean {
-  let net = 0;
-  for (const car of t.cars) if (car.kind === "engine") net += car.lever * car.facing;
+  const net = driveOf(t);
   const lead = net >= 0 ? t.cars[0] : t.cars[t.cars.length - 1];
   return lead.kind === "engine";
 }

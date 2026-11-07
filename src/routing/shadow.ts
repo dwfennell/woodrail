@@ -43,7 +43,7 @@
 import { CAR_SPECS, flipCursor, SIM_HZ, underByEnds, walkTrack, type Train } from "../sim";
 import { connectorRef, getPieceDef, indexOfRef, junction, pathExitConnector, pathLength, pieceOfRef, routeFrom, type PieceDef } from "../track";
 import { BookingTable } from "./bookings";
-import { topologyOf, trainLength, type Topology } from "../economy/sections";
+import { CHECK_TICKS, topologyOf, trainLength, type Topology } from "../economy/sections";
 import type { InvariantWorld } from "../sim/invariants";
 import { waysFrom } from "./graph";
 import { planChoice, planWay, ROUTE_COSTS } from "./plan";
@@ -51,8 +51,8 @@ import { planChoice, planWay, ROUTE_COSTS } from "./plan";
 export const KINDS = ["held-free", "ran-unbooked", "shared-points", "shared-piece", "green-unbooked", "red-booked", "held-on-points", "follow-close", "strayed"] as const;
 export type Kind = (typeof KINDS)[number];
 
-/** Books afresh every this many ticks (as sections' asks: 10 a second). */
-export const CHECK_TICKS = 12;
+/** Books afresh every this many ticks: sections' own, as their asks (10 a second). */
+export { CHECK_TICKS };
 /** How long (s) a train stands, free to go by the core, before it's a disagreement. */
 export const HELD_FREE_S = 5;
 /** The most pieces one booking walks (the doc's `RESERVE_MAX`): past it, no waiting point near enough. */

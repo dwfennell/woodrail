@@ -7,6 +7,7 @@ import { CARGO, CARRIES, type CargoKind } from "../economy/cargo";
 import { needsWagonText, wagonWords } from "../economy/wagons";
 import { capAt, RECIPES, storeLetsOut, type DepotRole, type DepotState } from "../economy/economy";
 import type { CarKind } from "../sim";
+import { listed } from "../lib/words";
 
 /** The industries on Sandbox's Industries tab, by the tray's names (what "place one" points at). */
 export const MAKER_LABEL: Partial<Record<DepotRole, string>> = {
@@ -142,8 +143,7 @@ export function chainOf(d: DepotState, all: readonly DepotState[], placeOf: Plac
 
 /** "logs", "flour and milk", "coal, ore and iron". */
 export function goodsList(kinds: readonly CargoKind[]): string {
-  const w = kinds.map(goodsWord);
-  return w.length <= 1 ? (w[0] ?? "") : `${w.slice(0, -1).join(", ")} and ${w[w.length - 1]}`;
+  return listed(kinds.map(goodsWord));
 }
 
 /** The status line: "Working", "Waiting for logs", "Full of planks: a train can take them". */

@@ -63,3 +63,13 @@ export function iconCounts(bag: Bag): string {
 export function aOrAn(noun: string): string {
   return `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
 }
+
+/** Add `n` of `kind` into `bag`, in place. */
+export function addTo(bag: Bag, kind: CargoKind, n: number): void {
+  bag[kind] = (bag[kind] ?? 0) + n;
+}
+
+/** Add every good of `more` into `bag`, in place (`plus`, without a new bag). */
+export function addInto(bag: Bag, more: Bag): void {
+  for (const k of kindsOf(more)) bag[k] = (bag[k] ?? 0) + more[k]!;
+}

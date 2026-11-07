@@ -1,5 +1,6 @@
 import { connectorRef, indexOfRef, pieceOfRef, type Layout } from "./layout";
 import { getPieceDef, setWayAt, wayAt, type PieceDef } from "./pieces";
+import { pathLength } from "./path";
 
 export interface RouteStep {
   pieceId: number;
@@ -69,4 +70,10 @@ export function pointsWayFrom(layout: Layout, pieceId: number, entry: number, co
 export function pointsStateFor(layout: Layout, pieceId: number, entry: number, option: number): number {
   const piece = layout.getPiece(pieceId);
   return piece ? setWayAt(getPieceDef(piece.type, piece.flipped), layout.switchState(pieceId), entry, option) : option;
+}
+
+/** The length (mm) of one of a piece's paths, by piece id (the piece must be on the layout). */
+export function pathLengthOf(layout: Layout, pieceId: number, path: number): number {
+  const p = layout.getPiece(pieceId)!;
+  return pathLength(getPieceDef(p.type, p.flipped).paths[path].geom);
 }

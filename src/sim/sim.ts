@@ -15,6 +15,7 @@ import {
 } from "./cursor";
 import { nearestCursor } from "./nearest";
 import { cleanEngineName, pickEngineName } from "./engine-names";
+import { driveOf, trainLength } from "./train-cars";
 
 export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
@@ -1514,8 +1515,7 @@ export class Sim {
     const b = this.trainByKey(h.by);
     // (Not a train on a lift or a turntable's deck: that's a ride, waited for, not the end of the line.)
     if (!b || b.derailed || b.speed > 0 || this.onLift(b) || (this.rides.size > 0 && this.riding(b))) return;
-    let net = 0;
-    for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
+    const net = driveOf(train);
     if (net <= 0) return;
     let len = 0;
     for (const c of b.cars) len += CAR_SPECS[c.kind].length;
@@ -2364,8 +2364,7 @@ export class Sim {
   private move(train: Train): void {
     // A toy, not a simulation: with its lever on a train runs at the one speed (slopes and loads don't change it),
     // easing up to it and, lever off, easing to a stop.
-    let net = 0;
-    for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
+    const net = driveOf(train);
     let target = net === 0 ? 0 : Math.sign(net) * (this.topSpeed ? this.topSpeed(train) : ENGINE_SPEED);
     // (A rack engine's train climbs a rack slowly, its cog clacking round.)
     if (target !== 0 && this.mayRack !== null && this.onRack(train)) target *= RACK_SLOW;
@@ -2861,19 +2860,10 @@ export const BRIDGE_UP_S = 5;
 /** How fast a train may go to stop within `d` mm (as at a red signal). */
 const brakeTo = (d: number): number => (d < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (d - 0.5)));
 
-/** A train's length, buffer face to buffer face (mm). */
-function trainLength(t: Train): number {
-  let n = 0;
-  for (const c of t.cars) n += CAR_SPECS[c.kind].length;
-  return n + COUPLER_GAP * Math.max(0, t.cars.length - 1);
-}
+
 
 /** Which way a train's engines drive it: + toward its front, − its back, 0 not at all (levers off). */
-function drive(t: Train): number {
-  let net = 0;
-  for (const car of t.cars) if (car.kind === "engine") net += car.lever * car.facing;
-  return net;
-}
+const drive = driveOf;
 
 /** A signal's key: its piece and which of the piece's paths (roads) it guards (as many as it has connectors, at most). */
 export const signalKey = (pieceId: number, road: number): number => pieceId * MAX_CONNECTORS + road;

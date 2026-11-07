@@ -14,12 +14,13 @@
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
 import { connectorRef, getPieceDef, junction, leverPoints, masksFoul, overlaps, pairLeverState, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, COUPLER_GAP, CoverIndex, engineOf, flipCursor, trainKey, trainOn, UnderCache, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, CAR_SPECS, CoverIndex, engineOf, flipCursor, trainKey, trainOn, UnderCache, type Cursor, type Sim, type Train } from "../sim";
 import { BookingTable } from "./bookings";
 import { STAND_SHORT } from "../economy/sections";
 import { next, walkOn, waysFrom, type PinnedTest } from "./graph";
 import { planWay, WayMemory } from "./plan";
 import { mouthWay } from "./dead-ends";
+import { trainLength } from "../sim/train-cars";
 
 /** How often (sim ticks) routed trains ask for the points ahead. */
 const STEER_TICKS = 8;
@@ -1304,12 +1305,6 @@ export class Router {
   }
 }
 
-/** A train's length (mm), as a clear point must hold it (as sections measure it). */
-function trainLength(train: Train): number {
-  let len = 0;
-  for (const c of train.cars) len += CAR_SPECS[c.kind].length;
-  return len + COUPLER_GAP * Math.max(0, train.cars.length - 1);
-}
 
 const NO_HOLDERS: ReadonlySet<number> = new Set();
 

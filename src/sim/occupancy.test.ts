@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout } from "../track";
-import { CoverIndex, engineOf, isOn, trainOn, underByEnds } from "./occupancy";
+import { CoverIndex, isOn, trainOn, underByEnds } from "./occupancy";
+import { engineOf } from "./train-cars";
 import { walkTrack } from "./track-walk";
 import { ADV_BUFFER, ADV_OK, ADV_OPEN_END } from "./cursor";
 import { Sim } from "./sim";

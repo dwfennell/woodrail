@@ -20,6 +20,7 @@ import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone, type ViaProgress } from "./via";
 import { INVARIANTS, Invariants, type Invariant, type InvariantWorld } from "../sim/invariants";
+import { driveOf } from "../sim/train-cars";
 
 export { INVARIANTS, type Invariant };
 
@@ -152,11 +153,7 @@ function fnv(s: string, h = 0x811c9dc5): number {
 }
 
 /** A train's net drive toward its front (as `Economy.drive`). */
-function drive(train: Train): number {
-  let net = 0;
-  for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
-  return net;
-}
+const drive = driveOf;
 
 /** A running scenario: the world, the stand-ins for the economy, and the invariants' state. */
 export class HarnessRun implements InvariantWorld {

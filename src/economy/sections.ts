@@ -1,9 +1,10 @@
-import { connectorRef, getPieceDef, indexOfRef, offersChoice, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { connectorRef, getPieceDef, indexOfRef, offersChoice, pathLength, pathLengthOf, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, SIM_HZ, trainOn, type Cursor, type Sim, type Train } from "../sim";
 import { next, SEARCH, walkOn, waysFrom } from "../routing/graph";
 import { plan, planWay, type KeepTest } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
 import { deadEndsOf, mouthWay } from "../routing/dead-ends";
+import { engineOf, trainLength } from "../sim/train-cars";
 
 /**
  * Sections and slots: trains that wait for each other on single track (token working; a line's own, and lines sharing
@@ -239,10 +240,7 @@ interface TrainState {
 const NONE_PINNED = () => false;
 const MAX_ROAD = 40;
 
-function lengthOfPath(layout: Layout, pieceId: number, path: number): number {
-  const p = layout.getPiece(pieceId)!;
-  return pathLength(getPieceDef(p.type, p.flipped).paths[path].geom);
-}
+const lengthOfPath = pathLengthOf;
 
 function roadTo(layout: Layout, pieceId: number, exit: number): { switchId: number; entry: number; pieces: number[]; length: number } | null {
   const pieces: number[] = [];
@@ -528,12 +526,8 @@ export function topologyOf(layout: Layout, trainLength: number): Topology {
   return t;
 }
 
-/** A train's length (mm), buffer face to buffer face. */
-export function trainLength(train: Train): number {
-  let len = 0;
-  for (const c of train.cars) len += CAR_SPECS[c.kind].length;
-  return len + COUPLER_GAP * Math.max(0, train.cars.length - 1);
-}
+/** A train's length (mm), buffer face to buffer face (`sim/train-cars.ts`; kept here for its importers). */
+export { trainLength };
 
 // --- The controller ---------------------------------------------------------------------------------------------
 
@@ -2947,9 +2941,7 @@ const NO_NETWORK: ReadonlyMap<number, { topo: Topology; lines: readonly number[]
  * The id a train not on the line is named by in waits: its (first) engine's, so it can be looked up (its line, its
  * card), whichever way round it runs: its first car is a wagon once it's reversed. Its first car when it has none.
  */
-function nameOf(t: Train): number {
-  return t.cars.find((c) => c.kind === "engine")?.id ?? t.cars[0].id;
-}
+const nameOf = engineOf;
 
 /** A piece's slot (its id) or section (−1 − its id), as one number; null for a piece in neither. */
 function regionOf(topo: Topology, pieceId: number): number | null {

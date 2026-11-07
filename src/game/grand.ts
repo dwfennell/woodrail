@@ -1,5 +1,5 @@
 import type { CargoKind } from "../economy/cargo";
-import { kindsOf, total, type Bag } from "../economy/goods";
+import { addInto, type Bag, kindsOf, total } from "../economy/goods";
 import type { Landscape, Town } from "../landscape";
 import { checkProp, TrackIndex, type Footprint } from "../props/placement";
 import type { PropPose } from "../props/store";
@@ -536,7 +536,7 @@ export function giveExhibition(world: Pick<World, "economy">, land: Landscape, s
     const gift = exhibitionGift(s.level, s.wants, s.got);
     if (kindsOf(gift).length === 0) continue;
     const bag = world.economy.grandGift.get(t.id) ?? {};
-    for (const k of kindsOf(gift)) bag[k] = (bag[k] ?? 0) + gift[k]!;
+    addInto(bag, gift);
     world.economy.grandGift.set(t.id, bag);
     given.push(t.id);
   }
