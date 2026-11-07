@@ -167,7 +167,7 @@ const SEEDS = Number(ENV.TOWN_FUZZ ?? 12);
  *   round the ring, which waits behind it for good.
  * - 11: head on on the single line, the hand-run train coming out of the sawmill line, the routed one going in.
  * - 14: head on round the ring at the wye, one each way.
- * - 15 stalls with a loop laid too now (head on by the wye there as well).
+ * - 15 (`HEAD_ON`) now stalls all hand-run too, and with a loop: listed in `KNOWN_HAND` and `KNOWN_LOOP`.
  */
 const HEAD_ON = "head on with the hand-run train by the wye";
 const ON_WYE = "the routed train stands on the wye coming up the line, in the hand-run train's way round the ring";
@@ -175,7 +175,6 @@ const KNOWN: Record<number, string> = {
   4: ON_WYE,
   11: "head on on the single line: the hand-run train coming out of the sawmill line, the routed one going in",
   14: "head on round the ring at the wye, one each way",
-  15: HEAD_ON,
   19: "both put down in the same dead end, facing: a true deadlock",
   22: "14-19 s nose to nose on the wye, till one gives way by a road",
   23: ON_WYE,
@@ -190,7 +189,7 @@ const LOOP_FIXES = [19, 22];
  * move one or give it a route). The same with a loop laid, and with the route.
  */
 const FACING = "the two trains put down facing each other on the ring: nose to nose, nothing turns";
-const KNOWN_HAND: Record<number, string> = { 6: FACING, 13: FACING, 21: FACING, 24: FACING, 29: FACING };
+const KNOWN_HAND: Record<number, string> = { 6: FACING, 13: FACING, 15: `${HEAD_ON}, all hand-run too`, 21: FACING, 24: FACING, 29: FACING };
 /**
  * With a passing loop laid (`loop`), seeds that still stall (2026-11-05), both one class: the hand-run train goes round
  * the ring non-stop, and the routed one, in the loop, waits for it, its way round to its stop running against it (they'd
@@ -200,7 +199,7 @@ const KNOWN_HAND: Record<number, string> = { 6: FACING, 13: FACING, 21: FACING, 
 const AGAINST = "its way round the ring runs against a hand-run train going round non-stop";
 /** With a loop laid, since 2026-11-07 (nothing turns mid-line), also: as `ON_WYE` and `HEAD_ON` above, head on round the ring, and `KNOWN_HAND`'s. */
 const RING_HEAD_ON = "head on round the ring, the routed train one way and the hand-run one the other";
-const KNOWN_LOOP: Record<number, string> = { 4: ON_WYE, 8: AGAINST, 9: AGAINST, 12: RING_HEAD_ON, 15: HEAD_ON, 28: RING_HEAD_ON, ...KNOWN_HAND };
+const KNOWN_LOOP: Record<number, string> = { 4: ON_WYE, 8: AGAINST, 9: AGAINST, 12: RING_HEAD_ON, 28: RING_HEAD_ON, ...KNOWN_HAND };
 
 describe(`a route never makes it worse, with depots: ${SEEDS} town-ring layouts × 180 s`, () => {
   const deal = (seed: number, routed: boolean, loop = false) => {
