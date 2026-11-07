@@ -53,22 +53,29 @@ const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), 
 
 /** Tap the middle of the first visible element matching `selector` (scrolled into view first). */
 const tap = async (selector) => {
-  const at = await p.evaluate((selector) => {
-    const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
-    if (!el) return null;
-    el.scrollIntoView({ block: "center" });
+  // (Found again after its scroll: a card redraws a row when what it shows changes (coins, a month on), and the button
+  // found before may have gone. A few tries, then false: the caller's own wait says what didn't happen.)
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const at = await p.evaluate((selector) => {
+      const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
+      if (!el) return null;
+      el.scrollIntoView({ block: "center" });
+      return true;
+    }, selector);
+    if (!at) return false;
+    await p.waitForTimeout(250);
+    const again = await p.evaluate((selector) => {
+      const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    }, selector);
+    if (!again) continue;
+    await p.touchscreen.tap(again.x, again.y);
+    await p.waitForTimeout(600);
     return true;
-  }, selector);
-  if (!at) return false;
-  await p.waitForTimeout(250);
-  const again = await p.evaluate((selector) => {
-    const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
-    const r = el.getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-  }, selector);
-  await p.touchscreen.tap(again.x, again.y);
-  await p.waitForTimeout(600);
-  return true;
+  }
+  return false;
 };
 
 const openGame = async () => {
