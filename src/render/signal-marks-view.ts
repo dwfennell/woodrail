@@ -4,7 +4,7 @@
  * out again only when the marks, the track or an aspect changed (`sync` returns true then: the caller redraws). And the
  * block tint shown while a signal is held or its card is open: one mesh, built when its joint changes.
  */
-import { BoxGeometry, ExtrudeGeometry, Shape, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DoubleSide, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Object3D, SphereGeometry, Vector3, type Camera, type Material } from "three";
+import { BoxGeometry, ExtrudeGeometry, Shape, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DoubleSide, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Object3D, Vector3, type Camera, type Material } from "three";
 import { createSample, getPieceDef, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceTypeId } from "../track";
 import { jointPose, postAt, type Block, type JointPose } from "../game/signal-place";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -36,12 +36,6 @@ const RED_Y = TOY_HEIGHT - 6;
 const GREEN_Y = TOY_HEIGHT - 16;
 /** The lenses lean back this far (rad) toward the sky, so a camera above sees into them (signals audit U1). */
 const LENS_TILT = Math.PI / 6;
-/**
- * The lamp on top of the head: a dome lit with the aspect shown, the head's own knob made a lamp (signals audit U1:
- * from the high angle a phone is held at, the lenses on the head's face were edge on and the aspect couldn't be seen).
- * Nearly twice the old knob's width, so it reads zoomed out. Part of the lit lens's geometry: no draw of its own.
- */
-const TOP_LAMP_R = 4.8;
 /**
  * The chevron on the ground by the post's foot, on its far side from the track, pointing the way the signal guards, lit
  * with its aspect (signals audit U2: a pair was two dark boxes, and which faced which way couldn't be told). Its
@@ -153,11 +147,12 @@ function toyLight(mats: Materials): Part[] {
   const lit = (geometry: BufferGeometry, material: Material, role: "red" | "green"): Part => ({ geometry, material, frame: at, role, shadow: false });
   // (A lens: a short disc, its face toward −x, where trains come from, leaning back toward the sky.)
   const lens = (r: number, y: number, x: number) => new CylinderGeometry(r, r, 1.6, 16).rotateZ(Math.PI / 2).rotateZ(-LENS_TILT).translate(x, y, 0);
-  // (A lit lamp: its lens and the dome on top, one geometry, so the aspect shows from above and from the side in one draw.)
-  const dome = () => new SphereGeometry(TOP_LAMP_R, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, TOY_HEIGHT, 0);
+  // (A lit lamp: its lens and the chevron by the foot, one geometry, one draw. Only the front lights: no lamp on top of
+  // the head; the user, of the dome the audit's U1 had put there: "the lights on top we can get rid of... just the
+  // front-facing lights are fine".)
   const lamp = (y: number) => {
     const arrow = chevron().translate(CHEVRON_TIP, 0, CHEVRON_OUT);
-    const g = mergeGeometries([lens(LENS_R + 0.3, y, headX - 1.2).toNonIndexed(), dome().toNonIndexed(), arrow.toNonIndexed()]);
+    const g = mergeGeometries([lens(LENS_R + 0.3, y, headX - 1.2).toNonIndexed(), arrow.toNonIndexed()]);
     if (!g) throw new Error("signal lamp: geometries don't merge");
     return g;
   };
