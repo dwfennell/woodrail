@@ -39,7 +39,7 @@ ref.
 4. Release (above). The first butler push makes an `html5` channel. On the project's edit page, mark that
    upload as played in the browser and delete the hand-uploaded zip.
 
-The page's cover, screenshots, banner and embed background are in `itch-assets/` (screenshots under itch's 3 MB limit).
+The page's cover, screenshots, banner and embed background are in `itch-assets/` (screenshots under itch's 3 MB limit). The embed background (`embed-bg.jpg`, the starter line with the World's Fair wheel and the airship) is made by `tools/shots/embed-bg.mjs`; its header has the command.
 
 ## How the build differs
 
