@@ -14,6 +14,11 @@ could take a look at the OpenTTD routing code for inspiration."
 liveness check, known lists) and step 2 (the reservation table in shadow, `src/routing/shadow.ts`, and
 `npm run shadow:report`). Step 1 is built on its own branch. What each found is in §4.1 below.
 
+**Built (2026-11-07, the user: "Yes absolutely. And let's try to centralize this code"):** step 1 merged in, step 2b
+(the shadow corrected) and the first part of step 3 (a train keeps the track under it; points and crossings under
+another train's car are refused). The shared modules: `track/points.ts`, `sim/track-walk.ts`, `sim/occupancy.ts`,
+`routing/bookings.ts`, and `walkOn` in `routing/graph.ts`. What each found is in §4.2.
+
 **Sources.** OpenTTD's source on GitHub (master, read 2026-11-07 through raw.githubusercontent.com): `src/pbs.cpp`,
 `src/pbs.h`, `src/signal.cpp`, `src/train_cmd.cpp`, `src/pathfinder/yapf/yapf_rail.cpp`,
 `src/pathfinder/yapf/yapf_costrail.hpp`, `src/pathfinder/follow_track.hpp`, and
@@ -597,6 +602,52 @@ are useful even if we stop there: they make today's bugs visible and measured.
   maps' 600 s replays match too (`scripts/trajectory`).
 - **Not done:** keeping train ids across a turn round (step 0's table). It would change the trajectory hashes, so it
   moves to step 3. The shadow keys trains by their first engine's car id, which survives a turn.
+
+### 4.2 Steps 2b and 3 (2026-11-07)
+
+**What changed for trains (step 3):**
+- Every train holds the pieces and paths its cars cover, buffer face to buffer face (`routing/bookings.ts`, filled by
+  `sim/occupancy.ts`'s `UnderCache`; §6 F1, F8). The router reads it: a routed or hand-run train asking for points,
+  or coming to a crossing or trailing points, that another train's car is over on a road that fouls its own is
+  refused and waits short of them (the points-wait card). Before, it was let on and the sim's crossing guard stopped it
+  there, on the points (the `netActed` breaks).
+- A lock on points is let go once the last car's body is off them, not its last axle (F8).
+- A path signal shows what the *nearest* train coming to it sees (F2, a first part of step 4). Before, whichever train
+  looked first that tick: a farther train's red showed in front of a nearer one that held its way past, and it ran it.
+- Nothing else: no train turns, slots and sections are as they were.
+
+**Step 2b, the shadow:** booked by (piece, path) with an overlaps table (F3), a waiting point isn't free when the piece
+past it is another train's (F4), trains hold what their cars' ends cover (F8). The evidence test is
+`src/routing/shadow-units.test.ts`: on double track 1675 of 6000 bookings were refused by the other train; now none.
+The `heldFree` invariant (F6) runs the shadow beside the checks (opt-in: the fuzz and the bug maps).
+
+**Not done here, and why:**
+- **Stable train ids across a turn** (moved here in §4.1). Tried: economy state keyed by train id is meant to reset
+  on a turn (automatic servicing's done list, the school-run passes, kit-stop visits), and the goals play-through lost
+  two goals. `trainKey` can't go anyway: coupling and splitting change ids too. Left for step 5, with those maps moved
+  to keys that say what they mean ("this visit", "this pass").
+- **The router's locks as table holds.** The locks keep their own store (state, entry, holders) and the table holds
+  what's under trains; the locks move into it with step 5, when sections grant by booking.
+- **Signals showing the booking** (step 4), **the 1 s retry** and **saving bookings** (step 5, F6/F7): held trains
+  already re-ask a few times a second today (the router every 8 ticks, sections every 12), so a retry matters only
+  once asks are event-driven.
+
+**Numbers** (the merged base, steps 0-2 and 1, against step 3; same machine):
+
+| | before | after |
+|---|---|---|
+| `fuzz:long -- --seeds 40 --seconds 600` | 0 old invariants broken; 5 seeds stalled (7, 19, 34, 37, 39: a train too many); greenHeld on 37 (known) | the same 5 stalled, the same greenHeld; heldFree (new) on 22, 34, 37 |
+| bug maps (7, 300-600 s) | known: netActed ×2 (mill, #32), oneOwner (route-stuck) | netActed gone from both; heldFree (new) known on 4 |
+| sections QA known breaks | 2 | 1 (a spare put right behind a train in a loop road no longer runs onto its points) |
+| greenHeld long-fuzz list | 11 seeds | 9 (14 and 30 don't break on the merged base) |
+| shadow:report maps: shared-points | 9 (1 run) | 13 (1 run) (step 2b's car ends count more; 15 in 2 runs with 2b alone) |
+| shadow:report rings: follow-close | 16564 | 5480 (2b: a follower's nose and a leader's tail on one plain piece is shared-piece now, 303 → 1716) |
+| shadow:report signals: green-unbooked | 66 | 155 (2b: bookings never join, so more greens are seen with no booking behind them: step 4's class) |
+| router, busiest bug map (signal-added-still-stuck, 5 trains) | 6.6 µs a tick | 10.1 µs a tick |
+| sim + economy, same map | 193 µs a tick | 205 µs a tick (the trains move differently too; a profile puts the new code at about 1%) |
+
+A profile of that map says where a tick goes: sections' `loopsOn` and `line` are 22% of it, before and after. That is
+the next thing to make cheaper, and step 5 deletes most of it.
 
 ## 5. Summary for a non-programmer
 
