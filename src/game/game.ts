@@ -332,8 +332,10 @@ export class Game {
     setGpuOnlyEnabled(this.quality.tier === "mobile");
 
     // No MSAA on the canvas: the scene is drawn into the composer's (non-multisampled) targets, so it would only
-    // multisample the final full-screen copy.
-    this.renderer = new WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
+    // multisample the final full-screen copy. No depth buffer either: all that reaches the canvas is that full-screen
+    // pass (the lens: post.ts), never depth-tested, so its depth was only memory (4 bytes a pixel: 6 MB on a
+    // 1080×2424 phone at a pixel ratio of 2).
+    this.renderer = new WebGLRenderer({ canvas, antialias: false, depth: false, stencil: false, powerPreference: "high-performance" });
     this.resolution = new ResolutionGovernor(window.devicePixelRatio, this.quality.maxPixelRatio, this.quality.minPixelRatio);
     this.renderer.setPixelRatio(this.resolution.current);
     this.renderer.outputColorSpace = SRGBColorSpace;
