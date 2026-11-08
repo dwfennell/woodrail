@@ -7,7 +7,7 @@ const BOAT_ASSET = "veh-rowing-boat";
 /** The cargo ship that calls instead, once Cargo ships is learned (water spec §5). */
 const SHIP_ASSET = "water-cargo-ship";
 /** How high a boat floats: its hull sits in the felt water (1.6 thick). */
-const FLOAT_Y = 0.6;
+export const FLOAT_Y = 0.6;
 /** Room round a boat's middle for the whole of it (and its shadow) when asking if it's in view. */
 const BOAT_REACH = 120;
 /** A boat's length (mm), for the ambient rule: one drawn smaller than `AMBIENT_MIN_PX.boat` sails on unseen. */

@@ -10,7 +10,8 @@ import { weld } from "../compact";
 /** Beech tones (multiplied over the wood texture) so a hill reads as a stack of separate blocks. */
 export const BLOCK_TONES = ["#ffffff", "#f4e4cc", "#ead3b0", "#fbefdc", "#e2c7a0"];
 const GRASS_TONES = ["#ffffff", "#f1f7ea", "#e6f0dc"];
-const GAP = 0.8;
+/** Gap between neighbouring blocks (mm). */
+export const BLOCK_GAP = 0.8;
 const PAINT = 4;
 /**
  * The green tops' edge bevel (mm). Narrow: the bevel turned from the sun shades dark, and a wide one at every seam drew
@@ -162,13 +163,13 @@ export function shadowProxyMesh(geometry: BufferGeometry): Mesh {
 /** The geometry of a shadow stand-in (positions only), or null for nothing. */
 export function shadowProxyGeometry(slabs: readonly Slab[], round: readonly RoundBlock[] = []): BufferGeometry | null {
   const pieces: BufferGeometry[] = slabs.map((s) => {
-    const g = nonIndexed(new BoxGeometry(s.x1 - s.x0 - GAP, RISER_HEIGHT - GAP, s.z1 - s.z0 - GAP));
+    const g = nonIndexed(new BoxGeometry(s.x1 - s.x0 - BLOCK_GAP, RISER_HEIGHT - BLOCK_GAP, s.z1 - s.z0 - BLOCK_GAP));
     g.translate((s.x0 + s.x1) / 2, (s.level - 1) * RISER_HEIGHT + RISER_HEIGHT / 2, (s.z0 + s.z1) / 2);
     return g;
   });
   // Blocks with rounded corners cast rounded shadows.
   for (const b of round) {
-    const g = roundedChamferedBox(CELL - GAP, RISER_HEIGHT - GAP, CELL - GAP, 0.5, b.corners, CORNER_RADIUS - GAP / 2);
+    const g = roundedChamferedBox(CELL - BLOCK_GAP, RISER_HEIGHT - BLOCK_GAP, CELL - BLOCK_GAP, 0.5, b.corners, CORNER_RADIUS - BLOCK_GAP / 2);
     g.translate(b.x, (b.level - 1) * RISER_HEIGHT + RISER_HEIGHT / 2, b.z);
     pieces.push(g);
   }
@@ -209,16 +210,16 @@ export function blockMeshes(
 ): Group {
   const group = new Group();
   const k = size / CELL;
-  const w = size - GAP * k;
-  const h = height - GAP * k;
+  const w = size - BLOCK_GAP * k;
+  const h = height - BLOCK_GAP * k;
   const paintH = PAINT * k;
   // Rounded corners (see `HillShape.blockCorners`) follow the same circle with the gap taken off.
-  const round = (CORNER_RADIUS - GAP / 2) * k;
+  const round = (CORNER_RADIUS - BLOCK_GAP / 2) * k;
   const uv = (g: BufferGeometry, v: number) => scaleUv(g, w * BEECH_UV_SCALE.x, v * BEECH_UV_SCALE.y);
   const m = new Matrix4();
   const c = new Color();
   const scale = new Matrix4();
-  const foot = (GAP * k) / 2;
+  const foot = (BLOCK_GAP * k) / 2;
   // One pair of instanced draws per corner pattern in use.
   const byCorners = new Map<number, BlockSpot[]>();
   for (const b of blocks) {

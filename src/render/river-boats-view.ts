@@ -3,6 +3,7 @@ import { BULK, type Fleet } from "../game/boats";
 import type { BoatState, CargoKind } from "../economy";
 import { modelKey, type PropLibrary } from "./props/library";
 import { AMBIENT_MIN_PX, type AmbientEye } from "./ambient";
+import { FLOAT_Y } from "./boats-view";
 
 /** The tug's model, and each barge's by what it carries (the catalogue's water assets: src/catalogue/assets/water.ts). */
 const TUG = "water-river-tug";
@@ -14,8 +15,6 @@ const BARGE: Record<CargoKind | "empty", string> = {
   coal: "water-barge-coal",
   grain: "water-barge-grain",
 } as Record<CargoKind | "empty", string>;
-/** How high a boat floats: its hull sits in the felt water. */
-const FLOAT_Y = 0.6;
 /** Room round a tow's tug for the whole of it when asking if it's in view (mm). */
 const REACH = 200;
 /** A tug's length (mm), for the ambient rule: one drawn smaller than `AMBIENT_MIN_PX.boat` sails on unseen. */

@@ -8,11 +8,10 @@ import { buildCarModel } from "./train-models";
 import type { Materials } from "./materials";
 import { modelKey, type PropLibrary } from "./props/library";
 import { AMBIENT_MIN_PX, type AmbientEye } from "./ambient";
+import { FLOAT_Y } from "./boats-view";
 
 /** The ferry's model (src/catalogue/assets/water.ts). */
 const FERRY_ASSET = "water-train-ferry";
-/** How high it floats. */
-const FLOAT_Y = 0.6;
 /** Its deck track's rail top, less the cars' own wheel depth (as the cars stand on track: model units, mm). */
 const DECK_Y = 23;
 /** Where the train's front stops on the deck (the ferry's x, by its buffer). */

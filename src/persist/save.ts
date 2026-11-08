@@ -108,7 +108,7 @@ export function serializeWorld(world: World): SaveData {
   // (Points' defaults, where they differ from how the points are set: §3.4 of the routing spec.)
   const defaults = world.economy.router.save();
   // Depots on the map now (one whose industry piece was taken up is left out), numbered afresh.
-  const kept = world.economy.allDepots().filter((d) => world.layout.getPiece(d.pieceId));
+  const kept = world.economy.allDepots();
   const renumbered = new Map(kept.map((d, i) => [d.id, i]));
   // Lines, with their stops at depots still on the map (a line left with none isn't saved), and each engine's line and
   // the stop it heads for (counted among the kept stops). An engine on a route but no line (made in code) is saved

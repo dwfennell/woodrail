@@ -358,7 +358,7 @@ export function secondEngineTip(free: number, owned: number): string {
 }
 
 /** Does an industry of this kind stand on the map (restored from a ruin or built new)? */
-const hasIndustry = (w: World, role: SiteRole) => w.economy.allDepots().some((d) => d.role === role && !!w.layout.getPiece(d.pieceId));
+const hasIndustry = (w: World, role: SiteRole) => w.economy.allDepots().some((d) => d.role === role);
 
 /**
  * "Open a farm" (a quarry, a mine, a harbour): shown once its blueprint is learned, done when one stands on the map.
@@ -624,7 +624,7 @@ export const GOALS: readonly Goal[] = [
     ring: "kit-landing",
     check: (w) => ({ done: w.economy.boatDelivered > 0 }),
     guide: (w) => {
-      const landings = w.economy.allDepots().filter((d) => d.role === "landing" && w.layout.getPiece(d.pieceId));
+      const landings = w.economy.allDepots().filter((d) => d.role === "landing");
       if (landings.length === 0) return { ...guideTrains(w), tab: "industries", shelf: "Water" };
       const at = landings.map((d) => piecePoint(w, d.pieceId));
       return { points: at, towns: [], marks: at };

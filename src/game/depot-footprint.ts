@@ -2,7 +2,7 @@ import type { DepotRole } from "../economy";
 import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SECRET, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
 import { footprintCorners, footprintsOverlap, inFootprint, scaleFootprint, standsAside, type Footprint } from "../props/placement";
 import type { Prop, PropStore } from "../props/store";
-import { DEPOT_LAYOUT } from "../render/depot-view";
+import { DEPOT_LAYOUT, GANTRY_HALF } from "../render/depot-view";
 import { createSample, findOverlap, findSplice, getPieceDef, ignores, isPlainStraight, kitOf, straightLength, normalizeAngle, pathLength, samplePath, TRAIN_CLEARANCE, type Ignore, type KitDef, type Layout, type PieceTypeId, type Pose } from "../track";
 import { DEPOT_NAMES, INDUSTRY_ROLE, type World, fixedPieces } from "./world";
 
@@ -57,11 +57,9 @@ interface YardShape {
 }
 
 /** Sample spacing over a yard (mm): under a quarter square, so a hill block's rounded corner can't slip between. */
-const STEP = 12;
+export const YARD_STEP = 12;
 /** Samples stand this far in from the edges (mm), so ground that only meets the yard's edge leaves it clear. */
-const INSET = 2;
-/** A gantry's legs stand this far either side of its beam's middle (see depot-view). */
-const GANTRY_HALF = 70;
+export const YARD_INSET = 2;
 const LEG = 3;
 /** Ground this much over the track's base (mm) is a hill in the yard's way. */
 const HILL_SLACK = 0.5;
@@ -152,12 +150,12 @@ function shapeFrom(parts: YardPart[], wetFrom: number): YardShape | null {
     reach = Math.max(reach, Math.hypot(Math.abs(p.cx) + p.hw, Math.abs(p.cz) + p.hd));
     // (Nothing on the ground is in an overhead part's way: no samples.)
     if (p.overhead) continue;
-    const t0 = p.cx - p.hw + INSET;
-    const l0 = p.cz - p.hd + INSET;
-    const w = Math.max(0, 2 * (p.hw - INSET));
-    const d = Math.max(0, 2 * (p.hd - INSET));
-    const nt = Math.max(1, Math.ceil(w / STEP));
-    const nl = Math.max(1, Math.ceil(d / STEP));
+    const t0 = p.cx - p.hw + YARD_INSET;
+    const l0 = p.cz - p.hd + YARD_INSET;
+    const w = Math.max(0, 2 * (p.hw - YARD_INSET));
+    const d = Math.max(0, 2 * (p.hd - YARD_INSET));
+    const nt = Math.max(1, Math.ceil(w / YARD_STEP));
+    const nl = Math.max(1, Math.ceil(d / YARD_STEP));
     for (let i = 0; i <= nt; i++) {
       for (let k = 0; k <= nl; k++) {
         pts.push(t0 + (w * i) / nt, l0 + (d * k) / nl);
@@ -197,7 +195,7 @@ function pieceShape(type: PieceTypeId, flipped: boolean): PieceShape {
   if (def.paths.length === 0) for (const [x, z] of [[0, 0], [14, 14], [14, -14], [-14, 14], [-14, -14]]) pts.push(x, z, 0);
   for (const path of type === "joiner" ? [] : def.paths) {
     const len = pathLength(path.geom);
-    const n = Math.max(1, Math.ceil(len / STEP));
+    const n = Math.max(1, Math.ceil(len / YARD_STEP));
     for (let i = 0; i <= n; i++) {
       samplePath(path.geom, (len * i) / n, sample);
       pts.push(sample.x, sample.z, sample.y);

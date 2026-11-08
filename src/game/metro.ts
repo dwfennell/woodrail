@@ -130,7 +130,7 @@ export function metroDraw(world: World, seconds: number, clock: Map<number, numb
     let s = (clock.get(id) ?? 0) + seconds;
     while (s >= METRO_COAL_SECONDS) {
       s -= METRO_COAL_SECONDS;
-      const station = world.economy.allDepots().find((d) => d.role === "power" && world.layout.getPiece(d.pieceId) && d.piles[coal] > 0);
+      const station = world.economy.allDepots().find((d) => d.role === "power" && d.piles[coal] > 0);
       if (station) station.piles[coal]--;
     }
     clock.set(id, s);

@@ -5,6 +5,7 @@ import { createSample, getPieceDef, kitOf, pathLength, samplePath, TRACK_WIDTH, 
 import { MAX_REACH } from "./town-growth";
 import { lotFor, movableBuilding, moveBuilding, type LotChecker, type TownLot } from "./town-moves";
 import type { World } from "./world";
+import { YARD_INSET, YARD_STEP } from "./depot-footprint";
 
 /**
  * Game mode, Big stations learned: a town's station upgraded in place to a big station's kit (the user: "upgrade
@@ -32,9 +33,6 @@ export interface UpgradePlan {
   readonly covered: readonly number[];
 }
 
-/** Sample spacing over the kit (mm), and how far in from its edges (as yards are sampled). */
-const STEP = 12;
-const INSET = 2;
 const sample = createSample();
 
 /** The squares a big station's kit at `pose` stands on: its platforms and buildings, and its roads. */
@@ -50,18 +48,18 @@ export function coveredCells(land: Landscape, type: PieceTypeId, pose: Pose): nu
   };
   for (const r of kit?.footprint ?? []) {
     if (r.overhead) continue;
-    const w = Math.max(0, r.w - 2 * INSET);
-    const d = Math.max(0, r.d - 2 * INSET);
-    const nt = Math.max(1, Math.ceil(w / STEP));
-    const nl = Math.max(1, Math.ceil(d / STEP));
+    const w = Math.max(0, r.w - 2 * YARD_INSET);
+    const d = Math.max(0, r.d - 2 * YARD_INSET);
+    const nt = Math.max(1, Math.ceil(w / YARD_STEP));
+    const nl = Math.max(1, Math.ceil(d / YARD_STEP));
     for (let i = 0; i <= nt; i++) for (let k = 0; k <= nl; k++) add(r.t - w / 2 + (w * i) / nt, r.l - d / 2 + (d * k) / nl);
   }
-  const half = TRACK_WIDTH / 2 - INSET;
+  const half = TRACK_WIDTH / 2 - YARD_INSET;
   for (const path of getPieceDef(type, false).paths) {
     const len = pathLength(path.geom);
-    const n = Math.max(1, Math.ceil(len / STEP));
+    const n = Math.max(1, Math.ceil(len / YARD_STEP));
     for (let i = 0; i <= n; i++) {
-      samplePath(path.geom, INSET + ((len - 2 * INSET) * i) / n, sample);
+      samplePath(path.geom, YARD_INSET + ((len - 2 * YARD_INSET) * i) / n, sample);
       const ac = -Math.sin(sample.heading);
       const as = Math.cos(sample.heading);
       for (const l of [-half, 0, half]) add(sample.x + ac * l, sample.z + as * l);
