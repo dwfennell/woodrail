@@ -149,6 +149,7 @@ import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
 import { CloudCard } from "./ui/cloud-card";
+import { titleOffers, type TitleOffer } from "./persist/cloud-known";
 import { Snapshots } from "./stats/snapshots";
 import { pageStats } from "./stats/stats";
 import { gpuOnlyEnabled } from "./render/gpu-only";
@@ -276,7 +277,7 @@ const cloud = ((): CloudSync | null => {
   const url = import.meta.env.VITE_CLOUD_URL as string | undefined;
   if (!url || !cloudSupported()) return null;
   try {
-    return new CloudSync({ backend: new WorkerBackend(url, __BUILD_ID__ || "dev"), storage: localStorage, keys: { sandbox: modeKeys("sandbox"), game: modeKeys("game") }, saveVersion: SAVE_VERSION, merge: gameMerger(PROGRESS_KEYS) });
+    return new CloudSync({ backend: new WorkerBackend(url, __BUILD_ID__ || "dev"), storage: localStorage, keys: { sandbox: modeKeys("sandbox"), game: modeKeys("game") }, saveVersion: SAVE_VERSION, merge: gameMerger(PROGRESS_KEYS), auto: true });
   } catch {
     // No storage.
     return null;
@@ -1467,6 +1468,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * trains rolling on isn't an edit.
    */
   function scheduleSave(kind: EditKind = "layout"): void {
+    // (The first time the player builds, cloud saves come on by themselves, unless they turned them off: an edit of
+    // theirs, one they could undo. A new map, the game's own deliveries and growth, aren't.)
+    if (kind === "layout" && editor.canUndo) cloud?.autoOn();
     cloud?.edited(mode, kind);
     if (kind === "layout" && mode === "game") snapshots.edited(goalDone, () => goals.doneCount);
     clearTimeout(saveTimer);
@@ -1615,7 +1619,59 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     newGameSheet.open({ mode: next, seed: newMapSeed(next === "game"), roll: () => newMapSeed(false), warn, start });
   }
   // The title's New game and New map ask what the map's to be like first (the new-game screen), then make it.
-  const title = new TitleScreen(document.body, { play: (next, fresh) => (fresh ? askNewMap(next, undefined, (c, seed) => play(next, true, c, seed)) : play(next, false)), loadCloud }, { thumbnails });
+  const title = new TitleScreen(document.body, { play: (next, fresh) => (fresh ? askNewMap(next, undefined, (c, seed) => play(next, true, c, seed)) : play(next, false)), loadCloud, continueCloud: cloud ? continueCloud : undefined }, { thumbnails });
+
+  /** The cloud railways the title offers (cloud-known.ts), from what's remembered: no waiting on the cloud. */
+  function showCloudOffers(): void {
+    if (cloud) title.setCloudOffers(titleOffers(cloud.known.list(), cloud.currentCode(), SAVE_VERSION));
+  }
+  /** The remembered codes asked of the cloud again, once a page, in the background: the offers redrawn if they changed. */
+  let knownRefreshed = false;
+  function refreshCloudOffers(): void {
+    showCloudOffers();
+    if (!cloud || knownRefreshed) return;
+    knownRefreshed = true;
+    void cloud.refreshKnown().then((changed) => changed && title.shown && showCloudOffers(), () => {});
+  }
+
+  /**
+   * The title's "Continue from cloud": under the code in use, the mode's copy checked again with the start-up check's
+   * rules (newer wins, the other kept as the backup); under a code used before, that code taken up again (this device's
+   * railways kept as backups), as the cloud card's Load does. Either way the game starts again on what storage holds.
+   */
+  async function continueCloud(offer: TitleOffer): Promise<string | void> {
+    if (!cloud) return;
+    const offline = "Can't reach the cloud right now. Try again soon.";
+    if (offer.current) {
+      const res = await cloud.takeNewer(offer.mode);
+      if (!res.ok) return res.error === "offline" ? offline : res.error === "newer" ? "Saved by a newer version of the game: update this one first" : "Still saving: try again in a moment";
+      if (res.changed) {
+        try {
+          if (res.note) sessionStorage.setItem(CLOUD_NOTE_KEY, JSON.stringify({ mode: offer.mode, note: res.note }));
+        } catch {
+          // (Not said.)
+        }
+        reloadInto(offer.mode);
+        return;
+      }
+      // (This device's own was the later: nothing taken, nothing lost.)
+      if (res.note) cloudNotes[offer.mode] = res.note;
+      play(offer.mode, false);
+      return;
+    }
+    const res = await cloud.useCode(offer.code);
+    if (res.ok) {
+      reloadInto(res.took.includes(offer.mode) ? offer.mode : (res.took[0] ?? offer.mode));
+      return;
+    }
+    if (res.error === "nothing") {
+      cloud.known.forget(offer.code);
+      // (Redrawn a moment later: the message is read first.)
+      setTimeout(showCloudOffers, 4000);
+      return "That railway isn't saved online any more";
+    }
+    return res.error === "newer" ? "Saved by a newer version of the game: update this one first" : offline;
+  }
 
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
   let pausedBeforeTitle = false;
@@ -1638,6 +1694,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // ended on the card round it and did nothing (QA).)
     title.root.classList.add("placing");
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
+    refreshCloudOffers();
     // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
     toys?.showTrainOnly();
     settleHop();
@@ -1748,6 +1805,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     pausedBeforeTitle = game.paused;
     game.paused = true;
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
+    refreshCloudOffers();
   }
 
   // Game mode's goals: checked about once a second and after every change to the track.

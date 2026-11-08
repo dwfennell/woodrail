@@ -127,7 +127,7 @@ export class CloudCard {
       }),
       this.done(),
     );
-    this.root.append(el("p", "cloud-text", "Keep your railway safe online, and carry on playing on another device."), this.loadRow(), row);
+    this.root.append(el("p", "cloud-text", this.cloud.turnedOff ? "Off: your railway is saved on this device only. Turn on to keep it safe online, and carry on playing on another device." : "Keep your railway safe online, and carry on playing on another device."), this.loadRow(), row);
   }
 
   /** The other railway a sync kept on this device (see `CloudSync.backupOf`; dated by its last edit), offered back. */
@@ -164,7 +164,7 @@ export class CloudCard {
       el("div", "cloud-status", statusText(this.cloud.status, Date.now())),
       el("div", "cloud-label", "Your code"),
       codeRow,
-      el("p", "cloud-text", "Type this code on your other device to carry on there. Only share it with people you'd let play your railway."),
+      el("p", "cloud-text", "Your railway saves online by itself as you play. Type this code on your other device to carry on there. Only share it with people you'd let play your railway."),
     );
     this.restoreChip();
     const kept = this.cloud.backupOf(this.h.mode()) !== null || this.cloud.backupOf(this.h.mode() === "game" ? "sandbox" : "game") !== null;

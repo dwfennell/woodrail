@@ -1,4 +1,5 @@
 import type { GameMode } from "../game/modes";
+import { describeRailway, KnownCodes, type CurrentCode } from "./cloud-known";
 import { newCode, parseCode } from "./sync-code";
 
 /**
@@ -11,6 +12,10 @@ import { newCode, parseCode } from "./sync-code";
  * Two copies of a railway that were both edited since they last matched: the one edited later wins, and the other is
  * kept on the device as a backup, to restore from the Cloud save card; one only edited elsewhere is simply taken. A
  * copy saved by a newer game than this one is never loaded nor written over.
+ *
+ * On by itself (`auto`): the first time the player builds (`autoOn`), a code is made for the device, and the railways go
+ * up with the next upload round. Turned off by the player, it stays off (`Meta.off`) till they turn it on again. Every
+ * code used is remembered (`known`, cloud-known.ts) with what was last seen of its copies, for the title screen.
  */
 
 export const UPLOAD_EVERY_MS = 30_000;
@@ -107,6 +112,8 @@ interface ModeMeta {
 interface Meta {
   code: string | null;
   modes: Record<GameMode, ModeMeta>;
+  /** Turned off by the player: never turned on again by itself (`autoOn`). */
+  off?: boolean;
 }
 
 export type CloudStatus =
@@ -130,6 +137,8 @@ export interface CloudOptions {
   /** Each mode's storage keys (`modeKeys`): the first is its autosave. */
   keys: Record<GameMode, string[]>;
   saveVersion: number;
+  /** Turn on by itself the first time the player builds (`autoOn`), unless they turned it off. */
+  auto?: boolean;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (t: unknown) => void;
@@ -138,6 +147,8 @@ export interface CloudOptions {
 export class CloudSync {
   private readonly o: Required<CloudOptions>;
   private meta: Meta;
+  /** The codes this device has used, and what was last seen of their copies (for the title screen). */
+  readonly known: KnownCodes;
   private timer: unknown = null;
   /** What was last sent of each mode's keys, so an unchanged railway isn't sent again. */
   private readonly sent: Record<GameMode, Map<string, string | null> | null> = { sandbox: null, game: null };
@@ -185,12 +196,16 @@ export class CloudSync {
   constructor(opts: CloudOptions) {
     this.o = {
       merge: null,
+      auto: false,
       now: () => Date.now(),
       setTimer: (fn, ms) => setTimeout(fn, ms),
       clearTimer: (t) => clearTimeout(t as number),
       ...opts,
     };
     this.meta = this.readMeta();
+    this.known = new KnownCodes(this.o.storage);
+    // (A code from before codes were remembered.)
+    if (this.meta.code && !this.known.get(this.meta.code)) this.known.used(this.meta.code, this.o.now());
     this._status = this.meta.code ? { kind: "saving" } : { kind: "off" };
   }
 
@@ -209,6 +224,7 @@ export class CloudSync {
   async start(): Promise<Partial<Record<GameMode, SyncNote>>> {
     const code = this.meta.code;
     if (!code) return {};
+    this.known.used(code, this.o.now());
     const notes = (await Promise.all(MODES.map((m) => this.reconcile(code, m, "start")))).map((n) => (n === "wait" ? null : n));
     const out: Partial<Record<GameMode, SyncNote>> = {};
     MODES.forEach((m, i) => notes[i] && (out[m] = notes[i]));
@@ -277,20 +293,99 @@ export class CloudSync {
     if (this.working) return null;
     this.working = true;
     try {
-      const code = newCode();
-      const was = this.meta.modes;
-      this.meta = { code, modes: { sandbox: freshMode(), game: freshMode() } };
-      for (const m of MODES) {
-        this.sent[m] = null;
-        const here = this.o.storage.getItem(this.o.keys[m][0]) !== null;
-        // (A railway's first copy up is all of it: the player's.)
-        this.meta.modes[m] = { ...freshMode(), dirty: here, layout: here, changedAt: here ? was[m].changedAt || this.o.now() : 0, layoutAt: here ? was[m].changedAt || this.o.now() : 0 };
-      }
-      this.writeMeta();
-      this.setStatus({ kind: "saving" });
+      const code = this.newCodeHere();
       await this.flush();
       return code;
     } finally {
+      this.working = false;
+    }
+  }
+
+  /**
+   * On by itself, the first time the player builds (the game's save after their edit), unless they turned it off: a
+   * code is made for this device, and its railways go up with the next upload round (`UPLOAD_EVERY_MS`), not at once.
+   * Cheap when there's nothing to do. True: it was turned on now.
+   */
+  autoOn(): boolean {
+    if (!this.o.auto || this.meta.code || this.meta.off || this.working) return false;
+    this.newCodeHere();
+    for (const m of MODES) if (this.meta.modes[m].dirty) this.arm();
+    return true;
+  }
+
+  /** Has the player turned cloud saves off (so they don't come on by themselves)? */
+  get turnedOff(): boolean {
+    return !this.meta.code && !!this.meta.off;
+  }
+
+  /** A new code for this device, and both its railways (those it has) waiting to go up. */
+  private newCodeHere(): string {
+    const code = newCode();
+    const was = this.meta.modes;
+    this.meta = { code, modes: { sandbox: freshMode(), game: freshMode() } };
+    for (const m of MODES) {
+      this.sent[m] = null;
+      const here = this.o.storage.getItem(this.o.keys[m][0]) !== null;
+      // (A railway's first copy up is all of it: the player's.)
+      this.meta.modes[m] = { ...freshMode(), dirty: here, layout: here, changedAt: here ? was[m].changedAt || this.o.now() : 0, layoutAt: here ? was[m].changedAt || this.o.now() : 0 };
+    }
+    this.writeMeta();
+    this.known.used(code, this.o.now());
+    this.setStatus({ kind: "saving" });
+    return code;
+  }
+
+  /** What the title screen needs to know of the code in use (`titleOffers`), or null: none. */
+  currentCode(): CurrentCode | null {
+    const code = this.meta.code;
+    if (!code) return null;
+    const of = (m: GameMode) => ({ remoteSavedAt: this.meta.modes[m].remoteSavedAt, here: this.o.storage.getItem(this.o.keys[m][0]) !== null });
+    return { code, modes: { sandbox: of("sandbox"), game: of("game") } };
+  }
+
+  /**
+   * The remembered codes other than the one in use (that one the start-up check sees), asked of the cloud again: when
+   * their copies were saved. A code with nothing under it any more is forgotten. Offline, they stay as last seen.
+   * True: something changed.
+   */
+  async refreshKnown(): Promise<boolean> {
+    const before = JSON.stringify(this.known.list());
+    for (const k of [...this.known.list()]) {
+      if (k.code === this.meta.code) continue;
+      const heads = await Promise.all(MODES.map((m) => this.o.backend.head(k.code, m)));
+      if (heads.some((h) => !h.ok)) continue;
+      if (heads.every((h) => h.ok && h.value === null)) {
+        this.known.forget(k.code);
+        continue;
+      }
+      MODES.forEach((m, i) => {
+        const h = heads[i];
+        if (h.ok) this.known.saw(k.code, m, h.value && { savedAt: h.value.savedAt, saveVersion: h.value.saveVersion });
+      });
+    }
+    return JSON.stringify(this.known.list()) !== before;
+  }
+
+  /**
+   * The title's "Continue from cloud" for the code in use: the mode's cloud copy checked again (as at start-up, with the
+   * same rules: the one edited later wins, the other kept as the backup) and taken into storage if it wins. `changed`:
+   * storage now holds another railway (the game starts again on it).
+   */
+  async takeNewer(mode: GameMode): Promise<{ ok: true; changed: boolean; note: SyncNote } | { ok: false; error: "offline" | "newer" | "busy" }> {
+    const code = this.meta.code;
+    if (!code || this.working || this.busy.has(mode)) return { ok: false, error: "busy" };
+    this.working = true;
+    this.busy.add(mode);
+    try {
+      const before = this.readKeys(mode);
+      const head = await this.o.backend.head(code, mode);
+      if (!head.ok) return { ok: false, error: "offline" };
+      if (head.value && head.value.saveVersion > this.o.saveVersion) return { ok: false, error: "newer" };
+      const note = await this.reconcile(code, mode, "asked");
+      if (note === "newer") return { ok: false, error: "newer" };
+      return { ok: true, changed: !sameKeys(before, this.readKeys(mode)), note: note === "wait" ? null : note };
+    } finally {
+      this.busy.delete(mode);
       this.working = false;
     }
   }
@@ -333,11 +428,14 @@ export class CloudSync {
       if (this.o.storage.getItem(this.o.keys[mode][0]) !== null) await this.keepBackup(mode, this.bundleHere(mode, this.meta.modes[mode].changedAt || this.o.now()));
       if (!this.apply(bundle)) return { ok: false, error: "offline" };
       this.writeBase(mode, bundle.keys);
+      this.known.used(code, this.o.now());
+      this.known.saw(code, mode, { savedAt: got.value.meta.savedAt, saveVersion: got.value.meta.saveVersion, desc: describeRailway(bundle.keys[this.o.keys[mode][0]]) });
       modes[mode].remoteSavedAt = modes[mode].changedAt = got.value.meta.savedAt;
       modes[mode].remoteStoredAt = got.value.meta.storedAt ?? 0;
       took.push(mode);
     }
     this.meta = { code, modes };
+    this.known.used(code, this.o.now());
     for (const m of MODES) this.sent[m] = null;
     this.newer.clear();
     this.writeMeta();
@@ -353,8 +451,10 @@ export class CloudSync {
     if (this.timer !== null) this.o.clearTimer(this.timer);
     this.timer = null;
     const edited = (m: GameMode) => ({ ...freshMode(), changedAt: this.meta.modes[m].changedAt });
-    this.meta = { code: null, modes: { sandbox: edited("sandbox"), game: edited("game") } };
+    this.meta = { code: null, modes: { sandbox: edited("sandbox"), game: edited("game") }, off: true };
     this.writeMeta();
+    // (Forgotten here, every code: nothing of the cloud is offered on the title.)
+    this.known.forgetAll();
     for (const m of MODES) {
       try {
         this.o.storage.removeItem(backupKey(m));
@@ -397,7 +497,7 @@ export class CloudSync {
    * both were, the one edited later wins and the other is kept as the backup. Taken while playing (`before-put`), the
    * game is told to load it (`onTaken`).
    */
-  private async reconcile(code: string, mode: GameMode, when: "start" | "before-put"): Promise<SyncNote | "wait"> {
+  private async reconcile(code: string, mode: GameMode, when: "start" | "before-put" | "asked"): Promise<SyncNote | "wait"> {
     const head = await this.o.backend.head(code, mode);
     if (!head.ok) {
       if (head.status === 0) this.setStatus({ kind: "offline" });
@@ -405,6 +505,8 @@ export class CloudSync {
     }
     const m = this.meta.modes[mode];
     const remote = head.value;
+    // (Remembered for the title: when the copy there was saved, and by which game.)
+    if (this.meta.code === code) this.known.saw(code, mode, remote && { savedAt: remote.savedAt, saveVersion: remote.saveVersion });
     const here = this.o.storage.getItem(this.o.keys[mode][0]) !== null;
     if (!remote) {
       if (here && !m.dirty) {
@@ -486,6 +588,7 @@ export class CloudSync {
       const merged = both ? this.mergedInto(mode, bundle.keys, "remote") : null;
       if (!this.apply(merged ? { ...bundle, keys: merged } : bundle)) return null;
       this.writeBase(mode, bundle.keys);
+      this.known.saw(code, mode, { savedAt: got.value.meta.savedAt, saveVersion: got.value.meta.saveVersion, desc: describeRailway(bundle.keys[this.o.keys[mode][0]]) });
       this.meta.modes[mode] = { ...freshMode(), remoteSavedAt: got.value.meta.savedAt, changedAt: storedAt, remoteStoredAt: remote.storedAt ?? 0 };
       this.wasLayout[mode] = false;
       this.sent[mode] = null;
@@ -510,7 +613,7 @@ export class CloudSync {
     m.remoteStoredAt = remote.storedAt ?? 0;
     m.dirty = true;
     this.writeMeta();
-    return when === "start" ? "kept-here" : "both-changed";
+    return when === "before-put" ? "both-changed" : "kept-here";
   }
 
   private async upload(mode: GameMode, leaving: boolean): Promise<void> {
@@ -557,6 +660,7 @@ export class CloudSync {
       // (Turned off, or another code taken, meanwhile.)
       if (this.meta.code !== code) return;
       if (res.ok) {
+        this.known.saw(code, mode, { savedAt, saveVersion: this.o.saveVersion, desc: describeRailway(keys.get(this.o.keys[mode][0])) });
         m.remoteSavedAt = savedAt;
         m.remoteStoredAt = res.value.storedAt;
         m.sentAt = 0;
@@ -741,7 +845,7 @@ export class CloudSync {
       }
       // Off: when each was last edited.
       const at = (x: unknown) => (typeof x === "number" ? x : 0);
-      if (m) return { code: null, modes: { sandbox: { ...freshMode(), changedAt: at(m.modes?.sandbox?.changedAt) }, game: { ...freshMode(), changedAt: at(m.modes?.game?.changedAt) } } };
+      if (m) return { code: null, modes: { sandbox: { ...freshMode(), changedAt: at(m.modes?.sandbox?.changedAt) }, game: { ...freshMode(), changedAt: at(m.modes?.game?.changedAt) } }, ...(m.off === true ? { off: true } : {}) };
     } catch {
       // unreadable: off
     }

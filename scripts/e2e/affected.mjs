@@ -243,7 +243,7 @@ export const RULES = [
   ["src/ui/stats-card.ts", ["stats"]],
   ["src/ui/growth-sheet.ts", ["growth", "school"]],
   ["src/ui/workshop-panel.ts", ["workshop"]],
-  ["src/ui/cloud-card.ts", ["cloud"]],
+  [["src/ui/cloud-card.ts", "src/ui/title.ts"], ["cloud"]],
   ["src/ui/map-view.ts", ["sites"]],
   ["src/ui/lines-view.ts", ["touch:route-ux-more,route-share,route-ring", "routes-ux"]],
   // The routes UX (option B, 2026-11-06): the line sheet, its words, health, the rings round places to tap.
