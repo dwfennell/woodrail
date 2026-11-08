@@ -2,7 +2,7 @@ import type { Economy } from "../economy";
 import { SURF_ROAD, type Landscape } from "../landscape";
 import { roadAt } from "../roads/graph";
 import { edgesOf, roadsJoin, type Edge } from "../roads/pieces";
-import { findRoadSquares, KEEP_LEFT, RoadPathCache, roadPath, VAN_REACH } from "../roads/road-paths";
+import { findRoadSquares, KEEP_LEFT, ROAD_TOP, RoadPathCache, roadPath, VAN_REACH } from "../roads/road-paths";
 import type { RoadPath, RoadVehicle, RoadVehicles, VehicleKind } from "../roads/vehicles";
 import type { Layout } from "../track";
 
@@ -53,7 +53,6 @@ export interface Trip {
   load?: unknown;
 }
 
-const ROAD_TOP = 4.3;
 
 export class Vans {
   readonly paths = new RoadPathCache();

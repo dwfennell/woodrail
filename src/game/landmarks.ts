@@ -68,7 +68,7 @@ export function townLandmarks(town: Town): Set<string> {
 
 /** The schools on the map (a school whose piece was taken up doesn't count). */
 export function placedSchools(world: World): DepotState[] {
-  return world.economy.allDepots().filter((d) => d.role === "school" && world.layout.getPiece(d.pieceId));
+  return world.economy.allDepots().filter((d) => d.role === "school");
 }
 
 /** The level of a school's town (0: not yet a village, or no town). */

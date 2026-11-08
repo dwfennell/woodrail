@@ -10,7 +10,7 @@ export interface RouteStop {
 
 /** Every depot a route can stop at, towns first, named for the engine card ("Workshop 2" when there are more). */
 export function routeStops(w: World): RouteStop[] {
-  const depots = w.economy.allDepots().filter((d) => w.layout.getPiece(d.pieceId));
+  const depots = w.economy.allDepots();
   const towns = depots.filter((d) => d.role === "town");
   const others = depots.filter((d) => d.role !== "town");
   // A town's station by the town's name; its halts after it ("Ashby halt", Game mode's: see `HALT_KITS`).

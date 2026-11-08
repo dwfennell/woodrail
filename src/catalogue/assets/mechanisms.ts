@@ -2,6 +2,7 @@ import { Group, Shape, type Material, type Mesh, type Object3D } from "three";
 import { TOY, type Kit } from "../kit";
 import type { Asset } from "../types";
 import { buildTrackCleaner } from "./track-cleaner";
+import { LIFT_BRIDGE_LENGTH, LIFT_BRIDGE_RISE, LIFT_LENGTH, LIFT_RISE } from "../../track/kits";
 
 /** Working mechanisms (cranes, signals, crossings, turntables) and bridges & tunnels. */
 
@@ -11,12 +12,6 @@ const RUST = "#a4512f";
 const LIT_RED = "#ff4a2e";
 const LIT_GREEN = "#4dff7a";
 const LIT_AMBER = "#ffc23a";
-/** The train lift kit's platform: its length and rise (LIFT_LENGTH, LIFT_RISE in src/track/kits.ts). */
-const LIFT_LENGTH = 288;
-const LIFT_RISE = 48;
-/** The lift bridge kit's span: its length and how high it goes (LIFT_BRIDGE_LENGTH, LIFT_BRIDGE_RISE in src/track/kits.ts). */
-const LIFT_BRIDGE_LENGTH = 216;
-const LIFT_BRIDGE_RISE = 72;
 /** Deck height of raised bridges: the slab's base, so its top sits at a hill block's 64. */
 const DECK = 52;
 

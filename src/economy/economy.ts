@@ -898,6 +898,12 @@ export class Economy {
     return this.depots[id];
   }
 
+  /** The depot with this id if it's on the map (`onMap`): undefined for an unknown id or one whose piece was taken up. */
+  liveDepot(id: number): DepotState | undefined {
+    const d = this.depots[id];
+    return d && this.onMap(d) ? d : undefined;
+  }
+
   /**
    * A depot's further tracks (depot tracks, docs/superpowers/specs/2026-11-04-depot-tracks.md): `roads` are the pieces
    * its crane stands over on each further track (its own is track 1), `ends` the rest of those tracks (kept as they are
@@ -1737,8 +1743,8 @@ export class Economy {
   /** `notLoadingAt` for stop `i` of a train's route. */
   private notLoadingAtStop(train: Train, stops: readonly RouteStopDef[], i: number): { depot: DepotState; kind: CargoKind; why: "no-room" | "no-wagon" | "none"; taker?: DepotState; takerFull?: boolean } | null {
     const stop = stops[i];
-    const d = stop && this.depots[stop.depotId];
-    if (!d || !d.auto || stop.action === "drop" || !this.layout.getPiece(d.pieceId)) return null;
+    const d = stop && this.liveDepot(stop.depotId);
+    if (!d || !d.auto || stop.action === "drop") return null;
     const r = RECIPES[d.role];
     const later = this.laterOf(stops, i);
     for (const kind of r.gives) {
@@ -1764,8 +1770,8 @@ export class Economy {
   private takerAfter(stops: readonly RouteStopDef[], i: number, kind: CargoKind): DepotState | undefined {
     for (let k = 1; k < stops.length; k++) {
       const s = stops[(i + k) % stops.length];
-      const d = this.depots[s.depotId];
-      if (!d || s.depotId === stops[i].depotId || s.action === "pick" || !this.layout.getPiece(d.pieceId)) continue;
+      const d = this.liveDepot(s.depotId);
+      if (!d || s.depotId === stops[i].depotId || s.action === "pick") continue;
       const r = RECIPES[d.role];
       if (r.takes.includes(kind) || r.owed?.includes(kind)) return d;
     }
@@ -1796,10 +1802,7 @@ export class Economy {
   lostStops(engineCarId: number): RouteStopDef[] {
     const r = this.routes.get(engineCarId);
     if (!r) return [];
-    return r.stops.filter((s) => {
-      const d = this.depots[s.depotId];
-      return !d || !this.layout.getPiece(d.pieceId);
-    });
+    return r.stops.filter((s) => !this.liveDepot(s.depotId));
   }
 
   /**
@@ -1921,8 +1924,8 @@ export class Economy {
       const j = (i + k) % n;
       const s = stops[j];
       if (s.depotId === stops[i].depotId || s.action === "pick") continue;
-      const d = this.depots[s.depotId];
-      if (!d || !d.auto || this.roomMark[d.id] === mark || !this.takesNow(d, kind) || !this.layout.getPiece(d.pieceId)) continue;
+      const d = this.liveDepot(s.depotId);
+      if (!d || !d.auto || this.roomMark[d.id] === mark || !this.takesNow(d, kind)) continue;
       if (fromStore && RECIPES[d.role].routedOnly) continue;
       if (this.isHalt(d) || (this.landed.get(d.id)?.[index] ?? 0) > 0) continue;
       if (this.accepts && !this.accepts(d, kind)) continue;
@@ -1946,8 +1949,8 @@ export class Economy {
     for (let k = 1; k < n; k++) {
       const s = stops[(j + k) % n];
       if (s.depotId === stops[j].depotId || s.depotId === but || s.action === "pick") continue;
-      const d = this.depots[s.depotId];
-      if (!d || !d.auto || RECIPES[d.role].routedOnly || !this.layout.getPiece(d.pieceId)) continue;
+      const d = this.liveDepot(s.depotId);
+      if (!d || !d.auto || RECIPES[d.role].routedOnly) continue;
       if (this.takesNow(d, kind) && (!this.accepts || this.accepts(d, kind))) return true;
     }
     return false;
@@ -1970,8 +1973,8 @@ export class Economy {
     const mask = (ks: readonly CargoKind[]) => ks.reduce((m, k) => m | (1 << CARGO[k].index), 0);
     for (let i = 0; i < n; i++) {
       const s = stops[i];
-      const d = this.depots[s.depotId];
-      if (!d || !d.auto || !this.layout.getPiece(d.pieceId)) {
+      const d = this.liveDepot(s.depotId);
+      if (!d || !d.auto) {
         picks.push(0);
         drops.push(0);
         notPicks.push(0);
@@ -2077,9 +2080,9 @@ export class Economy {
     const takes: number[] = [];
     const town: boolean[] = [];
     for (const s of stops) {
-      const d = this.depots[s.depotId];
+      const d = this.liveDepot(s.depotId);
       let mask = 0;
-      const on = !!d && d.auto && s.action !== "pick" && !!this.layout.getPiece(d.pieceId);
+      const on = !!d && d.auto && s.action !== "pick";
       if (on) for (const k of RECIPES[d.role].takes) if ((!this.accepts || this.accepts(d, k)) && storeLetsIn(d, k)) mask |= 1 << CARGO[k].index;
       if (on && RECIPES[d.role].owed) for (const k of RECIPES[d.role].owed!) if (this.takesNow(d, k)) mask |= 1 << CARGO[k].index;
       takes.push(mask);
@@ -2926,8 +2929,8 @@ export class Economy {
       const found = this.sim.findCar(engine);
       if (!found) continue;
       const stop = r.stops[r.next % r.stops.length];
-      const d = this.depots[stop.depotId];
-      if (!d || !this.layout.getPiece(d.pieceId)) {
+      const d = this.liveDepot(stop.depotId);
+      if (!d) {
         // Its stop was taken up: on to the next.
         r.next = (r.next + 1) % r.stops.length;
         this.nextStamp++;

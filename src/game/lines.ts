@@ -170,8 +170,8 @@ export function firstStopAhead(economy: Economy, engineCarId: number, stops: rea
   let bestLen = Infinity;
   const seen = new Map<number, number>();
   stops.forEach((st, k) => {
-    const d = economy.depot(st.depotId);
-    if (!d || !economy.layout.getPiece(d.pieceId)) return;
+    const d = economy.liveDepot(st.depotId);
+    if (!d) return;
     let len = seen.get(d.pieceId);
     if (len === undefined) {
       const leg = legFromCursor(economy.layout, front, d.pieceId);
@@ -440,8 +440,8 @@ export function isRingLine(economy: Economy, stops: readonly RouteStopDef[]): bo
   const layout = economy.layout;
   const legStops: LegStop[] = [];
   for (const st of stops) {
-    const d = economy.depot(st.depotId);
-    if (!d || !layout.getPiece(d.pieceId)) continue;
+    const d = economy.liveDepot(st.depotId);
+    if (!d) continue;
     legStops.push({ piece: d.pieceId, ...(st.via ? { via: st.via } : {}) });
   }
   if (new Set(legStops.map((s) => s.piece)).size < 2) return false;

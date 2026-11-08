@@ -3692,8 +3692,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const tracksCheck = (t: PieceTypeId, f: boolean, pose: Pose, y: number, ignore: Ignore) => interaction.placeWhyIgnoring(t, f, pose, y, ignore);
   function showTracks(): void {
     const id = mode === "game" ? interaction.openDepotId : -1;
-    const d = id === -1 ? undefined : game.economy.depot(id);
-    if (!d || !TRACK_ROLES.has(d.role) || !game.layout.getPiece(d.pieceId) || !progress.learned.has(TRACKS_TECH)) {
+    const d = id === -1 ? undefined : game.economy.liveDepot(id);
+    if (!d || !TRACK_ROLES.has(d.role) || !progress.learned.has(TRACKS_TECH)) {
       tracksShown = "";
       tracksRow = null;
       return;

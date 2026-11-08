@@ -174,7 +174,7 @@ export function buyPrice(kind: CargoKind): number {
 export function goodsForSale(world: World): CargoKind[] {
   const made = new Set<CargoKind>();
   for (const d of world.economy.allDepots()) {
-    if (d.role === "warehouse" || d.role === "harbour" || d.role === "town" || !world.layout.getPiece(d.pieceId)) continue;
+    if (d.role === "warehouse" || d.role === "harbour" || d.role === "town") continue;
     for (const k of RECIPES[d.role].gives) made.add(k);
   }
   return CARGO_KINDS.filter((k) => made.has(k) && buyPrice(k) > 0);

@@ -104,7 +104,7 @@ export function ownColours(id: string): { body: string; trim: string } | null {
 /** Pots of paint in the workshops' yards. */
 export function paintPots(world: Pick<World, "economy" | "layout">): number {
   let n = 0;
-  for (const d of world.economy.allDepots()) if (d.role === "workshop" && world.layout.getPiece(d.pieceId)) n += d.piles[CARGO.paint.index];
+  for (const d of world.economy.allDepots()) if (d.role === "workshop") n += d.piles[CARGO.paint.index];
   return n;
 }
 
@@ -125,7 +125,7 @@ export function paintOwn(p: Pick<Progress, "learned">, world: Pick<World, "econo
   let left = carIds.length;
   for (const d of world.economy.allDepots()) {
     if (left <= 0) break;
-    if (d.role !== "workshop" || !world.layout.getPiece(d.pieceId)) continue;
+    if (d.role !== "workshop") continue;
     const take = Math.min(left, d.piles[CARGO.paint.index]);
     d.piles[CARGO.paint.index] -= take;
     left -= take;

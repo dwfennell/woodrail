@@ -10,6 +10,7 @@ import { jointPose, postAt, type Block, type JointPose } from "../game/signal-pl
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { kitModelKey } from "./props/library";
 import type { Materials } from "./materials";
+import { SEMAPHORE_CLEAR } from "./kit-motions";
 
 const POST_H = 46;
 
@@ -61,8 +62,6 @@ function chevron(): BufferGeometry {
 /** The lit lamps: unlit by the sun, so they glow (one shader for both, as the block tint's). */
 const LIT_RED = new MeshBasicMaterial({ color: "#ff3a24" });
 const LIT_GREEN = new MeshBasicMaterial({ color: "#3dff6e" });
-/** The semaphore kit's arm raised at clear (as the kit's motion). */
-const SEMAPHORE_CLEAR = 0.7;
 /** How long an arm takes to glide between red and clear (s). */
 export const ARM_GLIDE_S = 0.3;
 /** Roads of double track a gantry spans: this far apart (mm), side by side. */

@@ -92,10 +92,10 @@ export function cancel(world: Pick<World, "economy">, yardId: number): void {
  */
 export function tickYards(world: World, fleet: Fleet): YardEvent[] {
   const events: YardEvent[] = [];
-  const { economy, layout } = world;
+  const { economy } = world;
   for (const [id, o] of [...economy.yardOrders]) {
-    const d = economy.depot(id);
-    if (!isYard(d) || !layout.getPiece(d.pieceId) || !YARD_BUILDS[d.role as "boatyard" | "shipyard"].includes(o.build)) {
+    const d = economy.liveDepot(id);
+    if (!isYard(d) || !YARD_BUILDS[d.role as "boatyard" | "shipyard"].includes(o.build)) {
       economy.yardOrders.delete(id);
       continue;
     }

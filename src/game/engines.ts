@@ -69,7 +69,7 @@ export function load(world: World, train: Train): { pulls: number; cars: number;
 
 /** Is a power station working (it has coal)? (Its sparks: src/game/power.ts.) */
 export function powered(world: World): boolean {
-  for (const d of world.economy.allDepots()) if (d.role === "power" && world.layout.getPiece(d.pieceId) && world.economy.working(d)) return true;
+  for (const d of world.economy.allDepots()) if (d.role === "power" && world.economy.working(d)) return true;
   return false;
 }
 

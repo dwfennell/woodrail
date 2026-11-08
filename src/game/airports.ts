@@ -71,7 +71,7 @@ export function phaseAt(t: number): PlanePhase {
 
 /** Airports on the map. */
 export function airportsOf(world: Pick<World, "economy" | "layout">): DepotState[] {
-  return world.economy.allDepots().filter((d) => d.role === "airport" && !!world.layout.getPiece(d.pieceId));
+  return world.economy.allDepots().filter((d) => d.role === "airport");
 }
 
 /**

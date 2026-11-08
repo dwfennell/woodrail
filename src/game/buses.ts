@@ -102,7 +102,7 @@ export class Buses {
     const w = this.host.world;
     const g = w.landscape.grid;
     const out = new Map<number, BusRun>();
-    const stations = w.economy.allDepots().filter((d) => d.role === "town" && w.stations.get(d.townId) === d.pieceId && w.layout.getPiece(d.pieceId));
+    const stations = w.economy.allDepots().filter((d) => d.role === "town" && w.stations.get(d.townId) === d.pieceId);
     for (const p of w.props.all()) {
       if (p.asset !== BUS_STOP) continue;
       let best: DepotState | null = null;
