@@ -13,7 +13,7 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
-import { testClockIn } from "./lib/fast.mjs";
+import { batterySaverIn, testClockIn } from "./lib/fast.mjs";
 
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
@@ -32,6 +32,9 @@ const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, arg
 // step made each take 4 to 7 min on CI, the suite killed at 37 min short of its end. The same fixed sim ticks, more
 // of them a frame: lib/fast.mjs.)
 testClockIn(b);
+// (And the desktop page as Battery saver: its high tier's two effects cost seconds a frame under SwiftShader, and every
+// mouse move waits for a frame. Nothing here looks at pixels. lib/fast.mjs.)
+batterySaverIn(b);
 const errors = [];
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 const p = await ctx.newPage();
