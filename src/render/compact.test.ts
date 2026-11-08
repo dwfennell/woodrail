@@ -144,3 +144,26 @@ describe("compact", () => {
     mesh.dispose();
   });
 });
+
+describe("kept parts compacted before they're merged (depot sites, scenery parts)", () => {
+  // DepotView's sites and the scenery's parts are kept compacted and merged again when their tile's built: the tile's
+  // mesh must draw exactly what merging the raw parts and compacting the whole drew.
+  const parts = () => [
+    painted(nonIndexed(new BoxGeometry(10, 20, 30).translate(5, 0, 0)), [0.2, 0.4, 0.6]),
+    painted(nonIndexed(new CylinderGeometry(4, 4, 12, 16).translate(-40, 3, 9)), [0.9, 0.1, 0.3]),
+    painted(nonIndexed(new SphereGeometry(6, 12, 8).translate(0, 50, -20)), [0.5, 0.5, 0.1]),
+  ];
+  it("draws the same triangles, vertex for vertex", () => {
+    const before = compact(mergeGeometries(parts())!);
+    const after = compact(mergeGeometries(parts().map((g) => compact(g)))!);
+    expect(drawn(after)).toEqual(drawn(before));
+    expect(after.index).not.toBeNull();
+    expect((after.getAttribute("normal") as BufferAttribute).normalized).toBe(true);
+  });
+  it("one part alone, cloned, the same", () => {
+    const [a] = parts();
+    const before = compact(a.clone());
+    const after = compact(compact(a).clone());
+    expect(drawn(after)).toEqual(drawn(before));
+  });
+});

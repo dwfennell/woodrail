@@ -11,7 +11,6 @@ import { TRACK_GAP } from "../game/depot-tracks";
 import { AUTO_HEIGHT, AUTO_LENGTH, AUTO_WIDTH, BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
-import { compactVertices } from "./compact-vertices";
 import { gpuOnly } from "./gpu-only";
 import { setCullBox, tileAt } from "./dressing/tiles";
 import type { Materials } from "./materials";
@@ -1287,9 +1286,10 @@ export class DepotView {
     this.clockSink = (id, at) => clocks.push([id, at]);
     this.buildStatic(site, b, true, "instanced");
     this.clockSink = null;
-    // (Kept to merge each time its tile is built again: in compact vertices, as the tile's meshes are then too.)
+    // (Kept to merge each time its tile is built again: compacted (quantised and welded) as the tile's meshes are then
+    // too, so it's kept at about a quarter of the bytes, and a tile built again merges them without welding afresh.)
     const parts = b.merged();
-    for (const g of parts.values()) compactVertices(g);
+    for (const g of parts.values()) compact(g);
     return { parts, clocks };
   }
 
