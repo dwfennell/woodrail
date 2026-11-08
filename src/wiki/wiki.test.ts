@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { TECHS, built } from "../game/tech";
 import { CARGO_KINDS } from "../economy/cargo";
-import { INDUSTRY_GROUPS } from "../ui/tray-catalogue";
+import { INDUSTRY_GROUPS, TRAIN_GROUPS } from "../ui/tray-catalogue";
+import { WAGON_NAME } from "../economy/wagons";
 import { EXPLAINERS } from "../ui/explainers";
 import { slugOf, wikiData } from "./data";
 import { buildWiki, PLAY_URL, WIKI_BASE } from "./pages";
@@ -48,6 +49,17 @@ describe("wiki", () => {
     for (const id of Object.keys(EXPLAINERS)) expect(paths.has(`guides/${slugOf(id)}/`), id).toBe(true);
     expect(data.engines.map((e) => e.name)).toEqual(expect.arrayContaining(["Engine", "Tank engine", "Diesel", "Electric"]));
     expect(data.wagons.map((e) => e.name)).toEqual(expect.arrayContaining(["Hopper", "Flatbed wagon", "Goods van", "Coach"]));
+  });
+
+  it("has a page for every engine and wagon on Game mode's train shelves, and every named wagon", () => {
+    // Sandbox's made-up trains ("Full train") are sets of cars, not a kind of their own.
+    const items = TRAIN_GROUPS.filter((g) => !g.modes || g.modes.includes("game")).flatMap((g) => g.items);
+    expect(items.length).toBeGreaterThan(10);
+    for (const item of items) {
+      const section = item.kind === "train" && item.cars[0] === "engine" ? "engines" : "wagons";
+      expect(paths.has(`${section}/${slugOf(item.label!)}/`), item.label).toBe(true);
+    }
+    for (const car of Object.keys(WAGON_NAME)) expect(data.wagons.some((w) => w.car === car), car).toBe(true);
   });
 
   it("gives every page a unique path, a title and a short description", () => {
