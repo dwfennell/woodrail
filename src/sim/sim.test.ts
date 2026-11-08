@@ -313,7 +313,8 @@ describe("reversing through a switch", () => {
     expect(sim.turnNow(mid.id)).not.toBeNull();
     run(sim, 6);
     const t = sim.findCar(engine)!.train;
-    expect(t.id).not.toBe(mid.id);
+    // (A turned train keeps its id: routing redesign step 3.)
+    expect(t.id).toBe(mid.id);
     expect(t.derailed).toBe(false);
     for (const b of t.bogies) {
       expect([ids[3], ids[4]]).not.toContain(b.pieceId);

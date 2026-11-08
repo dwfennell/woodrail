@@ -61,7 +61,15 @@ export class KitStops {
      * its stop (trains halt there for people to get on and off, and run through with no one to), not the kit's dwell.
      */
     private readonly hasDepot: (pieceId: number) => boolean = () => false,
-  ) {}
+  ) {
+    // (A turn round ends its visit, as a train gone does: `tick`'s.)
+    sim.onTurnedRound?.((id) => {
+      const v = this.visits.get(id);
+      if (!v) return;
+      this.visits.delete(id);
+      if (v.phase === HALTED) this.onStop?.("left", v.pieceId, id);
+    });
+  }
 
   /**
    * The speed limit (mm/s) kits put on a powered train this tick: a stop's (Infinity, or less coming in, 0 halted),

@@ -358,6 +358,8 @@ export class Invariants {
       sim.onTurn = this.onTurnSeen;
     }
     for (const e of this.turnsSeen) {
+      // (Turned, it keeps its id: its front as last seen is its old one, at the other end. Not a front crossing a joint.)
+      this.leadWas.delete(e.trainId);
       if (e.how === "line-end") this.turns.lineEnd++;
       else if (e.how === "lift") this.turns.lift++;
       else this.turns.now++;

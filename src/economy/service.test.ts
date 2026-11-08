@@ -90,12 +90,14 @@ describe("automatic servicing", () => {
     let crawled = false;
     let fastAfter = false;
     // The first visit (it turns back at the end of the line after, and comes for the sawmill's planks).
-    const first = w.train().id;
-    for (let i = 0; i < 60 * SIM_HZ && w.train().id === first; i++) {
+    // (Till it turns: a turned train keeps its id now, so told by the sim.)
+    let turned = false;
+    w.economy.sim.onTurnedRound(() => (turned = true));
+    for (let i = 0; i < 60 * SIM_HZ && !turned; i++) {
       const on = w.train().bogies.some((b) => b.pieceId === w.depot.pieceId);
       w.step();
       const t = w.train();
-      if (t.id !== first) break;
+      if (turned) break;
       if (!on || !t.bogies.some((b) => b.pieceId === w.depot.pieceId)) continue;
       if (w.economy.cargoOf(w.wagons()[0].id).count > 0) {
         expect(t.speed).toBeLessThanOrEqual(CRAWL_SPEED + 1e-9);

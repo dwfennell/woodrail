@@ -670,10 +670,11 @@ describe("step 7: hand-run trains respect locks", () => {
     const placed = run.sim.addTrain(["engine", "timber", "timber"], c);
     expect(placed.kind).toBe("placed");
     const b = run.sim.getTrain((placed as { trainId: number }).trainId)!;
-    const id = A().id;
+    let turned = 0;
+    run.sim.onTurnedRound(() => turned++);
     run.run(10);
     // (Still there, not turned, its engine leading and its lever as the player set it: not pushing back.)
-    expect(A().id).toBe(id);
+    expect(turned).toBe(0);
     expect(A().cars[0].kind).toBe("engine");
     expect(A().cars[0].lever).toBe(1);
     expect(run.sim.heldHow(A().id)).toBe("turn");
@@ -682,7 +683,8 @@ describe("step 7: hand-run trains respect locks", () => {
     // (The player drives the other one away: it turns round and goes, engine first.)
     run.sim.setLever(b.cars[0].id, -1);
     run.run(6);
-    expect(A().id).not.toBe(id);
+    // (Turned: its id is kept through a turn now, routing redesign step 3.)
+    expect(turned).toBe(1);
     expect(A().cars[0].kind).toBe("engine");
     expect(A().speed).toBeGreaterThan(0);
     expect(run.stalls.stuckOf(run.engines[0])).toBeNull();

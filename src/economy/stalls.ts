@@ -125,7 +125,10 @@ export class Stalls {
     private readonly sim: Sim,
     private readonly sections: Sections,
     private readonly host: StallsHost,
-  ) {}
+  ) {
+    // (A turn round starts its stand afresh, as with a new id.)
+    sim.onTurnedRound?.((id) => this.waiting.delete(id));
+  }
 
   /** Why this engine's train is stuck (null: it isn't). */
   stuckOf(engine: number): Stuck | null {

@@ -92,7 +92,7 @@ export type LeverResult = { ok: true } | { refused: "under-train" } | { deferred
 /** What the router asks of the game (the economy): its routed trains and their stops, and sections' hints. */
 export interface RouterHost {
   readonly layout: Layout;
-  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "trainByKey" | "ticks" | "trainCount" | "hasSignals" | "pathSignalAt">;
+  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "trainByKey" | "ticks" | "trainCount" | "hasSignals" | "pathSignalAt"> & { onTurnedRound?: Sim["onTurnedRound"] };
   /** The routed engines, in the order they're steered (the economy's routes). */
   readonly routed: { readonly size: number; keys(): Iterable<number>; has(engine: number): boolean };
   /** The piece of a routed engine's next stop (or the via point it's aimed at on the way, §3.5); −1 while none on the map. */
@@ -245,6 +245,10 @@ export class Router {
 
   constructor(private readonly host: RouterHost) {
     this.bookings = new BookingTable(host.layout);
+    // (Points thrown for a train that then turns round weren't taken: they go back, as when a turn gave a new id.)
+    host.sim.onTurnedRound?.((id) => {
+      for (const t of this.thrownAt.values()) if (t.train === id) t.train = -1;
+    });
   }
 
   /**

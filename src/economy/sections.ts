@@ -635,7 +635,14 @@ export class Sections {
     private readonly layout: Layout,
     private readonly sim: Sim,
     private readonly host: SectionsHost,
-  ) {}
+  ) {
+    // (A turn round ends a train's stand here: looked at afresh, its clear-ahead hold gone, as with a new id.)
+    sim.onTurnedRound?.((id) => {
+      this.clearHeld.delete(id);
+      this.clearBy.delete(id);
+      for (const st of this.states.values()) if (st.trainId === id) st.trainId = -1;
+    });
+  }
 
   /** Is a train on a managed line's network now (a line of two or more trains, its slots and sections)? */
   managing(engineCarId: number): boolean {

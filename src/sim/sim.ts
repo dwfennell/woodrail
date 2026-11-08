@@ -185,7 +185,7 @@ export type SimEvent =
   | { readonly kind: "derailed"; readonly trainId: number }
   | { readonly kind: "coupled"; readonly trainId: number; readonly absorbedTrainId: number }
   | { readonly kind: "buffer"; readonly trainId: number }
-  /** A train was lifted and turned round at a turnback buffer (it has a new id; its cars keep theirs). */
+  /** A train was lifted and turned round at a turnback buffer (it keeps its id, `newTrainId` the same; and its cars). */
   | { readonly kind: "turned"; readonly trainId: number; readonly newTrainId: number }
   /** A train came onto a lift too long to fit on its platform: it runs to the platform's end and turns back. */
   | { readonly kind: "lift-refused"; readonly trainId: number; readonly pieceId: number; readonly carIds: readonly number[] }
@@ -447,7 +447,7 @@ export class Sim {
    * Place a train whose leading axle sits at `at`, cars trailing behind it. `carIds` reuses the ids of cars being put
    * back (picked up, re-railed), so anything keyed by car id (cargo) stays with them.
    */
-  addTrain(kinds: readonly CarKind[], at: Cursor, carIds?: readonly number[]): AddTrainResult {
+  addTrain(kinds: readonly CarKind[], at: Cursor, carIds?: readonly number[], trainId?: number): AddTrainResult {
     const offsets = bogieOffsets(kinds);
     const bogies: Cursor[] = [];
     for (const off of offsets) {
@@ -460,7 +460,7 @@ export class Sim {
     }
     if (this.occupied(bogies)) return { kind: "no-room" };
     const train: Train = {
-      id: this.nextTrainId++,
+      id: trainId ?? this.nextTrainId++,
       turnback: -1,
       cars: kinds.map((kind, i) => ({ id: carIds?.[i] ?? this.nextCarId++, kind, facing: 1, frontPole: "N", lever: 0 })),
       bogies,
@@ -620,7 +620,7 @@ export class Sim {
 
   /**
    * Turn a standing train round now, as it would be at the end of its wait at the end of the line (`turnAround`): its
-   * pending turnback is dropped. Returns the turned train (a new id; its cars keep theirs), or null (nothing done) if
+   * pending turnback is dropped. Returns the turned train (its id and its cars' kept), or null (nothing done) if
    * it's moving, derailed, riding a deck, or there's no room to set it down turned round.
    */
   turnNow(trainId: number): Train | null {
@@ -1485,6 +1485,21 @@ export class Sim {
    * nothing is worked out for it. Setting it changes no move.
    */
   onTurn: ((e: TurnSeen) => void) | null = null;
+  /** Told when a train has turned round (`onTurnedRound`): it keeps its id, so per-run state is cleared by its owners. */
+  private readonly turnedHooks: ((trainId: number) => void)[] = [];
+
+  /**
+   * Be told when a train turns round end for end (at the end of its line, by the player, lifted): it keeps its id
+   * (routing redesign step 3), so state kept per run (a visit to a stop, a school run's pass, a service) ends here, as
+   * it ended when a turn gave a new id. Returns a function that stops the telling.
+   */
+  onTurnedRound(fn: (trainId: number) => void): () => void {
+    this.turnedHooks.push(fn);
+    return () => {
+      const i = this.turnedHooks.indexOf(fn);
+      if (i >= 0) this.turnedHooks.splice(i, 1);
+    };
+  }
   private readonly crossClaims = new Map<number, { key: number; tick: number }>();
   /** Points a train coming up to them last saw another train on (`onPoints`), and when. */
   private readonly pointsSeen = new Map<number, { key: number; tick: number }>();
@@ -2429,7 +2444,9 @@ export class Sim {
    * Turn a train end for end where it stands, as a child lifts a toy train and puts it back the other way round: the
    * same stretch of track, the cars in mirrored order (what was nearest the front is now at the far end, leading),
    * each car facing the other way. Cars keep their ids and levers, so the engine drives off away from where it was
-   * heading. Returns the new train, or null (and leaves the train as it was) if it doesn't fit.
+   * heading. The train keeps its id too (routing redesign step 3): a lock, a wait or a card follows it through the turn;
+   * what was kept per run is cleared by its owners (`onTurnedRound`). Returns the turned train, or null (and leaves the
+   * train as it was) if it doesn't fit.
    */
   private turnAround(train: Train): Train | null {
     const n = train.bogies.length;
@@ -2445,11 +2462,19 @@ export class Sim {
     const levers = train.cars.map((c) => c.lever);
     this.trains.delete(train.id);
     // Mirrored: the old front car is the new front car, now at the other end of the stretch.
-    const placed = this.addTrain(kinds, lead, ids);
+    const placed = this.addTrain(kinds, lead, ids, train.id);
     if (placed.kind !== "placed") {
       this.trains.set(train.id, train);
       return null;
     }
+    // (This run's state, kept by id, ends with the turn, as it did when a turn gave a new id.)
+    this.liftRefused.delete(train.id);
+    this.offLift.delete(train.id);
+    this.redSince.delete(train.id);
+    this.rackStops.delete(train.id);
+    this.covers.delete(train.id);
+    this.pathCache.clear();
+    for (const fn of this.turnedHooks) fn(train.id);
     const t = this.trains.get(placed.trainId)!;
     t.cars.forEach((car, i) => {
       car.facing = facings[i];

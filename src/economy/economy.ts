@@ -610,6 +610,9 @@ export class Economy {
   ) {
     // A kit with a depot on it (Game mode's halts) stops trains as the depot does, for its work: not for its dwell too.
     this.kitStops = new KitStops(layout, sim, (pieceId) => this.byPiece.has(pieceId));
+    // (A train that turns round keeps its id: its visit to a stop and its school run's pass end there, as when a turn
+    // gave it a new id.)
+    sim.onTurnedRound?.((id) => this.turnedRound(id));
     this.kitStops.onStop = (kind, pieceId, trainId) => this.stationNote(kind, pieceId, trainId, -1);
     sim.speedCap = (train) => this.capFor(train);
     // (A train the router holds short of points claims nothing there: routing spec §13 step 7.)
@@ -2568,6 +2571,16 @@ export class Economy {
     s.ticks = 0;
     s.still = 0;
     s.done.clear();
+  }
+
+  /** A train turned round (`Sim.onTurnedRound`): its stop's visit and its pass end, as for a train gone. */
+  private turnedRound(trainId: number): void {
+    this.passes.delete(trainId);
+    const s = this.services.get(trainId);
+    if (s) {
+      if (s.phase === HALTED && s.halted) this.departed(s);
+      this.services.delete(trainId);
+    }
   }
 
   /** Crane work for every halted train: one unit per move, unloading before loading. */

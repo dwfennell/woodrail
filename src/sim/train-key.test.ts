@@ -105,7 +105,8 @@ describe("trainKey: per-train state lasts through a turn, a couple and a split (
     expect(w.sim.heldBy(a.trainId)).toBe(b.trainId);
     const turned = w.sim.turnNow(b.trainId);
     expect(turned).not.toBeNull();
-    expect(turned!.id).not.toBe(b.trainId);
+    // (Its id kept through the turn, since routing redesign step 3; the key too.)
+    expect(turned!.id).toBe(b.trainId);
     expect(trainKey(turned!)).toBe(eb);
     // (Before trainKey, the hold named the old id, gone: "held by nobody" till the next tick's look.)
     expect(w.sim.heldBy(a.trainId)).toBe(turned!.id);
