@@ -13,7 +13,7 @@ import { joinedTowns, StickerTracker, TOWN_TIERS } from "../game/stickers";
 import { FULL_PAY, plotPrice } from "../game/towns";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, schoolTakesFor, researchSpeed, townLandmarks } from "../game/landmarks";
-import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
+import { deleteLine, editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { engineStatus } from "../game/engine-status";
 import { economyChecks } from "../game/dev-checks";
@@ -28,7 +28,7 @@ import { placeOf, townPlaces } from "../game/places";
 import { startPlace } from "../game/place-row";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
 import { buildStarterWorld, plotsForSale, unlockPlot, haltTown, haltWhy, INDUSTRY_ROLE, syncIndustries, type World, fixedPieces } from "../game/world";
-import { FEAT_FIELD, FEAT_TREE, isWater, looseHeight, PLOT_DEPTH, PLOT_WIDTH, type SiteRole } from "../landscape";
+import { DEFAULT_HILLS, FEAT_FIELD, FEAT_TREE, isHilliness, isWater, looseHeight, PLOT_DEPTH, PLOT_WIDTH, type Hilliness, type SiteRole } from "../landscape";
 import { gamePayment, nearestRuin, restoreRuin } from "../game/restore";
 import { restorePrice, restoredType } from "../game/map-sites";
 import { LandEditor } from "../landscape/edit";
@@ -100,6 +100,11 @@ beforeAll(async () => {
   footprintOf = await loadFootprints(ENV.BALANCE_CIVIC ? ["bldg", "scene"] : ["bldg"]);
 }, 60_000);
 const RUN = !!ENV.BALANCE;
+/**
+ * How hilly the starter map is (BALANCE_HILLS=flat|gentle|hilly|mountains, `landscape/hills.ts`): the new-game sheet's
+ * default (`DEFAULT_HILLS`) unless set. Hilly is the land as it was before the choice.
+ */
+const HILLS: Hilliness = isHilliness(ENV.BALANCE_HILLS) ? ENV.BALANCE_HILLS : DEFAULT_HILLS;
 const MAX_MINUTES = Number(ENV.BALANCE_MINUTES ?? 180);
 /** Most trains on the line once routes are learned (1: only the goods train). */
 const PER_LINE = Number(ENV.BALANCE_TRAINS_PER_LINE ?? 1);
@@ -203,12 +208,14 @@ const GOALS_LONG = !!ENV.GOALS_LONG;
 const GOALS_LONG_MINUTES = Number(ENV.BALANCE_GOALS_LONG_MINUTES ?? 440);
 /** The goals the fast part doesn't reach by `GOALS_RUN_MINUTES`, with why. */
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
+  "open-mine": "On the gentler starter map (the new default, `DEFAULT_HILLS`: its start's middle flattened) this player's line runs another way: the mill stands after the farm yard at minute 67 (46 on the old land), flour comes later, Quarries is learned at 148 (107), the quarry at 150 (114), so Mines comes after 175; the long part opens the mine at 206 (160 on the old land). BALANCE_HILLS=hilly meets it by 175 as before",
   "float-goods": "River barges needs Train routes and Cranes 1, and a river landing wants a straight run of river by the line on both ends of a barge's route: this player's one line between the starter towns has none, and it researches what its line needs (`GOALS_WISH`). The player's path is e2e:water's (a landing from the tray, a barge bought on its card, a route by taps, logs carried and delivered)",
   "ship-abroad": "Cargo ships needs River barges as well as Harbours, which this player never learns (see float-goods), and a harbour, which stands only in the long part at about minute 397. The ship's payoff is harbours.test.ts's (24 loads at a town's full price) and e2e:water's (a ship at the quay takes goods off it)",
   "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 412: the long part's (GOALS_LONG=1)",
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
 export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {
+  "open-harbour": "On the gentler starter map (the new default) everything after the quarry comes about 40 minutes later for this player (the mine at 206, 160 on the old land: see open-mine), and the harbour, at about 397 on the old land, is past 440. BALANCE_HILLS=hilly reaches it as before",
   "ship-abroad": "Cargo ships needs River barges as well as Harbours, which this player never learns (see float-goods), and a harbour, which stands only in the long part at about minute 397. The ship's payoff is harbours.test.ts's (24 loads at a town's full price) and e2e:water's (a ship at the quay takes goods off it)",
   "float-goods": "River barges needs Train routes and Cranes 1, and a river landing wants a straight run of river by the line on both ends of a barge's route: this player's one line between the starter towns has none, and it researches what its line needs (`GOALS_WISH`). The player's path is e2e:water's (a landing from the tray, a barge bought on its card, a route by taps, logs carried and delivered)",
 };
@@ -870,9 +877,13 @@ class Player {
 
   lift(engine: number): void {
     const found = this.w.sim.findCar(engine);
+    const line = this.w.economy.lineIdOf.get(engine);
     if (found) this.w.sim.removeTrain(found.train.id);
     // (As the game's Remove does: the engine off its line, so `lineIdOf` keeps no train that's gone.)
     this.w.economy.prune();
+    // (A line stays when its last train goes (lines stand alone, 2026-11-06). This player, its last train lifted,
+    // deletes it, as the line sheet's ⋯ Delete does: it plans the next one afresh from its places as they are now.)
+    if (line !== undefined && trainsOn(this.w.economy, line).length === 0) deleteLine(this.w.economy, line);
   }
 }
 
@@ -1115,7 +1126,7 @@ function nearEnd(P: Player, id: number, n: number): boolean {
  * and a short straight, and track runs from the switch to a site for `type` near `cells` (with room for `after`). The
  * industry's piece must be in the box. Its piece and its free end, or null with everything put back.
  */
-function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceTypeId): { id: number; beyond: number } | null {
+function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceTypeId): { id: number; beyond: number; sw: number } | null {
   const w = P.w;
   const g = w.landscape.grid;
   if (!P.canMake(new Map([["piece:switch", 1]]))) return null;
@@ -1142,7 +1153,7 @@ function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceT
           const had = new Set(w.layout.pieceIds());
           for (const c of [1, 0]) {
             const r = play(w.layout, P.editor, connectorRef(sw, 2), connectorRef(q, c), { blocked: P.rules(), maxPieces: 60, fiddle: 3 });
-            if (r.ok && P.settle()) return { id: q, beyond: connectorRef(q, 1 - c) };
+            if (r.ok && P.settle()) return { id: q, beyond: connectorRef(q, 1 - c), sw };
             for (const id of [...w.layout.pieceIds()]) if (!had.has(id)) P.editor.remove(id);
           }
           P.editor.remove(q);
@@ -1711,7 +1722,7 @@ class Playthrough {
     readonly spur = SPUR,
     readonly goalsFirst = false,
   ) {}
-  readonly p = new Player(buildStarterWorld());
+  readonly p = new Player(buildStarterWorld(true, HILLS));
   shop = -1;
   /** The school's piece (−1: not placed yet). */
   school = -1;
@@ -1924,11 +1935,11 @@ class Playthrough {
     const stuck = [...this.trains.keys()].find((e) => w.economy.stalls.stuckOf(e));
     // (The card says "Add a passing loop here" (two lines' trains, or one on no line, with no loop to meet at): the
     // player lays one on the line, as for a second train (`spliceLoop`), once the switches can be made, rather than
-    // picking a train up. Still stuck with a loop there, the card says "Move one of them", and the player does, below.)
+    // picking a train up. The goals player too while "Run two trains at once" is to do: it's what its hint says. Still stuck with a loop there, the card says "Move one of them", and the player does, below.)
     const fix = stuck === undefined ? null : w.economy.stalls.stuckOf(stuck);
     let laidFor = false;
     const owed = this.loopOwed && P.minute - this.stuckLoopTry >= 3;
-    if (((fix?.kind === "in-way" && fix.loop && P.minute - this.stuckLoopTry >= 3) || owed) && this.keepsPeople() && this.lines && this.lineId >= 0 && !ENV.BALANCE_NOJAMCUT) {
+    if (((fix?.kind === "in-way" && fix.loop && P.minute - this.stuckLoopTry >= 3) || owed) && (this.keepsPeople() || !P.goals.isDone("two-trains")) && this.lines && this.lineId >= 0 && !ENV.BALANCE_NOJAMCUT) {
       this.stuckLoopTry = P.minute;
       const line = w.economy.lines.get(this.lineId);
       const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
@@ -1959,6 +1970,9 @@ class Playthrough {
     }
     if (stuck !== undefined && !laidFor && this.trains.size >= 2 && !ENV.BALANCE_NOJAMCUT && !this.goods2On()) {
       const [e, kind] = [...this.trains].find(([, k]) => k === "goods 2") ?? [...this.trains].find(([id]) => id !== this.timber) ?? [];
+      // (The card's "Add a passing loop" for a train too many, with "Run two trains at once" to do: the goals player
+      // lays it once it can (`loopOwed`, above), and the people train goes back on it then, as its hint says.)
+      if (fix?.kind === "too-many" && kind === "people" && !P.goals.isDone("two-trains") && this.lines && this.lineId >= 0) this.loopOwed = true;
       if (e !== undefined) {
         const said = engineStatus(w.sim, w.economy, stuck, () => "");
         P.lift(e);
@@ -2307,7 +2321,8 @@ class Playthrough {
       // (The people train, once routes are learned: its passing loop laid on the line first, and the train put down on
       // it, out of the goods train's way, as a player who knows two trains need a place to pass does. With no loop to be
       // had (no room, or the switches can't be made yet), put down as before, run by hand.)
-      const loop = cars.includes("passenger") ? this.peopleLoop() : null;
+      // (The goals player too, for this goal: its hint is "Lay a passing loop so they can pass".)
+      const loop = cars.includes("passenger") ? this.peopleLoop(true) : null;
       const spot = loop ? this.onLoop(loop) : [...w.layout.pieceIds()].find((id) => !P.fixed.has(id) && w.layout.getPiece(id)!.type.startsWith("straight") && w.layout.getPiece(id)!.pose.x > 700 && !w.sim.pieceOccupied(id));
       if (spot !== undefined) {
         const e = P.train(cars, spot, 1);
@@ -2401,14 +2416,22 @@ class Playthrough {
           if (g.feature[i] === FEAT_FIELD && !ruins.has(g.owner[i])) fields.push(i);
         });
         P.make(new Map([["piece:depot-farm", 1]]));
-        const r = extend(P, { type: "depot-farm", cells: fields, after: "depot-mill" }) ?? (s.learned.has("switches") ? branchOff(P, "depot-farm", fields, "depot-mill") : null);
+        const r: { id: number; beyond: number; sw?: number } | null = extend(P, { type: "depot-farm", cells: fields, after: "depot-mill" }) ?? (s.learned.has("switches") ? branchOff(P, "depot-farm", fields, "depot-mill") : null);
         if (r) {
           this.farm = r.id;
+          // (On a branch, before Routes: the unrouted goods train takes it only when the player sets its switch for
+          // the farm by hand, as for an old farm on a spur (`tendSpur`). Else its grain never comes, and the Mills
+          // research that waits on it never ends: the gentler start's fields lie off the line's ends on many seeds.)
+          if (r.sw !== undefined) {
+            this.spurFarm = !s.learned.has("routes");
+            this.spurSwitch = r.sw;
+            if (!ROUTES_FIRST) P.everySecond = () => this.tendSpur();
+          }
           capEnd(P, r.beyond);
           syncIndustries(w, true);
           updateRates(w, (role) => boostOf(s, role));
           P.happened++;
-          P.note(`built a farm yard at the line's end (rate ${w.economy.depotAtPiece(r.id)!.rate.toFixed(2)})`);
+          P.note(`built a farm yard ${r.sw !== undefined ? "on a branch off the line" : "at the line's end"} (rate ${w.economy.depotAtPiece(r.id)!.rate.toFixed(2)})`);
           this.firsts["farm built"] = Math.round(P.minute);
           if (this.lines) this.routeGoods();
         } else {
@@ -3423,10 +3446,10 @@ class Playthrough {
   }
 
   /** A passing loop on the line for the people train (`spliceLoop`), once routes are learned: its pieces, or null. */
-  peopleLoop(): number[] | null {
+  peopleLoop(forGoal = false): number[] | null {
     const P = this.p;
     const w = P.w;
-    if (!this.lines || this.lineId < 0 || !this.keepsPeople() || !P.progress.knows("piece:switch")) return null;
+    if (!this.lines || this.lineId < 0 || !(forGoal || this.keepsPeople()) || !P.progress.knows("piece:switch")) return null;
     const line = w.economy.lines.get(this.lineId);
     const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
     const longest = Math.max(450, LONGEST_PEOPLE, ...[...this.trains.keys()].map((e) => (w.sim.findCar(e) ? trainLength(w.sim.findCar(e)!.train) : 0)));

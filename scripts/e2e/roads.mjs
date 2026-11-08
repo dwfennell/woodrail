@@ -560,7 +560,7 @@ const badgeOf = (label) => p.evaluate((label) => [...document.querySelectorAll("
 const roadItems = () => p.evaluate(() => [...document.querySelectorAll(".tray-item")].filter((b) => b.offsetParent).map((b) => b.textContent.trim()));
 await p.goto(URL.replace(/#.*$/, ""));
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await settle();
 await p.keyboard.press("Escape");

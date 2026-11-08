@@ -16,7 +16,7 @@
 //   6. Leave now: a hand-run train stands under the forest's crane waiting for a full load: a one-time toast and the
 //      tip; Show me opens its engine card; Leave now there sends it on, and the tip goes.
 //   7. A route given past a sharing workshop: the keep stepper's tip and toast; Show me opens the workshop's card; a
-//      tap on + there, and the tip goes. Then a ring line: the tip and its toast; Show me opens Lines; Reverse there turns its train round; the tip goes.
+//      tap on + there, and the tip goes. Then a ring line: the tip and its toast; Show me opens its line sheet with ⋯ open; Reverse there turns its train round; the tip goes.
 //   8. Reloaded: every tip used or tapped away stays gone. Idle: no frames drawn (tips are checked with the goals).
 //
 // Pictures (390×844, at 2×) go to the out dir; `docs/agents/shots/onboarding-*.jpg` are copies.
@@ -104,16 +104,29 @@ const tapButton = async (sel, text) => {
   await p.evaluate(([sel, text]) => [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text))).scrollIntoView({ block: "nearest" }), [sel, text]);
   await frames();
   await p.waitForTimeout(400);
-  const [x, y] = await p.evaluate(([sel, text]) => {
-    const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text))).getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, [sel, text]);
+  const at = () =>
+    p.evaluate(([sel, text]) => {
+      const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text)))?.getBoundingClientRect();
+      return r ? [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)] : null;
+    }, [sel, text]);
+  // (Where it stays: the same on two looks a frame apart (a card opened just now may still be laid out round it, or the
+  // tray under it redrawn), up to ~10 s. Tapped where it was a moment before, a finger misses it.)
+  let [x, y] = (await at()) ?? [0, 0];
+  for (let k = 0; k < 20; k++) {
+    await frames();
+    const now = await at();
+    if (!now) break;
+    if (now[0] === x && now[1] === y) break;
+    [x, y] = now;
+    await p.waitForTimeout(300);
+  }
+  tapButton.last = { sel, x, y, under: await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? `${e.tagName.toLowerCase()}.${[...e.classList].join(".")}` : null; }, [x, y]) };
   await tapped(() => p.touchscreen.tap(x, y));
 };
 const enterGame = async () => {
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
   // (The primary button: a new game, or, with a save, Continue.)
-  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await settle();
   await p.keyboard.press("Escape");
@@ -136,6 +149,23 @@ const tipGone = (id) =>
   p
     .waitForFunction((id) => window.woodrail.tips().isDone(id) && !document.querySelector(`.goal.feature-tip[data-feature-tip="${id}"]`), id, { timeout: 15000 })
     .then(() => true, () => false);
+/**
+ * A tray tile's place card with `text` in it, caught as it shows: set up before the tap. (A tap that picks nothing up
+ * shows it for 3.5 s, and the tap's own wait (its click, two frames) can take that long under SwiftShader: looked for
+ * after, it had gone, "no card".)
+ */
+const watchCard = (text) =>
+  p.evaluate((text) => {
+    window.__cardSeen = null;
+    const look = () => {
+      const c = document.querySelector(".place-card:not([hidden])");
+      if (c && c.textContent.includes(text) && window.__cardSeen === null) window.__cardSeen = c.innerText;
+    };
+    new MutationObserver(look).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  }, text);
+/** What the card watched for said (null if it never showed in 15 s). */
+const cardSeen = () =>
+  p.waitForFunction(() => window.__cardSeen !== null, null, { timeout: 15000, polling: 200 }).then(() => p.evaluate(() => window.__cardSeen), () => null);
 const learn = (...ids) => p.evaluate((ids) => ids.forEach((id) => window.woodrail.learn(id)), ids);
 const gotIt = async (id) => {
   await tipRow(id);
@@ -264,8 +294,9 @@ if (!setup.error) {
   check("the Jam kitchen's tip shows under the goals", jam.shown && !!jam.row?.includes("fruit and sugar"), JSON.stringify(jam));
   await shot("onboarding-jam-tip");
   await tapButton(`.goal.feature-tip[data-feature-tip="jam"] .tip-show`);
+  await watchCard("Makes jam");
   await tapButton(`.tray-item[data-tip-name="Jam kitchen"]`);
-  const jamCard = await p.waitForFunction(() => document.querySelector(".place-card:not([hidden])")?.textContent.includes("Makes jam"), null, { timeout: 15000 }).then(() => p.evaluate(() => document.querySelector(".place-card").innerText), () => null);
+  const jamCard = await cardSeen();
   check("its Show me opens Industries; a tap on the Jam kitchen's tile says what it makes, from what", !!jamCard?.includes("Makes jam from fruit and sugar"), jamCard ?? "no card");
   await shot("onboarding-jam-tray");
   check("Got it: the jam tip goes", await gotIt("jam"));
@@ -276,8 +307,9 @@ if (!setup.error) {
   const tel = await tipRow("telegraph");
   check("the Telegraph's tip shows under the goals", tel.shown && !!tel.row?.includes("telegraph poles"), JSON.stringify(tel));
   await tapButton(`.goal.feature-tip[data-feature-tip="telegraph"] .tip-show`);
+  await watchCard("signal box");
   await tapButton(`.tray-item[data-tip-name="Telegraph pole"]`);
-  const telCard = await p.waitForFunction(() => document.querySelector(".place-card:not([hidden])")?.textContent.includes("signal box"), null, { timeout: 15000 }).then(() => p.evaluate(() => document.querySelector(".place-card").innerText), () => null);
+  const telCard = await cardSeen();
   check("its Show me opens Lineside; the Telegraph pole's tile says what it's for", !!telCard?.includes("A chain of poles carries a signal box's reach"), telCard ?? "no card");
   await shot("onboarding-telegraph-tray");
   check("Got it: the telegraph tip goes", await gotIt("telegraph"));
@@ -311,7 +343,7 @@ if (!setup.error) {
   await shot("onboarding-leave-now-showme");
   await tapButton(".engine-card .leave-now");
   const left = await p.waitForFunction((t) => !window.woodrail.economy.waitingToFill(t), waiting.train, { timeout: 15000 }).then(() => true, () => false);
-  check("Leave now sends it on with what it has, and the tip goes", left && (await tipGone("leave-now")));
+  check("Leave now sends it on with what it has, and the tip goes", left && (await tipGone("leave-now")), left ? "" : JSON.stringify(tapButton.last));
   await p.keyboard.press("Escape");
 
   // 7. A ring line: Train routes learned, the train given a line round the oval (forest, sawmill) in code.
@@ -346,12 +378,22 @@ if (!setup.error) {
   check("…and the tip shows under the goals", rg.shown && !!rg.row?.includes("Reverse"), JSON.stringify(rg));
   await shot("onboarding-ring-tip");
   await tapButton(`.goal.feature-tip[data-feature-tip="ring-reverse"] .tip-show`);
-  const lines = await p.waitForFunction(() => [...document.querySelectorAll("button")].some((e) => e.textContent.trim() === "Reverse" && e.getBoundingClientRect().width > 0), null, { timeout: 20000 }).then(() => true, () => false);
-  check("its Show me opens Lines, Reverse on the line's row", lines);
+  // (Reverse is in the line sheet's ⋯ menu: Show me opens the ring line's sheet with that menu open, Reverse one tap away.)
+  const lines = await p
+    .waitForFunction(
+      (id) => {
+        const b = document.querySelector(".line-sheet .ls-reverse");
+        const r = b?.getBoundingClientRect();
+        return window.woodrail.lines.sheetLine() === id && !!r && r.width >= 44 && r.height >= 44 && r.top >= 0 && r.bottom <= innerHeight;
+      },
+      ring,
+      { timeout: 20000 },
+    )
+    .then(() => true, () => false);
+  check("its Show me opens the ring line's sheet, its ⋯ menu open, Reverse there (44 px, in view)", lines);
   await shot("onboarding-ring-showme");
   const beforeDir = await p.evaluate((e) => window.woodrail.sim.findCar(e).train.cars[0].id === e && window.woodrail.economy.routeOf(e)?.next, waiting.engine);
-  await p.evaluate(() => [...document.querySelectorAll("button")].find((e) => e.textContent.trim() === "Reverse" && e.getBoundingClientRect().width > 0).setAttribute("data-e2e", "reverse"));
-  await tapButton('[data-e2e="reverse"]');
+  await tapButton(".line-sheet .ls-reverse");
   const turned = await toastWith("runs the other way round now");
   check("Reverse turns the train round on the ring (the payoff), and the tip goes", !!turned && (await tipGone("ring-reverse")), JSON.stringify({ turned, beforeDir }));
   await p.keyboard.press("Escape");
@@ -373,10 +415,22 @@ if (!setup.error) {
   await settle();
   await p.waitForTimeout(1500);
   await settle();
+  // (What asks for a frame meanwhile, for a failure's detail.)
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.__asked = [];
+    for (const k of ["invalidate", "redraw"]) {
+      const real = w[k].bind(w);
+      w[k] = (...a) => {
+        w.__asked.push(`${k}: ${new Error().stack.split("\n").slice(2, 5).join(" < ").replace(/\s+/g, " ")}`);
+        return real(...a);
+      };
+    }
+  });
   const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
   await p.waitForTimeout(2000);
   const idle = (await p.evaluate(() => window.woodrail.framesDrawn)) - f0;
-  check("idle: no frames drawn over 2 s", idle === 0, `${idle} frames`);
+  check("idle: no frames drawn over 2 s", idle === 0, `${idle} frames ${JSON.stringify(await p.evaluate(() => window.woodrail.__asked))}`);
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));

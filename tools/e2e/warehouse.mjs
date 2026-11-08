@@ -147,13 +147,13 @@ const planRoute = async (engine, places) => {
   await openCard({ engine });
   await tapButton(".engine-extra .route-plan");
   for (const d of places) await tapOn({ depot: d }, true);
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
 };
 
 // 1. A new game.
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await settle();
 await p.keyboard.press("Escape");
@@ -299,11 +299,16 @@ if (!setup.error && setup.engine !== -1) {
   });
   check("…the card inside the screen, chips one height", fits.left >= 0 && fits.right <= 390 && new Set(fits.chips.map(Math.round)).size === 1, JSON.stringify(fits));
   const hint = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent));
-  check("…the card points to the warehouse stop's options", hint.includes("Tap the warehouse stop to set Only drop or Only pick up"), JSON.stringify(hint));
+  check("…the card points to the warehouse stop's options", hint.includes("Tap the warehouse stop to set whether it drops or picks up there"), JSON.stringify(hint));
+  // (Its options are in the line sheet: the chip opens it at that stop.)
   await tapButton(".engine-extra .route-chip:nth-child(3)");
-  const opts = await p.evaluate(() => ({ words: document.querySelector(".engine-extra .route-plan-words")?.textContent, action: document.querySelector(".engine-extra .route-mode.on")?.textContent, what: document.querySelector(".engine-extra .route-store")?.textContent, hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) }));
-  check("…its chip tapped: \"Drops planks\", Drop & pick up, and what that does at a warehouse", opts.words === "Drops planks" && opts.action === "Drop & pick up" && opts.what === "Leaves goods no later stop wants, takes what a later stop wants" && !opts.hints.some((h) => /Tap the warehouse/.test(h)), JSON.stringify(opts));
+  const opts = await p.evaluate(() => {
+    const open = document.querySelector(".ls-stop.open");
+    return { words: open?.querySelector(".ls-says")?.textContent, ticks: [...(open?.querySelectorAll(".ls-tick") ?? [])].map((t) => `${t.textContent}:${t.getAttribute("aria-pressed")}`), what: [...(open?.querySelectorAll(".ls-note") ?? [])].map((e) => e.textContent), hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) };
+  });
+  check("…its chip tapped: the sheet at it, \"Drops planks\", Drop and Pick up ticked, and what that does at a warehouse", /^Drops .*planks( from Sawmill.*)?$/.test(opts.words ?? "") && opts.ticks.slice(0, 2).join(",") === "Drop:true,Pick up:true" && opts.what.includes("Leaves goods no later stop wants, takes what a later stop wants"), JSON.stringify(opts));
   await shot("4-route-1-stop-options");
+  await tapButton(".line-sheet .route-plan.on");
   await p.keyboard.press("Escape");
 
   // 6. It runs: planks are dropped at the warehouse.

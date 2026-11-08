@@ -52,7 +52,7 @@ try {
   const a = await page();
   await a.goto(PAGE);
   await a.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await a.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await a.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await inGame(a);
   await a.keyboard.press("Escape");
   const added = await a.evaluate(() => {

@@ -45,7 +45,7 @@ const settle = (ticks = 3) => p.evaluate((t) => Promise.race([window.woodrail.se
 
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => !b.hidden && b.classList.contains("primary")).click());
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => !b.hidden && b.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await settle();
 

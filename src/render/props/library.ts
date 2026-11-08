@@ -51,7 +51,7 @@ export interface PropModel {
  */
 export class PropLibrary {
   /** A Kit per colour variant (0: the model's own colours). */
-  private readonly kits = new Map<number, Kit>();
+  private readonly kits = new Map<string, Kit>();
   /** Built models by key (`modelKey`). */
   private readonly models = new Map<string, PropModel | null>();
   /** Footprints by asset (the same for all its colour variants). */
@@ -128,9 +128,9 @@ export class PropLibrary {
       const storeys = Number(up ?? 0);
       p = Promise.all([loadAsset(assetId), storeys > 0 ? loadModelSet("floors", true) : undefined]).then(([asset, floors]) => {
         let model: PropModel | null = null;
-        if (kit && asset) model = this.loadKit(kitType!, asset.name, placedForKit(asset.build(this.kitFor(0)), kitPlace(kit)));
+        if (kit && asset) model = this.loadKit(kitType!, asset.name, placedForKit(asset.build(this.kitFor(0, asset.detail)), kitPlace(kit)));
         else if (asset) {
-          const build = () => (floors ? stackedModel(floors, assetId, storeys, this.kitFor(variant)) : asset.build(this.kitFor(variant)));
+          const build = () => (floors ? stackedModel(floors, assetId, storeys, this.kitFor(variant)) : asset.build(this.kitFor(variant, asset.detail)));
           const built = build();
           model = { name: asset.name, ...bake(built, this.mats) };
           // (A plain model can be baked again, the same, if its geometry's been let go: see `release`.)
@@ -212,10 +212,11 @@ export class PropLibrary {
     return this.models.has(key) ? null : undefined;
   }
 
-  private kitFor(variant: number): Kit {
-    let kit = this.kits.get(variant);
-    // Fewer segments than the catalogue viewer's: props are small on screen, and many.
-    if (!kit) this.kits.set(variant, (kit = new Kit(this.mats, PROP_DETAIL, variant === 0 ? undefined : (c) => shiftHue(c, variant))));
+  private kitFor(variant: number, detail = PROP_DETAIL): Kit {
+    const key = `${variant}@${detail}`;
+    let kit = this.kits.get(key);
+    // Fewer segments than the catalogue viewer's: props are small on screen, and many (but see `Asset.detail`).
+    if (!kit) this.kits.set(key, (kit = new Kit(this.mats, detail, variant === 0 ? undefined : (c) => shiftHue(c, variant))));
     return kit;
   }
 }

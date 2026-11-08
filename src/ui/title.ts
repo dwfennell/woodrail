@@ -1,4 +1,5 @@
 import type { GameMode } from "../game/modes";
+import { savedWhen, type TitleOffer } from "../persist/cloud-known";
 import type { PieceTypeId } from "../track";
 import { blockWord } from "./blocks";
 
@@ -7,6 +8,11 @@ export interface TitleHandlers {
   play(mode: GameMode, fresh: boolean): void;
   /** "Load a cloud save" (shown only when given: a build with a cloud): open the code entry over the title. */
   loadCloud?(): void;
+  /**
+   * "Continue from cloud" on a mode's card (`setCloudOffers`): carry on with that railway. A message back: it couldn't
+   * (offline, gone), said on the card under the button (the HUD's toasts don't show over the title).
+   */
+  continueCloud?(offer: TitleOffer): Promise<string | void>;
 }
 
 export interface TitleOptions {
@@ -42,8 +48,12 @@ const CARDS: { mode: GameMode; name: string; blurb: string; fresh: string; fresh
 export class TitleScreen {
   readonly root = document.createElement("div");
   private readonly continueBtns = new Map<GameMode, HTMLButtonElement>();
+  /** Each card's "Continue from cloud" row (hidden till there's a railway in the cloud to offer). */
+  private readonly cloudRows = new Map<GameMode, HTMLElement>();
+  private readonly handlers: TitleHandlers;
 
   constructor(parent: HTMLElement, handlers: TitleHandlers, opts: TitleOptions = {}) {
+    this.handlers = handlers;
     this.root.className = "title-screen";
     this.root.hidden = true;
     this.root.innerHTML = `
@@ -70,6 +80,11 @@ export class TitleScreen {
       const fresh = button(c.fresh, c.freshTitle, "chip text", () => handlers.play(c.mode, true));
       buttons.append(go, fresh);
       this.continueBtns.set(c.mode, go);
+      const cloudRow = document.createElement("div");
+      cloudRow.className = "title-cloud-offer";
+      cloudRow.hidden = true;
+      card.appendChild(cloudRow);
+      this.cloudRows.set(c.mode, cloudRow);
       cards.appendChild(card);
     }
     if (handlers.loadCloud) {
@@ -96,6 +111,50 @@ export class TitleScreen {
 
   hide(): void {
     this.root.hidden = true;
+  }
+
+  /**
+   * The railways in the cloud to offer (`titleOffers`, newest first): the newest of each mode on its card, as
+   * "☁ Continue from cloud" and what it is and when it was saved. One saved by a newer game is shown, but can't be
+   * opened. None: the rows go.
+   */
+  setCloudOffers(offers: readonly TitleOffer[], now = Date.now()): void {
+    for (const [mode, row] of this.cloudRows) {
+      const o = offers.find((x) => x.mode === mode);
+      row.replaceChildren();
+      row.hidden = !o || !this.handlers.continueCloud;
+      if (!o || row.hidden) continue;
+      const what = `${o.desc ? `${o.desc}, ` : ""}saved ${savedWhen(o.savedAt, now)}`;
+      const b = button("☁ Continue from cloud", o.newer ? "Saved by a newer version of the game: update this one to open it" : `Carry on with your railway saved online (${what})`, "title-cloud-go", async () => {
+        if (b.disabled) return;
+        b.disabled = true;
+        b.classList.add("busy");
+        let said: string | void = undefined;
+        try {
+          said = await this.handlers.continueCloud!(o);
+        } finally {
+          b.disabled = o.newer;
+          b.classList.remove("busy");
+        }
+        if (said && row.contains(b)) {
+          let err = row.querySelector<HTMLElement>(".title-cloud-error");
+          if (!err) {
+            err = document.createElement("div");
+            err.className = "title-cloud-error";
+            err.setAttribute("role", "status");
+            row.append(err);
+          }
+          err.textContent = said;
+        }
+      });
+      b.dataset.code = o.code;
+      b.disabled = o.newer;
+      const sub = document.createElement("span");
+      sub.className = "title-cloud-when";
+      sub.textContent = o.newer ? "Saved by a newer version: update the game to open it" : what;
+      b.append(sub);
+      row.append(b);
+    }
   }
 
   get shown(): boolean {

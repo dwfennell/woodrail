@@ -17,7 +17,7 @@ for (const [w, h, touch] of [[1160, 800, false], [360, 740, true]]) {
   await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
   await p.goto(server.resolvedUrls.local[0]);
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await p.keyboard.press("Escape");
   const out = await p.evaluate(async () => {

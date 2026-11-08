@@ -493,6 +493,8 @@ export const ASSETS: Asset[] = [
     tags: ["tug", "boat", "river", "barge", "tow", "water"],
     notes: "A low red tug, low enough for any bridge, with a towing post and a magnet at the stern for its barges. The player buys one at a landing and gives it a route, as a train.",
     build: riverTug,
+    // (Boats are looked at close: their hulls round.)
+    detail: 1,
     animate: (root, t) => bob(root, t, 1),
   },
   ...BARGES.map(([load, name, notes]): Asset => ({
@@ -511,6 +513,7 @@ export const ASSETS: Asset[] = [
     tags: ["ship", "cargo", "containers", "harbour", "sea", "water"],
     notes: "A big navy ship stacked with containers, about as long as a train. It calls at a harbour by the sea, takes 24 loads and pays a town's full price for them.",
     build: cargoShip,
+    detail: 1,
     animate: (root, t) => bob(root, t, 0.3),
   },
   {
@@ -520,6 +523,7 @@ export const ASSETS: Asset[] = [
     tags: ["ferry", "train", "ship", "sea", "abroad", "water"],
     notes: "A white ferry with track on its deck for an engine and two wagons, its wheelhouse at the bow. A train rolls on at the slip and goes abroad.",
     build: trainFerry,
+    detail: 1,
     animate: (root, t) => bob(root, t, 0.35),
   },
   {

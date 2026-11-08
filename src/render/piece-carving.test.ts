@@ -172,8 +172,10 @@ describe("pieces carved in the background", () => {
     // The carver comes in, and the piece is asked for again before its queued job runs: carved there and then.
     await (await import("./carver")).loadCarver();
     expect(tv.pieceGeometry("join-144-18", false, 0).groups.length).toBeGreaterThan(1);
-    expect(tv.piecesWanted()).toBe(false);
+    // (Still wanted till its swap, a timer away, has asked for its frame: a settle waits for that.)
+    expect(tv.piecesWanted()).toBe(true);
     await vi.waitFor(() => expect(swaps.n).toBeGreaterThan(0), { timeout: 10_000 });
+    expect(tv.piecesWanted()).toBe(false);
   }, 30_000);
 
   it("with no workers at all, pieces are carved when wanted (as before)", async () => {

@@ -115,7 +115,7 @@ const tray = () => p.evaluate(() => Object.fromEntries([...document.querySelecto
 // 1. A new game.
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await settle();
 await p.keyboard.press("Escape");
@@ -221,7 +221,7 @@ if (!setup.error && setup.engine !== -1) {
   if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine });
   await tapButton(".engine-extra .route-plan");
   for (const d of [towns[0], office, towns[1]]) await tapOn({ depot: d });
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
   const stops = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, engine);
   check("route planned by taps: town, post office, town", JSON.stringify(stops) === JSON.stringify([towns[0], office, towns[1]]), JSON.stringify(stops));
   await p.keyboard.press("Escape");

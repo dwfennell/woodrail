@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GameMode } from "../game/modes";
 import { CloudSync, gunzip, PROGRESS_EVERY_MS, statusText, UPLOAD_EVERY_MS, type CloudBackend, type EditKind, type KeyStore, type Merger, type RemoteMeta, type Reply } from "./cloud";
 import { WORDS } from "./code-words";
+import { titleOffers } from "./cloud-known";
 import { gameMerger } from "./progress-merge";
 import { newCode, parseCode, showCode } from "./sync-code";
 
@@ -65,7 +66,7 @@ class FakeCloud implements CloudBackend {
 }
 
 /** A device: its storage, its clock and its timers (run by hand). */
-function device(cloud: CloudBackend & FakeCloud, store = new MemStore(), clock = { t: 1_000_000 }, merge: Merger | null = null) {
+function device(cloud: CloudBackend & FakeCloud, store = new MemStore(), clock = { t: 1_000_000 }, merge: Merger | null = null, auto = false) {
   const timers: (() => void)[] = [];
   const sync = new CloudSync({
     backend: cloud,
@@ -73,6 +74,7 @@ function device(cloud: CloudBackend & FakeCloud, store = new MemStore(), clock =
     keys: KEYS,
     saveVersion: 13,
     merge,
+    auto,
     now: () => clock.t,
     setTimer: (fn, ms) => {
       expect([UPLOAD_EVERY_MS, PROGRESS_EVERY_MS]).toContain(ms);
@@ -889,3 +891,145 @@ describe("cloud saves", () => {
 function cloud_offline(d: { sync: CloudSync }, off: boolean): void {
   (d.sync["o"].backend as FakeCloud).offline = off;
 }
+
+describe("cloud saves on by themselves, and remembered", () => {
+  const pieces = (n: number) => `{"version":13,"pieces":[${Array.from({ length: n }, (_, i) => `{"id":${i}}`).join(",")}]}`;
+
+  it("stays off without `auto`, and the first build turns it on with it: sent on the next round, not at once", async () => {
+    const cloud = new FakeCloud();
+    const plain = device(cloud);
+    expect(plain.sync.autoOn()).toBe(false);
+    expect(plain.sync.code).toBeNull();
+
+    const a = device(cloud, new MemStore(), { t: 1_000_000 }, null, true);
+    a.store.setItem("s.save", pieces(3));
+    expect(a.sync.autoOn()).toBe(true);
+    const code = a.sync.code!;
+    expect(parseCode(code)).toBe(code);
+    // (Already on: nothing more.)
+    expect(a.sync.autoOn()).toBe(false);
+    a.sync.edited("sandbox");
+    expect(cloud.puts).toBe(0);
+    await a.tick();
+    expect(cloud.puts).toBe(1);
+    expect(a.sync.status.kind).toBe("synced");
+    // Remembered, with what went up.
+    expect(a.sync.known.get(code)?.modes.sandbox).toEqual({ savedAt: a.clock.t, saveVersion: 13, desc: "3 pieces" });
+  });
+
+  it("turned off by the player, never comes on by itself again (after a restart too), and forgets its codes", async () => {
+    const cloud = new FakeCloud();
+    const store = new MemStore();
+    const a = device(cloud, store, { t: 1_000_000 }, null, true);
+    a.sync.autoOn();
+    expect(a.sync.known.list()).toHaveLength(1);
+    a.sync.disable();
+    expect(a.sync.turnedOff).toBe(true);
+    expect(a.sync.known.list()).toHaveLength(0);
+    expect(a.sync.autoOn()).toBe(false);
+    const again = device(cloud, store, { t: 2_000_000 }, null, true);
+    expect(again.sync.turnedOff).toBe(true);
+    expect(again.sync.autoOn()).toBe(false);
+    // Turned on by hand: on again, and no longer "turned off".
+    await again.sync.enable();
+    expect(again.sync.turnedOff).toBe(false);
+  });
+
+  it("a code taken in is remembered first, the one before it kept as a code used before", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.store.setItem("s.save", pieces(5));
+    const codeA = (await a.sync.enable())!;
+    const b = device(cloud, new MemStore(), { t: 2_000_000 }, null, true);
+    b.store.setItem("s.save", pieces(1));
+    b.sync.autoOn();
+    const codeB = b.sync.code!;
+    await b.tick();
+    b.clock.t += 1000;
+    expect((await b.sync.useCode(codeA)).ok).toBe(true);
+    expect(b.sync.known.list().map((k) => k.code)).toEqual([codeA, codeB]);
+    expect(b.sync.known.get(codeA)?.modes.sandbox?.desc).toBe("5 pieces");
+    // The title offers B's own railway under its old code (A's is what Continue opens).
+    const offers = titleOffers(b.sync.known.list(), b.sync.currentCode(), 13);
+    expect(offers).toEqual([expect.objectContaining({ code: codeB, mode: "sandbox", desc: "1 piece", current: false, newer: false })]);
+  });
+
+  it("a newer copy the start-up check came too late for is offered, and taken by takeNewer with the usual rules", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.store.setItem("s.save", pieces(2));
+    const code = (await a.sync.enable())!;
+    const b = device(cloud, new MemStore(), { t: 2_000_000 });
+    await b.sync.useCode(code);
+    b.clock.t += 60_000;
+    b.store.setItem("s.save", pieces(9));
+    b.sync.edited("sandbox");
+    await b.sync.flush();
+
+    // A starts, but its check is cut off before the answer is in.
+    a.clock.t = 3_000_000;
+    a.sync.cutoff();
+    expect(await a.sync.start()).toEqual({});
+    expect(a.store.getItem("s.save")).toBe(pieces(2));
+    const offers = titleOffers(a.sync.known.list(), a.sync.currentCode(), 13);
+    expect(offers).toEqual([expect.objectContaining({ code, mode: "sandbox", current: true })]);
+    const res = await a.sync.takeNewer("sandbox");
+    expect(res).toEqual({ ok: true, changed: true, note: null });
+    expect(a.store.getItem("s.save")).toBe(pieces(9));
+    expect(titleOffers(a.sync.known.list(), a.sync.currentCode(), 13)).toEqual([]);
+  });
+
+  it("takeNewer: both edited, this one later, keeps this one and the other as the backup; offline is said", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.store.setItem("s.save", pieces(2));
+    const code = (await a.sync.enable())!;
+    const b = device(cloud, new MemStore(), { t: 1_100_000 });
+    await b.sync.useCode(code);
+    b.store.setItem("s.save", pieces(4));
+    b.sync.edited("sandbox");
+    await b.sync.flush();
+    a.clock.t = 1_200_000;
+    a.store.setItem("s.save", pieces(7));
+    a.sync.edited("sandbox");
+    const res = await a.sync.takeNewer("sandbox");
+    expect(res).toEqual({ ok: true, changed: false, note: "kept-here" });
+    expect(a.store.getItem("s.save")).toBe(pieces(7));
+    expect(a.sync.backupOf("sandbox")).not.toBeNull();
+    cloud.offline = true;
+    expect(await a.sync.takeNewer("sandbox")).toEqual({ ok: false, error: "offline" });
+  });
+
+  it("refreshKnown: a code with nothing under it any more is forgotten; offline, codes stay as last seen", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.store.setItem("s.save", pieces(2));
+    const old = (await a.sync.enable())!;
+    const b = device(cloud, new MemStore(), { t: 2_000_000 });
+    b.store.setItem("s.save", pieces(3));
+    const other = (await b.sync.enable())!;
+    a.clock.t += 1000;
+    await a.sync.useCode(other);
+    expect(a.sync.known.list().map((k) => k.code)).toEqual([other, old]);
+    cloud.offline = true;
+    expect(await a.sync.refreshKnown()).toBe(false);
+    expect(a.sync.known.list()).toHaveLength(2);
+    cloud.offline = false;
+    cloud.saves.delete(`${old}/sandbox`);
+    expect(await a.sync.refreshKnown()).toBe(true);
+    expect(a.sync.known.list().map((k) => k.code)).toEqual([other]);
+  });
+
+  it("a code's copy saved by a newer game is offered as newer, and takeNewer leaves it alone", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.store.setItem("s.save", pieces(2));
+    const code = (await a.sync.enable())!;
+    const saved = cloud.saves.get(`${code}/sandbox`)!;
+    cloud.saves.set(`${code}/sandbox`, { ...saved, meta: { ...saved.meta, savedAt: saved.meta.savedAt + 5, saveVersion: 99 } });
+    await a.sync.start();
+    expect(titleOffers(a.sync.known.list(), a.sync.currentCode(), 13)).toEqual([expect.objectContaining({ newer: true })]);
+    expect(await a.sync.takeNewer("sandbox")).toEqual({ ok: false, error: "newer" });
+    expect(a.store.getItem("s.save")).toBe(pieces(2));
+  });
+});

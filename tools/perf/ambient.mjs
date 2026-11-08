@@ -42,7 +42,7 @@ for (const [label, viewport] of [
   });
   await page.goto(server.resolvedUrls.local[0]);
   await page.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await page.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await page.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await page.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await page.waitForTimeout(3000);
   await page.keyboard.press("Escape");

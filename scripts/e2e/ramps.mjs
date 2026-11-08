@@ -13,6 +13,7 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { testClockIn } from "./lib/fast.mjs";
 
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
@@ -27,6 +28,10 @@ const check = (name, ok, detail = "") => {
 };
 
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+// (The test clock: each engine's climb is game time, and at a frame or two a second under SwiftShader a frame's 0.1 s
+// step made each take 4 to 7 min on CI, the suite killed at 37 min short of its end. The same fixed sim ticks, more
+// of them a frame: lib/fast.mjs.)
+testClockIn(b);
 const errors = [];
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 const p = await ctx.newPage();
@@ -34,7 +39,7 @@ p.on("pageerror", (e) => errors.push(String(e)));
 await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 await p.goto(URL);
 await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 120000 });
 
 const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));

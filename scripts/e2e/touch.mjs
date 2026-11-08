@@ -1460,19 +1460,45 @@ function mapHelpers(p) {
   // have left it off screen), then a tap where it's seen.
   const showing = async (what) => {
     const v = await worldAt(what);
-    await p.evaluate((v) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), 1500, { duration: 0.2 }), v);
+    // (Planning, in the map's room above the line sheet: centred, a place could sit under it.)
+    await p.evaluate((v) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), 1500, { duration: 0.2, inRoom: !!document.querySelector(".line-sheet:not([hidden])") }), v);
     await still();
   };
   const tapOn = async (what) => {
+    // (Every glide while it's tapped, and who asked: said if the tap makes no click.)
+    await p.evaluate(() => {
+      const d = window.woodrail.director;
+      if (d.__tapGlide) return;
+      d.__tapGlide = d.glideTo;
+      d.glideTo = function (target, distance, opts) {
+        (window.__tapGlides ??= []).push({ to: [Math.round(target.x), Math.round(target.z)], d: Math.round(distance), by: (new Error().stack ?? "").split("\n").slice(2, 5).map((l) => l.trim().replace(/\(.*\//, "(")).join(" < ") });
+        if (window.__tapGlides.length > 12) window.__tapGlides.shift();
+        return d.__tapGlide.call(this, target, distance, opts);
+      };
+    });
     await showing(what);
     const [x, y] = await onScreen(what);
-    await tapped(p, () => p.touchscreen.tap(x, y));
+    try {
+      await tapped(p, () => p.touchscreen.tap(x, y));
+    } catch (e) {
+      // (A tap that made no click: what was under it, and what was open, said.)
+      const under = await p.evaluate(([x, y, what]) => {
+        const el = document.elementFromPoint(x, y);
+        const open = [...document.querySelectorAll(".hud .card, .line-sheet, .lines-view, .menu")].filter((c) => !c.hidden && c.getBoundingClientRect().height > 0).map((c) => c.className.split(" ").slice(0, 2).join("."));
+        const w = window.woodrail;
+        const t = w.controls.target;
+        const f = what.engine !== undefined ? w.sim.findCar(what.engine)?.train.world[0] : null;
+        return { touches: w.interaction.touches?.size, mode: w.interaction.mode?.kind, eng: f && [Math.round(f.x), Math.round(f.z)], glides: window.__tapGlides, at: [Math.round(x), Math.round(y)], size: [innerWidth, innerHeight], el: el ? `${el.tagName}.${String(el.className).split(" ").join(".")}` : null, open, planning: document.querySelector(".hud")?.classList.contains("planning"), following: w.following, busy: w.director.busy, target: [Math.round(t.x), Math.round(t.z)], distance: Math.round(w.camera.position.distanceTo(t)), bounds: w.director.bounds && [w.director.bounds.x0, w.director.bounds.x1, w.director.bounds.z0, w.director.bounds.z1].map(Math.round) };
+      }, [x, y, what]);
+      throw new Error(`${e.message.split("\n")[0]} ${JSON.stringify({ what, ...under })}`);
+    }
   };
   const tapButton = async (sel) => {
     await p.waitForFunction((sel) => { const b = document.querySelector(sel); return !!b && b.offsetParent !== null; }, sel, { timeout: 30000 });
     // (A stop's chip scrolled out of the strip (it shows whole chips from the start of the one in view) is swiped into
     // view first, as a player does.)
-    await p.evaluate((sel) => { const b = document.querySelector(sel); if (b.closest(".route-stops")) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }, sel);
+    // (So is a row scrolled out of the line sheet's list or the Lines list.)
+    await p.evaluate((sel) => { const b = document.querySelector(sel); if (b.closest(".route-stops, .ls-body, .lines-list")) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }, sel);
     await frames(p);
     await p.waitForTimeout(250);
     const [x, y] = await p.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);
@@ -1537,7 +1563,7 @@ async function twoRoutes(ctx, p) {
     const open = await p.evaluate(() => window.woodrail.interaction.openEngineCarId);
     await tapButton(".engine-extra .route-plan");
     for (const d of setup.places[k]) await tapOn({ depot: d });
-    await tapButton(".engine-extra .route-plan.on");
+    await tapButton(".line-sheet .route-plan.on");
     planned.push({ open, line: await lineText(), stops: await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, e) });
     await p.keyboard.press("Escape");
   }
@@ -1592,7 +1618,7 @@ async function twoRoutes(ctx, p) {
   await p.waitForTimeout(1500);
   await p.reload();
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
   const reloaded = await p.evaluate((where) => {
     const w = window.woodrail;
@@ -1744,8 +1770,13 @@ async function leverDefault(ctx, p) {
   await p.waitForTimeout(1500);
   await p.reload();
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
+  // (And loaded and settled, as a page `openMode` opens is, before the groups after this one use the page: its tray came
+  // before the loading screen went, and on CI turntable-taps' first tap, next, landed on that screen, the deck not turned.)
+  await p.waitForFunction(() => !!document.querySelector("#loading.done"), null, { timeout: 180000 }).catch(() => {});
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await frames(p);
   const s3 = await p.evaluate((id) => ({ there: !!window.woodrail.layout.getPiece(id), way: window.woodrail.layout.switchState(id), def: window.woodrail.economy.router.defaultOf(id) }), id);
   // (Since routing step 4, points off their default that no train holds go back to it at routing's first look after a
   // load: lying as saved, or already back to the tap's way.)
@@ -1814,7 +1845,7 @@ async function routeRestore(ctx, p) {
       await tapOn({ depot: d });
     }
     stage = "Done";
-    await tapButton(".engine-extra .route-plan.on");
+    await tapButton(".line-sheet .route-plan.on");
   } catch (e) {
     const at = await onScreen({ engine: setup.engine });
     const why = await p.evaluate((at) => ({ at: at.map(Math.round), pick: window.woodrail.interaction.pick(at[0], at[1], true)?.kind ?? null, mode: window.woodrail.interaction.mode.kind, card: window.woodrail.interaction.openEngineCarId, busy: window.woodrail.director.busy, target: [Math.round(window.woodrail.controls.target.x), Math.round(window.woodrail.controls.target.z)], run: (({ x, z }) => [Math.round(x), Math.round(z)])(window.woodrail.layout.getPiece(window.__restoreRun).pose), bounds: window.woodrail.director.bounds }), at);
@@ -1962,7 +1993,7 @@ async function forwardRoute(ctx, p) {
   await tapOn({ engine: setup.engine });
   await tapButton(".engine-extra .route-plan");
   for (const d of setup.places) await tapOn({ depot: d });
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
   const stops = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, setup.engine);
   check("forward: the train's route planned by taps (Forest, Sawmill)", JSON.stringify(stops) === JSON.stringify(setup.places), JSON.stringify(stops));
   await p.keyboard.press("Escape");
@@ -2099,21 +2130,21 @@ async function viaRoute(ctx, p) {
   await tapOn({ piece: setup.top });
   await tapOn({ depot: setup.places[1] });
   await tapOn({ piece: setup.top });
+  // (The line sheet: via points are "Passes by" rows between its stops.)
   const card = await p.evaluate(() => {
-    const box = document.querySelector(".engine-extra");
-    const rows = new Set([...box.querySelectorAll("button")].filter((b) => b.offsetParent !== null).map((b) => Math.round(b.getBoundingClientRect().top)));
+    const box = document.querySelector(".line-sheet");
     const r = box.getBoundingClientRect();
-    return { vias: [...box.querySelectorAll(".route-via")].map((b) => ({ text: b.textContent, h: b.getBoundingClientRect().height })), rows: rows.size, inside: r.left >= 0 && r.right <= innerWidth };
+    return { vias: [...box.querySelectorAll(".ls-via .ls-stop-main")].map((b) => ({ text: b.textContent, h: b.getBoundingClientRect().height })), inside: r.left >= 0 && r.right <= innerWidth };
   });
   if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/via-planning.png`);
-  check('via: the card shows two "via" chips, 44 px tall or more, the planning card 2 lines at 360 px', card.vias.length === 2 && card.vias.every((v) => v.text.startsWith("via") && v.h >= 44) && card.rows <= 2 && card.inside, JSON.stringify(card));
-  // A via chip tapped: its tools (what it is, ✕), the card's buttons 44 px or more.
-  await tapButton(".engine-extra .route-via");
-  const tools = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-tools button")].map((b) => ({ text: b.textContent, h: Math.round(b.getBoundingClientRect().height), w: Math.round(b.getBoundingClientRect().width) })));
+  check('via: the sheet shows two "Passes by" rows, 44 px tall or more, inside the screen at 360 px', card.vias.length === 2 && card.vias.every((v) => v.text.startsWith("Passes by") && v.h >= 44) && card.inside, JSON.stringify(card));
+  // A via row tapped: its tools (Take off), 44 px or more.
+  await tapButton(".line-sheet .ls-via .ls-stop-main");
+  const tools = await p.evaluate(() => [...document.querySelectorAll(".line-sheet .ls-via.open .ls-acts button")].map((b) => ({ text: b.textContent, h: Math.round(b.getBoundingClientRect().height), w: Math.round(b.getBoundingClientRect().width) })));
   if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/via-picked.png`);
-  check("via: a via chip tapped shows its ✕, 44 px or more", tools.some((t) => t.text === "✕") && tools.every((t) => t.h >= 44 && t.w >= 44), JSON.stringify(tools));
-  await tapButton(".engine-extra .route-via.picked");
-  await tapButton(".engine-extra .route-plan.on");
+  check("via: a via row tapped shows Take off, 44 px or more", tools.some((t) => t.text === "Take off") && tools.every((t) => t.h >= 44 && t.w >= 44), JSON.stringify(tools));
+  await tapButton(".line-sheet .ls-via.open .ls-stop-main");
+  await tapButton(".line-sheet .route-plan.on");
   await p.setViewportSize({ width: 390, height: 844 });
   const stops = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => ({ d: s.depotId, via: s.via ?? [] })) ?? null, setup.engine);
   check("via: the route planned by taps (Forest via the top road, Sawmill via the top road)", JSON.stringify(stops) === JSON.stringify([{ d: setup.places[0], via: [setup.top] }, { d: setup.places[1], via: [setup.top] }]), JSON.stringify(stops));
@@ -2252,7 +2283,7 @@ async function routeWait(ctx, p) {
         await tapOn({ depot: d });
       }
       stage = "Done";
-      await tapButton(".engine-extra .route-plan.on");
+      await tapButton(".line-sheet .route-plan.on");
     } catch (e) {
       throw new Error(`wait: tapping ${stage}: ${String(e?.message ?? e).split("\n")[0]}`);
     }
@@ -2503,7 +2534,7 @@ async function handWait(ctx, p) {
   await tapOn({ engine: setup.routed });
   await tapButton(".engine-extra .route-plan");
   for (const d of [setup.mill, setup.forest]) await tapOn({ depot: d });
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
   await p.keyboard.press("Escape");
   const route = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, setup.routed);
   check("hand-wait: the routed train's route planned by taps (the curve's sawmill, then the forest)", JSON.stringify(route) === JSON.stringify([setup.mill, setup.forest]), JSON.stringify(route));
@@ -2968,7 +2999,7 @@ async function putAwayButton(p) {
     const h = window.woodrail.hud;
     const toast = h.toast.bind(h);
     h.toast = (m, ...rest) => (window.__trapSaid.push(m), toast(m, ...rest));
-    document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click();
+    document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click());
   });
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
   await frames(p);
@@ -4031,6 +4062,8 @@ async function routeKeep(ctx, p, tapSel) {
       return { goods, came };
     };
     // Both trains on their lines, each with both its stops.
+    // (A line's name and its stop count, "Blue line:2". Lines stand alone, so a full run's earlier groups leave their
+    // trainless lines on this shared page and these get the next free names, "Blue line 2".)
     window.__keepLines = () => E.map((e) => { const id = w.economy.lineIdOf.get(e); const l = w.economy.lines.get(id); return `${l?.name ?? "none"}:${w.economy.routeOf(e)?.stops.length ?? 0}`; });
     window.__keepRun(20);
     const q = at(L.getPiece(more).pose);
@@ -4096,7 +4129,7 @@ async function routeKeep(ctx, p, tapSel) {
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   await frames(p);
   const laid = await p.evaluate(({ sawmillPiece }) => ({ pieces: window.woodrail.layout.pieceCount, joined: [0, 1].every((c) => window.woodrail.layout.joinedConnector(sawmillPiece * 8 + c) !== -1), lines: window.__keepLines() }), setup);
-  check("route-keep: a straight laid from the tray next to the sawmill (the line's stop, its way in): both trains keep their lines and stops", laid.pieces === before + 1 && laid.joined && JSON.stringify(laid.lines) === JSON.stringify(lines0) && lines0.every((l) => /line:2$/.test(l)), JSON.stringify({ before, lines0, ...laid }));
+  check("route-keep: a straight laid from the tray next to the sawmill (the line's stop, its way in): both trains keep their lines and stops", laid.pieces === before + 1 && laid.joined && JSON.stringify(laid.lines) === JSON.stringify(lines0) && lines0.every((l) => /line( \d+)?:2$/.test(l)), JSON.stringify({ before, lines0, ...laid }));
   // Undo (the HUD's button, tapped), then redo (Ctrl+Shift+Z).
   const { tapButton, tapOn } = mapHelpers(p);
   await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
@@ -4207,7 +4240,9 @@ async function routeUx(ctx, p) {
     pts.push(new V(t.x, t.y, t.z));
     const shown = (e) => e && getComputedStyle(e).display !== "none" && getComputedStyle(e).visibility !== "hidden" && e.getBoundingClientRect().height > 0;
     const top = Math.max(0, ...[...document.querySelectorAll(".hud .actions, .hud .brand, .hud .goals")].filter(shown).map((e) => e.getBoundingClientRect().bottom));
-    const card = document.querySelector(".engine-card");
+    // (Above the line sheet while planning, else the engine card.)
+    const sheet = document.querySelector(".line-sheet");
+    const card = shown(sheet) ? sheet : document.querySelector(".engine-card");
     const bottom = shown(card) ? card.getBoundingClientRect().top : innerHeight;
     const r = w.canvas.getBoundingClientRect();
     const out = pts.map((v) => { const c = v.clone().project(w.camera); return [Math.round(r.left + ((c.x + 1) / 2) * r.width), Math.round(r.top + ((1 - c.y) / 2) * r.height)]; }).filter(([x, y]) => !(x >= 0 && x <= innerWidth && y >= top && y <= bottom));
@@ -4220,11 +4255,11 @@ async function routeUx(ctx, p) {
   // Planning by taps: the engine, Plan a route, the first forest.
   await tapOn({ engine: setup.engine });
   await tapButton(".engine-extra .route-plan");
-  const empty = await texts(".engine-extra .route-hint");
-  check("route-ux: planning, no stops yet: \"Tap stations and depots on the map, in the order …\"", empty.includes("Tap stations and depots on the map, in the order the train should visit them"), JSON.stringify(empty));
+  const empty = await texts(".line-sheet .ls-hint");
+  check("route-ux: planning, no stops yet: the line sheet says \"Tap places on the map …, in the order to visit them\"", empty.some((t) => t.startsWith("Tap places on the map") && t.endsWith("in the order to visit them")), JSON.stringify(empty));
   await tapOn({ depot: setup.places[0] });
-  const one = await p.evaluate(() => ({ hint: document.querySelector(".engine-extra .route-plan-hint")?.textContent, via: document.querySelector(".engine-extra .route-add-via")?.getBoundingClientRect().height ?? 0 }));
-  check("route-ux (F6): with a stop, the hint says track goes that way, and a \"+ via\" chip 44 px or more", one.hint === "Tap a place on the map to add it as a stop. Tap track to make the train go that way." && one.via >= 44, JSON.stringify(one));
+  const one = await p.evaluate(() => ({ hint: document.querySelector(".line-sheet .ls-hint")?.textContent, via: document.querySelector(".line-sheet .ls-add-via")?.getBoundingClientRect().height ?? 0 }));
+  check("route-ux (F6): with a stop, the hint says what a tap adds, and a \"+ Pass by…\" button 44 px or more", /^Tap places on the map to add stops/.test(one.hint ?? "") && one.via >= 44, JSON.stringify(one));
   await tapOn({ depot: setup.places[1] });
   const two = await route();
   // F5: the view close in on the second forest, then it's tapped: the whole route is framed above the bar.
@@ -4271,9 +4306,9 @@ async function routeUx(ctx, p) {
   await tapUndo();
   check("route-ux (F1): …and Undo takes it off again", (await route()).stops.length === 3);
   // F6: "+ via", then a tap on the track: a via point.
-  await tapButton(".engine-extra .route-add-via");
-  const asked = await p.evaluate(() => ({ hint: document.querySelector(".engine-extra .route-plan-hint")?.textContent, on: document.querySelector(".engine-extra .route-add-via")?.getAttribute("aria-pressed") }));
-  check("route-ux (F6): \"+ via\" tapped: \"Now tap the track the train should go by\"", asked.hint === "Now tap the track the train should go by" && asked.on === "true", JSON.stringify(asked));
+  await tapButton(".line-sheet .ls-add-via");
+  const asked = await p.evaluate(() => ({ hint: document.querySelector(".line-sheet .ls-hint")?.textContent, on: document.querySelector(".line-sheet .ls-add-via")?.getAttribute("aria-pressed") }));
+  check("route-ux (F6): \"+ Pass by…\" tapped: \"Now tap the track or place to pass by\"", asked.hint === "Now tap the track or place to pass by" && asked.on === "true", JSON.stringify(asked));
   await tapOn({ piece: setup.track });
   const withVia = await route();
   check("route-ux (F6): the track tapped: a via point after the last stop", withVia.stops[2].via.includes(setup.track), JSON.stringify(withVia));
@@ -4289,10 +4324,10 @@ async function routeUx(ctx, p) {
     const q = w.layout.getPiece(id).pose;
     const c = new w.camera.position.constructor(q.x + Math.cos(q.heading) * 108, 0, q.z + Math.sin(q.heading) * 108).project(w.camera);
     const y = ((1 - c.y) / 2) * innerHeight;
-    const bar = document.querySelector(".engine-card").getBoundingClientRect().top;
+    const bar = document.querySelector(".line-sheet").getBoundingClientRect().top;
     return !(c.x > -1 && c.x < 1 && y > 0 && y < bar);
   }, setup.track);
-  await tapButton(".engine-extra .route-via");
+  await tapButton(".line-sheet .ls-via .ls-stop-main");
   await frames(p);
   await still();
   const viaShown = await p.evaluate((id) => {
@@ -4300,12 +4335,12 @@ async function routeUx(ctx, p) {
     const q = w.layout.getPiece(id).pose;
     const c = new w.camera.position.constructor(q.x + Math.cos(q.heading) * 108, 0, q.z + Math.sin(q.heading) * 108).project(w.camera);
     const y = ((1 - c.y) / 2) * innerHeight;
-    const bar = document.querySelector(".engine-card").getBoundingClientRect().top;
-    return { on: c.x > -1 && c.x < 1 && y > 0 && y < bar, picked: !!document.querySelector(".engine-extra .route-via.picked") };
+    const bar = document.querySelector(".line-sheet").getBoundingClientRect().top;
+    return { on: c.x > -1 && c.x < 1 && y > 0 && y < bar, picked: !!document.querySelector(".line-sheet .ls-via.open") };
   }, setup.track);
-  check("route-ux (F6): a via chip picked with its via off screen: the view goes to it", viaOff && viaShown.on && viaShown.picked, JSON.stringify({ viaOff, ...viaShown }));
-  // The via off again (its ✕): the route the delivery check runs.
-  await tapButton(".engine-extra .route-tools .route-remove");
+  check("route-ux (F6): a Passes by row opened with its via off screen: the view goes to it", viaOff && viaShown.on && viaShown.picked, JSON.stringify({ viaOff, ...viaShown }));
+  // The via off again (its Take off): the route the delivery check runs.
+  await tapButton(".line-sheet .ls-via.open .ls-via-remove");
   // F5: Done, the card back at full height: the route shown above it.
   await p.evaluate((id) => {
     const w = window.woodrail;
@@ -4326,7 +4361,7 @@ async function routeUx(ctx, p) {
     };
     d.__glide = glide;
   });
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
   const doneAt = await p.evaluate(() => Math.round(performance.now()));
   await frames(p);
   await p.waitForTimeout(300);
@@ -4356,23 +4391,27 @@ async function routeUx(ctx, p) {
     arrows: document.querySelector(".engine-extra").textContent.includes("▶"),
   }));
   check("route-ux (F7): the chips show 1 2 3, the next one marked (aria-current), no ▶", JSON.stringify(chips.nums) === '["1","2","3"]' && chips.next.length === 1 && chips.next[0] === "step" && !chips.arrows, JSON.stringify(chips));
-  // F2: the sawmill's chip: three choices side by side, a finger's size, inside the card at 360 px.
+  // F2 (the line sheet, 2026-11-06): the sawmill's chip opens the sheet at its stop: two ticks (Drop, Pick up), both on,
+  // a finger's size, inside the sheet at 360 px; ↑ ↓ to move it; untick both to pass by.
   await tapButton('.engine-extra .route-chip[data-stop="1"]');
   const modes = await p.evaluate(() => {
-    const card = document.querySelector(".engine-card").getBoundingClientRect();
+    const sheet = document.querySelector(".line-sheet").getBoundingClientRect();
+    const open = document.querySelector(".ls-stop.open");
     return {
-      modes: [...document.querySelectorAll(".engine-extra .route-modes .route-mode")].map((b) => { const r = b.getBoundingClientRect(); return { t: b.textContent, on: b.getAttribute("aria-pressed"), h: Math.round(r.height), w: Math.round(r.width), inside: r.left >= card.left && r.right <= card.right + 0.5, clipped: b.scrollWidth > b.clientWidth + 1 }; }),
-      moves: [...document.querySelectorAll(".engine-extra .route-move")].map((b) => b.textContent),
-      pass: !!document.querySelector(".engine-extra .route-pass"),
+      stop: open?.dataset.stop,
+      ticks: [...(open?.querySelectorAll(".ls-ticks .ls-tick") ?? [])].map((b) => { const r = b.getBoundingClientRect(); return { t: b.textContent, on: b.getAttribute("aria-pressed"), h: Math.round(r.height), w: Math.round(r.width), inside: r.left >= sheet.left && r.right <= sheet.right + 0.5, clipped: b.scrollWidth > b.clientWidth + 1 }; }),
+      moves: [...(open?.querySelectorAll(".route-move") ?? [])].map((b) => b.textContent),
+      pass: open?.querySelector(".ls-note")?.textContent ?? "",
     };
   });
-  check("route-ux (F2): a stop picked shows Drop & pick up · Only drop · Only pick up (the first pressed), 44 px or more, inside the card at 360 px, unclipped, and Pass by on its own", JSON.stringify(modes.modes.map((m) => m.t)) === '["Drop & pick up","Only drop","Only pick up"]' && modes.modes[0].on === "true" && modes.modes.every((m) => m.h >= 44 && m.w >= 44 && m.inside && !m.clipped) && modes.pass, JSON.stringify(modes));
-  check("route-ux (F7): its moves are ← and →", modes.moves.length === 2 && modes.moves.every((m) => m === "←" || m === "→"), JSON.stringify(modes.moves));
-  // Tapped many times, round and round: the stop never leaves the route.
-  for (const m of ["pick", "pick", "drop", "auto", "pick", "pick", "drop", "drop"]) await tapButton(`.engine-extra .route-mode[data-mode="${m}"]`);
+  check("route-ux (F2): a stop's chip opens the sheet at it: Drop and Pick up ticked, Wait to fill, 44 px or more, inside the sheet at 360 px, and how to pass by", modes.stop === "1" && modes.ticks.slice(0, 2).map((m) => `${m.t}:${m.on}`).join(",") === "Drop:true,Pick up:true" && modes.ticks.every((m) => m.h >= 44 && m.w >= 44 && m.inside && !m.clipped) && /^Untick both/.test(modes.pass), JSON.stringify(modes));
+  check("route-ux (F7): its moves are ↑ and ↓", modes.moves.length === 2 && modes.moves.every((m) => m === "↑" || m === "↓"), JSON.stringify(modes.moves));
+  // Ticked on and off, round and round, one at a time: the stop never leaves the route.
+  for (const t of ["pick", "pick", "drop", "drop", "pick"]) await tapButton(`.ls-stop.open .ls-${t}`);
   const after = await route();
-  const tag = await texts('.engine-extra .route-chip[data-stop="1"] .route-intent');
-  check("route-ux (F2): the mode tapped many times never takes the stop off (3 stops, no via points); Only drop says \"only ⬇\" on its chip", after.stops.length === 3 && after.stops.every((s) => s.via.length === 0) && after.stops[1].a === "drop" && JSON.stringify(tag) === '["only ⬇"]', JSON.stringify({ after, tag }));
+  const tag = await texts('.ls-stop[data-stop="1"] .ls-tag');
+  check("route-ux (F2): the ticks tapped one at a time never take the stop off (3 stops, no via points); Pick up off says \"drop only\" on its row", after.stops.length === 3 && after.stops.every((s) => s.via.length === 0) && after.stops[1].a === "drop" && tag.includes("drop only"), JSON.stringify({ after, tag }));
+  await tapButton(".line-sheet .route-plan.on");
   // The payoff: Only drop at the sawmill delivers logs there and loads nothing there.
   await p.keyboard.press("Escape");
   const run = await p.evaluate(async (o) => {
@@ -4401,28 +4440,25 @@ async function routeUx(ctx, p) {
   // Pass by, on its own button: the sawmill becomes a via point (said); Undo brings the stop back as it was.
   await tapOn({ engine: setup.engine });
   await tapButton('.engine-extra .route-chip[data-stop="1"]');
-  await tapButton(".engine-extra .route-pass");
+  // (Drop only: Drop unticked too, so neither: it passes by.)
+  await tapButton(".ls-stop.open .ls-drop");
   const passed = await route();
-  check("route-ux (F2): Pass by makes the sawmill a via point on the way", passed.stops.length === 2 && passed.stops[0].via.includes(setup.pieces[1]), JSON.stringify(passed));
+  check("route-ux (F2): both unticked, the sawmill is passed by: a via point on the way, a Passes by row", passed.stops.length === 2 && passed.stops[0].via.includes(setup.pieces[1]) && (await texts(".line-sheet .ls-via .ls-tag")).includes("Passes by"), JSON.stringify(passed));
   await tapUndo();
   const back = await route();
   check("route-ux (F1): Undo brings the sawmill back as a stop, Only drop", back.stops.length === 3 && back.stops[1].d === setup.places[1] && back.stops[1].a === "drop" && back.stops.every((s) => s.via.length === 0), JSON.stringify(back));
-  // F3: Take off line (in the line's edit view: Edit first) asks first (a default-named line too); the second tap
-  // forgets it; Undo brings it back.
-  await tapButton(".engine-extra .route-plan:not(.on)");
-  await tapButton(".engine-extra .route-leave");
-  const ask = await p.evaluate(() => ({ text: document.querySelector(".engine-extra .route-leave")?.textContent, asking: document.querySelector(".engine-extra .route-leave")?.classList.contains("asking"), says: document.querySelector(".engine-extra .route-leave-ask")?.textContent }));
-  const still1 = await route();
-  check("route-ux (F3): Take off line on the line's only train asks first (\"Forget …?\"), the line kept", /^Forget “.+ line”\?$/.test(ask.text ?? "") && ask.asking && /^Tap again to forget .+ line and its stops$/.test(ask.says ?? "") && still1.stops.length === 3 && still1.lines === 1, JSON.stringify({ ask, still1 }));
-  // (The second press straight on the button, a click as its tap makes: "Forget …?" waits 4 s, and on the full run's
-  // busy page a touch's click can come later than that. The first press above was a real tap.)
-  await p.evaluate(() => document.querySelector(".engine-extra .route-leave.asking")?.click());
-  await frames(p);
+  // F3 (lines stand alone, 2026-11-06): Take off, on the sheet's Trains tab, takes the train off its line and keeps the
+  // line (run by no train now: the Lines list shows it); Undo puts the train back on it.
+  await tapButton(".line-sheet .ls-tab[data-tab='trains']");
+  // (Lines from the groups before stand on the map too: counted against this.)
+  const lines0 = (await route()).lines;
+  await tapButton(".line-sheet .ls-train-off");
   const gone = await route();
-  check("route-ux (F3): the second tap forgets it", gone.stops.length === 0 && gone.lines === 0, JSON.stringify(gone));
+  check("route-ux (F3): Take off: the train runs no line, the line is kept", gone.stops.length === 0 && gone.lines === lines0, JSON.stringify({ gone, lines0 }));
   await tapUndo();
   const restored = await route();
-  check("route-ux (F1): Undo brings the line back, its three stops and the train on it", restored.lines === 1 && restored.stops.length === 3 && restored.stops[1].a === "drop", JSON.stringify(restored));
+  check("route-ux (F1): Undo puts the train back on the line, its three stops, the sawmill Only drop", restored.lines === lines0 && restored.stops.length === 3 && restored.stops[1].a === "drop", JSON.stringify(restored));
+  await tapButton(".line-sheet .route-plan.on").catch(() => {});
   await p.keyboard.press("Escape");
   await p.setViewportSize({ width: 390, height: 844 });
 }
@@ -4470,19 +4506,19 @@ async function routeUxMore(ctx, p) {
   // C1: the forest's card, "New route from here": the nearest free train (the first) plans, the forest its stop 1.
   await tapOn({ depot: setup.places[0] });
   await tapButton(".depot-routes .route-new-here");
-  await p.waitForFunction(() => !!document.querySelector(".engine-extra .route-plan.on"), null, { timeout: 30000 }).catch(() => {});
-  const started = await p.evaluate(() => ({ open: window.woodrail.interaction.openEngineCarId, planning: !!document.querySelector(".engine-extra .route-plan.on") }));
+  await p.waitForFunction(() => !!document.querySelector(".line-sheet .route-plan.on"), null, { timeout: 30000 }).catch(() => {});
+  const started = await p.evaluate(() => ({ open: window.woodrail.interaction.openEngineCarId, planning: !!document.querySelector(".line-sheet .route-plan.on") }));
   // (The free train nearest the forest, of the three.)
   const first = started.open;
   check("route-ux-more (C1): a forest's card, New route from here: the nearest free train plans, the forest its first stop", started.planning && setup.engines.includes(first) && JSON.stringify(await stopsOf(first)) === JSON.stringify([setup.places[0]]), JSON.stringify({ started, stops: await stopsOf(first) }));
   // B8: the sawmill, then the first stop's chip picked and the second forest tapped: it goes in after the first.
   await tapOn({ depot: setup.places[1] });
-  await tapButton('.engine-extra .route-chip[data-stop="0"]');
-  const hint = await p.evaluate(() => document.querySelector(".engine-extra .route-insert-hint")?.textContent);
+  await tapButton('.line-sheet .ls-stop[data-stop="0"] .ls-stop-main');
+  const hint = await p.evaluate(() => document.querySelector(".line-sheet .ls-hint")?.textContent);
   await tapOn({ depot: setup.places[2] });
   const order = await stopsOf(first);
   check("route-ux-more (B8): planning with stop 1 picked, a place tapped goes in after it (said)", JSON.stringify(order) === JSON.stringify([setup.places[0], setup.places[2], setup.places[1]]) && /^Places you tap now go after /.test(hint ?? ""), JSON.stringify({ order, hint }));
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
   await still();
   // B3, B4: the line on the map has its dark edge and its arrows.
   const map = await p.evaluate(() => {
@@ -4491,19 +4527,21 @@ async function routeUxMore(ctx, p) {
     return { edge: !!named("route-edge"), arrows: named("route-chevrons")?.geometry.getAttribute("position").count ?? 0 };
   });
   check("route-ux-more (B3, B4): the ribbon has its dark edge and arrows along it", map.edge && map.arrows >= 9, JSON.stringify(map));
-  // B9: on its side, a stop's chip tapped: its tools in the card's view, no scroll by the player.
+  // B9: on its side, a stop's chip tapped: the sheet (docked at the side) opens at it, its ticks in view, no scroll by
+  // the player.
   await p.setViewportSize({ width: 844, height: 390 });
   await frames(p);
   await tapButton('.engine-extra .route-chip[data-stop="2"]');
   await frames(p);
   await p.waitForTimeout(300);
   const fold = await p.evaluate(() => {
-    const card = document.querySelector(".engine-card").getBoundingClientRect();
-    const tools = document.querySelector(".engine-extra .route-tools")?.getBoundingClientRect();
-    return { card: [Math.round(card.top), Math.round(card.bottom)], tools: tools && [Math.round(tools.top), Math.round(tools.bottom)], inside: !!tools && tools.top >= card.top && tools.bottom <= card.bottom + 1 && tools.bottom <= innerHeight };
+    const card = document.querySelector(".line-sheet .ls-body").getBoundingClientRect();
+    const tools = document.querySelector(".ls-stop.open .ls-ticks")?.getBoundingClientRect();
+    return { card: [Math.round(card.top), Math.round(card.bottom)], tools: tools && [Math.round(tools.top), Math.round(tools.bottom)], inside: !!tools && tools.top >= card.top - 1 && tools.bottom <= card.bottom + 1 && tools.bottom <= innerHeight };
   });
-  check("route-ux-more (B9): at 844×390 a stop picked has its tools in view in the card", fold.inside, JSON.stringify(fold));
+  check("route-ux-more (B9): at 844×390 a stop picked opens the sheet at it, its ticks in view", fold.inside, JSON.stringify(fold));
   await p.setViewportSize({ width: 360, height: 740 });
+  await tapButton(".line-sheet .route-plan.on");
   await p.keyboard.press("Escape");
   // B5, C2: ☰ → Lines: discs and arrows on every line's ribbon; + Train puts the nearest free train on it.
   const openLinesView = async () => {
@@ -4525,28 +4563,32 @@ async function routeUxMore(ctx, p) {
   await still();
   const all = await p.evaluate(() => {
     const g = window.woodrail.scene.getObjectByName("all-lines");
-    return { discs: g?.children.filter((c) => c.isSprite).length ?? 0, arrows: !!g?.children.find((c) => c.name === "route-chevrons"), acts: [...document.querySelectorAll(".lines-actions button")].map((b) => ({ t: b.textContent, h: Math.round(b.getBoundingClientRect().height) })) };
+    return { discs: g?.children.filter((c) => c.isSprite).length ?? 0, arrows: !!g?.children.find((c) => c.name === "route-chevrons"), rows: [...document.querySelectorAll(".lines-row")].map((b) => ({ t: b.querySelector(".lines-name")?.textContent, h: Math.round(b.getBoundingClientRect().height) })) };
   });
-  check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and offers Edit stops and + Train (and Copy, Reverse; 44 px)", all.discs >= 3 && all.arrows && all.acts.map((a) => a.t).join(",") === "Edit stops,+ Train,Copy,Reverse" && all.acts.every((a) => a.h >= 44), JSON.stringify(all));
-  // (+ Train: the second of a line's actions.)
-  await tapButton(".lines-actions button:nth-child(2)");
-  await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId !== -1, null, { timeout: 30000 }).catch(() => {});
+  // (Lines from the groups before stand in the list too: this one's row by its name.)
+  const mine = await p.evaluate((e) => window.woodrail.economy.lines.get(window.woodrail.economy.lineIdOf.get(e))?.name, first);
+  check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and lists it as a row to tap (44 px or more)", all.discs >= 3 && all.arrows && all.rows.some((r) => r.t === mine) && all.rows.every((a) => a.h >= 44), JSON.stringify({ all, mine }));
+  // (A train added from the line's sheet: its row, its Trains tab, the free train nearest the line, + Add.)
+  await p.evaluate((n) => [...document.querySelectorAll(".lines-row")].find((r) => r.querySelector(".lines-name")?.textContent === n)?.setAttribute("data-e2e-row", "1"), mine);
+  await tapButton(".lines-row[data-e2e-row='1']");
+  await tapButton(".line-sheet .ls-tab[data-tab='trains']");
+  await p.waitForFunction(() => !!document.querySelector(".ls-add-train"), null, { timeout: 30000 }).catch(() => {});
+  await tapButton(".ls-add-train");
   const joined = await p.evaluate((es) => {
     const w = window.woodrail;
     const on = es.engines.filter((e) => w.economy.lineIdOf.get(e) === w.economy.lineIdOf.get(es.first));
-    return { on, open: w.interaction.openEngineCarId };
+    return { on, rows: document.querySelectorAll(".ls-train").length };
   }, { engines: setup.engines, first });
-  // (Of the two free trains, the one nearer the line's places.)
   const added = joined.on.find((e) => e !== first);
-  check("route-ux-more (C2): + Train puts a free train on the line, and opens its card", joined.on.length === 2 && joined.open === added, JSON.stringify(joined));
-  await p.keyboard.press("Escape");
-  // C2: + New line: the last free train's card, planning.
-  await openLinesView();
+  check("route-ux-more (C2): + Add on the line's Trains tab puts a free train on the line, listed there", joined.on.length === 2 && joined.rows === 2, JSON.stringify(joined));
+  await tapButton(".line-sheet .route-plan.on");
+  // C2 (2026-11-06): + New line: the sheet with no line and no train, planning.
   await tapButton(".lines-head .lines-new");
-  await p.waitForFunction(() => !!document.querySelector(".engine-extra .route-plan.on"), null, { timeout: 30000 }).catch(() => {});
-  const fresh = await p.evaluate(() => ({ open: window.woodrail.interaction.openEngineCarId, planning: !!document.querySelector(".engine-extra .route-plan.on") }));
-  check("route-ux-more (C2): + New line opens the last free train's card, planning", fresh.planning && fresh.open !== -1 && fresh.open !== added && fresh.open !== first, JSON.stringify({ fresh, added }));
-  await tapButton(".engine-extra .route-plan.on");
+  await p.waitForFunction(() => !!document.querySelector(".line-sheet .route-plan.on"), null, { timeout: 30000 }).catch(() => {});
+  const fresh = await p.evaluate(() => ({ open: window.woodrail.interaction.openEngineCarId, planning: !!document.querySelector(".line-sheet .route-plan.on"), title: document.querySelector(".line-sheet .ls-name-text")?.textContent }));
+  check("route-ux-more (C2): + New line opens the sheet on a new line, no train's card", fresh.planning && fresh.open === -1 && fresh.title === "New line", JSON.stringify({ fresh, added }));
+  await tapButton(".line-sheet .route-plan.on");
+  await tapButton(".lines-view .lines-close").catch(() => {});
   await p.keyboard.press("Escape");
   // B6: a line on two ways (the harness's `twoWays`), the top road taken up: the card says it goes another way now,
   // the flash ends by itself.
@@ -4654,7 +4696,7 @@ async function routeReorder(ctx, p) {
     await tapOn({ engine: o.engine });
     await tapButton(".engine-extra .route-plan");
     for (const d of o.places) await tapOn({ depot: d });
-    await tapButton(".engine-extra .route-plan.on");
+    await tapButton(".line-sheet .route-plan.on");
     await still();
   };
   await plan(setup);
@@ -4839,7 +4881,7 @@ async function routeShare(ctx, p) {
   await tapOn({ engine: setup.engines[0] });
   await tapButton(".engine-extra .route-plan");
   for (const d of setup.places) await tapOn({ depot: d });
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
   await still();
   const first = await lineOf(setup.engines[0]);
   check("route-share: a line planned by taps", JSON.stringify(first?.stops) === JSON.stringify(setup.places), JSON.stringify(first));
@@ -4852,27 +4894,37 @@ async function routeShare(ctx, p) {
     await p.waitForFunction(() => { const v = document.querySelector(".lines-view"); return v && !v.hidden; }, null, { timeout: 30000 });
     await frames(p);
   };
-  // A line's row's action, by its words (the row by the line's name).
+  // A line's action, by its words: its row tapped in the Lines list (the row by the line's name), then the sheet's ⋯.
+  // (Reverse: the sheet then Done, back to the list.)
   const tapAction = async (lineName, words) => {
-    await p.evaluate(([n, t]) => {
+    await p.evaluate((n) => {
       document.querySelectorAll("[data-e2e-act]").forEach((b) => b.removeAttribute("data-e2e-act"));
-      const wrap = [...document.querySelectorAll(".lines-row-wrap")].find((w) => w.querySelector(".lines-name")?.value === n);
-      [...(wrap?.querySelectorAll(".lines-actions button") ?? [])].find((b) => b.textContent === t)?.setAttribute("data-e2e-act", "1");
-    }, [lineName, words]);
+      [...document.querySelectorAll(".lines-row")].find((r) => r.querySelector(".lines-name")?.textContent === n)?.setAttribute("data-e2e-act", "1");
+    }, lineName);
     await tapButton("[data-e2e-act='1']");
+    await tapButton(".line-sheet .ls-more");
+    await tapButton(words === "Copy" ? ".line-sheet .ls-copy" : ".line-sheet .ls-reverse");
+    if (words === "Reverse") await tapButton(".line-sheet .route-plan.on");
   };
   await openLinesView();
+  // (Its own row, by name: lines from the groups before stand in the list too.)
+  await p.evaluate((n) => [...document.querySelectorAll(".lines-row")].find((r) => r.querySelector(".lines-name")?.textContent === n)?.setAttribute("data-e2e-row", "1"), first.name);
+  await tapButton(".lines-row[data-e2e-row='1']");
+  await tapButton(".line-sheet .ls-more");
   const acts = await p.evaluate(() => {
-    const v = document.querySelector(".lines-view").getBoundingClientRect();
-    return [...document.querySelectorAll(".lines-actions button")].map((b) => { const r = b.getBoundingClientRect(); return { t: b.textContent, h: Math.round(r.height), w: Math.round(r.width), inside: r.left >= v.left && r.right <= v.right + 0.5, clipped: b.scrollWidth > b.clientWidth + 1 }; });
+    const v = document.querySelector(".line-sheet").getBoundingClientRect();
+    return [...document.querySelectorAll(".line-sheet .ls-menu button")].map((b) => { const r = b.getBoundingClientRect(); return { t: b.textContent, h: Math.round(r.height), w: Math.round(r.width), inside: r.left >= v.left && r.right <= v.right + 0.5, clipped: b.scrollWidth > b.clientWidth + 1 }; });
   });
-  check("route-share: a line's row offers Edit stops, + Train, Copy and Reverse, 44 px or more, inside the sheet at 390 px", acts.map((a) => a.t).join(",") === "Edit stops,+ Train,Copy,Reverse" && acts.every((a) => a.h >= 44 && a.w >= 44 && a.inside && !a.clipped), JSON.stringify(acts));
+  check("route-share: a line's sheet's ⋯ offers Copy, Reverse, Show and Delete, 44 px or more, inside the sheet at 390 px", acts.map((a) => a.t).join(",") === "Copy,Reverse,Show,Delete" && acts.every((a) => a.h >= 44 && a.w >= 44 && a.inside && !a.clipped), JSON.stringify(acts));
+  await tapButton(".line-sheet .route-plan.on");
   await tapAction(first.name, "Copy");
-  await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId !== -1, null, { timeout: 30000 }).catch(() => {});
+  // (A copy has no train yet: on its Trains tab, the free train put on it.)
+  await p.waitForFunction((e) => !!document.querySelector(`.ls-add-train[data-engine='${e}']`), setup.engines[1], { timeout: 30000 }).catch(() => {});
+  await tapButton(`.ls-add-train[data-engine='${setup.engines[1]}']`);
   const copy = await lineOf(setup.engines[1]);
-  const open = await p.evaluate(() => window.woodrail.interaction.openEngineCarId);
-  check("route-share: Copy makes a new line with the same stops, in another colour, the free train on it, its card open", !!copy && copy.id !== first.id && copy.colour !== first.colour && JSON.stringify(copy.stops) === JSON.stringify(first.stops) && open === setup.engines[1] && JSON.stringify((await lineOf(setup.engines[0]))?.stops) === JSON.stringify(first.stops), JSON.stringify({ copy, first, open }));
-  await p.keyboard.press("Escape");
+  check("route-share: Copy makes a new line with the same stops, in another colour; on its Trains tab the free train is put on it", !!copy && copy.id !== first.id && copy.colour !== first.colour && JSON.stringify(copy.stops) === JSON.stringify(first.stops) && JSON.stringify((await lineOf(setup.engines[0]))?.stops) === JSON.stringify(first.stops), JSON.stringify({ copy, first }));
+  await tapButton(".line-sheet .route-plan.on");
+  await tapButton(".lines-view .lines-close");
   // F9: in the Lines view, the two lines over the same track side by side.
   await openLinesView();
   await still();
@@ -4921,7 +4973,7 @@ async function routeShare(ctx, p) {
   // (The first line reversed too: both trains then run the same way round, not head on along one track.)
   await tapAction(first.name, "Reverse");
   await frames(p);
-  await tapButton(".lines-head .chip:last-child");
+  await tapButton(".lines-view .lines-close");
   // The payoff: the copy's train comes to its stops in the reversed order, running the other way round the oval, each
   // the next one round: three stops in about a lap (gone the long way round to each, it would be two or more).
   const order = (await lineOf(setup.engines[1])).stops;
@@ -5043,7 +5095,7 @@ async function routeRing(ctx, p) {
   await tapOn({ engine: front });
   await tapButton(".engine-extra .route-plan");
   for (const d of setup.places) await tapOn({ depot: d });
-  await tapButton(".engine-extra .route-plan.on");
+  await tapButton(".line-sheet .route-plan.on");
   await still();
   const line = await lineOf(front);
   await p.keyboard.press("Escape");
@@ -5055,20 +5107,37 @@ async function routeRing(ctx, p) {
     await p.waitForFunction(() => { const v = document.querySelector(".lines-view"); return v && !v.hidden; }, null, { timeout: 30000 });
     await frames(p);
   };
+  // (The line's actions are in its sheet, from its row: + Add a train on its Trains tab; Reverse behind ⋯, then Done,
+  // back to the list. Turn round is under the row in the list.)
   const tapAction = async (words) => {
-    await p.evaluate((t) => {
-      document.querySelectorAll("[data-e2e-act]").forEach((b) => b.removeAttribute("data-e2e-act"));
-      [...document.querySelectorAll(".lines-row-wrap button")].find((b) => b.textContent === t)?.setAttribute("data-e2e-act", "1");
-    }, words);
-    await tapButton("[data-e2e-act='1']");
+    if (words === "Turn round") {
+      await p.evaluate(() => [...document.querySelectorAll(".lines-note button")].find((b) => b.textContent === "Turn round")?.setAttribute("data-e2e-act", "1"));
+      await tapButton("[data-e2e-act='1']");
+      await p.evaluate(() => document.querySelectorAll("[data-e2e-act]").forEach((b) => b.removeAttribute("data-e2e-act")));
+      return;
+    }
+    // (Its own row, by name: lines from the groups before stand in the list too.)
+    await p.evaluate((n) => {
+      document.querySelectorAll("[data-e2e-row]").forEach((r) => r.removeAttribute("data-e2e-row"));
+      [...document.querySelectorAll(".lines-row")].find((r) => r.querySelector(".lines-name")?.textContent === n)?.setAttribute("data-e2e-row", "1");
+    }, line.name);
+    await tapButton(".lines-row[data-e2e-row='1']");
+    if (words === "+ Train") {
+      await tapButton(".line-sheet .ls-tab[data-tab='trains']");
+      await p.waitForFunction(() => !!document.querySelector(".ls-add-train"), null, { timeout: 30000 }).catch(() => {});
+      await tapButton(".ls-add-train");
+    } else {
+      await tapButton(".line-sheet .ls-more");
+      await tapButton(".line-sheet .ls-reverse");
+    }
+    await tapButton(".line-sheet .route-plan.on");
   };
-  // The train behind put on the line by + Train (the nearest free train that can reach it).
+  // The train behind put on the line from its Trains tab (the nearest free train that can reach it).
   await openLinesView();
   await tapAction("+ Train");
-  await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId !== -1, null, { timeout: 30000 }).catch(() => {});
   const joined = await lineOf(behind);
-  check("route-ring: a line planned by taps on an oval, the train behind put on it by + Train", JSON.stringify(line?.stops) === JSON.stringify(setup.places) && joined?.id === line.id, JSON.stringify({ line, joined }));
-  await p.keyboard.press("Escape");
+  check("route-ring: a line planned by taps on an oval, the train behind put on it from its sheet's Trains tab", JSON.stringify(line?.stops) === JSON.stringify(setup.places) && joined?.id === line.id, JSON.stringify({ line, joined }));
+  await tapButton(".lines-view .lines-close");
   await p.waitForFunction(() => window.woodrail.interaction.openEngineCarId === -1, null, { timeout: 10000 });
   const f0 = await facing(front);
   await openLinesView();
@@ -5084,7 +5153,7 @@ async function routeRing(ctx, p) {
   const names = await p.evaluate(([a, b]) => [window.woodrail.sim.nameOf(a), window.woodrail.sim.nameOf(b)], [front, behind]);
   check("route-ring: Reverse with a train too close behind the front one: the Lines view says which and why, the long way round, with Turn round (44 px, in the sheet)", (note.text.includes(`${names[0]} has ${names[1]} too close behind to turn round`) || note.text.includes(`${names[0]} has no room to turn round`)) && note.text.includes("long way round") && note.button === "Turn round" && note.h >= 44 && note.inside && note.toast.includes("couldn't be turned round"), JSON.stringify({ note, names }));
   if (process.env.E2E_SHOTS) await p.screenshot({ path: `${process.env.E2E_SHOTS}/route-ring-stuck.jpg`, type: "jpeg", quality: 80 });
-  await tapButton(".lines-head .chip:last-child");
+  await tapButton(".lines-view .lines-close");
   // The train in the way taken off, by its card's Remove.
   await tapOn({ engine: behind });
   await p.evaluate(() => [...document.querySelectorAll(".card button")].find((b) => b.textContent === "Remove" && b.offsetParent)?.setAttribute("data-e2e", "remove"));
@@ -5098,7 +5167,7 @@ async function routeRing(ctx, p) {
   const f1 = await facing(front);
   const gone = await p.evaluate(() => !document.querySelector(".lines-note"));
   check("route-ring: the train in the way removed, Turn round turns the front train (it points the other way), the note gone", gone && dot(f0, f1) < 0, JSON.stringify({ gone, f0, f1 }));
-  await tapButton(".lines-head .chip:last-child");
+  await tapButton(".lines-view .lines-close");
   // The payoff: it comes to its stops in the reversed order.
   const order = (await lineOf(front)).stops;
   const came = await p.evaluate((e) => {
@@ -5145,7 +5214,7 @@ async function openMode(mode, { settle = false } = {}) {
   await p.goto(URL);
   // The mode's card on the title screen: its main button (Continue, or the fresh start without a save).
   await p.waitForFunction((m) => !!window.woodrail && document.querySelector(`.title-card.mode-${m} .title-buttons .primary`) !== null, mode, { timeout: 180000 });
-  await p.evaluate((m) => document.querySelector(`.title-card.mode-${m} .title-buttons .primary`).click(), mode);
+  await p.evaluate((m) => document.querySelector(`.title-card.mode-${m} .title-buttons .primary`).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()), mode);
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
   // A first visit shows the camera tutorial (or, before it, the help over everything): close it as a player would.
   await p.evaluate(() => {
@@ -5231,7 +5300,9 @@ async function step(name, p, fn) {
   try {
     await fn();
   } catch (e) {
-    check(`${name}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
+    // (With the line of this script it stopped at: a wait that timed out says which.)
+    const at = String(e?.stack ?? "").split("\n").filter((l) => l.includes("touch.mjs")).slice(0, 3).map((l) => l.trim().replace(/\(.*touch\.mjs:/, "(touch.mjs:")).join(" < ");
+    check(`${name}: ran to the end`, false, `${String(e?.message ?? e).split("\n")[0]} ${at}`);
   }
   await p.keyboard.press("Escape");
   const left = await p.evaluate((before) => {

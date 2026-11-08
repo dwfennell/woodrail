@@ -1,0 +1,47 @@
+name: Merge main into the tested ref
+description: >
+  Merges main (the given sha, or origin/main now) into the checked-out ref, so the tests see what would land. A
+  conflict fails here, saying which files. Sets refs/remotes/origin/main to that sha (scripts/e2e/affected.mjs diffs
+  against it). Outputs the main sha and the merged tree.
+inputs:
+  main:
+    description: "main's sha to merge (empty: origin/main as fetched now)"
+    required: false
+    default: ""
+outputs:
+  main:
+    description: the main sha merged
+    value: ${{ steps.merge.outputs.main }}
+  tree:
+    description: git rev-parse HEAD^{tree} after the merge
+    value: ${{ steps.merge.outputs.tree }}
+runs:
+  using: composite
+  steps:
+    - id: merge
+      shell: bash
+      env:
+        MAIN: ${{ inputs.main }}
+      run: |
+        set -euo pipefail
+        git config user.name "woodrail-ci"
+        git config user.email "ci@woodrail.invalid"
+        # (.ci is the workflow's own tooling, checked out beside the tested tree: not part of it.)
+        echo ".ci/" >> .git/info/exclude
+        git fetch --no-tags --filter=blob:none origin +refs/heads/main:refs/remotes/origin/main
+        if [ -n "$MAIN" ]; then
+          git cat-file -e "$MAIN^{commit}" 2>/dev/null || git fetch --no-tags --filter=blob:none origin "$MAIN"
+          git update-ref refs/remotes/origin/main "$MAIN"
+        fi
+        main=$(git rev-parse refs/remotes/origin/main)
+        head=$(git rev-parse HEAD)
+        if ! git merge --no-edit -m "CI: merge main ${main:0:10} into ${head:0:10}" "$main" > /tmp/merge.log 2>&1; then
+          cat /tmp/merge.log
+          files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+          echo "::error title=Merge conflict with main::${head:0:10} doesn't merge cleanly with main ${main:0:10}. Conflicting files: ${files}. Merge main into the branch, resolve, and push again."
+          exit 1
+        fi
+        cat /tmp/merge.log
+        echo "main=$main" >> "$GITHUB_OUTPUT"
+        echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+        echo "Tested: ${head:0:10} + main ${main:0:10} = tree $(git rev-parse 'HEAD^{tree}')"

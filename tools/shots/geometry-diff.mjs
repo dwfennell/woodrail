@@ -60,7 +60,7 @@ async function shoot(root, tag) {
   });
   await p.goto(`${server.resolvedUrls.local[0]}?dev#load=${MAP}`);
   await p.waitForFunction(() => window.woodrail?.title?.shown !== undefined, null, { timeout: 300000 });
-  await p.evaluate(() => window.woodrail.title.shown && [...document.querySelectorAll(".title-card button")].find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click());
+  await p.evaluate(() => window.woodrail.title.shown && [...document.querySelectorAll(".title-card button")].find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 300000 });
   await p.evaluate(() => Promise.race([window.woodrail.settled(5), new Promise((r) => setTimeout(r, 60000))]));
   await p.keyboard.press("Escape");
