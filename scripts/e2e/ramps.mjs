@@ -13,7 +13,7 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
-import { batterySaverIn, mouseMoves, steps, testClockIn } from "./lib/fast.mjs";
+import { batterySaverIn, mouseMoves, steps as moveSteps, testClockIn } from "./lib/fast.mjs";
 import { groups } from "./lib/groups.mjs";
 
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
@@ -168,7 +168,7 @@ const lay = async (key, at, flip) => {
   await p.mouse.click(r[0], r[1]);
   await frames();
   // (The same four moves, a few to a frame: lib/fast.mjs.)
-  await mouseMoves(p, steps(r, at, 4), { held: false });
+  await mouseMoves(p, moveSteps(r, at, 4), { held: false });
   await frames();
   let seen = await ghostNow();
   const came = seen?.flipped ?? null;
@@ -178,7 +178,7 @@ const lay = async (key, at, flip) => {
     if (b) {
       await p.mouse.click(b[0], b[1]);
       await frames();
-      await mouseMoves(p, [...steps(at, [at[0] + 3, at[1] + 3], 3), ...steps([at[0] + 3, at[1] + 3], at, 2)], { held: false });
+      await mouseMoves(p, [...moveSteps(at, [at[0] + 3, at[1] + 3], 3), ...moveSteps([at[0] + 3, at[1] + 3], at, 2)], { held: false });
       await frames();
       seen = await ghostNow();
     }
@@ -451,7 +451,8 @@ suite.add("drag", async () => {
     const before = await p.evaluate(() => window.woodrail.layout.pieceCount);
     await p.mouse.move(r[0], r[1]);
     await p.mouse.down();
-    await p.mouse.move(drop[0], drop[1], { steps: 12 });
+    // (The same twelve moves, a few to a frame: lib/fast.mjs.)
+    await mouseMoves(p, moveSteps(r, drop, 12));
     await frames();
     await p.mouse.up();
     await frames();
