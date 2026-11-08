@@ -13,7 +13,7 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
-import { batterySaverIn, testClockIn } from "./lib/fast.mjs";
+import { batterySaverIn, mouseMoves, steps, testClockIn } from "./lib/fast.mjs";
 import { groups } from "./lib/groups.mjs";
 
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
@@ -86,6 +86,21 @@ const pressAt = async (sel, k = 0) => {
 /** A tray item by its exact key, among the favourites or on a shelf (opened for it, as a player would). */
 const item = async (key) => {
   const find = () => p.evaluate((key) => { const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`); if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; }, key);
+  const r0 = await find();
+  if (r0) return r0;
+  // Its shelf, by the tray's own catalogue: back to the shelves, then that one tapped, as a player goes straight to it.
+  // (Each tap waits a frame or two, seconds under SwiftShader: trying shelf after shelf cost a lane a minute and more.)
+  const shelf = await p.evaluate(async (key) => {
+    const { trayTabs, trayKey } = await import("/src/ui/tray-catalogue.ts");
+    for (const t of trayTabs(window.woodrail.mode())) for (const g of t.groups) if (g.items.some((i) => trayKey(i) === key)) return g.label;
+    return null;
+  }, key);
+  if (shelf) {
+    if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await pressAt(".scroller .tray-back");
+    const k = await p.evaluate((shelf) => [...document.querySelectorAll(".scroller .tray-group")].findIndex((e) => e.querySelector(".label")?.textContent === shelf), shelf);
+    if (k >= 0) await pressAt(".scroller .tray-group", k);
+  }
+  // (Else, or not there after all: shelf after shelf, as before.)
   for (let k = 0; k < 16; k++) {
     const r = await find();
     if (r) return r;
@@ -152,7 +167,8 @@ const lay = async (key, at, flip) => {
   }
   await p.mouse.click(r[0], r[1]);
   await frames();
-  await p.mouse.move(at[0], at[1], { steps: 4 });
+  // (The same four moves, a few to a frame: lib/fast.mjs.)
+  await mouseMoves(p, steps(r, at, 4), { held: false });
   await frames();
   let seen = await ghostNow();
   const came = seen?.flipped ?? null;
@@ -162,8 +178,7 @@ const lay = async (key, at, flip) => {
     if (b) {
       await p.mouse.click(b[0], b[1]);
       await frames();
-      await p.mouse.move(at[0] + 3, at[1] + 3, { steps: 3 });
-      await p.mouse.move(at[0], at[1], { steps: 2 });
+      await mouseMoves(p, [...steps(at, [at[0] + 3, at[1] + 3], 3), ...steps([at[0] + 3, at[1] + 3], at, 2)], { held: false });
       await frames();
       seen = await ghostNow();
     }
@@ -379,8 +394,13 @@ async function lane({ name, steps }) {
           // clock (a slow machine runs it slowly), with a long wall-clock bound too.
           const atEnd = t.lastTurn?.cause === "open-end" && t.lastTurn.pieceId === last;
           if (atEnd || w.simSeconds - sim0 > 300 || performance.now() - t0 > 1200000) {
-            // (Standing at the top a while: it stays on.)
-            return setTimeout(() => resolve({ derailed: !!w.sim.getTrain(train)?.derailed, topY: Math.max(topY, ...t.world.map((c) => c.y)), speed: t.speed, lastTurn: t.lastTurn, simSeconds: Math.round(w.simSeconds - sim0), bogies: t.bogies.map((bg) => `${bg.pieceId}${bg.reversed ? "r" : ""}@${bg.s.toFixed(0)}`).join(",") }), 30000);
+            // (Standing at the top a while: it stays on. Five seconds of the game's clock, which keeps up with real time on the
+            // test clock; before it, 30 s of the wall's was about three of the game's.)
+            const s1 = w.simSeconds;
+            const until = performance.now() + 30000;
+            const stood = () => (w.simSeconds - s1 >= 5 || performance.now() > until ? report() : setTimeout(stood, 200));
+            const report = () => resolve({ derailed: !!w.sim.getTrain(train)?.derailed, topY: Math.max(topY, ...t.world.map((c) => c.y)), speed: t.speed, lastTurn: t.lastTurn, simSeconds: Math.round(w.simSeconds - sim0), bogies: t.bogies.map((bg) => `${bg.pieceId}${bg.reversed ? "r" : ""}@${bg.s.toFixed(0)}`).join(",") });
+            return stood();
           }
           requestAnimationFrame(step);
         };
