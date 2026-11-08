@@ -470,9 +470,13 @@ const turning = await p.evaluate(async () => {
   w.turbinesView.calm = false;
   const a0 = w.turbinesView.time ?? 0;
   const n0 = w.framesDrawn;
-  await new Promise((r) => setTimeout(r, 2500));
+  // (Two of its frames, waited for up to 30 s: a frame takes a second or two under SwiftShader, more on a loaded box,
+  // and 2.5 s of the clock caught one or two, or, under load, none.)
+  for (let t = 0; t < 30000 && w.framesDrawn - n0 < 2; t += 250) await new Promise((r) => setTimeout(r, 250));
   const running = w.framesDrawn - n0;
   w.paused = true;
+  // (The frame under way when it paused let finish: two animation frames, then a moment.)
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   await new Promise((r) => setTimeout(r, 600));
   const n1 = w.framesDrawn;
   await new Promise((r) => setTimeout(r, 2500));
