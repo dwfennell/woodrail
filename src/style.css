@@ -334,6 +334,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .close:hover { background: rgba(150, 100, 50, 0.1); }
 /* Titles of cards with a ✕ keep clear of it (padded both sides, so they stay centred). */
 .depot-card > .card-title, .piece-card > .card-title { padding: 0 34px; }
+/* (Room for the Wiki link across from ✕, kept even both sides so the title stays centred.) */
+.depot-card:has(> .wiki-link:not([hidden])) > .card-title { padding: 0 52px; }
 
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
 /* (As wide as its words, up to the screen less a margin: from `left: 50%` it would otherwise shrink to half the screen
@@ -1725,6 +1727,11 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .learn-more:active { background: rgba(90, 163, 90, 0.16); }
 .place-card .learn-more { pointer-events: auto; align-self: flex-start; margin: -8px 0 -10px -8px; }
 .piece-card .card-learn { margin: -6px 0 -4px; }
+/* "On the wiki": the public wiki's page for this industry or research row, in a new tab (wiki-link.ts). */
+.wiki-link::after { content: "↗"; font-size: 13px; }
+.depot-card > .wiki-link { position: absolute; top: 0; left: 0; height: 44px; margin: 0; padding: 0 4px 0 10px; font-size: 12.5px; }
+.depot-card .wiki-link[hidden] { display: none; }
+.bp-facts .wiki-link { align-self: flex-start; min-height: 36px; margin: -4px 0 -8px -8px; }
 /* The "Learn more" sheet: a card in the middle of the screen, scrolling on a short one. */
 .explainer-scrim { position: fixed; inset: 0; z-index: 40; background: rgba(40, 28, 16, 0.32); animation: scrim-in 0.2s ease-out; }
 @keyframes scrim-in { from { opacity: 0; } }

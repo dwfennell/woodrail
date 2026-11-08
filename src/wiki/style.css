@@ -1,0 +1,148 @@
+/* The Woodrail wiki: the game's look (DESIGN.md), a table of green felt and cards of beech. No web fonts, no scripts. */
+:root {
+  --ink: #2b2118;
+  --ink-wood: #3a2a1c;
+  --ink-soft: #5e4128;
+  --ink-muted: #74522f;
+  --felt: #cfe3b4;
+  --felt-dark: #a9c98e;
+  --beech: #e7c89a;
+  --beech-light: #f3dcb6;
+  --beech-edge: #b07a44;
+  --red: #c8442f;
+  --red-dark: #9c3020;
+  --blue: #2f6fb5;
+  --wood-panel: repeating-linear-gradient(91deg, transparent 0 13px, rgba(170, 120, 60, 0.035) 14px 15px, transparent 16px 37px, rgba(170, 120, 60, 0.05) 38px 39px, transparent 40px 52px), linear-gradient(170deg, #fbf3e4, #f1e0c2);
+  --wood-edge: inset 0 1px 0 #fffaf0, inset 0 -5px 0 rgba(176, 122, 68, 0.35);
+  --band: var(--beech-edge);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--felt); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font: 600 16px/1.5 Nunito, ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: radial-gradient(circle at 20% 0%, #dcebc6, transparent 60%), var(--felt);
+}
+a { color: var(--blue); text-decoration-thickness: 2px; text-underline-offset: 2px; }
+a:hover { color: #1f4f86; }
+:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; border-radius: 6px; }
+
+.bar {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px;
+  background: var(--wood-panel);
+  box-shadow: var(--wood-edge), 0 4px 16px rgba(60, 40, 20, 0.18);
+}
+.brand { display: flex; align-items: center; gap: 10px; color: var(--ink-wood); font-weight: 900; font-size: 18px; text-decoration: none; }
+/* A toy wheel: red with a beech hub. */
+.brand-mark { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle, var(--beech-light) 0 4px, var(--red-dark) 5px 6px, var(--red) 7px); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
+.play {
+  display: inline-block; padding: 8px 16px; border-radius: 999px;
+  background: var(--red); color: #fff; font-weight: 900; text-decoration: none;
+  box-shadow: inset 0 -3px 0 var(--red-dark), 0 2px 6px rgba(60, 20, 10, 0.25);
+}
+.play:hover { background: #d4513b; color: #fff; }
+.play.big { padding: 12px 26px; font-size: 18px; }
+
+main { max-width: 860px; margin: 0 auto; padding: 16px 16px 32px; }
+.crumbs { font-size: 14px; font-weight: 700; color: var(--ink-soft); margin: 4px 4px 12px; }
+.crumbs a { color: var(--ink-soft); }
+
+.card {
+  position: relative; overflow: hidden;
+  margin: 0 0 16px; padding: 20px 20px 24px;
+  border-radius: 18px;
+  background: var(--wood-panel);
+  box-shadow: var(--wood-edge), 0 10px 30px rgba(40, 60, 20, 0.22);
+}
+article.card { border-top: 8px solid var(--band); }
+h1 { margin: 0 0 8px; font-size: clamp(26px, 6vw, 36px); line-height: 1.15; font-weight: 900; color: var(--ink-wood); display: flex; align-items: center; gap: 10px; }
+h2 { margin: 26px 0 8px; font-size: 20px; font-weight: 900; color: var(--ink-wood); }
+h2 small { font-size: 14px; font-weight: 700; color: var(--ink-muted); }
+.lead { font-size: 18px; color: var(--ink-wood); margin: 6px 0 14px; }
+.muted { color: var(--ink-muted); font-weight: 600; }
+.tag { display: inline-block; margin: 0 0 4px; padding: 2px 12px; border-radius: 8px; color: #fff; font-size: 13px; font-weight: 800; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
+
+.facts { margin: 12px 0; display: grid; gap: 8px; }
+.facts > div { display: grid; grid-template-columns: minmax(120px, 30%) 1fr; gap: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(255, 250, 240, 0.65); box-shadow: inset 0 -2px 0 rgba(176, 122, 68, 0.2); }
+.facts dt { font-weight: 800; color: var(--ink-soft); }
+.facts dd { margin: 0; }
+.facts dd p { margin: 6px 0 0; }
+
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips li { display: inline-flex; }
+.chips li > a, .chips li:not(:has(a)) {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 12px; border-radius: 13px;
+  background: var(--beech-light); color: var(--ink-wood); text-decoration: none; font-weight: 800; font-size: 15px;
+  box-shadow: inset 0 -2px 0 rgba(176, 122, 68, 0.45);
+}
+.chips li > a:hover { background: var(--beech); }
+
+.icon { display: inline-flex; width: 1.25em; height: 1.25em; flex: none; }
+.icon svg { width: 100%; height: 100%; }
+h1 .icon { width: 1.4em; height: 1.4em; }
+
+.flow { width: 100%; border-collapse: separate; border-spacing: 0 6px; font-size: 15px; }
+.flow th { text-align: left; color: var(--ink-soft); font-size: 13px; font-weight: 800; padding: 0 10px; }
+.flow td { padding: 8px 10px; background: rgba(255, 250, 240, 0.65); vertical-align: top; }
+.flow td:first-child { border-radius: 10px 0 0 10px; font-weight: 800; white-space: nowrap; }
+.flow td:last-child { border-radius: 0 10px 10px 0; }
+.flow td a { display: inline-flex; align-items: center; gap: 6px; }
+
+.cards { list-style: none; margin: 10px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.cards a {
+  display: flex; flex-direction: column; gap: 2px; height: 100%;
+  padding: 12px 14px 14px; border-radius: 14px;
+  border-left: 6px solid var(--band, var(--beech-edge));
+  background: rgba(255, 250, 240, 0.75); color: var(--ink); text-decoration: none;
+  box-shadow: inset 0 -3px 0 rgba(176, 122, 68, 0.3);
+}
+.cards li { --band: var(--beech-edge); }
+.cards a:hover { background: #fffaf0; }
+.cards strong { display: flex; align-items: center; gap: 6px; font-weight: 900; color: var(--ink-wood); font-size: 17px; }
+.cards strong small { margin-left: auto; font-size: 13px; color: var(--ink-muted); }
+.cards span { font-size: 14px; color: var(--ink-soft); font-weight: 600; }
+.cards strong .icon { width: 1.3em; height: 1.3em; }
+.branch { padding-left: 12px; border-left: 6px solid var(--band); }
+
+.chains { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 8px; }
+.chains li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 12px; background: rgba(255, 250, 240, 0.55); }
+.chains .arrow { color: var(--ink-muted); font-weight: 900; }
+.chains .maker { font-weight: 900; color: var(--ink-wood); }
+
+/* The game's own tray pictures (176×144, on clear): beside the lead on a page, atop a card, small in a chip. */
+.pic { display: block; width: 176px; height: auto; aspect-ratio: 176 / 144; }
+.pic.hero { float: right; width: min(264px, 42%); margin: -8px -6px 8px 12px; filter: drop-shadow(0 6px 8px rgba(60, 40, 20, 0.18)); }
+.facts, h2, .flow { clear: both; }
+.card-pic { display: block; width: 100%; max-width: 176px; height: auto; aspect-ratio: 176 / 144; margin: -4px auto 4px; }
+.chip-pic { width: 34px; height: auto; aspect-ratio: 176 / 144; margin: -4px 0 -4px -8px; }
+
+.guide figure { margin: 8px 0; }
+.guide svg { max-width: 100%; height: auto; }
+
+.cta { text-align: center; }
+.cta p { margin: 0 0 14px; color: var(--ink-wood); }
+footer { text-align: center; padding: 0 16px 28px; font-size: 14px; color: var(--ink-soft); }
+footer a { color: var(--ink-soft); }
+
+@media (max-width: 520px) {
+  .facts > div { grid-template-columns: 1fr; gap: 4px; }
+  .flow thead { display: none; }
+  .flow, .flow tbody, .flow tr, .flow td { display: block; width: 100%; }
+  .flow tr { margin-bottom: 8px; }
+  .flow td, .flow td:first-child, .flow td:last-child { border-radius: 0; }
+  .flow td:first-child { border-radius: 10px 10px 0 0; }
+  .flow td:last-child { border-radius: 0 0 10px 10px; }
+  .card { padding: 16px 16px 20px; }
+  .pic.hero { float: none; width: 220px; margin: 0 auto 4px; }
+  /* Two across: a picture card a column wide is mostly picture. */
+  .cards:has(.card-pic) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .cards:has(.card-pic) a { padding: 8px 10px 10px; }
+  .cards:has(.card-pic) strong { font-size: 15px; }
+}
