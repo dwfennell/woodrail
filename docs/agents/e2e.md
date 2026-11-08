@@ -66,6 +66,10 @@ ghosts and lift on the first page: now `E2E_ONLY=junctions,loop,ghosts,lift`. Th
 `hilltop`, `hill-edge`, `hill-edge-curved`, `hillside`, `road`, `road-over`, `draw-under`, `costs` (road-over and costs
 put down an underpass first when run alone).
 
+**ramps** (`scripts/e2e/ramps.mjs`, about 9 min on a 4-core box): `wide`, `s`, `spiral` (a lane each: laid from the
+tray, an engine run up it) and `drag` (#8's curves dragged out and tapped), on one desktop Sandbox page, each finding its
+own room. On the test clock and Battery saver, a tray item's shelf tapped straight off (not shelf after shelf).
+
 **joints** (`scripts/e2e/joints.mjs`): `qa-line` (QA's drawn line's joints through a reload, an older build's save),
 `slip-draw` (a Draw stroke along a 45° crossing's turn makes it a slip, Game mode). Each on a fresh page.
 
