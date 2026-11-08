@@ -10,7 +10,7 @@
   "cloud": 1200,
   "tutorial": 785,
   "joints": 600,
-  "ramps": 1100,
+  "ramps": 700,
   "tray": 268,
   "decks": 242,
   "kits": 222,
@@ -56,7 +56,7 @@
   "airport": 195,
   "airship": 196,
   "circus": 108,
-  "grand": 360,
+  "grand": 900,
   "clockmaker": 110,
   "power": 360,
   "radio": 310,
@@ -133,6 +133,12 @@
    "map-view": 108,
    "map-side": 75,
    "big-map": 208
+  },
+  "ramps": {
+   "wide": 240,
+   "s": 255,
+   "spiral": 265,
+   "drag": 170
   },
   "low-bridge": {
    "square": 45,

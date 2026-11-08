@@ -319,6 +319,9 @@ await shot("6-lines-list");
 // ---- 8. Copy, and a reload ---------------------------------------------------------------------------------------
 await tap(".lines-row");
 await tap(".ls-more");
+// (⋯ opened the menu, Copy on it: else Copy was never tapped, and only the count below would say something's wrong.)
+const menuOpen = await p.waitForSelector(".line-sheet:not([hidden]) .ls-copy", { timeout: 10000 }).then(() => true, () => false);
+check("8. ⋯ opens the line's menu, Copy on it", menuOpen, menuOpen ? "" : JSON.stringify(await p.evaluate(() => ({ sheet: !document.querySelector(".line-sheet")?.hidden, more: !!document.querySelector(".ls-more"), expanded: document.querySelector(".ls-more")?.getAttribute("aria-expanded") ?? null, toast: document.querySelector(".toast.show")?.textContent ?? "" }))));
 await tap(".ls-copy");
 const lines = await p.evaluate(() => [...window.woodrail.economy.lines.values()].map((l) => ({ id: l.id, name: l.name, stops: l.stops.map((s) => s.depotId), trains: [...window.woodrail.economy.lineIdOf].filter(([, x]) => x === l.id).length })));
 check("8. ⋯ Copy: a second line, the same stops, no train on it", lines.length === 2 && JSON.stringify(lines[0].stops) === JSON.stringify(lines[1].stops) && lines[1].trains === 0, JSON.stringify(lines));

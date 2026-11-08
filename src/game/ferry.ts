@@ -104,9 +104,9 @@ export class Ferries {
 
   tick(world: World, p: Progress, seconds: number): FerryEvent[] {
     const events: FerryEvent[] = [];
-    const { economy, sim, layout } = world;
+    const { economy, sim } = world;
     for (const d of economy.allDepots()) {
-      if (d.role !== "slip" || !layout.getPiece(d.pieceId)) continue;
+      if (d.role !== "slip") continue;
       const trip = this.trips.get(d.id);
       if (!trip) {
         // (A ferry for each slip, built at a shipyard: a slip with none waiting has trains wait.)
@@ -171,8 +171,7 @@ export class Ferries {
     }
     // A slip taken up with a train aboard: it's let go where it stands.
     for (const [slip, trip] of this.trips) {
-      const d = economy.depot(slip);
-      if (d && layout.getPiece(d.pieceId)) continue;
+      if (economy.liveDepot(slip)) continue;
       for (const c of trip.cars) economy.held.delete(c);
       this.trips.delete(slip);
     }

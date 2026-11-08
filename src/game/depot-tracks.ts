@@ -20,7 +20,7 @@ import type { World } from "./world";
 
 /** The most tracks a depot has. */
 export const MAX_TRACKS = 3;
-/** Tracks lie this far apart (mm). */
+/** Tracks of a depot of several lie this far apart (mm), on the side away from its yard (a double track apart). */
 export const TRACK_GAP = DOUBLE_TRACK_SPACING;
 /** A depot's piece is a 216 straight; its tracks run on this far past each of its ends (mm). */
 const DEPOT_LEN = 216;

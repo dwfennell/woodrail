@@ -84,7 +84,7 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
   const quarters = new Map<number, DepotState[]>();
   for (const d of world.economy.allDepots()) {
     // (No one lives at a lookout: riders only get off there.)
-    if (d.role !== "town" || !world.layout.getPiece(d.pieceId) || world.economy.isLookout(d)) continue;
+    if (d.role !== "town" || world.economy.isLookout(d)) continue;
     const into = world.economy.isMetro(d) ? quarters : stops;
     const list = into.get(d.townId);
     if (list) list.push(d);

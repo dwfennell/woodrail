@@ -411,12 +411,8 @@ export class Fleet {
   tick(seconds: number): BoatEvent[] {
     const events: BoatEvent[] = [];
     const economy = this.economy;
-    const layout = this.world().layout;
     /** A dock still on the map (its depot outlives its piece till the economy tidies up). */
-    const live = (id: number) => {
-      const d = economy.depot(id);
-      return isDock(d) && !!layout.getPiece(d.pieceId);
-    };
+    const live = (id: number) => isDock(economy.liveDepot(id));
     for (const b of [...economy.boats.values()]) {
       // Docks taken up: off its route (and its home, if that went: the first stop still standing).
       const kept = b.stops.filter((s) => live(s.depotId));

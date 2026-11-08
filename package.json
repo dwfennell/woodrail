@@ -34,7 +34,7 @@
     "e2e:cloud": "node scripts/e2e/cloud.mjs",
     "e2e:tutorial": "node scripts/e2e/lib/run.mjs scripts/e2e/tutorial.mjs",
     "e2e:joints": "node scripts/e2e/joints.mjs",
-    "e2e:ramps": "node scripts/e2e/lib/run.mjs scripts/e2e/ramps.mjs",
+    "e2e:ramps": "node scripts/e2e/ramps.mjs",
     "e2e:low-bridge": "node tools/e2e/low-bridge.mjs",
     "e2e:depot-tracks": "node scripts/e2e/lib/run.mjs tools/e2e/depot-tracks.mjs",
     "e2e:tunnels": "node scripts/e2e/lib/run.mjs tools/e2e/tunnels.mjs",

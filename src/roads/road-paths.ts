@@ -14,7 +14,7 @@ import type { PathHold, RoadPath } from "./vehicles";
 /** How far a van reaches (roads spec D5): road squares outside towns (a town's own streets don't count). */
 export const VAN_REACH = 8;
 /** The top of a road's felt (mm above its square's ground). */
-const ROAD_TOP = 4.3;
+export const ROAD_TOP = 4.3;
 /**
  * How far from the road's middle a vehicle keeps, to the left (the other way passes on the other side): the middle of
  * its lane on a town street (felt 20 each side, `STREET_FELT_HALF`), near the kerb on a country lane (28). It keeps to it
@@ -22,9 +22,9 @@ const ROAD_TOP = 4.3;
  */
 export const KEEP_LEFT = 12;
 /** Half a block: each ramp half climbs this much over its square. */
-const HALF_BLOCK = RISER_HEIGHT / 2;
-/** A road bridge's hump at its middle (as drawn: `render/dressing/roads.ts`). */
-const HUMP = 9;
+export const HALF_BLOCK = RISER_HEIGHT / 2;
+/** How high a road bridge's deck rises at its middle (mm). */
+export const HUMP = 9;
 /** Points per square (a bend's curve). */
 const STEPS = 6;
 /** A vehicle waiting for a crossing stops this far short of its first square's edge (the gates stand just outside it). */

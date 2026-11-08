@@ -66,6 +66,10 @@ ghosts and lift on the first page: now `E2E_ONLY=junctions,loop,ghosts,lift`. Th
 `hilltop`, `hill-edge`, `hill-edge-curved`, `hillside`, `road`, `road-over`, `draw-under`, `costs` (road-over and costs
 put down an underpass first when run alone).
 
+**ramps** (`scripts/e2e/ramps.mjs`, about 9 min on a 4-core box): `wide`, `s`, `spiral` (a lane each: laid from the
+tray, an engine run up it) and `drag` (#8's curves dragged out and tapped), on one desktop Sandbox page, each finding its
+own room. On the test clock and Battery saver, a tray item's shelf tapped straight off (not shelf after shelf).
+
 **joints** (`scripts/e2e/joints.mjs`): `qa-line` (QA's drawn line's joints through a reload, an older build's save),
 `slip-draw` (a Draw stroke along a 45° crossing's turn makes it a slip, Game mode). Each on a fresh page.
 
@@ -118,6 +122,16 @@ functions they're in (`touchGroupsOf`: a change to a shared helper, the boot or 
 `IGNORE` (docs, `*.md`, unit tests, tools that aren't e2e) maps to nothing. **A path no rule matches gets `SMOKE`**, a
 few quick touch groups across the game and click's `desktop` (about 6 min), and is listed as unmapped: add a rule for
 it. So do the paths that reach everywhere (src/main.ts, game.ts, the build, the harness's lib).
+
+**Before the rules, each file's change is classified** (`scripts/e2e/lib/diff-kind.mjs`, against the merge base): a
+JS/TS file is compared with its comments dropped and its string literals blanked, a CSS file rule by rule. Only
+comments changed: no suite. Only strings changed, and every changed string reads as prose (a space, an emoji or
+"…", sentence punctuation; not a lowercase name, class list or selector): the suites whose scripts hold those words
+(old or new; touch narrowed to the groups whose lines hold them), plus `COPY_SMOKE` (touch `game-shelves,train-card`).
+Only paint-only declarations (colours, backgrounds, shadows) in existing CSS rules: the suites naming the rules'
+classes, plus `COPY_SMOKE`. Anything else, or a file it can't read for sure, gets the rules. The output prints a line
+for each such file. Tests: `scripts/e2e/affected.test.mjs` (real past commits). Which tier of checks a branch needs
+overall: the `/check` skill.
 
 touch and click are selected by group: `TOUCH_INPUT` (presses, holds, drags and drops), `TOUCH_TRACK` (laying track,
 points), `TOUCH_TRAINS` and `TOUCH_ROUTES` (the sim, routing), `TOUCH_UI` (the HUD), `CLICK_INPUT`; a rule for a file

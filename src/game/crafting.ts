@@ -13,7 +13,7 @@ export const CRAFT_SECONDS = 3;
 
 /** The workshops on the map now (one whose piece was taken up doesn't count). */
 export function workshops(world: World): DepotState[] {
-  return world.economy.allDepots().filter((d) => d.role === "workshop" && world.layout.getPiece(d.pieceId));
+  return world.economy.allDepots().filter((d) => d.role === "workshop");
 }
 
 /** Goods on all the workshops' piles together. */
@@ -217,7 +217,7 @@ export function shopOwes(world: World, p: Progress, kind: CargoKind): number {
   const need = kind === "paint" ? (p.learned.has("paint-trains") ? PAINT_KEPT : 0) : shopNeeds(p, kind, world);
   if (need <= 0) return 0;
   let have = 0;
-  for (const d of world.economy.allDepots()) if (d.role === "workshop" && world.layout.getPiece(d.pieceId)) have += d.piles[CARGO[kind].index];
+  for (const d of world.economy.allDepots()) if (d.role === "workshop") have += d.piles[CARGO[kind].index];
   return Math.max(0, need - have);
 }
 

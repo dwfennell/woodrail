@@ -7,6 +7,7 @@ import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, typ
 import type { Layout, PieceTypeId, Pose } from "../track";
 import { kitOf, TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
+import { TRACK_GAP } from "../game/depot-tracks";
 import { AUTO_HEIGHT, AUTO_LENGTH, AUTO_WIDTH, BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
@@ -608,7 +609,7 @@ const CATALOGUE_DRESSING: Partial<Record<DepotRole, readonly { asset: string; t:
 const HOPPER_LOAD = HOPPER_HEAP + 2;
 
 /** Gantry legs stand this far out on each side of the beam's middle. */
-const GANTRY_HALF = 70;
+export const GANTRY_HALF = 70;
 const JIB_ARM = 46;
 /** Height of the hook's travel above the top of what it carries. */
 const HOOK_DROP = 6;
@@ -693,8 +694,6 @@ interface Site {
   statics?: { parts: Map<Material, BufferGeometry>; clocks: [number, ClockAt][] };
 }
 
-/** Tracks of a depot of several lie this far apart (mm), on the side away from its yard (a double track apart). */
-const TRACK_GAP = 72;
 /** A depot of several tracks' gantry: its near legs this far beyond its last track, its far ones this far into the yard. */
 const SPAN_OUT = 34;
 const SPAN_IN = 118;

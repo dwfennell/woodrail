@@ -152,7 +152,7 @@ function plankYards(world: World, n: number): number {
 
 /** Is a school on the map? */
 function schoolPlaced(world: World): boolean {
-  return world.economy.allDepots().some((d) => d.role === "school" && world.layout.getPiece(d.pieceId));
+  return world.economy.allDepots().some((d) => d.role === "school");
 }
 
 /**
@@ -183,7 +183,7 @@ export function rareGood(p: Progress, world: World): CargoKind | null {
   const short = kindsOf(lacks(p));
   if (short.length === 0) return null;
   const made = new Set<CargoKind>();
-  for (const d of world.economy.allDepots()) if (world.layout.getPiece(d.pieceId)) for (const k of RECIPES[d.role].gives) made.add(k);
+  for (const d of world.economy.allDepots()) for (const k of RECIPES[d.role].gives) made.add(k);
   return short.find((k) => !made.has(k)) ?? null;
 }
 

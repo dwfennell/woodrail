@@ -71,7 +71,7 @@ export type ShipPhase = { kind: "docked" } | { kind: "touring"; u: number };
 
 /** Masts on the map. */
 export function mastsOf(world: Pick<World, "economy" | "layout">): DepotState[] {
-  return world.economy.allDepots().filter((d) => d.role === "mast" && !!world.layout.getPiece(d.pieceId));
+  return world.economy.allDepots().filter((d) => d.role === "mast");
 }
 
 export class Airships {

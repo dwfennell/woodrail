@@ -129,7 +129,7 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
   const have = goods.reduce((t, g) => t + g.have, 0);
   const need = goods.reduce((t, g) => t + g.need, 0);
   // What's holding it back, plainly: a good it still needs that nothing on the map makes yet.
-  const depots = world.economy.allDepots().filter((x) => world.layout.getPiece(x.pieceId));
+  const depots = world.economy.allDepots();
   const missing = goods.find((g) => g.have < g.need && !depots.some((x) => RECIPES[x.role].gives.includes(g.kind) && x.role !== "warehouse" && x.role !== "harbour"));
   const holding = missing ? `Needs ${missing.icon} ${missing.label.toLowerCase()}: ${howToGet(missing.kind, ctx.learned)}` : null;
   const s = depots.find((x) => x.role === "school" && x.townId === town.id);

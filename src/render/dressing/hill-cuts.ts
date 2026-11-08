@@ -3,10 +3,8 @@ import { blockOutline, CELL, hillPieces, hillsOf, plotOfCol, plotOfRow, plotSlab
 import { plotRect, setCullRects } from "./tiles";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE } from "../materials";
-import { blockKey, CORE_COLOUR, CORE_INSET, hillCore, shadowProxy, SHADOW_PROXY_LAYER, type BlockInstanceRef } from "./blocks";
+import { blockKey, BLOCK_GAP, CORE_COLOUR, CORE_INSET, hillCore, shadowProxy, SHADOW_PROXY_LAYER, type BlockInstanceRef } from "./blocks";
 
-/** Gap between neighbouring blocks (mm), as the hill draws them. */
-const GAP = 0.8;
 /** A block's top is a grid this many steps across (about 4 mm); coarser (6 mm) for a quick preview. */
 const STEPS = 18;
 const PREVIEW_STEPS = 12;
@@ -430,12 +428,12 @@ export function cutColumn(g: LandscapeGrid, b: { col: number; row: number; level
   const hills = hillsOf(g);
   const cx = g.centreX(b.col);
   const cz = g.centreZ(b.row);
-  const y0 = b.level * RISER_HEIGHT + GAP / 2;
-  const blockTop = (b.level + 1) * RISER_HEIGHT - GAP / 2;
+  const y0 = b.level * RISER_HEIGHT + BLOCK_GAP / 2;
+  const blockTop = (b.level + 1) * RISER_HEIGHT - BLOCK_GAP / 2;
   const isTop = g.height[g.index(b.col, b.row)] === b.level + 1;
   const corners = hills.blockCorners(b.col, b.row, b.level);
-  const outline = blockOutline(corners, GAP / 2, 8).map((p) => ({ x: cx + p.x, z: cz + p.z }));
-  const inner = blockOutline(corners, GAP / 2 + BEVEL, 8).map((p) => ({ x: cx + p.x, z: cz + p.z }));
+  const outline = blockOutline(corners, BLOCK_GAP / 2, 8).map((p) => ({ x: cx + p.x, z: cz + p.z }));
+  const inner = blockOutline(corners, BLOCK_GAP / 2 + BEVEL, 8).map((p) => ({ x: cx + p.x, z: cz + p.z }));
   const surface = (x: number, z: number) => Math.min(blockTop, hills.cutSurfaceAt(x, z, extra));
   return { ...columnGeometry(outline, y0, surface, blockTop, { ...options, bevel: { inner, drop: BEVEL } }), isTop, surface, cx, cz };
 }

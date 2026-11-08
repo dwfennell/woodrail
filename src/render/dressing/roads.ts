@@ -1,7 +1,7 @@
 import { BoxGeometry, BufferAttribute, BufferGeometry, Color, CylinderGeometry, ExtrudeGeometry, Group, Mesh, MeshStandardMaterial, Shape, SphereGeometry, type Material } from "three";
 import { CELL, SURF_ROAD, type LandscapeGrid } from "../../landscape";
 import { pieceOf, ROAD_PIECES, turnOf, type RoadPieceId } from "../../roads";
-import { RISER_HEIGHT } from "../../track";
+import { HALF_BLOCK, HUMP } from "../../roads/road-paths";
 import { FELT_TILE, type Materials } from "../materials";
 import { setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./tiles";
 import { nonIndexed } from "../non-indexed";
@@ -247,8 +247,6 @@ function pieceParts(id: RoadPieceId, feltHalf = FELT_HALF): Record<SlotName, Buf
   return parts;
 }
 
-/** Half a block: each ramp half climbs this much over its square. */
-const HALF_BLOCK = RISER_HEIGHT / 2;
 
 /** Raise a ramp part: by `from` plus a rise of half a block from the square's −x edge to its +x edge (not its base). */
 function slope(g: BufferGeometry, from: number): void {
@@ -260,8 +258,6 @@ function slope(g: BufferGeometry, from: number): void {
   g.computeVertexNormals();
 }
 
-/** How high a road bridge's deck rises at its middle (mm). */
-const HUMP = 9;
 
 /** Raise a bridge part along a gentle hump: none at the square's edges, `HUMP` at its middle. */
 function hump(g: BufferGeometry): void {

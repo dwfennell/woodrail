@@ -75,7 +75,7 @@ const each = (parts: MotionParts, name: string, f: (o: Object3D) => void) => {
 const stateMotion = (parts: readonly string[], state: KitStateMotion): KitMotion => ({ parts, state, pose: (p) => state.pose(p, state.value(0)) });
 
 /** How far a semaphore's arm is raised at clear (radians, as the catalogue model's arm rises). */
-const SEMAPHORE_CLEAR = 0.7;
+export const SEMAPHORE_CLEAR = 0.7;
 
 /** The signal gantry's heads (as the model names them) and the roads they stand over, once it's on its piece. */
 const GANTRY_HEADS = [

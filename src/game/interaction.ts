@@ -2800,7 +2800,7 @@ export class Interaction {
     const g = this.game;
     const town = g.landscape.towns.find((t) => t.id === townId);
     if (!town) return false;
-    const station = g.economy.allDepots().find((d) => d.role === "town" && d.townId === townId && !!g.layout.getPiece(d.pieceId));
+    const station = g.economy.allDepots().find((d) => d.role === "town" && d.townId === townId);
     if (station) this.onPickPlace?.(station.id);
     else this.onNoStation?.(`${town.name} needs a station first`);
     return true;

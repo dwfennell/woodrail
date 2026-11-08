@@ -69,14 +69,14 @@ export function electricEngines(world: Pick<World, "sim">): number[] {
 export function askedYards(world: Pick<World, "economy" | "layout">): DepotState[] {
   return world.economy
     .allDepots()
-    .filter((d) => d.powerAsk > 0 && canPower(d) && world.layout.getPiece(d.pieceId))
+    .filter((d) => d.powerAsk > 0 && canPower(d))
     .sort((a, b) => a.powerAsk - b.powerAsk);
 }
 
 /** Working power stations on the map. */
 function workingStations(world: Pick<World, "economy" | "layout">): number {
   let n = 0;
-  for (const d of world.economy.allDepots()) if (d.role === "power" && world.layout.getPiece(d.pieceId) && world.economy.working(d)) n++;
+  for (const d of world.economy.allDepots()) if (d.role === "power" && world.economy.working(d)) n++;
   return n;
 }
 
