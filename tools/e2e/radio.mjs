@@ -267,7 +267,7 @@ if (spot && setup.power !== undefined) {
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(`\n${failures === 0 ? "e2e:radio passed" : `e2e:radio: ${failures} failed`}`);
+console.log(`\n${failures === 0 ? "e2e:radio: all passed" : `e2e:radio: ${failures} failed`}`);
 await b.close();
 await server.close();
 process.exit(failures === 0 ? 0 : 1);

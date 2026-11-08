@@ -238,7 +238,7 @@ if (!setup.error && setup.engine !== -1) {
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(`\n${failures === 0 ? "e2e:airship passed" : `e2e:airship: ${failures} failed`}`);
+console.log(`\n${failures === 0 ? "e2e:airship: all passed" : `e2e:airship: ${failures} failed`}`);
 await b.close();
 await server.close();
 process.exit(failures === 0 ? 0 : 1);

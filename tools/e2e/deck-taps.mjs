@@ -254,4 +254,6 @@ await tapCase("a 62 ms tap on the engine, delivered late", 0, async (x, y) => {
 console.log(errors.length ? `page errors: ${errors.join("; ")}` : "no page errors");
 await b.close();
 await server.close();
+// (The gate's pass line: scripts/e2e/lib/run.mjs, and CI, look for it.)
+console.log(failures || errors.length ? `e2e:decks: ${failures} failed` : "e2e:decks: all passed");
 process.exit(failures || errors.length ? 1 : 0);

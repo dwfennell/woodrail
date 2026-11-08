@@ -170,7 +170,7 @@ await tapClock();
 check("…then round to 1×", (await clock())?.text === "1×");
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(`\n${failures === 0 ? "e2e:clockmaker passed" : `e2e:clockmaker: ${failures} failed`}`);
+console.log(`\n${failures === 0 ? "e2e:clockmaker: all passed" : `e2e:clockmaker: ${failures} failed`}`);
 await b.close();
 await server.close();
 process.exit(failures === 0 ? 0 : 1);
