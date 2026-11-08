@@ -266,16 +266,20 @@ if (want("terminus")) {
       let was = false;
       let turned = false;
       let out = false;
+      // (A train keeps its id when it turns round (routing redesign step 3): told by the sim, not by a new id.)
+      let turnedRound = false;
+      const stop = w.sim.onTurnedRound(() => (turnedRound = true));
       w.__step(120 * 40, () => {
         const t = w.sim.getTrain(w.sim.trainIds()[0]);
         const d = w.economy.kitStops.dwelling(t.id);
         if (d && !was) halts++;
         was = d;
-        if (t.id !== tid && t.lastTurn?.cause === "buffer") turned = true;
+        if (turnedRound && t.lastTurn?.cause === "buffer") turned = true;
         if (turned && t.bogies.every((b) => b.pieceId !== term)) out = true;
         if (trace.length < 40 && w.sim.ticks % 60 === 0) trace.push([t.id, t.bogies[0].pieceId, t.bogies[0].pathIndex, Math.round(t.bogies[0].s), t.bogies[0].reversed ? 1 : 0, Math.round(t.speed), t.turnback]);
         return out;
       });
+      stop();
       w.paused = false;
       return { halts, turned, out, trace: JSON.stringify(trace) };
     }, built);
