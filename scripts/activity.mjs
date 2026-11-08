@@ -48,10 +48,15 @@ const minutes = num(await sql(`SELECT formatDateTime(toStartOfDay(timestamp), '%
 const [totals] = num(await sql(`SELECT COUNT(DISTINCT index1) AS players, SUM(_sample_interval) AS sessions FROM woodrail_stats WHERE blob1 = 'start' AND ${SINCE}`), "players", "sessions");
 const [errors] = num(await sql(`SELECT SUM(_sample_interval) AS times FROM woodrail_stats WHERE blob1 = 'error' AND ${SINCE}`), "times");
 const [played] = num(await sql(`SELECT ROUND(SUM(_sample_interval * double1)) AS minutes FROM woodrail_stats WHERE blob1 = 'end' AND ${SINCE}`), "minutes");
-// Goals in the game's order (src/game/goals.ts), so the chart reads as how far players get.
+// Goals in the game's order (src/game/goals.ts), so the chart reads as how far players get. `players` ticked that goal;
+// `got_this_far` reached it or a later one. A goal ticked before a player said yes to sharing isn't sent, so a player
+// counts as having passed every goal before their furthest.
 const goalOrder = [...readFileSync("src/game/goals.ts", "utf8").matchAll(/^\s*id: "([a-z0-9-]+)"/gm)].map((m) => m[1]);
-const reached = num(await sql(`SELECT blob3 AS goal, COUNT(DISTINCT index1) AS players FROM woodrail_stats WHERE blob1 = 'goal' AND ${SINCE} GROUP BY goal`), "players");
-write("goals", reached.map((r) => ({ ...r, order: goalOrder.indexOf(r.goal) + 1 || 999 })).sort((a, b) => a.order - b.order));
+const ticks = await sql(`SELECT index1 AS id, blob3 AS goal FROM woodrail_stats WHERE blob1 = 'goal' AND ${SINCE} GROUP BY id, goal`);
+const furthest = new Map();
+for (const t of ticks) furthest.set(t.id, Math.max(furthest.get(t.id) ?? 0, goalOrder.indexOf(t.goal) + 1));
+const last = Math.max(0, ...furthest.values());
+write("goals", goalOrder.slice(0, last).map((goal, i) => ({ goal, order: i + 1, players: new Set(ticks.filter((t) => t.goal === goal).map((t) => t.id)).size, got_this_far: [...furthest.values()].filter((f) => f > i).length })));
 
 // Feedback and railway snapshots, from the Worker (newest first; its lists hold the latest 100).
 // A report's build id is its build time (base 36 ms): the deploy run it falls in says where it was played. GitHub
