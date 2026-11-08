@@ -75,8 +75,8 @@
     "mobile.js.arrayBuffersMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 170.5,
-      "max": 180.8
+      "measured": 156.9,
+      "max": 166.3
     },
     "mobile.counts.geometries": {
       "kind": "count",
@@ -179,8 +179,8 @@
     "desktop.js.arrayBuffersMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 181.9,
-      "max": 192.9
+      "measured": 171.2,
+      "max": 181.5
     },
     "desktop.counts.geometries": {
       "kind": "count",
