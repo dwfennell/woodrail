@@ -8,8 +8,9 @@
 // IGNORE matches it. Rules are additive: a path matching several gets all of them. A whole suite wins over its groups.
 // See docs/agents/e2e.md.
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, normalize } from "node:path";
+import { classify, refersToClasses, refersToWords } from "./lib/diff-kind.mjs";
 import { ROOT } from "./lib/groups.mjs";
 
 /** Each suite: its npm script, and whether it has groups (E2E_ONLY, --list, resume through scripts/e2e/lib/groups.mjs). */
@@ -114,7 +115,7 @@ export function estimate(want) {
 export const SMOKE = ["touch:sandbox-shelves,map-taps,toast-through,trap,train-card,game-shelves", "click:desktop"];
 
 /** Paths that can't change what an e2e sees. */
-export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore"];
+export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore", "scripts/e2e/lib/diff-kind.mjs", "scripts/**/*.test.mjs"];
 
 // Touch's groups that plan, run or show routes and lines.
 const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way";
@@ -378,8 +379,52 @@ function changedLines(base, path) {
   return out;
 }
 
-/** Paths → { suites: Map<suite, Set<group> | "all">, unmapped: [] }. `base`: the merge base, to narrow touch.mjs's own changes. */
-export function affected(paths, base = null) {
+/**
+ * What a words-only or paint-only change gets on top of the suites that refer to what changed: two quick touch groups
+ * (about a minute and a half) that open Game mode's HUD and a train's card, to see the page still loads and draws.
+ */
+export const COPY_SMOKE = ["touch:game-shelves,train-card"];
+
+/** A suite's e2e script and the local scripts it imports (not lib/), as [path, source]. */
+function suiteSources(suite, read) {
+  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  const file = (pkg.scripts[SUITES[suite].script] ?? "").match(/(\S+\.mjs)\s*$/)?.[1];
+  const out = [];
+  const seen = new Set();
+  const visit = (path) => {
+    if (!path || seen.has(path) || /\/lib\//.test(path)) return;
+    seen.add(path);
+    const src = read(path);
+    if (src == null) return;
+    out.push([path, src]);
+    for (const m of src.matchAll(/^import [^;]*? from "(\.\.?\/[^"]+\.mjs)"/gm)) visit(normalize(join(dirname(path), m[1])));
+  };
+  visit(file);
+  return out;
+}
+
+/** The files' line numbers (1-based) whose text holds one of `needles`. */
+const linesWith = (source, test) => source.split("\n").flatMap((l, k) => (test(l) ? [k + 1] : []));
+
+/** The default readers: the merge base's copy of a path (null if it wasn't there), and the working tree's. */
+export function gitReaders(base) {
+  return {
+    before: (path) => { try { return execFileSync("git", ["show", `${base}:${path}`], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 28 }); } catch { return null; } },
+    after: (path) => (existsSync(join(ROOT, path)) ? readFileSync(join(ROOT, path), "utf8") : null),
+  };
+}
+
+/**
+ * Paths → { want: Map<suite, Set<group> | "all">, unmapped: [], light: [{ path, kind, … }] }. `base`: the merge base,
+ * to narrow touch.mjs's own changes and to read what each file was. `readers` ({ before, after }, path → text or null):
+ * how to read a file before and after the change (default: the merge base and the working tree; tests pass commits).
+ *
+ * A file whose change is only comments maps to nothing; only words ("copy", see lib/diff-kind.mjs) or only paint
+ * (CSS colours, shadows) maps to the suites that refer to those words or classes, and COPY_SMOKE, instead of its
+ * rules. An e2e script's own words-only change still runs its own suite (its words are what it asserts). Anything
+ * else is code, and gets the rules as before.
+ */
+export function affected(paths, base = null, readers = base ? gitReaders(base) : null) {
   const want = new Map();
   const add = (target) => {
     const [suite, groupList] = target.split(":");
@@ -391,17 +436,43 @@ export function affected(paths, base = null) {
     want.set(suite, set);
   };
   const unmapped = [];
+  const light = [];
+  let sources = null;
+  const allSources = () => (sources ??= Object.keys(SUITES).map((s) => [s, suiteSources(s, readers.after)]));
   for (const path of paths) {
     if (matches(IGNORE, path)) continue;
-    let hit = false;
     const own = /^(scripts|tools)\/e2e\/[^/]+\.mjs$/.test(path) && suiteOfScript(path);
+    const change = readers ? classify(path, readers.before(path), readers.after(path)) : { kind: "code" };
+    if (change.kind === "same" || change.kind === "comment") { light.push({ path, kind: change.kind === "same" ? "comment" : change.kind }); continue; }
+    if (change.kind === "copy" || change.kind === "paint") {
+      const hits = [];
+      for (const [suite, files] of allSources()) {
+        for (const [file, src] of files) {
+          const hit = change.kind === "copy" ? refersToWords(src, change.strings) : refersToClasses(src, change.classes);
+          if (!hit) continue;
+          // touch.mjs: the groups whose functions hold the matching lines (else the whole suite).
+          const narrowed = suite === "touch" && file === "scripts/e2e/touch.mjs" && change.kind === "copy"
+            ? touchGroupsOf(src, linesWith(src, (l) => refersToWords(l, change.strings)))
+            : null;
+          const target = narrowed?.size ? `touch:${[...narrowed].join(",")}` : suite;
+          add(target);
+          hits.push(target);
+          break;
+        }
+      }
+      if (own && !hits.some((h) => h.split(":")[0] === own)) (add(own), hits.push(own));
+      COPY_SMOKE.forEach(add);
+      light.push({ path, kind: change.kind, ...(change.strings ? { strings: change.strings } : { classes: change.classes }), suites: hits });
+      continue;
+    }
+    let hit = false;
     const narrowed = own === "touch" && base ? touchGroupsOf(readFileSync(join(ROOT, path), "utf8"), changedLines(base, path)) : null;
     if (narrowed) (add(`touch:${[...narrowed].join(",")}`), (hit = true));
     else if (own) (add(own), (hit = true));
     for (const [globs, targets] of RULES) if (matches(globs, path)) (targets.forEach(add), (hit = true));
     if (!hit) (unmapped.push(path), SMOKE.forEach(add));
   }
-  return { want, unmapped };
+  return { want, unmapped, light };
 }
 
 function mergeBase(base) {
@@ -439,7 +510,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // narrowed to groups and a smoke set, leaves out.)
   const nightly = args.includes("--nightly");
   const paths = nightly ? [] : changedPaths(base);
-  const { want, unmapped } = nightly ? { want: new Map(CORE.map((s) => [s, "all"])), unmapped: [] } : affected(paths, mergeBase(base));
+  const { want, unmapped, light } = nightly ? { want: new Map(CORE.map((s) => [s, "all"])), unmapped: [], light: [] } : affected(paths, mergeBase(base));
   const order = Object.keys(SUITES).filter((s) => want.has(s));
   const cmd = (s) => {
     const g = want.get(s);
@@ -447,10 +518,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     return `${only}npm run ${SUITES[s].script}`;
   };
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ base, paths, unmapped, suites: Object.fromEntries(order.map((s) => [s, want.get(s) === "all" ? "all" : [...want.get(s)]])) }, null, 1));
+    console.log(JSON.stringify({ base, paths, unmapped, light, suites: Object.fromEntries(order.map((s) => [s, want.get(s) === "all" ? "all" : [...want.get(s)]])) }, null, 1));
     process.exit(0);
   }
   console.log(`${paths.length} paths changed against ${base}.`);
+  for (const l of light) {
+    const what = l.kind === "comment" ? "comments only: no suite" : l.kind === "copy" ? `words only (${l.strings.length} strings): ${l.suites.join(", ") || "no suite refers to them"} + smoke` : `paint only (.${l.classes.join(" .")}): ${l.suites.join(", ") || "no suite refers to them"} + smoke`;
+    console.log(`  ${l.path}: ${what}`);
+  }
   if (unmapped.length) console.log(`Unmapped (given the smoke set; add a rule in scripts/e2e/affected.mjs): ${unmapped.join(" ")}`);
   if (!order.length) console.log("No e2e suite affected.");
   const mins = estimate(want);
