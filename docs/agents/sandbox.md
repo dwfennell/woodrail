@@ -14,6 +14,8 @@
   - the Worker and R2 in `cloud/`;
   - `src/persist/cloud.ts` (CloudSync) and `progress-merge.ts`;
   - the cloud card;
+  - on by themselves and remembered (2026-11-07): the player's first undoable edit (`editor.canUndo`, in `scheduleSave`) calls `CloudSync.autoOn()`, which makes a code and leaves the upload to the next 30 s round (no network at once). A new map, the game's own deliveries and growth don't. Turn off sets `off` in `woodrail.cloud.v1`: never on by itself again (Turn on clears it), and every remembered code is forgotten;
+  - remembered codes: `src/persist/cloud-known.ts` (`woodrail.cloud.known.v1`, 5 at most): each code used here (made, typed in, synced at start) and what was last seen of each mode's copy (savedAt, save version, "N pieces"), written on an upload's answer, a check's HEAD and a copy taken. The title's "☁ Continue from cloud" row on a mode's card is `titleOffers`: under the code in use, a copy newer than this device last had (a start-up check cut off) or a mode with no railway here (tap: `takeNewer`, the start-up check's rules again); under a code used before, its copies (tap: `useCode`, as the card's Load). The title asks the cloud about the other codes once a page in the background (`refreshKnown`): one with nothing under it is forgotten. Errors (offline, gone, newer) are said on the card's row: the HUD's toasts are hidden over the title;
   - feedback: `POST /feedback` in `cloud/src/feedback.ts`, the sheet `src/ui/feedback-sheet.ts` (`docs/feedback.md`);
   - `Progress.origin` and `Progress.taken` (`src/game/progress.ts`).
 
@@ -25,7 +27,7 @@
 
 **Running e2e suites:** run each one **alone**: they share the Worker port, and running several loads the machine. Never edit `src/` while an e2e runs, because Vite reloads the page.
 
-**e2e:cloud** (`scripts/e2e/cloud.mjs`, about 25 min, 24 steps):
+**e2e:cloud** (`scripts/e2e/cloud.mjs`, about 30 min, 24 steps and the `auto` group: a piece laid by a finger turns it on; the title's Continue from cloud, a gone code, offline, Turn off; pictures `docs/agents/shots/cloud-auto-*.jpg`):
 - It starts a local Worker (wrangler dev) and runs two-device steps.
 - Run `npm --prefix cloud ci` first.
 - A running Game page sends its progress on its own every minute: a new game's forest cuts logs (`counts`, a progress edit every 15 s or so). A page that then finds the other device's later copy reloads onto it, by design. So "landed" means the cloud copy holds what was sent (the step 7a check decodes the bundle's coins), not just any new copy: the Worker turns an upload within 10 s of the last away (429), and the page keeps it for its next round. From 7b the test pauses both games and sends every upload itself (`quiesce`, `hideAndSettle`: a merge that takes the other's later copy reloads and sends its merged copy only on a second round).

@@ -50,7 +50,7 @@ async function run(mode) {
   await p.clock.install({ time: new Date("2026-11-02T14:00:00") });
   await p.goto(PAGE);
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await p.evaluate((mode) => [...document.querySelectorAll(`.title-card.mode-${mode} button`)].find((b) => !b.hidden && b.classList.contains("primary")).click(), mode);
+  await p.evaluate((mode) => [...document.querySelectorAll(`.title-card.mode-${mode} button`)].find((b) => !b.hidden && b.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()), mode);
   await p.waitForFunction((mode) => window.woodrail?.mode?.() === mode && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), mode, { timeout: 180000 });
   await p.keyboard.press("Escape").catch(() => {});
 
@@ -112,6 +112,11 @@ async function run(mode) {
     };
   });
   await p.waitForFunction(() => performance.now() - window.woodrail.__askedAt > 10_000, null, { timeout: 240000, polling: 500 }).catch(() => console.log("(still carving after 4 min)"));
+  // (And no piece still to swap in, by the game's own count: the carving runs in workers, on real time, but a piece's
+  // swap is a timer on the page's clock, paused below. A batch landing after the 10 s, on a slow CI box, was swapped in
+  // (a frame) in the 49 s that count none. The page's clock runs here, so a swap queued comes.)
+  await p.evaluate(async () => (window.__trackView = await import("/src/render/track-view.ts")));
+  await p.waitForFunction(() => !window.__trackView.piecesWanted(), null, { timeout: 240000, polling: 500 }).catch(() => console.log("(pieces still wanted after 4 min)"));
   // Pause the page's clock 5 s into a minute, run it a second (the frame for the minute it jumped past is drawn), then
   // on 49 s: no frame drawn (the hands haven't moved).
   const base = await p.evaluate(() => Date.now());

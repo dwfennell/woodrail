@@ -147,7 +147,7 @@ suite.add("ruins", async () => {
   await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await settle();
 await p.keyboard.press("Escape");
@@ -551,7 +551,7 @@ check("idle with ruins in view: no frames drawn in 30 s", idle.frames === 0, JSO
 await p.waitForTimeout(6500);
 await p.reload();
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await settle();
 await p.keyboard.press("Escape");
@@ -573,7 +573,7 @@ q.on("pageerror", (e) => errors.push(e.message));
 await q.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 await q.goto(PAGE);
 await q.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await q.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await q.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await q.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await q.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
 await q.waitForTimeout(8000);
@@ -597,7 +597,7 @@ L.on("pageerror", (e) => errors.push(e.message));
 await L.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 await L.goto(PAGE);
 await L.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await L.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await L.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await L.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await L.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
 await L.keyboard.press("Escape");
@@ -685,6 +685,10 @@ async function openMapOn(M) {
     await M.waitForTimeout(100);
   }
   await glided(M);
+  // (Till the game says the map has settled: the view still a moment, the labels laid out afresh where they'll stay. A
+  // second with no frame drawn alone wasn't it on a loaded CI box, a frame taking over a second mid-glide: 2 of 4 towns'
+  // labels read, and a badge tapped where it had been.)
+  await M.waitForFunction(() => window.woodrail.mapSettled?.() ?? true, null, { timeout: 120000, polling: 250 }).catch(() => console.log("  (the map hadn't settled after 120 s)"));
   // (Till the glide up has ended: no frame drawn for a second, so the labels are where they'll stay.)
   await M.evaluate(async () => {
     const w = window.woodrail;
@@ -735,7 +739,7 @@ M.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}
 await M.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 await M.goto(PAGE);
 await M.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await M.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await M.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await M.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await M.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
 await M.keyboard.press("Escape");
@@ -850,7 +854,7 @@ for (const [W, H] of [
   await S.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
   await S.goto(PAGE);
   await S.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await S.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await S.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await S.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await S.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
   await S.keyboard.press("Escape");
@@ -913,7 +917,7 @@ suite.add("big-map", async () => {
   await G.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
   await G.goto(PAGE);
   await G.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await G.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await G.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await G.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await G.keyboard.press("Escape");
   const bought = await G.evaluate(async () => {

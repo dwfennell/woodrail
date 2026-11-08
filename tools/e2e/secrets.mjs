@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { testClockIn } from "../../scripts/e2e/lib/fast.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/secrets";
@@ -34,6 +35,9 @@ const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chro
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 pinClocksIn(b);
 stillIndustriesIn(b);
+// (The test clock: the train's run out to the halt is game time, and at a frame or two a second under SwiftShader a
+// frame's 0.1 s step kept it from the halt within the 5 min wait on CI (no trips; they came by step 8). lib/fast.mjs.)
+testClockIn(b);
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
 await ctx.addInitScript(() => {
   localStorage.setItem("woodrail.helpSeen", "1");
@@ -112,7 +116,7 @@ const trayItem = async (key) => {
 };
 const enterGame = async () => {
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await settle();
   await p.keyboard.press("Escape");

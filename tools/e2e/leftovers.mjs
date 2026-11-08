@@ -186,7 +186,7 @@ async function phone() {
   h.open = async (mode) => {
     await p.goto(PAGE);
     await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-    await p.evaluate((mode) => [...document.querySelectorAll(`.title-card.mode-${mode} button`)].find((x) => !x.hidden && x.classList.contains("primary")).click(), mode);
+    await p.evaluate((mode) => [...document.querySelectorAll(`.title-card.mode-${mode} button`)].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()), mode);
     await p.waitForFunction((mode) => window.woodrail?.mode?.() === mode && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), mode, { timeout: 180000 });
     await h.settle();
     await p.keyboard.press("Escape");
@@ -300,7 +300,7 @@ async function phone() {
     if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await h.tapOn({ engine });
     await h.tapButton(".engine-extra .route-plan");
     for (const d of stops) await h.tapOn({ depot: d });
-    await h.tapButton(".engine-extra .route-plan.on");
+    await h.tapButton(".line-sheet .route-plan.on");
     const got = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, engine);
     await p.keyboard.press("Escape");
     return got;

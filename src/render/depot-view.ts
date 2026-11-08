@@ -2235,6 +2235,23 @@ export class DepotView {
     return best;
   }
 
+  /**
+   * Every place a route can stop at, for the "tap a place" rings while a route is planned: its yard's middle and a
+   * radius (mm) round it (a town's station: the platform's middle; a kit's halt: its track). Cheap: a loop over the sites.
+   */
+  placeSpots(): { depotId: number; x: number; y: number; z: number; r: number }[] {
+    const out: { depotId: number; x: number; y: number; z: number; r: number }[] = [];
+    for (const site of this.sites) {
+      const pad = site.layout.pad;
+      const t = pad ? pad.t : site.layout.trackT;
+      const l = pad ? pad.l : 0;
+      toWorld(site.pose, t, l, 0, _v);
+      const r = pad ? Math.max(70, Math.hypot(pad.w, pad.d) / 2 + 10) : site.depot.role === "town" ? 150 : 90;
+      out.push({ depotId: site.depot.id, x: _v.x, y: _v.y, z: _v.z, r });
+    }
+    return out;
+  }
+
   /** The depot (economy id) whose yard is nearest a ground point, within `range` mm; −1 if none. */
   depotNear(x: number, z: number, range = 140): number {
     let best = -1;

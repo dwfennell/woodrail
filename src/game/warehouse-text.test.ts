@@ -16,7 +16,7 @@ describe("warehouse words", () => {
   it("say why a train beside one trades nothing, and what to do", () => {
     expect(storeSkipText(false)).toBe("Warehouses trade with trains on a route. Plan a route with a stop here");
     expect(storeSkipText(true)).toBe("This warehouse isn't on its line. Edit the line to add a stop here");
-    expect(STORE_HELP).toBe("Drop goods here to keep them for later. Choose below what it takes and gives; on a route, set its stop to Only drop or Only pick up");
+    expect(STORE_HELP).toBe("Drop goods here to keep them for later. Choose below what it takes and gives; on a route, untick Drop or Pick up on its stop");
   });
 
   it("name each store mode plainly, and say when a warehouse's setting stops a route's drop or pick-up", () => {

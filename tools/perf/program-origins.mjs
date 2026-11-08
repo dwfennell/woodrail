@@ -25,7 +25,7 @@ await page.addInitScript({ path: process.env.INJECT ?? "/dev/null" });
 await page.goto(server.resolvedUrls.local[0] + (mapFile ? "?dev#load=" + readFileSync(mapFile, "utf8").trim() : ""));
 await page.waitForFunction(() => window.woodrail?.title?.shown !== undefined, null, { timeout: 300000 });
 await page.waitForTimeout(3000);
-await page.evaluate(() => window.woodrail.title.shown && [...document.querySelectorAll(".title-card button")].find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click());
+await page.evaluate(() => window.woodrail.title.shown && [...document.querySelectorAll(".title-card button")].find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await page.waitForFunction(() => !window.woodrail.title.shown && document.querySelector("#loading.done"), null, { timeout: 300000 });
 await page.waitForTimeout(Number(process.env.WAIT ?? 8000));
 // DRAG=1: then a straight dragged from the tray across the map (not dropped): what that first drag compiles.

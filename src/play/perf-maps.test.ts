@@ -24,7 +24,7 @@ describe.skipIf(!ENV.PERF_MAPS)("perf maps", () => {
   it("writes the big Sandbox map", async () => {
     const seed = Number(ENV.PERF_SEED ?? 7);
     const trains = Number(ENV.PERF_TRAINS ?? 16);
-    const world = createWorld(seed, false, true, false);
+    const world = createWorld(seed, false, true, false, "hilly"); // (Hilly: the land the perf maps were made on, before the gentler default.)
     const { layout, landscape: land, sim } = world;
     // More land, as Sandbox's "add land" gives it: the plots for sale nearest the start, one after another.
     const plots = Number(ENV.PERF_PLOTS ?? 24);

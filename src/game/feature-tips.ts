@@ -28,14 +28,14 @@ export interface TipContext {
   ringLine: number | null;
 }
 
-/** Where a tip's Show me goes: a goal's guide, or the research board, an engine's card, the Lines list. */
+/** Where a tip's Show me goes: a goal's guide, or the research board, an engine's card, a line's sheet. */
 export interface TipGuide extends GoalGuide {
   /** Open the research board (on this blueprint, if given). */
   board?: string | true;
   /** Open this engine's card (a car id). */
   engine?: number;
-  /** Open the Lines list. */
-  lines?: boolean;
+  /** Open this line's sheet with its ⋯ menu open (Reverse, Copy, Show, Delete there). */
+  line?: number;
 }
 
 export interface FeatureTip {
@@ -123,7 +123,7 @@ export const SIDINGS_TIP = "Tap an industry, then Second track: the next train w
 export const TUNNELS_TIP = "Lay a Long straight up to a hill's side, or Draw across a hill: the line goes under";
 export const LEAVE_NOW_TIP = "A train is waiting for a full load: tap its engine, then Leave now to go with what it has";
 export const KEEPS_TIP = "Tap your workshop: − and + set how many planks it keeps while it shares with towns";
-export const RING_TIP = "A ring line: Reverse on its row in Lines sends its trains the other way round";
+export const RING_TIP = "A ring line: Reverse, in the line's ⋯ menu, sends its trains the other way round";
 
 export const FEATURE_TIPS: readonly FeatureTip[] = [
   {
@@ -216,7 +216,7 @@ export const FEATURE_TIPS: readonly FeatureTip[] = [
     useful: (_w, ctx) => ctx.ringLine !== null,
     // (Used: main marks it when Reverse is tapped on a ring.)
     used: () => false,
-    guide: () => ({ points: [], towns: [], marks: [], lines: true }),
+    guide: (_w, ctx) => ({ points: [], towns: [], marks: [], line: ctx.ringLine ?? undefined }),
   },
 ];
 

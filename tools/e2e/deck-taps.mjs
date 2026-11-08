@@ -29,7 +29,7 @@ const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), 
 
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => !b.hidden && b.classList.contains("primary")).click());
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => !b.hidden && b.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await settle();
 
@@ -254,4 +254,6 @@ await tapCase("a 62 ms tap on the engine, delivered late", 0, async (x, y) => {
 console.log(errors.length ? `page errors: ${errors.join("; ")}` : "no page errors");
 await b.close();
 await server.close();
+// (The gate's pass line: scripts/e2e/lib/run.mjs, and CI, look for it.)
+console.log(failures || errors.length ? `e2e:decks: ${failures} failed` : "e2e:decks: all passed");
 process.exit(failures || errors.length ? 1 : 0);

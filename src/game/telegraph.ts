@@ -78,6 +78,7 @@ export function callHome(world: Pick<World, "economy" | "landscape">, engine: nu
   } else {
     const made = startLine(e, engine, [{ depotId: home.depotId, action: "auto" }]);
     made.name = "Home";
+    made.transient = true;
   }
   // It stops there as it comes to it (`Economy.homeCalls`). A train standing with its lever off sets off.
   e.homeCalls.set(engine, home.depotId);

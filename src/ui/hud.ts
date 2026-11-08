@@ -112,6 +112,10 @@ export interface HudHandlers {
   openLines(): void;
   /** The menu: copy this mode's map (its save, compressed) to the clipboard, for a bug report. */
   copyMap(): void;
+  /** The map's code (its seed, and what it was made with that isn't as an older map: `mapCode`), shown in the menu. */
+  mapCode(): string;
+  /** The menu's map code tapped: copy it, to share (a `#seed-` link or the new-game screen's seed box takes it). */
+  copyMapCode(): void;
   /** Back to the title screen. */
   titleScreen(): void;
   /** The brand tapped: back to the player's railway (the view frames their track). */
@@ -448,12 +452,14 @@ export class Hud {
     this.menu.hidden = true;
     this.handlers.copyMap();
   }, "menu-item");
+  /** The menu's map seed (its code), to share: copied by a tap. Its words are the map's, set as the menu opens. */
+  private readonly mapCodeItem = button("Map seed", "Copy this map's seed, to share it", () => {
+    this.menu.hidden = true;
+    this.handlers.copyMapCode();
+  }, "menu-item map-code-item");
   private readonly reportNote = document.createElement("textarea");
   private readonly sandboxItems: HTMLButtonElement[];
   private readonly gameItems: HTMLButtonElement[];
-  /** The menu's New game (it asks first: see `stopAsking`), and the timer that stops it asking. */
-  private readonly newGameItem: HTMLButtonElement;
-  private newGameAsk = 0;
   readonly perf = el("div", "perf");
   private toastTimer = 0;
   private readonly toastQueue: { message: string; celebrate: boolean; ms: number; urgent: boolean; tap?: () => void }[] = [];
@@ -603,20 +609,11 @@ export class Hud {
         h.newLayout();
       }, "menu-item"),
     ];
-    // Starting over loses the game's progress: the first tap asks, a second (while it asks) does it.
-    const newGame = button("New game", "Start the goals again on the starter map", () => {
-      if (!newGame.classList.contains("asking")) {
-        newGame.classList.add("asking");
-        newGame.textContent = "Start over? Tap again";
-        window.clearTimeout(this.newGameAsk);
-        this.newGameAsk = window.setTimeout(() => this.stopAsking(newGame), ASK_MS);
-        return;
-      }
-      this.stopAsking(newGame);
+    // Starting over loses the game's progress: the new-game sheet it opens says so, and asks for its Start.
+    const newGame = button("New game", "Start the goals again on a new map", () => {
       this.menu.hidden = true;
       h.newGame();
     }, "menu-item");
-    this.newGameItem = newGame;
     this.gameItems = [newGame];
     // The bar's buttons that don't fit on a phone.
     const narrow = (label: string, title: string, act: () => void) =>
@@ -677,6 +674,7 @@ export class Hud {
         this.menu.hidden = true;
         h.titleScreen();
       }, "menu-item"),
+      this.mapCodeItem,
       ...this.sandboxItems,
       ...this.gameItems,
       sep(),
@@ -920,9 +918,12 @@ export class Hud {
       if (missing.length > 0) this.handlers.needThumbnails(missing.splice(0));
       if (kits.length > 0) this.handlers.kitsShown?.(kits.splice(0));
     };
+    /** The shelf shown now (its label), or null on a tab's top level. */
+    let shownShelf: string | null = null;
     // Top level: one button per group; open one to see its items, with a way back first in the row.
     const showGroups = (groups: TrayGroup[]) => {
       this.trayGlide++;
+      shownShelf = null;
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.remove("in-group");
@@ -949,6 +950,8 @@ export class Hud {
     };
     const showItems = (groups: TrayGroup[], group: TrayGroup, back = true) => {
       this.trayGlide++;
+      // (A tab with only the one shelf shows its items straight away: not a shelf the player is on.)
+      shownShelf = back ? group.label : null;
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.add("in-group");
@@ -1068,6 +1071,9 @@ export class Hud {
       if (openId !== "" && openId !== tab.id) this.handlers.trayTabChanged();
       openId = tab.id;
       openDef = tab;
+      // (No shelf of this tab's shown yet: the one shown till now was the last tab's. Left set, a tab whose shelves all
+      // come with its props (Sandbox's Machines) stayed on "Unpacking…" when they came in: e2e:kits, no kits.)
+      shownShelf = null;
       this.hidePlaceCard();
       // The Land tab switches land editing on (with its first tool), any other tab off.
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
@@ -1089,8 +1095,13 @@ export class Hud {
         else {
           void propGroups(tab.props).then((g) => {
             loadedGroups.set(tab.id, g);
+            if (openId !== tab.id) return;
+            // (On one of the tab's own shelves, the one asked for or none asked: the shelves that came in change nothing
+            // there. Opened again, it hid a card just opened from a tile on it: a tap there lost, as Show me's Jam
+            // kitchen tile was in e2e:feature-tips.)
+            if (shownShelf !== null && (!shelf || shelf === shownShelf)) return;
             // (Opened on a shelf, as "Show me" does: it opens on that shelf once its props are in.)
-            if (openId === tab.id) openTab(tab, shelf);
+            openTab(tab, shelf);
           });
           if (groups.length === 0) {
             this.trayGlide++;
@@ -1735,13 +1746,6 @@ export class Hud {
     this.help.hidden = false;
   }
 
-  /** A menu item that asks before it acts goes back to its plain self. */
-  private stopAsking(item: HTMLButtonElement): void {
-    window.clearTimeout(this.newGameAsk);
-    item.classList.remove("asking");
-    item.textContent = "New game";
-  }
-
   /** Is the ☰ menu open? */
   get menuOpen(): boolean {
     return !this.menu.hidden;
@@ -1755,8 +1759,7 @@ export class Hud {
 
   toggleMenu(): void {
     this.menu.hidden = !this.menu.hidden;
-    // (Opened or closed, New game asks afresh.)
-    this.stopAsking(this.newGameItem);
+    if (!this.menu.hidden) this.mapCodeItem.textContent = `Map seed: ${this.handlers.mapCode()}`;
     // The toast showing is over the menu's top items: it goes (the next waiting, if any, comes on under the menu).
     if (!this.menu.hidden && this.toastEl.classList.contains("show")) this.dismissToast();
   }

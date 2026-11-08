@@ -1,0 +1,185 @@
+# The end-to-end suites in parallel, on what would land: the ref merged with main. See docs/agents/e2e.md, "CI".
+#
+#   plan    merge main in; pick the suites (affected + smoke, or the given ones, or all: dispatch with `all`, or a
+#           push whose head commit message has a line [e2e all]) and split them into shards
+#           balanced by rough duration (scripts/e2e/ci.mjs, scripts/e2e/durations.json); build dist/ once
+#   shard   one per runner: its suites as the landing gate runs them, one retry each
+#   unit    vitest, sharded
+#   e2e     the one check: passes only when every shard did; a table in the job summary and e2e-results.json
+name: e2e
+
+on:
+  push:
+    branches: ["claude/**"]
+    paths-ignore: ["docs/**"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or sha to test (merged with main first)
+        required: true
+      suites:
+        description: 'Suites to run instead of the affected ones, as the gate writes them: "signals touch:blocker,defaults click:desktop"'
+        required: false
+        default: ""
+      all:
+        description: Every suite, whole
+        type: boolean
+        default: false
+
+concurrency:
+  group: e2e-${{ inputs.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REF: ${{ inputs.ref || github.sha }}
+  NODE_VERSION: 22
+
+jobs:
+  plan:
+    name: plan + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+      main: ${{ steps.merge.outputs.main }}
+      tree: ${{ steps.merge.outputs.tree }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.REF }}", fetch-depth: 0, filter: "blob:none" }
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.sha }}", path: .ci, sparse-checkout: ".github/actions\nscripts/e2e/ci.mjs\nscripts/e2e/durations.json", sparse-checkout-cone-mode: false }
+      - id: merge
+        uses: ./.ci/.github/actions/merge-main
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - id: nm
+        uses: actions/cache@v4
+        with: { path: node_modules, key: "nm-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}" }
+      - if: steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+      - id: plan
+        env:
+          SUITES: ${{ inputs.suites }}
+          ALL: ${{ inputs.all }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          # (A push may name its suites in the head commit's message, on a line of its own: "[e2e: signals touch:blocker]".)
+          if printf '%s\n' "$MESSAGE" | grep -qx '\[e2e all\] *'; then ALL=true; fi
+          if [ -z "$SUITES" ]; then SUITES=$(printf '%s\n' "$MESSAGE" | sed -n 's/^\[e2e: *\([^]]*\)\] *$/\1/p' | tail -1); fi
+          args=()
+          if [ "$ALL" = "true" ]; then args+=(--all); elif [ -n "$SUITES" ]; then args+=(--suites "$SUITES"); fi
+          node .ci/scripts/e2e/ci.mjs plan "${args[@]}" > plan.json
+          node -e 'const p=require("./plan.json"); console.log(`${p.source}: ${p.work_minutes} min of tests on ${p.shards} shards`); for (const s of p.include) console.log(`  ${s.shard} (${s.minutes} min): ${s.units}`)'
+          echo "matrix=$(node -e 'console.log(JSON.stringify({include: require("./plan.json").include}))')" >> "$GITHUB_OUTPUT"
+          echo "count=$(node -e 'console.log(require("./plan.json").include.length)')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: { name: e2e-plan, path: plan.json, retention-days: 7 }
+      # Once a workflow: the shards that need dist/ (e2e:tray) take this one.
+      - name: Build (typecheck and vite build)
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with: { name: dist, path: dist, retention-days: 3 }
+
+  shard:
+    name: shard ${{ matrix.shard }}
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.REF }}", fetch-depth: 0, filter: "blob:none" }
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.sha }}", path: .ci, sparse-checkout: ".github/actions\nscripts/e2e/ci.mjs\nscripts/e2e/durations.json", sparse-checkout-cone-mode: false }
+      - id: merge
+        uses: ./.ci/.github/actions/merge-main
+        with: { main: "${{ needs.plan.outputs.main }}" }
+      - name: Same tree as the plan
+        run: test "${{ steps.merge.outputs.tree }}" = "${{ needs.plan.outputs.tree }}" || { echo "::error::merged tree differs from the plan's"; exit 1; }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - id: nm
+        uses: actions/cache@v4
+        with: { path: node_modules, key: "nm-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}" }
+      - if: steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+      - id: pw
+        run: echo "version=$(node -p 'require("playwright-core/package.json").version')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with: { path: ~/.cache/ms-playwright, key: "pw-${{ runner.os }}-${{ steps.pw.outputs.version }}" }
+      - name: Playwright's Chromium (download skipped when cached) and its system libraries
+        run: npx playwright-core install --with-deps chromium
+      - if: matrix.dist
+        uses: actions/download-artifact@v4
+        with: { name: dist, path: dist }
+      - name: e2e ${{ matrix.units }}
+        run: node .ci/scripts/e2e/ci.mjs run --shard "${{ matrix.shard }}" --units "${{ matrix.units }}"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: "e2e-result-${{ matrix.shard }}", path: e2e-results/, retention-days: 14, if-no-files-found: ignore }
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: "e2e-logs-${{ matrix.shard }}", path: "e2e-logs/\ne2e-out/", retention-days: 14, if-no-files-found: ignore }
+
+  unit:
+    name: unit ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.REF }}", fetch-depth: 0, filter: "blob:none" }
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.sha }}", path: .ci, sparse-checkout: ".github/actions", sparse-checkout-cone-mode: false }
+      - uses: ./.ci/.github/actions/merge-main
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - id: nm
+        uses: actions/cache@v4
+        with: { path: node_modules, key: "nm-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}" }
+      - if: steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+      - run: npx vitest run --shard=${{ matrix.shard }}/4
+
+  e2e:
+    name: e2e
+    needs: [plan, shard]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.sha }}", sparse-checkout: "scripts/e2e/ci.mjs", sparse-checkout-cone-mode: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - if: needs.plan.result != 'success'
+        run: echo "::error::the plan (merge with main, plan or build) failed; nothing was tested" && exit 1
+      - uses: actions/download-artifact@v4
+        with: { name: e2e-plan, path: . }
+      - uses: actions/download-artifact@v4
+        with: { pattern: "e2e-result-*", path: results }
+        continue-on-error: true
+      - name: Results
+        env:
+          E2E_TREE: ${{ needs.plan.outputs.tree }}
+          E2E_MAIN: ${{ needs.plan.outputs.main }}
+          E2E_SHA: ${{ needs.plan.outputs.sha }}
+          E2E_REF: ${{ inputs.ref || github.ref_name }}
+        run: node scripts/e2e/ci.mjs summary results --plan plan.json
+      - if: always() && needs.plan.result == 'success'
+        uses: actions/upload-artifact@v4
+        with: { name: e2e-results, path: e2e-results.json, retention-days: 30, if-no-files-found: ignore }

@@ -1,6 +1,7 @@
 import { rng } from "../lib/rng";
 import { seaPlot, shoreDistance, type Coast } from "./coast";
 import { PLOT_COLS, PLOT_ROWS } from "./grid";
+import { LEGACY_WATER, riverChance, type Water } from "./water";
 
 /**
  * What crosses the edge between two plots, square by square along it: the same for the plots on both sides, worked
@@ -24,7 +25,6 @@ export const STUB_DEPTH = 4;
 export const BORDER_BAND = 3;
 /** Crossings keep this far from the ends of an edge, so stubs from edges meeting at a corner stay apart. */
 const CORNER_GAP = 5;
-const RIVER_CHANCE = 0.38;
 const LANE_CHANCE = 0.42;
 
 /** A small integer hash of a few integers. */
@@ -44,8 +44,8 @@ const contracts = new Map<string, EdgeContract>();
  * The contract of one edge. A vertical edge (`vertical`) is the west edge of plot (px, pz), running along z
  * (`PLOT_ROWS` long); otherwise it's the north edge of plot (px, pz), running along x (`PLOT_COLS` long).
  */
-export function edgeContract(seed: number, vertical: boolean, px: number, pz: number, coast: Coast | null = null): EdgeContract {
-  const key = `${seed},${vertical ? 1 : 0},${px},${pz},${coast ? `${coast.side}${coast.plot}` : ""}`;
+export function edgeContract(seed: number, vertical: boolean, px: number, pz: number, coast: Coast | null = null, water: Water = LEGACY_WATER): EdgeContract {
+  const key = `${seed},${vertical ? 1 : 0},${px},${pz},${coast ? `${coast.side}${coast.plot}` : ""},${water}`;
   const have = contracts.get(key);
   if (have) return have;
   const random = rng(hashInts(seed, vertical ? 1 : 2, px, pz, 0x5eed));
@@ -54,7 +54,8 @@ export function edgeContract(seed: number, vertical: boolean, px: number, pz: nu
   const at = () => CORNER_GAP + Math.floor(random() * span);
   const rivers: number[] = [];
   const lanes: number[] = [];
-  if (random() < RIVER_CHANCE) rivers.push(at());
+  // (The same draws whatever the map's water: only the chance a river crosses changes, `riverChance`.)
+  if (random() < riverChance(water, vertical, px, pz)) rivers.push(at());
   if (random() < LANE_CHANCE) {
     const lane = at();
     if (rivers.every((r) => Math.abs(r - lane) >= 3)) lanes.push(lane);
@@ -101,7 +102,7 @@ export interface Region {
  * The crossings on a region's outer edges: their stubs inside the region (`inside`) and inside the neighbouring plots
  * (`outside`, which flatten the hills on the far side the same way).
  */
-export function regionStubs(seed: number, r: Region, coast: Coast | null = null): { inside: Stub[]; outside: Stub[] } {
+export function regionStubs(seed: number, r: Region, coast: Coast | null = null, water: Water = LEGACY_WATER): { inside: Stub[]; outside: Stub[] } {
   const inside: Stub[] = [];
   const outside: Stub[] = [];
   const add = (kind: Stub["kind"], vertical: boolean, along: number, edge: number, inward: 1 | -1) => {
@@ -117,7 +118,7 @@ export function regionStubs(seed: number, r: Region, coast: Coast | null = null)
     outside.push({ kind, cells: b });
   };
   const edge = (vertical: boolean, px: number, pz: number, inward: 1 | -1) => {
-    const c = edgeContract(seed, vertical, px, pz, coast);
+    const c = edgeContract(seed, vertical, px, pz, coast, water);
     const start = vertical ? pz * PLOT_ROWS : px * PLOT_COLS;
     const line = vertical ? px * PLOT_COLS : pz * PLOT_ROWS;
     for (const k of c.rivers) add("river", vertical, start + k, line, inward);

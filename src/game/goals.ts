@@ -1,4 +1,4 @@
-import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, START_REGION, SURF_RIVER, type LandscapeGrid } from "../landscape";
+import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, START_REGION, SURF_RIVER, waterOfLand, type Landscape, type LandscapeGrid } from "../landscape";
 import { acrossRiver, type AcrossRiver } from "./across-river";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
@@ -72,6 +72,11 @@ export interface Goal {
   readonly ring?: PieceTypeId;
   /** Coins paid when it's ticked off (`payGoal`), said on its toast; most goals pay none. */
   readonly coins?: number;
+  /**
+   * Whether the map can have it at all (the new-game screen's water and sea): a goal it can't (a ship abroad with no
+   * sea) is never shown nor counted. Missing: every map.
+   */
+  readonly onMap?: (land: Landscape) => boolean;
 }
 
 /** Coins "Buy some land" pays back when it's ticked off (the first plot costs 60: `plotPrice`). */
@@ -604,7 +609,8 @@ export const GOALS: readonly Goal[] = [
   // Harbours after Quarries), so after the passing loop. Open goals: ticked off as soon as one stands.
   openIndustry("quarry", "quarries", "Open a quarry", "Restore an old quarry, or build one by a hillside."),
   openIndustry("mine", "mines", "Open a mine", "Restore an old mine, or build one by a hillside."),
-  openIndustry("harbour", "harbours", "Open a harbour", "Restore an old harbour, or build one by the sea."),
+  // (A harbour's quay wants open water: the sea. A map made without it has no harbours to open.)
+  { ...openIndustry("harbour", "harbours", "Open a harbour", "Restore an old harbour, or build one by the sea."), onMap: (land) => !!land.coast },
   // Water transport (docs/superpowers/specs/2026-11-04-water-transport.md): once River barges is learned, a barge
   // carries goods from one landing to another. An open goal, as the industries'.
   {
@@ -613,6 +619,8 @@ export const GOALS: readonly Goal[] = [
     hint: "Build a boatyard and a landing (Industries, Water), bring the boatyard planks and iron by train for a tug and a barge, and route it to the landing.",
     needs: ["barges"],
     blueprint: "barges",
+    // (A map made with no water has rivers only far out, maybe none bought: the goal isn't asked of it.)
+    onMap: (land) => waterOfLand(land) !== "none",
     ring: "kit-landing",
     check: (w) => ({ done: w.economy.boatDelivered > 0 }),
     guide: (w) => {
@@ -629,6 +637,8 @@ export const GOALS: readonly Goal[] = [
     hint: "Build a cargo ship at a shipyard, and leave goods on a harbour's quay: it takes them, at a town's full price.",
     needs: ["cargo-ships"],
     blueprint: "cargo-ships",
+    // (Ships sail the sea: none on a map made without one.)
+    onMap: (land) => !!land.coast,
     check: (w) => ({ done: w.economy.shipLoads > 0 }),
     guide: (w) => guideIndustry(w, "harbour"),
   },
@@ -661,6 +671,7 @@ export class GoalTracker {
    */
   update(world: World, ctx: GoalContext = NO_CONTEXT): Goal[] {
     this.learned = ctx.learned;
+    this.land = world.landscape;
     for (const g of GOALS) if (!this.done.has(g.id) && !this.met.has(g.id) && this.open(g) && g.check(world, ctx).done) this.met.add(g.id);
     const now = this.current();
     const open = GOALS.findIndex((g) => g.id === FIRST_OPEN_GOAL);
@@ -697,9 +708,17 @@ export class GoalTracker {
   /** Blueprints learned, as of the last check (a goal that needs some waits for them). */
   private learned: ReadonlySet<string> = NO_CONTEXT.learned;
 
-  /** Can this goal show and count yet (its blueprints learned)? */
+  /** The map, as of the last check (a goal it can't have is passed over: `Goal.onMap`). */
+  private land: Landscape | null = null;
+
+  /** Can the map have this goal at all (`Goal.onMap`)? Till the first check, as any map. */
+  private fits(g: Goal): boolean {
+    return !g.onMap || !this.land || g.onMap(this.land);
+  }
+
+  /** Can this goal show and count yet (the map can have it, its blueprints learned)? */
   private open(g: Goal): boolean {
-    return !g.needs || g.needs.every((id) => this.learned.has(id));
+    return this.fits(g) && (!g.needs || g.needs.every((id) => this.learned.has(id)));
   }
 
   /** The goals not done that can show now, in order (one waiting for its blueprints is hidden, and not counted). */
@@ -714,12 +733,12 @@ export class GoalTracker {
 
   /** The goals still to come that wait for blueprints (hidden, but counted on the panel: "16 / 17", not "16 / 16"). */
   get lockedCount(): number {
-    return GOALS.filter((g) => !this.done.has(g.id) && !this.open(g)).length;
+    return GOALS.filter((g) => !this.done.has(g.id) && this.fits(g) && !this.open(g)).length;
   }
 
   /** A goal still to come that waits for blueprints, in a few words: "Research Signals to unlock a goal" (or null). */
   lockedHint(): string | null {
-    const g = GOALS.find((x) => !this.done.has(x.id) && !this.open(x));
+    const g = GOALS.find((x) => !this.done.has(x.id) && this.fits(x) && !this.open(x));
     if (!g) return null;
     const names = g.needs!.filter((id) => !this.learned.has(id)).map((id) => BLUEPRINTS.find((b) => b.id === id)?.label ?? id);
     return `Research ${names.join(" and ")} to unlock a goal`;
@@ -730,7 +749,7 @@ export class GoalTracker {
    * news to name (QA: "Run two trains at once" opened unseen behind the current goal).
    */
   openedBy(tech: string, learned: ReadonlySet<string>): Goal[] {
-    return GOALS.filter((g) => !this.done.has(g.id) && !!g.needs?.includes(tech) && g.needs.every((id) => learned.has(id)));
+    return GOALS.filter((g) => !this.done.has(g.id) && this.fits(g) && !!g.needs?.includes(tech) && g.needs.every((id) => learned.has(id)));
   }
 
   /** The goals to save: those done, and those met and waiting (they're ticked off after a reload). */

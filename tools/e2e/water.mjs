@@ -18,6 +18,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { testClockIn } from "../../scripts/e2e/lib/fast.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/water";
@@ -28,6 +29,9 @@ await server.warmupRequest("/src/main.ts");
 const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+// (The test clock: the boats' runs wait on game time, and at a frame or two a second under SwiftShader a frame's 0.1 s
+// step made 240 game seconds an hour of real time: a CI shard killed it at 20 min, mid-voyage. See lib/fast.mjs.)
+testClockIn(b);
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
 await ctx.addInitScript(() => {
   localStorage.setItem("woodrail.helpSeen", "1");
@@ -169,14 +173,22 @@ const turnTray = async (n) => {
   }
 };
 const toast = () => p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "));
-/** Game time passing (the page's own clock), up to `seconds` of it, till `done` is true in the page. */
+/**
+ * Game time passing (the page's own clock), up to `seconds` of it, till `done` is true in the page. Bounded in real time
+ * too (four times the game time, at least 2 min): game time that stops or crawls fails the check, not the run.
+ */
 const playUntil = async (fn, arg, seconds) => {
   const t0 = await p.evaluate(() => window.woodrail.simSeconds);
+  const until = Date.now() + Math.max(120, seconds * 4) * 1000;
   for (;;) {
     const r = await p.evaluate(fn, arg);
     if (r) return r;
     const t = await p.evaluate(() => window.woodrail.simSeconds);
     if (t - t0 > seconds) return null;
+    if (Date.now() > until) {
+      console.log(`(game time crawled: ${(t - t0).toFixed(1)} of ${seconds} s in ${Math.max(120, seconds * 4)} s)`);
+      return null;
+    }
     await p.waitForTimeout(1000);
   }
 };
@@ -184,7 +196,7 @@ const playUntil = async (fn, arg, seconds) => {
 // A new game.
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
 await settle();
 await p.keyboard.press("Escape");
@@ -686,7 +698,7 @@ if (sea) {
         await look(slipMid, 1300);
         await tapWorld(slipMid);
         if (process.env.WATER_DEBUG) await shot("debug-slip-tap");
-        await tapButton(".engine-extra .route-plan.on");
+        await tapButton(".line-sheet .route-plan.on");
         const routed = await p.evaluate((id) => window.woodrail.economy.routeOf(id)?.stops.map((s) => s.depotId) ?? null, train.engine);
         check("its route planned by taps: the ferry slip", !!routed && routed.includes(slip.depot), JSON.stringify(routed));
         await p.evaluate(() => window.woodrail.hud.hideCards());
