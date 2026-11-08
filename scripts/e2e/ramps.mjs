@@ -13,34 +13,64 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
-import { testClockIn } from "./lib/fast.mjs";
+import { batterySaverIn, mouseMoves, steps as moveSteps, testClockIn } from "./lib/fast.mjs";
+import { groups } from "./lib/groups.mjs";
 
-const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
-await server.listen();
-await server.warmupRequest("/src/main.ts");
-// (Seed 24: room on open ground for a wide curve and its ramp, either way round.)
-const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-24`;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const results = [];
+const errors = [];
 const check = (name, ok, detail = "") => {
   results.push({ name, ok, detail });
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
 };
+// Groups (lib/groups.mjs: `-- --list`, E2E_ONLY, a killed run resumes): a lane each (wide, s, spiral) and the drag,
+// each on the one page, finding its own room on the map.
+const suite = groups("ramps", { results, errors, check });
+let server = null;
+let b = null;
+/** The page: opened by `boot` when the first group that runs needs it (`--list` and an all-cached run open nothing). */
+let p = null;
+/** The heading a straight from the tray goes down at (the view's), found once by `boot`. */
+let HEADING = 0;
 
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-// (The test clock: each engine's climb is game time, and at a frame or two a second under SwiftShader a frame's 0.1 s
-// step made each take 4 to 7 min on CI, the suite killed at 37 min short of its end. The same fixed sim ticks, more
-// of them a frame: lib/fast.mjs.)
-testClockIn(b);
-const errors = [];
-const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-const p = await ctx.newPage();
-p.on("pageerror", (e) => errors.push(String(e)));
-await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
-await p.goto(URL);
-await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 120000 });
+async function boot() {
+  server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
+  await server.listen();
+  await server.warmupRequest("/src/main.ts");
+  // (Seed 24: room on open ground for a wide curve and its ramp, either way round.)
+  const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-24`;
+  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  // (The test clock: each engine's climb is game time, which at a 0.1 s step a slow frame crawled. lib/fast.mjs.)
+  testClockIn(b);
+  // (And the desktop page as Battery saver: its high tier's two effects cost seconds a frame under SwiftShader, and every
+  // mouse move waits for a frame. Nothing here looks at pixels. lib/fast.mjs.)
+  batterySaverIn(b);
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  p = await ctx.newPage();
+  p.on("pageerror", (e) => errors.push(String(e)));
+  await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  await p.goto(URL);
+  await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
+  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 120000 });
+  // The heading a straight from the tray goes down at (the view's): one put down on open ground, then undone (Ctrl+Z).
+  await tab("Track");
+  const open = await p.evaluate(() => {
+    const w = window.woodrail;
+    for (let fy = 0.3; fy <= 0.5; fy += 0.05) for (let fx = 0.3; fx <= 0.7; fx += 0.05) {
+      const x = Math.round(innerWidth * fx);
+      const y = Math.round(innerHeight * fy);
+      if (document.elementFromPoint(x, y) === w.canvas && !w.interaction.pick(x, y) && w.interaction.groundAt(x, y)) return [x, y];
+    }
+    return null;
+  });
+  const first = open ? (await lay("piece:straight-216", open)).id : null;
+  HEADING = first === null ? 0 : await p.evaluate((id) => window.woodrail.layout.getPiece(id).pose.heading, first);
+  if (first !== null) {
+    await p.keyboard.press("Control+z");
+    await frames();
+  }
+}
 
 const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 const tab = async (label) => {
@@ -56,6 +86,21 @@ const pressAt = async (sel, k = 0) => {
 /** A tray item by its exact key, among the favourites or on a shelf (opened for it, as a player would). */
 const item = async (key) => {
   const find = () => p.evaluate((key) => { const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`); if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; }, key);
+  const r0 = await find();
+  if (r0) return r0;
+  // Its shelf, by the tray's own catalogue: back to the shelves, then that one tapped, as a player goes straight to it.
+  // (Each tap waits a frame or two, seconds under SwiftShader: trying shelf after shelf cost a lane a minute and more.)
+  const shelf = await p.evaluate(async (key) => {
+    const { trayTabs, trayKey } = await import("/src/ui/tray-catalogue.ts");
+    for (const t of trayTabs(window.woodrail.mode())) for (const g of t.groups) if (g.items.some((i) => trayKey(i) === key)) return g.label;
+    return null;
+  }, key);
+  if (shelf) {
+    if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await pressAt(".scroller .tray-back");
+    const k = await p.evaluate((shelf) => [...document.querySelectorAll(".scroller .tray-group")].findIndex((e) => e.querySelector(".label")?.textContent === shelf), shelf);
+    if (k >= 0) await pressAt(".scroller .tray-group", k);
+  }
+  // (Else, or not there after all: shelf after shelf, as before.)
   for (let k = 0; k < 16; k++) {
     const r = await find();
     if (r) return r;
@@ -122,7 +167,8 @@ const lay = async (key, at, flip) => {
   }
   await p.mouse.click(r[0], r[1]);
   await frames();
-  await p.mouse.move(at[0], at[1], { steps: 4 });
+  // (The same four moves, a few to a frame: lib/fast.mjs.)
+  await mouseMoves(p, moveSteps(r, at, 4), { held: false });
   await frames();
   let seen = await ghostNow();
   const came = seen?.flipped ?? null;
@@ -132,8 +178,7 @@ const lay = async (key, at, flip) => {
     if (b) {
       await p.mouse.click(b[0], b[1]);
       await frames();
-      await p.mouse.move(at[0] + 3, at[1] + 3, { steps: 3 });
-      await p.mouse.move(at[0], at[1], { steps: 2 });
+      await mouseMoves(p, [...moveSteps(at, [at[0] + 3, at[1] + 3], 3), ...moveSteps([at[0] + 3, at[1] + 3], at, 2)], { held: false });
       await frames();
       seen = await ghostNow();
     }
@@ -234,26 +279,8 @@ const glide = async (at, span) => {
 const clearOnScreen = ([x, y]) => x > 60 && x < 1220 && y > 110 && y < 580;
 const pieceOf = (id) => p.evaluate((id) => window.woodrail.layout.getPiece(id), id);
 
-// The heading a straight from the tray goes down at (the view's): one put down on open ground, then undone (Ctrl+Z).
-await tab("Track");
-const open = await p.evaluate(() => {
-  const w = window.woodrail;
-  for (let fy = 0.3; fy <= 0.5; fy += 0.05) for (let fx = 0.3; fx <= 0.7; fx += 0.05) {
-    const x = Math.round(innerWidth * fx);
-    const y = Math.round(innerHeight * fy);
-    if (document.elementFromPoint(x, y) === w.canvas && !w.interaction.pick(x, y) && w.interaction.groundAt(x, y)) return [x, y];
-  }
-  return null;
-});
-const first = open ? (await lay("piece:straight-216", open)).id : null;
-const HEADING = first === null ? 0 : await p.evaluate((id) => window.woodrail.layout.getPiece(id).pose.heading, first);
-if (first !== null) {
-  await p.keyboard.press("Control+z");
-  await frames();
-}
-
-for (const { name, steps } of LANES) {
-  if (process.env.ONLY && !name.includes(process.env.ONLY)) continue;
+/** A lane: its pieces laid from the tray, their checks, and an engine run up it. */
+async function lane({ name, steps }) {
   const T0 = Date.now();
   const SPOTS = await spotsFor(steps, HEADING);
   let ids = [];
@@ -301,7 +328,7 @@ for (const { name, steps } of LANES) {
   const levels = steps.filter(([t]) => t.startsWith("ramp")).length;
   const say = `${pieces.map((q) => `${q.type}${q.flipped ? "'" : ""}@${q.y}`).join(" → ")}; top at ${top?.y}; risers ${r0} → ${await risers()}`;
   check(`${name}: laid from the tray, each piece joined to the one before, up ${levels} level${levels > 1 ? "s" : ""}`, joined && Math.abs(top.y - 48 * levels) < 0.5, say);
-  if (!joined) continue;
+  if (!joined) return;
   // The first ramp, from the ground: on its own support.
   const firstRamp = steps.findIndex(([t]) => t.startsWith("ramp"));
   if (name === "the wide" || name === "the S") check(`${name}: the curved ramp stands on its own support (no riser put under it)`, rRamp === r0, `${say}; risers by the ramp ${r0} → ${rRamp}`);
@@ -338,7 +365,7 @@ for (const { name, steps } of LANES) {
   }, { n0, ids });
   if (train === null) {
     check(`${name}: an engine goes on the line`, false, `trains ${n0}; at ${onLine}`);
-    continue;
+    return;
   }
   // Its card: a click on it, then Go.
   await p.mouse.click(onLine[0], onLine[1]);
@@ -367,8 +394,13 @@ for (const { name, steps } of LANES) {
           // clock (a slow machine runs it slowly), with a long wall-clock bound too.
           const atEnd = t.lastTurn?.cause === "open-end" && t.lastTurn.pieceId === last;
           if (atEnd || w.simSeconds - sim0 > 300 || performance.now() - t0 > 1200000) {
-            // (Standing at the top a while: it stays on.)
-            return setTimeout(() => resolve({ derailed: !!w.sim.getTrain(train)?.derailed, topY: Math.max(topY, ...t.world.map((c) => c.y)), speed: t.speed, lastTurn: t.lastTurn, simSeconds: Math.round(w.simSeconds - sim0), bogies: t.bogies.map((bg) => `${bg.pieceId}${bg.reversed ? "r" : ""}@${bg.s.toFixed(0)}`).join(",") }), 30000);
+            // (Standing at the top a while: it stays on. Five seconds of the game's clock, which keeps up with real time on the
+            // test clock; before it, 30 s of the wall's was about three of the game's.)
+            const s1 = w.simSeconds;
+            const until = performance.now() + 30000;
+            const stood = () => (w.simSeconds - s1 >= 5 || performance.now() > until ? report() : setTimeout(stood, 200));
+            const report = () => resolve({ derailed: !!w.sim.getTrain(train)?.derailed, topY: Math.max(topY, ...t.world.map((c) => c.y)), speed: t.speed, lastTurn: t.lastTurn, simSeconds: Math.round(w.simSeconds - sim0), bogies: t.bogies.map((bg) => `${bg.pieceId}${bg.reversed ? "r" : ""}@${bg.s.toFixed(0)}`).join(",") });
+            return stood();
           }
           requestAnimationFrame(step);
         };
@@ -383,11 +415,12 @@ for (const { name, steps } of LANES) {
   );
   // (It stands at the end of its own line, out of the next one's way.)
 }
+for (const [group, name] of [["wide", "the wide"], ["s", "the S"], ["spiral", "the spiral"]]) suite.add(group, () => lane(LANES.find((l) => l.name === name)), { about: `${name}: laid from the tray, an engine run up it` });
 
 // #8, the drag: a curve dragged out of the tray onto open ground; the next waits at its free end, ready (as after any
 // drag), and a tap on it puts it down: it turns on as the curve it joins (round, not an S-bend), and so on, five. Then Flip pressed while the next waits: it's shown again mirrored, and a tap puts down what's shown (an S, as
 // the player chose).
-if (!process.env.ONLY || "the drag".includes(process.env.ONLY)) {
+suite.add("drag", async () => {
   const waiting = () => p.evaluate(() => { const i = window.woodrail.interaction; const m = i.preview; if (!m?.ghost.visible || !i.previewAt) return null; const v = i.previewAt.clone().project(window.woodrail.camera); const r = window.woodrail.canvas.getBoundingClientRect(); return { flipped: m.flipped, snap: m.snap.kind, at: [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height] }; });
   const tapWaiting = async () => {
     const before = await p.evaluate(() => window.woodrail.layout.pieceCount);
@@ -418,7 +451,8 @@ if (!process.env.ONLY || "the drag".includes(process.env.ONLY)) {
     const before = await p.evaluate(() => window.woodrail.layout.pieceCount);
     await p.mouse.move(r[0], r[1]);
     await p.mouse.down();
-    await p.mouse.move(drop[0], drop[1], { steps: 12 });
+    // (The same twelve moves, a few to a frame: lib/fast.mjs.)
+    await mouseMoves(p, moveSteps(r, drop, 12));
     await frames();
     await p.mouse.up();
     await frames();
@@ -457,11 +491,15 @@ if (!process.env.ONLY || "the drag".includes(process.env.ONLY)) {
   const say = `${pieces.map((q) => `${q.type}${q.flipped ? "'" : ""}`).join(" → ")}; turns through each two ${JSON.stringify(turns)}; shown ${JSON.stringify(shown)}; flip ${JSON.stringify(flipSeen)}`;
   check("the drag: a curve dragged out of the tray, the next five waiting at its end and tapped: each joins, turning on the same way (a quarter turn through each two, not an S-bend: #8)", ids.length >= 6 && turns.slice(0, 5).every((d) => d !== null && Math.abs(Math.abs(d) - 90) <= 1 && Math.sign(d) === Math.sign(turns[0])), say);
   check("the drag: Flip pressed while the next waits shows it mirrored, and the tap puts down what's shown: an S-bend, as the player chose", ids.length === 7 && flipSeen.before !== flipSeen.after && shown[5] === pieces[6].flipped && turns[5] !== null && Math.abs(turns[5]) <= 1, say);
-}
+});
 
-check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
-await b.close();
-await server.close();
-const failed = results.filter((r) => !r.ok).length;
-console.log(`\n${results.length - failed}/${results.length} passed`);
-process.exit(failed ? 1 : 0);
+await suite.run(async (g, go) => {
+  if (!p) await boot();
+  await go();
+});
+if (p) {
+  check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
+  await b.close();
+  await server.close();
+}
+suite.finish();

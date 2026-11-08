@@ -23,7 +23,7 @@ export const SUITES = {
   cloud: { script: "e2e:cloud", groups: true, minutes: 20 },
   tutorial: { script: "e2e:tutorial" },
   joints: { script: "e2e:joints", groups: true },
-  ramps: { script: "e2e:ramps" },
+  ramps: { script: "e2e:ramps", groups: true },
   tray: { script: "e2e:tray", groups: true },
   decks: { script: "e2e:decks" },
   kits: { script: "e2e:kits", minutes: 12 },
