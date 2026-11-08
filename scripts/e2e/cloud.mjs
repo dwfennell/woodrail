@@ -715,10 +715,18 @@ suite.add(
     await autosaved(f);
     check("auto: a new map alone doesn't turn cloud saves on", !(await meta(f))?.code, JSON.stringify(await meta(f)));
 
-    // A piece from the tray, laid by a finger: the player's first build.
+    // A piece from the tray, laid by a finger: the player's first build. The map is a new one each run, so a fixed
+    // spot on the screen may be off the felt, a river or a hill: the finger moves over the map until the game's own
+    // placement check (`debugState().blocked`) has nothing against it there, as a player looks for room, and lifts.
     const cdp = await ctxF.newCDPSession(f);
     const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+    const blocked = () => f.evaluate(() => { const s = window.woodrail.interaction.debugState(); return s.mode === "drag-piece" ? s.blocked : "not dragging"; });
+    // (Points over the map, between the HUD and the tray, nearest the middle first.)
+    const spots = [];
+    for (let y = 160; y <= 640; y += 40) for (let x = 40; x <= 350; x += 40) spots.push({ x, y });
+    spots.sort((a, b) => Math.hypot(a.x - 195, a.y - 400) - Math.hypot(b.x - 195, b.y - 400));
     const before = await f.evaluate(() => [...window.woodrail.layout.pieceIds()].length);
+    let dropped = null;
     for (let attempt = 0; attempt < 3 && !(await f.evaluate(() => window.woodrail.editor().canUndo)); attempt++) {
       const from = await f.evaluate(() => {
         const e = document.querySelector('.scroller .tray-item[data-key="piece:straight-144"]');
@@ -727,18 +735,31 @@ suite.add(
         return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
       });
       if (!from) throw new Error(`no tray item: ${await f.evaluate(() => document.querySelector(".tray")?.textContent)}`);
-      const to = [{ x: 195, y: 330 }, { x: 120, y: 450 }, { x: 260, y: 250 }][attempt];
+      let at = { ...from };
+      const moveTo = async (to, steps) => {
+        for (let k = 1; k <= steps; k++) {
+          await touch("touchMove", at.x + ((to.x - at.x) * k) / steps, at.y + ((to.y - at.y) * k) / steps);
+          await f.waitForTimeout(30);
+        }
+        at = { ...to };
+      };
       await touch("touchStart", from.x, from.y);
-      for (let k = 1; k <= 20; k++) {
-        await touch("touchMove", from.x + ((to.x - from.x) * k) / 20, from.y + ((to.y - from.y) * k) / 20);
-        await f.waitForTimeout(30);
+      dropped = null;
+      for (const [i, to] of spots.entries()) {
+        await moveTo(to, i === 0 ? 20 : 4);
+        await f.waitForTimeout(150);
+        if ((await blocked()) !== null) continue;
+        await f.waitForTimeout(300);
+        if ((await blocked()) === null) {
+          dropped = to;
+          break;
+        }
       }
-      await f.waitForTimeout(300);
       await touch("touchEnd", 0, 0);
       await f.waitForTimeout(1000);
     }
     const laid = (await f.evaluate(() => [...window.woodrail.layout.pieceIds()].length)) > before && (await f.evaluate(() => window.woodrail.editor().canUndo));
-    check("auto: a piece laid from the tray", laid);
+    check("auto: a piece laid from the tray", laid, `seed ${await seed(f)}; dropped at ${JSON.stringify(dropped)}`);
     await f.waitForFunction(() => !!JSON.parse(localStorage.getItem("woodrail.cloud.v1") ?? "null")?.code, null, { timeout: 10000 }).catch(() => {});
     const codeF = (await meta(f))?.code;
     check("auto: …turns cloud saves on, a code made for this device", /^[a-z]{3,5}-[a-z]{3,5}-[a-z]{3,5}-\d{4}$/.test(codeF ?? ""), JSON.stringify(await meta(f)));
