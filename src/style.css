@@ -345,6 +345,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .toast.show.taps-through { pointer-events: none; cursor: auto; }
 /* Toasts sit above every panel and card (the Blueprints board too), so a message is never hidden. */
 .toast { z-index: 35; text-wrap: balance; }
+/* With ☰ open, a toast that comes is under it, not over its top items taking their taps (the menu is in the HUD, a
+   stacking context at z-index 10; the toast, after the HUD, at 35 was over all of it). */
+.hud:has(.menu:not([hidden])) ~ .toast { z-index: 9; }
 .toast.celebrate { background: #fff3c9; border-left-color: #e6b52c; }
 
 .help { position: absolute; inset: 0; z-index: 32; background: rgba(40, 28, 16, 0.35); display: grid; place-items: center; padding: 16px; }
