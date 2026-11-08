@@ -21,6 +21,7 @@
     "fuzz:long": "node scripts/fuzz-long.mjs",
     "balance:sweep": "node scripts/balance-sweep.mjs",
     "replay": "node scripts/replay.mjs",
+    "shadow:report": "node scripts/shadow-report.mjs",
     "feedback": "node scripts/fetch-feedback.mjs",
     "activity": "op run --env-file scripts/activity.env -- node scripts/activity.mjs",
     "snapshots": "node scripts/fetch-snapshots.mjs",
@@ -92,7 +93,8 @@
     "e2e:feature-tips": "node scripts/e2e/lib/run.mjs tools/e2e/feature-tips.mjs",
     "build:artifact": "node scripts/artifact-build.mjs",
     "build:itch": "node scripts/itch-build.mjs",
-    "blueprints:page": "node scripts/blueprint-page.mjs"
+    "blueprints:page": "node scripts/blueprint-page.mjs",
+    "wiki": "node scripts/wiki.mjs"
   },
   "repository": {
     "type": "git",

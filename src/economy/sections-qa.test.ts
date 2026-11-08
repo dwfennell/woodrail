@@ -1341,6 +1341,9 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
  * guard below fails on an entry that no longer breaks).
  */
 const KNOWN_BREAKS: { test: string; invariant: Invariant; why: string }[] = [
+  // (Routing redesign step 0's invariants, known to break today: docs/superpowers/specs/2026-11-07-routing-redesign.md §4.)
+  { test: "a spare put right behind a train waiting in a loop road", invariant: "oneOwner", why: "a spare put down behind a train runs onto the loop's points it's still on (step 6: every train reserves)" },
+  { test: "QA's N2: a train taken off its line", invariant: "oneOwner", why: "trains put down by hand on the loop's points (0.0 s), and one taken off its line running onto points another is on (step 6)" },
 ];
 
 describe("the train invariants (src/sim/invariants.ts)", () => {

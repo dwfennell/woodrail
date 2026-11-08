@@ -220,6 +220,9 @@ export class Router {
   private readonly waits = new Map<number, Waiting>();
   /** The pieces along a train's way as its last walk followed them, and how far (mm) from its front each one's far end is. */
   private readonly alongIds: number[] = [];
+  /** Per piece, the train over it (its id; −1: more than one), as of `underTick` (`otherUnder`). */
+  private readonly under = new Map<number, number>();
+  private underTick = -1;
   private readonly alongAt: number[] = [];
 
   constructor(private readonly host: RouterHost) {}
@@ -620,6 +623,10 @@ export class Router {
     this.locksVersion++;
     for (const [e, o] of this.holding) {
       if (e === engine || o.want.get(pieceId) !== lock.state) continue;
+      // (Not to a hand-run train: it takes points as they lie on its own look, once moving (`askHand`). Handed one while
+      // standing, it let it go on its look, back to the first: two standing trains passed the lock to and fro, each
+      // waiting on the other, and the points could never be thrown for either (`giveWayRoad`).)
+      if (this.hand.has(e)) continue;
       const asked = o.asked.find((w) => w.pieceId === pieceId);
       // (Only if the points give it its road as they lie: a wye's lever at another end may be set otherwise.)
       if (asked && pointsWayFrom(this.host.layout, pieceId, asked.entry, asked.ways) !== asked.state) continue;
@@ -1092,6 +1099,7 @@ export class Router {
     // (Its line's trail toward the target, noted as it goes: what keeps its way at points laid since, §3.5.)
     let trail = this.ways.trailOf(owner, target);
     const signals = sim.hasSignals;
+    let inWay = false;
     for (let k = 0; k < WALK && clear < length; k++) {
       // (A signal on its way (signals spec §3.3): one that holds it for something else (held, its block taken), it asks
       // for nothing beyond; a path signal within its set distance, it asks for the locks beyond it, however far.)
@@ -1111,6 +1119,14 @@ export class Router {
       if (!n || n.pieceId === target) break;
       const ways = waysFrom(layout, n.pieceId, n.entry);
       if (ways.length === 0) break;
+      // (Another train on the track between it and the next points: that one comes to them first. It asks for none
+      // there or beyond, as a hand-run train standing behind another doesn't (`HAND_LOOK`): else, held for its road, they
+      // keep the one ahead (wanting the other road) waiting on the one behind it, which waits on it (ring fuzz seed 6: a
+      // routed train standing behind another at a loop's points held them for the road a hand-run train had gone into,
+      // and the one ahead, for the loop's empty road, stood refused for good). One on the points themselves is followed
+      // over them as before: the lock is shared.)
+      if (inWay && (ways.length > 1 || this.lockedForOthers(n.pieceId, h))) break;
+      if (!inWay && ways.length === 1 && !isPoints(layout, n.pieceId) && this.otherUnder(n.pieceId, train)) inWay = true;
       if (ways.length === 1 && this.pinnedIn(layout, n.pieceId, n.entry, ways, target, h)) {
         want.push({ pieceId: n.pieceId, state: -1, ways: 1, entry: n.entry, d, pinned: true });
         break;
@@ -1154,6 +1170,18 @@ export class Router {
       exit = w.exit;
     }
     return want;
+  }
+
+  /** Is another train's car over this piece (not `train`'s own)? The pieces under the trains, worked out once a tick. */
+  private otherUnder(pieceId: number, train: Train): boolean {
+    const sim = this.host.sim;
+    if (this.underTick !== sim.ticks) {
+      this.underTick = sim.ticks;
+      this.under.clear();
+      for (const id of sim.trainIds()) for (const p of sim.piecesUnder(id)) this.under.set(p, this.under.has(p) && this.under.get(p) !== id ? -1 : id);
+    }
+    const o = this.under.get(pieceId);
+    return o !== undefined && o !== train.id;
   }
 
   /**
