@@ -129,30 +129,6 @@ function steam(
   return { g, bg, cabX, cabLen, bLen, r, chimX };
 }
 
-/** A plain coach body with printed windows and a rounded roof. */
-function coach(k: Kit, L: number, color: string, roof: string, o: { h?: number; n?: number; winH?: number; band?: string } = {}): Group {
-  const g = base(k, L);
-  const h = o.h ?? 30;
-  const len = L - 8;
-  g.add(k.box(k.paint(color), len, h, 32, 2.5, 0, DECK, 0));
-  if (o.band) g.add(k.box(k.paint(o.band), len - 2, 4, 32.6, 0.5, 0, DECK + 4, 0));
-  const winH = o.winH ?? 10;
-  g.add(windows(k, len, o.n ?? 4, winH, DECK + h * 0.62 - winH / 2));
-  g.add(k.box(k.paint(roof), len + 4, 3.5, 36, 1.6, 0, DECK + h, 0));
-  return g;
-}
-
-/** A closed van: body, roof, and a sliding door outlined on each side. */
-function van(k: Kit, L: number, color: string, roof: string, h = 28): Group {
-  const g = base(k, L);
-  g.add(k.box(k.paint(color), L - 8, h, 32, 2.5, 0, DECK, 0));
-  g.add(k.box(k.paint(roof), L - 4, 3.5, 36, 1.6, 0, DECK + h, 0));
-  for (const z of [-16.3, 16.3]) {
-    for (const x of [-11, 11]) g.add(k.box(k.paint(roof), 1.6, h - 6, 0.8, 0.3, x, DECK + 3, z));
-    g.add(k.box(k.paint(roof), 24, 1.6, 0.8, 0.3, 0, DECK + 2, z));
-  }
-  return g;
-}
 
 /** A tank wagon: barrel on saddles, rounded ends, straps, a filler dome. Returns the barrel's centre height. */
 function tanker(k: Kit, L: number, color: string, band: string): { g: Group; y: number; len: number } {
@@ -194,16 +170,6 @@ function coalHeap(k: Kit, g: Group, len: number, width: number, y: number): void
       const lump = k.ball(k.coal, 3 + ((i + j) % 3) * 0.4, x, y + crown * 4, z, 0.8);
       g.add(lump);
     }
-}
-
-/** A little toy car (for the transporter): body, cabin, four wheels. About 26 long, 15 high. */
-function toyCar(k: Kit, color: string, x: number, y: number): Group {
-  const g = new Group();
-  g.add(k.box(k.paint(color), 26, 7, 14, 2.5, 0, 2.5, 0));
-  g.add(k.box(k.paint(color), 13, 6, 12, 2.5, -2, 9, 0));
-  g.add(k.box(k.paint(PANE), 13.4, 3.5, 12.4, 1, -2, 10.5, 0));
-  for (const wx of [-8, 8]) for (const wz of [-6.5, 6.5]) g.add(k.cylZ(k.paint(TOY.black), 2.6, 2, wx, 2.6, wz, 14));
-  return k.at(g, x, y, 0);
 }
 
 /** A star outline (for emblems), centred on (0, 0). */
@@ -267,30 +233,9 @@ const chuff = (root: Object3D, t: number) => {
   smoke(root, t);
 };
 
-/** Raise a pantograph: lower arm, upper arm and head (built from `panto`). */
-function setPanto(arm1: Object3D, arm2: Object3D, head: Object3D, a: number): void {
-  arm1.rotation.z = a;
-  arm2.position.set(-10 + 18 * Math.cos(a), 18 * Math.sin(a), 0);
-  arm2.rotation.z = Math.PI - a;
-  head.position.set(-10, 36 * Math.sin(a) + 1, 0);
-}
-
 // ——— Engines ———
 
 const engines: Asset[] = [
-  {
-    id: "train-tank-engine",
-    name: "Tank engine",
-    category: "Trains",
-    tags: ["engine", "steam", "tank", "green"],
-    notes: "A short steam engine carrying its water in side tanks, so it needs no tender. A good starter engine: cheap, nimble on tight curves, but it must stop at a water tower more often.",
-    build: (k) => {
-      const s = steam(k, { L: 80, body: TOY.green, trim: TOY.red, tanks: "side" });
-      s.bg.add(puffs(k, s.chimX, s.r + 15));
-      return s.g;
-    },
-    animate: chuff,
-  },
   {
     id: "train-tender-engine",
     name: "Tender engine and tender",
@@ -347,79 +292,6 @@ const engines: Asset[] = [
     animate: (root, t) => {
       roll(root, t, 1.5);
       blink(root, "beacon", Math.floor(t * 3) % 2 === 0);
-    },
-  },
-  {
-    id: "train-diesel",
-    name: "Mainline diesel",
-    category: "Trains",
-    tags: ["engine", "diesel", "mainline", "double cab", "blue"],
-    notes: "A long double-cabbed diesel with yellow noses and roof fans. Drives either way without a turntable, so it suits point-to-point lines with no loop at the end.",
-    build: (k) => {
-      const L = 110;
-      const g = base(k, L, { inset: 20 });
-      g.add(k.box(k.paint(TOY.blue), 104, 26, 32, 4, 0, DECK, 0));
-      g.add(k.box(k.paint(TOY.cream), 100, 3, 32.6, 0.5, 0, DECK + 6, 0));
-      for (const s of [-1, 1]) {
-        g.add(k.box(k.paint(TOY.yellow), 3, 16, 30, 1.2, s * 51.5, DECK + 1, 0));
-        g.add(k.box(k.paint(PANE), 1, 8, 24, 0.4, s * 52.2, DECK + 16, 0));
-        g.add(k.ball(k.paint(LIT), 2, s * 53, DECK + 5, 0));
-        for (const z of [-16.3, 16.3]) g.add(k.box(k.paint(PANE), 9, 8, 0.8, 0.3, s * 43, DECK + 15, z));
-      }
-      for (let i = 0; i < 6; i++) for (const z of [-16.3, 16.3]) g.add(k.box(k.cut, 2, 9, 0.6, 0.3, -15 + i * 6, DECK + 13, z));
-      for (const x of [-16, 16]) {
-        g.add(k.cyl(k.metal, 6, 1.5, x, DECK + 25.5, 0, 6, 20));
-        const fan = k.box(k.paint(TOY.grey), 10, 0.8, 1.6, 0.3, x, DECK + 27, 0);
-        fan.name = "fan";
-        g.add(fan);
-      }
-      return g;
-    },
-    animate: (root, t) => {
-      roll(root, t);
-      for (const f of parts(root, "fan")) f.rotation.y = t * 6;
-    },
-  },
-  {
-    id: "train-electric",
-    name: "Electric engine",
-    category: "Trains",
-    tags: ["engine", "electric", "pantograph", "overhead wire", "red"],
-    notes: "A boxy electric engine whose pantograph rises to touch an overhead wire. Fast and quiet but only runs where wire masts have been built, an interesting trade-off for the player.",
-    build: (k) => {
-      const L = 100;
-      const g = base(k, L, { inset: 20 });
-      g.add(k.box(k.paint(TOY.red), 94, 26, 32, 4, 0, DECK, 0));
-      g.add(k.box(k.paint(TOY.grey), 60, 2, 22, 0.6, 0, DECK + 26, 0));
-      for (const s of [-1, 1]) {
-        g.add(k.box(k.paint(PANE), 1, 8, 24, 0.4, s * 47.2, DECK + 15, 0));
-        g.add(k.ball(k.paint(LIT), 2, s * 48, DECK + 5, 0));
-      }
-      g.add(windows(k, 80, 5, 7, DECK + 14));
-      const bolt: [number, number][] = [[1, 7], [5, 7], [2, 1], [5, 1], [-2, -8], [0, -1], [-3, -1]];
-      for (const z of [-16.4, 16.4]) g.add(k.extrude(k.paint(TOY.yellow), bolt, 1, 0, DECK + 7, z, 0.3));
-      for (const x of [-6, 6, 26, 34]) g.add(k.cyl(k.paint(TOY.white), 1.6, 2.5, x, DECK + 28, 0, 1.6, 10));
-      const panto = new Group();
-      panto.position.set(20, DECK + 30, 0);
-      const arm1 = new Group();
-      arm1.name = "arm1";
-      arm1.position.x = -10;
-      arm1.add(k.box(k.metal, 18, 1.4, 12, 0.5, 9, -0.7, 0));
-      const arm2 = new Group();
-      arm2.name = "arm2";
-      arm2.add(k.box(k.metal, 18, 1.4, 6, 0.5, 9, -0.7, 0));
-      const head = new Group();
-      head.name = "panhead";
-      head.add(k.cylZ(k.metal, 1, 26, 0, 0, 0, 10), k.box(k.paint(TOY.grey), 4, 1.5, 20, 0.5, 0, -2, 0));
-      panto.add(arm1, arm2, head);
-      setPanto(arm1, arm2, head, 0.6);
-      g.add(panto);
-      return g;
-    },
-    animate: (root, t) => {
-      roll(root, t);
-      const a = 0.25 + 0.4 * (0.5 + 0.5 * Math.sin(t * 0.8));
-      setPanto(parts(root, "arm1")[0], parts(root, "arm2")[0], parts(root, "panhead")[0], a);
     },
   },
   {
@@ -539,32 +411,6 @@ const engines: Asset[] = [
       for (const b of parts(root, "button")) b.position.y = (b.userData.y0 as number) - (phase < 0.3 ? 1.6 : 0);
       blink(root, "light", phase >= 0.3 && phase < 2.5);
       roll(root, phase < 0.3 ? 0 : t, 2.5);
-    },
-  },
-  {
-    id: "train-rack-engine",
-    name: "Rack mountain engine",
-    category: "Trains",
-    tags: ["engine", "steam", "rack", "cog", "mountain", "incline"],
-    notes: "A mountain engine with a tilted boiler (level when climbing) and a cog wheel underneath that grips a toothed rack. Could climb steep rack-track up hills that ordinary engines can't.",
-    build: (k) => {
-      const s = steam(k, { L: 80, body: TOY.red, trim: TOY.black, tanks: "side", cabLen: 26, tilt: -0.1, lift: 4, r: 10 });
-      s.bg.add(puffs(k, s.chimX, s.r + 15));
-      const cog = new Group();
-      cog.name = "cog";
-      cog.position.set(0, 7, 0);
-      cog.add(k.cylZ(k.metal, 4.2, 6, 0, 0, 0, 16));
-      for (let i = 0; i < 10; i++) {
-        const tooth = k.group(k.box(k.paint(TOY.grey), 1.8, 2.4, 6, 0.3, 0, 3.8, 0));
-        tooth.rotation.z = (i / 10) * Math.PI * 2;
-        cog.add(tooth);
-      }
-      s.g.add(cog);
-      return s.g;
-    },
-    animate: (root, t) => {
-      chuff(root, t);
-      for (const c of parts(root, "cog")) c.rotation.z = -t * 4;
     },
   },
   {
@@ -742,44 +588,6 @@ const wagons: Asset[] = [
     animate: (root, t) => roll(root, t),
   },
   {
-    id: "train-milk-tanker",
-    name: "Milk tanker",
-    category: "Wagons",
-    tags: ["wagon", "tanker", "milk", "dairy", "farm", "white"],
-    notes: "A white tank wagon with blue straps and a pair of churns on its end platform. Collects milk from the dairy farm for the town; it spoils if left standing too long.",
-    build: (k) => {
-      const { g, len } = tanker(k, 86, TOY.white, TOY.blue);
-      for (const z of [-7, 7])
-        g.add(k.lathe(k.paint(TOY.grey), [[3.2, 0], [3.4, 6], [2, 8.5], [2.2, 10.5], [0, 10.5]], -len / 2 - 4.5, DECK, z, 16));
-      // A milk-drop emblem on each side of the barrel.
-      for (const z of [-12.3, 12.3]) g.add(k.extrude(k.paint(TOY.blue), [[0, 6], [3, 1], [2, -2], [0, -3], [-2, -2], [-3, 1]], 0.8, 18, DECK + 15, z, 0.2));
-      return g;
-    },
-    animate: (root, t) => roll(root, t),
-  },
-  {
-    id: "train-fuel-tanker",
-    name: "Fuel tanker",
-    category: "Wagons",
-    tags: ["wagon", "tanker", "fuel", "oil", "hazard", "black"],
-    notes: "A black tank wagon with a yellow band, a walkway ladder and a hazard diamond. Fuels the diesel depot; a spill could close a line for a while if it's derailed.",
-    build: (k) => {
-      const { g, y, len } = tanker(k, 90, TOY.black, TOY.yellow);
-      g.add(k.cylX(k.paint(TOY.yellow), 12.2, 6, 0, y, 0));
-      for (const z of [-16.4, 16.4]) {
-        const d = k.box(k.paint(TOY.orange), 6, 6, 0.8, 0.3, 0, 0, 0);
-        d.position.set(len / 4, y, z * 0.75);
-        d.rotation.z = Math.PI / 4;
-        g.add(d);
-      }
-      for (const x of [6, 10]) g.add(k.box(k.paint(TOY.grey), 1, 26, 1, 0.3, x, DECK, 13));
-      for (let i = 0; i < 6; i++) g.add(k.cylX(k.paint(TOY.grey), 0.5, 4, 8, DECK + 3 + i * 4, 13, 6));
-      g.add(k.box(k.wood, len * 0.7, 1.2, 6, 0.4, 0, y + 12, 0));
-      return g;
-    },
-    animate: (root, t) => roll(root, t),
-  },
-  {
     id: "train-water-tanker",
     name: "Water tanker with tap",
     category: "Wagons",
@@ -807,28 +615,6 @@ const wagons: Asset[] = [
     },
   },
   {
-    id: "train-log-carrier",
-    name: "Log carrier",
-    category: "Wagons",
-    tags: ["wagon", "logs", "timber", "forest", "stakes"],
-    notes: "A bolster wagon with tall red-capped stakes holding a pyramid of logs. Runs from the forest to the sawmill; a log crane could load it a log at a time.",
-    build: (k) => {
-      const L = 96;
-      const g = base(k, L);
-      for (const x of [-30, 30]) g.add(k.box(k.paint(TOY.red), 6, 4, 32, 1, x, DECK, 0));
-      for (const x of [-36, -12, 12, 36])
-        for (const z of [-15.5, 15.5]) g.add(k.cyl(k.wood, 1.6, 26, x, DECK, z, 1.6, 10), k.ball(k.paint(TOY.red), 2.4, x, DECK + 26, z));
-      const rows: [number, number][] = [[-10, 0], [0, 0], [10, 0], [-5, 1], [5, 1], [0, 2]];
-      for (const [z, row] of rows) {
-        const y = DECK + 4 + 5 + row * 8.66;
-        g.add(k.cylX(k.wood, 5, 82, (z % 3) * 0.6, y, z, 16));
-        for (const s of [-1, 1]) g.add(k.cylX(k.cut, 4, 0.4, s * 41.1 + (z % 3) * 0.6, y, z, 14));
-      }
-      return g;
-    },
-    animate: (root, t) => roll(root, t),
-  },
-  {
     id: "train-flatbed-crates",
     name: "Flatbed with crates",
     category: "Wagons",
@@ -847,28 +633,6 @@ const wagons: Asset[] = [
       g.add(k.lathe(k.paint(TOY.brown), [[7, 0], [8.4, 8], [7, 16], [0, 16]], 28, deck, 0, 20));
       for (const h of [3, 13]) g.add(k.ring(k.metal, 7.7, 0.6, 28, deck + h, 0));
       for (const x of [-40, 40]) g.add(k.box(k.paint(TOY.blue), 2, 6, 32, 0.6, x, deck, 0));
-      return g;
-    },
-    animate: (root, t) => roll(root, t),
-  },
-  {
-    id: "train-car-transporter",
-    name: "Car transporter",
-    category: "Wagons",
-    tags: ["wagon", "cars", "transporter", "double deck", "factory"],
-    notes: "A long two-deck wagon carrying six little toy cars. Takes new cars from a factory to the town showroom, where they could drive off onto the road mat.",
-    build: (k) => {
-      const L = 112;
-      const g = base(k, L, { inset: 20 });
-      const yellow = k.paint(TOY.yellow);
-      g.add(k.box(yellow, L - 6, 2, 32, 0.6, 0, DECK, 0));
-      const up = DECK + 24;
-      g.add(k.box(yellow, L - 6, 2.5, 32, 0.8, 0, up, 0));
-      for (const x of [-52, -18, 18, 52]) for (const z of [-15, 15]) g.add(k.box(yellow, 2.5, 24, 2.5, 0.6, x, DECK + 2, z));
-      for (const z of [-15.3, 15.3]) g.add(k.box(yellow, L - 8, 2, 1.6, 0.6, 0, up + 7, z));
-      for (const x of [-40, -13, 13, 40]) for (const z of [-15.3, 15.3]) g.add(k.box(yellow, 1.6, 7, 1.6, 0.4, x, up + 2.5, z));
-      const colours = [TOY.red, TOY.blue, TOY.green, TOY.white, TOY.orange, TOY.teal];
-      for (let i = 0; i < 6; i++) g.add(toyCar(k, colours[i], -34 + (i % 3) * 34, i < 3 ? DECK + 2 : up + 2.5));
       return g;
     },
     animate: (root, t) => roll(root, t),
@@ -916,110 +680,6 @@ const wagons: Asset[] = [
     animate: (root, t) => {
       roll(root, t);
       parts(root, "head").forEach((h, i) => (h.position.y = (h.userData.y0 as number) + Math.max(0, Math.sin(t * 1.6 + i * 2.1)) * 1.6));
-    },
-  },
-  {
-    id: "train-mail-van",
-    name: "Mail van with slot",
-    category: "Wagons",
-    tags: ["wagon", "van", "mail", "post", "letters", "slot", "red"],
-    notes: "A red sorting van with a real letter slot in its side and a post-horn emblem. Peg people on platforms could post letters into it as it waits at a station.",
-    build: (k) => {
-      const g = van(k, 84, TOY.red, TOY.black);
-      for (const z of [-16.4, 16.4]) {
-        g.add(k.box(k.paint(TOY.yellow), 14, 4, 0.8, 0.3, -28, DECK + 15, z));
-        g.add(k.box(k.cut, 10, 1.4, 1, 0.2, -28, DECK + 16.3, z + Math.sign(z) * 0.2));
-        const horn = k.ring(k.paint(TOY.yellow), 3.4, 0.8, 26, DECK + 15, z, true, Math.PI * 1.5);
-        g.add(horn, k.cone(k.paint(TOY.yellow), 1.8, 4, 29.4, DECK + 12.5, z));
-      }
-      const letter = k.box(k.paint(TOY.white), 8, 0.6, 6, 0.2, -28, DECK + 16.7, 22);
-      letter.name = "letter";
-      g.add(letter);
-      return g;
-    },
-    animate: (root, t) => {
-      roll(root, t, 1);
-      const f = (t * 0.5) % 1;
-      for (const l of parts(root, "letter")) {
-        l.position.z = 26 - f * 12;
-        l.visible = f < 0.8;
-      }
-    },
-  },
-  {
-    id: "train-refrigerated-van",
-    name: "Refrigerated van",
-    category: "Wagons",
-    tags: ["wagon", "van", "fridge", "cold", "ice cream", "fish", "white"],
-    notes: "A white insulated van with a snowflake emblem and a whirring cooling fan on its end. Carries fish from the harbour or ice cream to the seaside, against the clock before it melts.",
-    build: (k) => {
-      const L = 86;
-      const g = van(k, L, TOY.white, TOY.blue);
-      for (const z of [-16.4, 16.4]) {
-        g.add(k.box(k.paint(TOY.blue), L - 9, 3, 0.8, 0.3, 0, DECK + 22, z));
-        for (const a of [0, Math.PI / 3, (2 * Math.PI) / 3]) {
-          const arm = k.box(k.paint(TOY.sky), 12, 1.6, 0.8, 0.3, 0, 0, 0);
-          arm.position.set(-26, DECK + 12, z);
-          arm.rotation.z = a;
-          g.add(arm);
-          const arm2 = arm.clone();
-          arm2.position.x = 26;
-          g.add(arm2);
-        }
-      }
-      const ux = -L / 2 + 1;
-      g.add(k.box(k.paint(TOY.grey), 4, 16, 22, 1, ux, DECK + 6, 0));
-      g.add(k.cylX(k.paint(TOY.black), 6, 0.8, ux - 2.2, DECK + 14, 0, 20));
-      const fan = new Group();
-      fan.name = "fan";
-      fan.position.set(ux - 3, DECK + 14, 0);
-      fan.add(k.box(k.paint(TOY.white), 0.8, 10, 2, 0.3, 0, -5, 0), k.box(k.paint(TOY.white), 0.8, 2, 10, 0.3, 0, -1, 0));
-      g.add(fan);
-      return g;
-    },
-    animate: (root, t) => {
-      roll(root, t);
-      for (const f of parts(root, "fan")) f.rotation.x = t * 8;
-    },
-  },
-  {
-    id: "train-crane-wagon",
-    name: "Crane wagon",
-    category: "Wagons",
-    tags: ["wagon", "crane", "jib", "hook", "breakdown", "slewing", "yellow"],
-    notes: "A breakdown crane on a wagon: its cab and jib slew round on a turntable and a hook hangs from the tip. Could lift a derailed car back onto the track, or load crates from a yard.",
-    build: (k) => {
-      const L = 96;
-      const g = base(k, L);
-      const yellow = k.paint(TOY.yellow);
-      g.add(k.box(k.paint(TOY.grey), L - 6, 2, 32, 0.6, 0, DECK, 0));
-      for (const x of [-30, 30]) for (const z of [-17, 17]) g.add(k.box(yellow, 6, 3, 4, 0.8, x, 13, z));
-      const turret = new Group();
-      turret.name = "turret";
-      turret.position.set(-6, DECK + 2, 0);
-      turret.add(k.cyl(k.wood, 13, 3, 0, 0, 0, 13, 32));
-      turret.add(k.box(yellow, 20, 18, 22, 2, -4, 3, 0));
-      turret.add(k.box(k.paint(PANE), 8, 7, 22.6, 0.3, 0, 11, 0));
-      turret.add(k.box(k.paint(TOY.black), 24, 2.5, 26, 1, -4, 21, 0));
-      turret.add(k.box(k.paint(TOY.grey), 8, 10, 20, 1.5, -15, 3, 0));
-      const jib = new Group();
-      jib.position.set(6, 12, 0);
-      jib.rotation.z = 0.5;
-      for (const z of [-3.5, 3.5]) jib.add(k.box(yellow, 52, 3, 2, 0.6, 26, -1.5, z));
-      for (let i = 0; i < 5; i++) jib.add(k.cylZ(yellow, 0.7, 7, 6 + i * 10, 0, 0, 8));
-      turret.add(jib);
-      const tipX = 6 + 52 * Math.cos(0.5);
-      const tipY = 12 + 52 * Math.sin(0.5);
-      turret.add(k.cylZ(k.metal, 2, 8, tipX, tipY, 0, 12));
-      turret.add(k.cyl(k.paint(TOY.black), 0.5, 18, tipX, tipY - 18, 0, 0.5, 6));
-      turret.add(k.box(k.paint(TOY.red), 5, 4, 4, 1, tipX, tipY - 22, 0));
-      turret.add(k.ring(k.metal, 2.2, 0.8, tipX, tipY - 24.5, 0, true, Math.PI * 1.4));
-      g.add(turret);
-      return g;
-    },
-    animate: (root, t) => {
-      roll(root, t, 0.5);
-      for (const tt of parts(root, "turret")) tt.rotation.y = Math.sin(t * 0.5) * 1.3;
     },
   },
   {
@@ -1097,167 +757,6 @@ const wagons: Asset[] = [
     },
   },
   {
-    id: "train-sleeper-coach",
-    name: "Sleeper coach",
-    category: "Wagons",
-    tags: ["coach", "sleeper", "night", "moon", "passenger", "navy"],
-    notes: "A navy night coach with little curtained windows and a moon and stars on its side. A night train between faraway towns; passengers pay more but only travel after dark.",
-    build: (k) => {
-      const L = 100;
-      const g = coach(k, L, "#1f3f73", TOY.cream, { n: 6, winH: 6 });
-      const winY = DECK + 30 * 0.62 - 3;
-      const pw = (L - 8) / 6;
-      for (let i = 0; i < 6; i++)
-        for (const z of [-16.6, 16.6]) g.add(k.box(k.paint(TOY.pink), (pw - 7) / 2, 6.2, 0.6, 0.2, -(L - 8) / 2 + pw * (i + 0.5) - (pw - 7) / 4, winY - 0.1, z));
-      for (const z of [-16.3, 16.3]) {
-        g.add(k.cylZ(k.paint(TOY.yellow), 4.5, 0.8, -34, DECK + 7, z, 20));
-        g.add(k.cylZ(k.paint("#1f3f73"), 4, 1.2, -32.2, DECK + 8, z, 20));
-        for (const [x, y] of [[-24, 9], [-18, 5], [-12, 10]]) g.add(k.extrude(k.paint(TOY.yellow), star(1.6), 0.8, x, DECK + y, z + Math.sign(z) * 0.2, 0.2));
-      }
-      return g;
-    },
-    animate: (root, t) => roll(root, t),
-  },
-  {
-    id: "train-dining-car",
-    name: "Dining car",
-    category: "Wagons",
-    tags: ["coach", "dining", "restaurant", "kitchen", "passenger", "maroon"],
-    notes: "A maroon dining car with big windows, table lamps and a smoking kitchen chimney. Passengers on long trips are happier with one in the train; it could boost fares on a long line.",
-    build: (k) => {
-      const L = 100;
-      const g = coach(k, L, "#7a2a35", TOY.cream, { n: 3, winH: 12, band: TOY.cream });
-      const len = L - 8;
-      for (let i = 0; i < 3; i++)
-        for (const z of [-16.8, 16.8]) {
-          const x = -len / 2 + (len / 3) * (i + 0.5);
-          g.add(k.cyl(k.paint(TOY.yellow), 1.6, 2.2, x, DECK + 13.8, z, 0.8, 10));
-          g.add(k.box(k.paint(TOY.white), len / 3 - 7, 1.2, 0.5, 0.2, x, DECK + 13, z));
-        }
-      g.add(k.cyl(k.metal, 2.4, 7, -38, DECK + 33, 0, 2, 14));
-      g.add(puffs(k, -38, DECK + 41));
-      return g;
-    },
-    animate: (root, t) => {
-      roll(root, t);
-      smoke(root, t * 0.6);
-    },
-  },
-  {
-    id: "train-observation-car",
-    name: "Observation car",
-    category: "Wagons",
-    tags: ["coach", "observation", "dome", "scenic", "view", "passenger", "green"],
-    notes: "A tail-end coach with a rounded, glazed end and a framed glass dome where peg passengers look out. Scenic routes past mountains and lakes could earn more with one at the back.",
-    build: (k) => {
-      const L = 96;
-      const g = base(k, L);
-      const green = k.paint(TOY.green);
-      const cream = k.paint(TOY.cream);
-      g.add(k.box(green, 76, 30, 32, 2.5, 8, DECK, 0));
-      g.add(windows(k, 70, 4, 10, DECK + 13, 10));
-      g.add(k.cyl(green, 15, 8, -30, DECK, 0, 15, 32));
-      g.add(k.cyl(k.paint(PANE), 14.6, 18, -30, DECK + 8, 0, 14.6, 32));
-      for (const a of [0.8, 1.6, 2.4, 3.14]) g.add(k.cyl(cream, 0.9, 18, -30 - Math.sin(a) * 14.8, DECK + 8, Math.cos(a) * 14.8, 0.9, 8));
-      g.add(k.cyl(green, 15, 4, -30, DECK + 26, 0, 15, 32));
-      g.add(k.box(cream, 80, 3.5, 34, 1.5, 9, DECK + 30, 0));
-      g.add(k.cyl(cream, 16, 3.5, -30, DECK + 30, 0, 16, 32));
-      // Dome: a framed glass bubble (glazing bars only, so the pegs inside show).
-      const top = DECK + 33.5;
-      for (const x of [-4, 10, 24]) {
-        const rib = k.ring(cream, 12, 0.9, x, top, 0, true, Math.PI);
-        rib.rotation.y = Math.PI / 2;
-        g.add(rib);
-      }
-      for (const z of [-11.6, 11.6]) g.add(k.cylX(cream, 0.9, 30, 10, top + 0.5, z, 8));
-      g.add(k.cylX(cream, 0.9, 30, 10, top + 12, 0, 8));
-      for (const [i, x] of [-1, 10, 21].entries()) g.add(k.peg([TOY.red, TOY.yellow, TOY.blue][i], null, x, top - 12, i % 2 ? 4 : -4));
-      return g;
-    },
-    animate: (root, t) => roll(root, t),
-  },
-  {
-    id: "train-double-decker",
-    name: "Double-decker coach",
-    category: "Wagons",
-    tags: ["coach", "double deck", "commuter", "passenger", "tall", "red"],
-    notes: "A tall coach with two rows of windows. Carries twice the passengers on a busy commuter line, but won't fit under low bridges or through old tunnels.",
-    build: (k) => {
-      const L = 100;
-      const g = base(k, L);
-      const len = L - 8;
-      g.add(k.box(k.paint(TOY.red), len, 46, 32, 3, 0, DECK, 0));
-      g.add(k.box(k.paint(TOY.cream), len + 0.4, 3, 32.4, 0.5, 0, DECK + 22, 0));
-      g.add(windows(k, len - 16, 5, 9, DECK + 9, 0, 5));
-      g.add(windows(k, len - 4, 6, 9, DECK + 30, 0, 5));
-      for (const s of [-1, 1]) for (const z of [-16.3, 16.3]) g.add(k.box(k.paint(TOY.yellow), 6, 18, 0.8, 0.3, s * (len / 2 - 5), DECK + 2, z));
-      g.add(k.box(k.paint(TOY.grey), len + 2, 3.5, 34, 1.6, 0, DECK + 46, 0));
-      return g;
-    },
-    animate: (root, t) => roll(root, t),
-  },
-  {
-    id: "train-caboose-cupola",
-    name: "Caboose with cupola",
-    category: "Wagons",
-    tags: ["caboose", "guard", "brake van", "cupola", "tail lamp", "red"],
-    notes: "A red caboose with open porches, a lookout cupola, a stove chimney and a blinking tail lamp. The guard rides at the back: a train with one could be allowed longer, heavier loads.",
-    build: (k) => {
-      const L = 64;
-      const g = base(k, L, { inset: 16 });
-      const red = k.paint(TOY.red);
-      const black = k.paint(TOY.black);
-      g.add(k.box(red, 40, 26, 32, 2.5, 0, DECK, 0));
-      g.add(windows(k, 40, 2, 8, DECK + 13));
-      for (const s of [-1, 1]) {
-        g.add(k.box(k.paint(PANE), 0.8, 8, 10, 0.3, s * 20.2, DECK + 13, 0));
-        for (const z of [-14, 14]) g.add(k.cyl(k.paint(TOY.yellow), 0.8, 26, s * 29, DECK, z, 0.8, 8));
-        g.add(k.cylZ(k.paint(TOY.yellow), 0.8, 28, s * 29, DECK + 12, 0, 8));
-        for (const z of [-14, 14]) g.add(k.cylX(k.paint(TOY.yellow), 0.8, 9, s * 24.5, DECK + 12, z, 8));
-      }
-      g.add(k.box(black, 64, 3, 36, 1.5, 0, DECK + 26, 0));
-      g.add(k.box(red, 16, 10, 22, 2, 0, DECK + 29, 0));
-      for (const z of [-11.2, 11.2]) g.add(k.box(k.paint(PANE), 12, 5, 0.6, 0.2, 0, DECK + 31.5, z));
-      g.add(k.box(black, 20, 2.5, 26, 1, 0, DECK + 39, 0));
-      g.add(k.cyl(k.metal, 1.8, 8, 14, DECK + 29, 6, 1.8, 10));
-      g.add(lamp(k, "tail", "#ff5a4a", 2.2, -29.8, DECK + 16, 10));
-      g.add(k.peg(TOY.blue, TOY.black, -25, DECK, -5));
-      return g;
-    },
-    animate: (root, t) => {
-      roll(root, t);
-      blink(root, "tail", Math.floor(t * 2) % 2 === 0);
-    },
-  },
-  {
-    id: "train-caboose-bay",
-    name: "Bay-window caboose",
-    category: "Wagons",
-    tags: ["caboose", "guard", "bay window", "brake van", "yellow"],
-    notes: "A yellow caboose that looks out through bay windows on its sides instead of a roof cupola. A low-roofed variant that fits through tunnels where the cupola caboose can't.",
-    build: (k) => {
-      const L = 70;
-      const g = base(k, L, { inset: 16 });
-      const yellow = k.paint(TOY.yellow);
-      g.add(k.box(yellow, 50, 28, 32, 2.5, 0, DECK, 0));
-      g.add(windows(k, 50, 2, 8, DECK + 14, 0, 30));
-      for (const z of [-1, 1]) {
-        g.add(k.box(yellow, 16, 16, 6, 1.5, 0, DECK + 6, z * 17));
-        g.add(k.box(k.paint(PANE), 10, 7, 0.6, 0.2, 0, DECK + 10.5, z * 20.2));
-        g.add(k.box(k.paint(TOY.brown), 18, 1.6, 7, 0.5, 0, DECK + 22, z * 17));
-      }
-      for (const s of [-1, 1]) {
-        g.add(k.box(k.paint(PANE), 0.8, 8, 10, 0.3, s * 25.2, DECK + 14, 0));
-        for (const z of [-14, 14]) g.add(k.cyl(k.paint(TOY.brown), 0.8, 12, s * 32, DECK, z, 0.8, 8));
-        g.add(k.cylZ(k.paint(TOY.brown), 0.8, 28, s * 32, DECK + 12, 0, 8));
-      }
-      g.add(k.box(k.paint(TOY.brown), 56, 3, 36, 1.5, 0, DECK + 28, 0));
-      g.add(k.cyl(k.metal, 1.8, 7, -12, DECK + 31, 6, 1.8, 10));
-      return g;
-    },
-    animate: (root, t) => roll(root, t),
-  },
-  {
     id: "train-treasure-wagon",
     name: "Treasure wagon",
     category: "Wagons",
@@ -1288,50 +787,6 @@ const wagons: Asset[] = [
     animate: (root, t) => {
       roll(root, t, 0.5);
       for (const d of parts(root, "door")) d.rotation.y = -1.6 * Math.max(0, Math.sin(t * 0.7));
-    },
-  },
-  {
-    id: "train-circus-cage",
-    name: "Circus cage wagon",
-    category: "Wagons",
-    tags: ["wagon", "circus", "lion", "cage", "animals", "red"],
-    notes: "A barred circus wagon with a lion pacing inside, on yellow wheels. Part of the circus train; the circus only opens in town once every wagon has arrived.",
-    build: (k) => {
-      const L = 90;
-      const g = base(k, L, { wheel: TOY.yellow });
-      const red = k.paint(TOY.red);
-      const yellow = k.paint(TOY.yellow);
-      g.add(k.box(red, 84, 3, 32, 1, 0, DECK, 0));
-      for (const x of [-40, 40]) for (const z of [-14, 14]) g.add(k.box(red, 4, 30, 4, 1, x, DECK + 3, z));
-      for (let i = 1; i < 13; i++) for (const z of [-14.5, 14.5]) g.add(k.cyl(yellow, 0.9, 30, -40 + (i * 80) / 13, DECK + 3, z, 0.9, 8));
-      for (let i = 1; i < 5; i++) for (const x of [-40.5, 40.5]) g.add(k.cyl(yellow, 0.9, 30, x, DECK + 3, -14 + (i * 28) / 5, 0.9, 8));
-      g.add(k.box(red, 88, 4, 36, 1.5, 0, DECK + 33, 0));
-      g.add(k.box(yellow, 90, 1.6, 37, 0.5, 0, DECK + 37, 0));
-      for (let i = 0; i < 9; i++) for (const z of [-18, 18]) g.add(k.ball(yellow, 1.8, -40 + i * 10, DECK + 32.5, z));
-      const lion = new Group();
-      lion.name = "lion";
-      lion.position.set(0, DECK + 3, 0);
-      const fur = k.paint(TOY.yellow);
-      const mane = k.paint(TOY.orange);
-      const body = k.ball(fur, 6.5, 0, 10, 0);
-      body.scale.x = 1.6;
-      lion.add(body);
-      for (const x of [-6, 6]) for (const z of [-3.5, 3.5]) lion.add(k.cyl(fur, 1.8, 6, x, 0, z, 1.8, 10));
-      lion.add(k.ball(mane, 6, 11, 15, 0));
-      lion.add(k.ball(fur, 4, 14, 15, 0));
-      lion.add(k.ball(k.paint(TOY.black), 1, 17.8, 15, 0));
-      const tail = k.cyl(fur, 0.7, 9, -10, 11, 0, 0.7, 6);
-      tail.rotation.z = 0.8;
-      lion.add(tail, k.ball(mane, 1.6, -16, 16, 0));
-      g.add(lion);
-      return g;
-    },
-    animate: (root, t) => {
-      roll(root, t, 0.5);
-      for (const l of parts(root, "lion")) {
-        l.position.x = Math.sin(t * 0.7) * 12;
-        l.rotation.y = Math.cos(t * 0.7) >= 0 ? 0 : Math.PI;
-      }
     },
   },
   {

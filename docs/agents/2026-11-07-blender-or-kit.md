@@ -97,8 +97,8 @@ What it costs. Cars aren't batched: each running car draws its own meshes, and t
 These wagons also can't be painted at the paint shop: `WAGON_SLOTS` leaves them out.
 
 **What depends on the catalogue sketches:** nothing outside the viewer. `trains.ts` is imported only by
-`catalogue/assets/index.ts`, through `CATALOGUE`. The catalogue tests check ids and builds across `CATALOGUE`. 19 of the
-41 sketches have since been built for real, so the viewer shows two of each:
+`catalogue/assets/index.ts`, through `CATALOGUE`. The catalogue tests check ids and builds across `CATALOGUE`. 18 of the
+41 sketches have since been built for real, so the viewer showed two of each (deleted since, with the user's OK):
 
 - tank engine, mainline diesel, electric engine, rack engine;
 - milk tanker, fuel tanker, car transporter;
@@ -197,10 +197,11 @@ appear on a late map.
      about +50–70k triangles and +80–120 KB gzipped on `trains.glb`. That file loads **at boot**, so these models would
      belong in a set of their own, loaded when first needed. It also needs Blender installed.
 2. **The catalogue's `train-*` sketches** (`src/catalogue/assets/trains.ts`, 1,477 lines). The small fix is to delete
-   the 19 sketches the game has built for real and keep the 22 unbuilt ideas, such as the snowplough, the tram, the
+   the 18 sketches the game has built for real and keep the 23 unbuilt ideas, such as the snowplough, the tram, the
    fire engine and the cement mixer. Nothing that ships changes: no bundle, memory or download cost, because the viewer
    isn't in the build. The viewer then stops showing two mail vans, two cabooses and so on. Deleting the whole file
-   would also work, if the viewer is no longer used for brainstorming. **Not done: asking first.**
+   would also work, if the viewer is no longer used for brainstorming. **Done, with the user's OK:** the 18 are gone,
+   with the four helpers only they used (`coach`, `van`, `toyCar`, `setPanto`).
 3. (Not asked, same pattern) `track.ts`'s 128 track sketches are also viewer-only. Some, like the bridges and the
    tunnel, now exist in the game in other forms. Pruning them could wait for a pass over the viewer.
 
@@ -226,4 +227,4 @@ appear on a late map.
    stages, the boats. Check the secrets against the memory budget first. Look again at the zoom players use.
 3. Only then, if close-up quality still matters, port the grand projects' final stages to Blender as a lazily loaded
    set of their own.
-4. Delete the 19 built-for-real `train-*` sketches from the viewer (waiting on the user's OK).
+4. Delete the 18 built-for-real `train-*` sketches from the viewer (done).
