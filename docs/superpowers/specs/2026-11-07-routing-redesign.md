@@ -622,10 +622,12 @@ past it is another train's (F4), trains hold what their cars' ends cover (F8). T
 The `heldFree` invariant (F6) runs the shadow beside the checks (opt-in: the fuzz and the bug maps).
 
 **Not done here, and why:**
-- **Stable train ids across a turn** (moved here in §4.1). Tried: economy state keyed by train id is meant to reset
-  on a turn (automatic servicing's done list, the school-run passes, kit-stop visits), and the goals play-through lost
-  two goals. `trainKey` can't go anyway: coupling and splitting change ids too. Left for step 5, with those maps moved
-  to keys that say what they mean ("this visit", "this pass").
+- **Stable train ids across a turn: done (2026-11-08, the user: "Stable ids seem like something that is very good to
+  have").** `Sim.turnAround` keeps the id. State kept per run (automatic servicing's visit, the school run's pass,
+  kit-stop visits, sections' clear-ahead hold, stalls' stand, points thrown and not taken, the sim's own per-stand
+  marks, the invariants' last front) is cleared by its owner on `Sim.onTurnedRound`, as a new id used to clear it. The
+  first try without that notice lost two goals in the play-through; with it every goal is met, and the full long fuzz
+  is the same seed for seed. `trainKey` stays for coupling and splitting.
 - **The router's locks as table holds.** The locks keep their own store (state, entry, holders) and the table holds
   what's under trains; the locks move into it with step 5, when sections grant by booking.
 - **Signals showing the booking** (step 4), **the 1 s retry** and **saving bookings** (step 5, F6/F7): held trains
