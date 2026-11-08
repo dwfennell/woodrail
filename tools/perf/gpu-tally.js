@@ -47,7 +47,8 @@
     renderbuffers: () => sum(rbBytes),
     drawingBuffer: () => {
       let s = 0;
-      for (const [c, aa] of canvases) s += c.width * c.height * 4 * (aa ? 2 : 1) + c.width * c.height * 4 /* depth and stencil */;
+      // (Colour, twice with MSAA; depth and stencil, 4 bytes a pixel (D24S8) if it has either.)
+      for (const [c, aa, depth] of canvases) s += c.width * c.height * 4 * (aa ? 2 : 1) + (depth ? c.width * c.height * 4 : 0);
       return s;
     },
     /** Each live texture: [bytes, width, height, format, levels or faces], biggest first. */
@@ -58,7 +59,8 @@
   HTMLCanvasElement.prototype.getContext = function (type, attrs) {
     const gl = getContext.call(this, type, attrs);
     if (gl && /webgl/.test(type) && ![...canvases].some(([c]) => c === this)) {
-      const entry = [this, attrs?.antialias ?? true];
+      const got = gl.getContextAttributes?.() ?? {};
+      const entry = [this, attrs?.antialias ?? true, (got.depth ?? attrs?.depth ?? true) || (got.stencil ?? attrs?.stencil ?? false)];
       canvases.add(entry);
       this.addEventListener("webglcontextlost", () => {
         forget(gl);
