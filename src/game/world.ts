@@ -13,8 +13,14 @@ import {
   FEAT_RUIN,
   FEAT_STATION,
   freeName,
+  DEFAULT_HILLS,
   generateLandscape,
   hillsOf,
+  hillsOfLand,
+  waterOfLand,
+  DEFAULT_WATER,
+  type Hilliness,
+  type Water,
   OLD_STARTER_TOWNS,
   generatePlot,
   PLOT_DEPTH,
@@ -411,11 +417,13 @@ export const STARTER_SEED = 7;
 /**
  * A fresh map: generated landscape with a station piece in every town and no player track. Without `extras`, the map
  * as it was before its old industries' sites (`addStartSites`), with all the start's towns (`OLD_STARTER_TOWNS`): for
- * QA's recordings made on such maps.
+ * QA's recordings made on such maps. `map`: what the land's to be like (the new-game screen's choices): its hills
+ * (`landscape/hills.ts`; a step alone says just those), its water (`landscape/water.ts`) and whether it has the sea.
  */
-export function createWorld(seed: number, starter = false, extras = true, sites = true): World {
+export function createWorld(seed: number, starter = false, extras = true, sites = true, map: Hilliness | MapChoice = {}): World {
+  const { hills, water, coast } = mapChoice(map);
   // (Without extras, a map as older builds made it: its start had all its towns too, `OLD_STARTER_TOWNS`.)
-  const landscape = extras && sites ? startLand(seed, starter) : generateLandscape(seed, { starter, ...(extras ? {} : { starterTowns: OLD_STARTER_TOWNS }) });
+  const landscape = extras && sites ? startLand(seed, starter, coast, hills, water) : generateLandscape(seed, { starter, hills, water, coast, ...(extras ? {} : { starterTowns: OLD_STARTER_TOWNS }) });
   // (Sandbox: no old industries' sites, on the start or on land added later.)
   if (!sites) {
     landscape.sites = [];
@@ -430,8 +438,8 @@ export function createWorld(seed: number, starter = false, extras = true, sites 
 }
 
 /** A new map's land: the start region, and its old industries' sites (`addStartSites`). */
-export function startLand(seed: number, starter = false, coast = true): Landscape {
-  const land = generateLandscape(seed, { starter, coast });
+export function startLand(seed: number, starter = false, coast = true, hills: Hilliness = DEFAULT_HILLS, water: Water = DEFAULT_WATER): Landscape {
+  const land = generateLandscape(seed, { starter, coast, hills, water });
   addStartSites(land);
   // The map's secrets: where they'll go (saved with it), and the start's one if it has one.
   land.secretPlan = planSecrets(seed, land.coast ?? null);
@@ -444,26 +452,55 @@ export function startLand(seed: number, starter = false, coast = true): Landscap
  * The map a new player sees: the starter landscape (two towns close together with a clear run between their
  * stations) and nothing else — joining them is the first thing to do.
  */
-export function buildStarterWorld(sites = true): World {
-  return createWorld(STARTER_SEED, true, true, sites);
+export function buildStarterWorld(sites = true, map: Hilliness | MapChoice = {}): World {
+  return createWorld(STARTER_SEED, true, true, sites, map);
+}
+
+/** What a new map's land is to be like (the new-game screen's choices); each missing one, the new map's default. */
+export interface MapChoice {
+  hills?: Hilliness;
+  water?: Water;
+  /** The sea along one side (default), or none. */
+  coast?: boolean;
+}
+
+function mapChoice(map: Hilliness | MapChoice): Required<MapChoice> {
+  const m = typeof map === "string" ? { hills: map } : map;
+  return { hills: m.hills ?? DEFAULT_HILLS, water: m.water ?? DEFAULT_WATER, coast: m.coast ?? true };
 }
 
 /** Set once a game has been started (the next game is on a fresh map, not the starter). */
 export const GAMES_KEY = "woodrail.game.started";
 
-/**
- * A new Game-mode map. The first game is on the starter map; after that each is a fresh starter-style map (two towns
- * with a clear run between them, a forest yard and a sawmill near them) from a new seed, so no two games are alike.
- */
-export function freshGameWorld(random: () => number = Math.random): World {
-  let first = true;
+/** Has a game been started on this device before (the next is on a fresh map, not the starter)? */
+function gameStarted(): boolean {
   try {
-    first = localStorage.getItem(GAMES_KEY) === null;
+    return localStorage.getItem(GAMES_KEY) !== null;
+  } catch {
+    // storage unavailable: every game is someone's first
+    return false;
+  }
+}
+
+/**
+ * The seed a new map would have (the new-game screen shows it, and the player may change it): a Game's first is the
+ * starter map's, `STARTER_SEED`; after that, and in Sandbox, a fresh one, so no two maps are alike.
+ */
+export function newMapSeed(game: boolean, random: () => number = Math.random): number {
+  return game && !gameStarted() ? STARTER_SEED : Math.floor(random() * 1_000_000);
+}
+
+/**
+ * A new Game-mode map: a starter-style map (two towns with a clear run between them, a forest yard and a sawmill near
+ * them) from `seed` (the new-game screen's), else `newMapSeed`'s: the starter map for the first game, a fresh seed after.
+ */
+export function freshGameWorld(random: () => number = Math.random, map: Hilliness | MapChoice = {}, seed = newMapSeed(true, random)): World {
+  try {
     localStorage.setItem(GAMES_KEY, "1");
   } catch {
     // storage unavailable: every game is someone's first
   }
-  return first ? buildStarterWorld() : createWorld(Math.floor(random() * 1_000_000), true);
+  return createWorld(seed, true, true, true, map);
 }
 
 /** Plots that can be added to the world: those sharing an edge with land it has (not the open sea). */
@@ -498,12 +535,12 @@ export function plotsAround(land: Landscape): PlotCoord[] {
 const forSale = new WeakMap<Landscape, Map<number, { part: Landscape; extras: boolean }>>();
 
 /** A plot's land as `generatePlot` makes it, then with the map's extras (`addPlotExtras`): towns and old sites. */
-export function plotLand(seed: number, px: number, pz: number, coast: Landscape["coast"]): Landscape {
-  const part = generatePlot(seed, px, pz, coast ?? null);
+export function plotLand(seed: number, px: number, pz: number, coast: Landscape["coast"], hills?: Hilliness, water?: Water): Landscape {
+  const part = generatePlot(seed, px, pz, coast ?? null, hills, water);
   addPlotExtras(part, px, pz);
   // (Its secret, if the plan puts one here: as a first choice, as an alternate only if the plot before it had no room.)
   const plan = planSecrets(seed, coast ?? null);
-  addPlotSecret(part, plan, px, pz, (p) => p.px !== px || p.pz !== pz ? (ringOf(p.px, p.pz) > 0 && !!plotLand(seed, p.px, p.pz, coast).secrets?.some((s) => s.kind === p.kind)) : false);
+  addPlotSecret(part, plan, px, pz, (p) => p.px !== px || p.pz !== pz ? (ringOf(p.px, p.pz) > 0 && !!plotLand(seed, p.px, p.pz, coast, hills, water).secrets?.some((s) => s.kind === p.kind)) : false);
   return part;
 }
 
@@ -523,7 +560,7 @@ export function prepareLandForSale(land: Landscape, px: number, pz: number): boo
   const key = plotKey(px, pz);
   const have = cache.get(key);
   if (!have) {
-    cache.set(key, { part: generatePlot(land.seed, px, pz, land.coast ?? null), extras: false });
+    cache.set(key, { part: generatePlot(land.seed, px, pz, land.coast ?? null, hillsOfLand(land), waterOfLand(land)), extras: false });
     return true;
   }
   if (!have.extras) {
@@ -652,12 +689,12 @@ export function addSitesToOldSave(world: World): { towns: number; sites: number;
   const starts = g.plots.filter((p) => p.px >= START_REGION.px0 && p.px < START_REGION.px0 + START_REGION.w && p.pz >= START_REGION.pz0 && p.pz < START_REGION.pz0 + START_REGION.h);
   if (starts.length > 0) {
     // (Made as it was then: such a save's start has all its towns, `OLD_STARTER_TOWNS`.)
-    const part = generateLandscape(land.seed, { starter: land.starter, coast: !!land.coast, starterTowns: OLD_STARTER_TOWNS });
+    const part = generateLandscape(land.seed, { starter: land.starter, coast: !!land.coast, starterTowns: OLD_STARTER_TOWNS, hills: hillsOfLand(land), water: waterOfLand(land) });
     patch(part, addStartSites(part));
   }
   for (const p of g.plots) {
     if (starts.includes(p)) continue;
-    const part = generatePlot(land.seed, p.px, p.pz, land.coast ?? null);
+    const part = generatePlot(land.seed, p.px, p.pz, land.coast ?? null, hillsOfLand(land), waterOfLand(land));
     patch(part, addPlotExtras(part, p.px, p.pz));
   }
   addTownProps(land, world.props);

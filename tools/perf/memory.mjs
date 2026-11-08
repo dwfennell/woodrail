@@ -131,6 +131,8 @@ await page.evaluate((fresh) => {
   if (!window.woodrail.title.shown) return;
   const b = [...document.querySelectorAll(fresh ? ".title-card.mode-game button" : ".title-card button")];
   b.find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click();
+  // (New game opens the new-game sheet: Hilly, the land this was written on, and Start.)
+  (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click());
 }, !MAPS[MAP]);
 await page.waitForFunction(() => window.__perf.readyAt !== null, null, { timeout: 600000 });
 const readyMs = await page.evaluate(() => Math.round(window.__perf.readyAt));

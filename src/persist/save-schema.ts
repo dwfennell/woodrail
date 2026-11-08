@@ -168,6 +168,8 @@ export const saveSchema = z.object({
           .min(1),
         /** Its player has been told it has no room for a train put on it (said once a line). */
         toldFull: z.literal(true).optional(),
+        /** A call home's line (forgotten once no train runs it). Absent: a line of the player's own. */
+        transient: z.literal(true).optional(),
       }),
     )
     .optional(),

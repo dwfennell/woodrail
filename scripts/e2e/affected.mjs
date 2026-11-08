@@ -45,6 +45,7 @@ export const SUITES = {
   "train-summary": { script: "e2e:train-summary", minutes: 8 },
   "not-loading": { script: "e2e:not-loading", minutes: 3 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
+  "new-game": { script: "e2e:new-game", minutes: 8 },
   civic: { script: "e2e:civic", minutes: 5 },
   "paint-picker": { script: "e2e:paint-picker", minutes: 4 },
   stickers: { script: "e2e:stickers" },
@@ -78,6 +79,7 @@ export const SUITES = {
   rack: { script: "e2e:rack", minutes: 3 },
   metro: { script: "e2e:metro", minutes: 3 },
   "feature-tips": { script: "e2e:feature-tips", minutes: 6 },
+  "routes-ux": { script: "e2e:routes-ux", minutes: 6 },
   "tech-tree-5": { script: "e2e:tech-tree-5", minutes: 4 },
 };
 
@@ -241,7 +243,10 @@ export const RULES = [
   ["src/ui/workshop-panel.ts", ["workshop"]],
   ["src/ui/cloud-card.ts", ["cloud"]],
   ["src/ui/map-view.ts", ["sites"]],
-  ["src/ui/lines-view.ts", ["touch:route-ux-more,route-share,route-ring"]],
+  ["src/ui/lines-view.ts", ["touch:route-ux-more,route-share,route-ring", "routes-ux"]],
+  // The routes UX (option B, 2026-11-06): the line sheet, its words, health, the rings round places to tap.
+  [["src/ui/line-sheet.ts", "src/game/line-sheet-text.ts", "src/game/line-health.ts", "src/render/place-rings.ts", "src/economy/line-tally.ts"], ["routes-ux", TOUCH_ROUTES]],
+  [["src/game/lines.ts", "src/game/interaction.ts", "src/main.ts", "src/persist/save.ts", "src/render/depot-view.ts"], ["routes-ux"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
   ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
@@ -316,6 +321,8 @@ export const RULES = [
   [["src/game/boats.ts", "src/game/ferry.ts", "src/game/harbours.ts", "src/ui/boat-card.ts", "src/ui/water-controls.ts", "src/render/river-boats-view.ts", "src/render/ferries-view.ts", "src/render/boats-view.ts", "src/economy/boats.ts", "src/catalogue/assets/water.ts", "src/catalogue/assets/boat-parts.ts", "src/game/yards.ts", "src/render/yards-view.ts"], ["water"]],
   // Power as sparks and the wind farm (late-game spec W1).
   [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
+  // The new-game sheet and how hilly a map is (chosen before a new game, saved with the map).
+  [["src/ui/new-game.ts", "src/landscape/hills.ts", "src/landscape/water.ts", "src/landscape/edges.ts", "src/landscape/generate.ts", "src/ui/title.ts", "src/ui/hud.ts", "src/persist/landscape-data.ts", "src/persist/landscape-schema.ts"], ["new-game", "tutorial"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).
   ["src/test-setup.ts", []],
 ];

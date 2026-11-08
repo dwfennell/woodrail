@@ -87,12 +87,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip .ui-icon { display: block; margin: 0 auto; }
 @keyframes nudge { 0%, 70%, 100% { transform: none; } 78% { transform: rotate(-4deg); } 86% { transform: rotate(4deg); } }
 
-.menu { z-index: 36; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: max(12px, env(safe-area-inset-right)); display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.97); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; }
+.menu { z-index: 36; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: max(12px, env(safe-area-inset-right)); display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.97); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; max-height: calc(100vh - max(10px, env(safe-area-inset-top)) - 54px - max(12px, env(safe-area-inset-bottom))); max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 54px - max(12px, env(safe-area-inset-bottom))); overflow-y: auto; overscroll-behavior: contain; }
+.menu > * { flex-shrink: 0; }
 .menu-item { min-height: 44px; text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 11px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
 .menu-item:hover { background: #ead7b8; }
 .menu-item:disabled { opacity: 0.45; cursor: default; }
-/* A menu item asking before it acts (New game): as the route's Leave asks. */
-.menu-item.asking, .menu-item.asking:hover { background: #b0391f; color: #fff; }
 /* Between the menu's groups (playing, settings, help, leaving, the bug report): a faint saw line. */
 .menu-sep { flex: none; height: 2px; margin: 3px 10px; border: 0; border-radius: 1px; background: rgba(150, 100, 50, 0.16); }
 .narrow-only { display: none; }
@@ -635,6 +634,65 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .title-buttons { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) { .title-screen:not([hidden]), .title-logo .wb { animation: none; } }
+/* The new-game screen (src/ui/new-game.ts): a page of its own over the title or the map, as the title is. Back top
+   left; the rows (a row a choice) in the middle, scrolling if they ever outgrow it; Start at the foot, in a thumb's
+   reach. Its own wood, opaque: the map behind it doesn't show through. */
+.new-game-sheet { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--wood-panel); padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.new-game-sheet[hidden] { display: none; }
+.new-game-sheet:not([hidden]) { animation: title-in 0.25s ease-out; }
+.new-game-head { flex: none; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; width: min(560px, 100%); margin: 0 auto; }
+/* (The title centred on the page: an empty column the size of Back on its right.) */
+.new-game-head::after { content: ""; display: block; width: 104px; }
+.new-game-sheet .new-game-back { height: 48px; min-width: 104px; padding: 0 16px 0 12px; }
+.new-game-title { margin: 0; font-size: 26px; color: #4a3220; text-align: center; }
+.new-game-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: min(560px, 100%); margin: 0 auto; padding: 24px 2px 16px; display: flex; flex-direction: column; justify-content: flex-start; gap: 16px; }
+.new-game-warn { margin: 0; padding: 9px 8px; border-radius: 12px; text-align: center; font-weight: 800; font-size: 14px; line-height: 1.35; white-space: pre-line; color: var(--warn-ink); background: rgba(176, 57, 31, 0.08); }
+.new-game-warn[hidden] { display: none; }
+.new-game-rows { display: flex; flex-direction: column; gap: 22px; }
+.new-game-row { display: flex; flex-direction: column; gap: 10px; }
+.new-game-label { font-weight: 800; font-size: 17px; color: #6a4a2c; }
+.new-game-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.chip.new-game-step { height: auto; min-height: 76px; padding: 10px 4px 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 15px; line-height: 1.1; }
+.new-game-pic { width: 36px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
+.new-game-blurb { margin: 0; min-height: 1.4em; font-size: 15px; color: #5c4632; text-align: center; }
+.new-game-seed-line { display: flex; gap: 10px; }
+.new-game-seed { flex: 1; min-width: 0; height: 52px; padding: 0 14px; border: none; border-radius: 13px; font: inherit; font-weight: 800; font-size: 20px; letter-spacing: 0.04em; color: #3a2a1c; background: #fffaf0; box-shadow: inset 0 2px 4px rgba(90, 60, 30, 0.22), inset 0 0 0 2px #d8bd96; -webkit-user-select: text; user-select: text; }
+.new-game-seed:focus { outline: none; box-shadow: inset 0 2px 4px rgba(90, 60, 30, 0.22), inset 0 0 0 3px #5aa35a; }
+.new-game-seed.bad { box-shadow: inset 0 2px 4px rgba(90, 60, 30, 0.22), inset 0 0 0 3px var(--warn-ink); }
+.new-game-sheet .new-game-dice { height: 52px; min-width: 96px; font-size: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.new-game-die { width: 22px; height: 22px; flex: none; }
+.new-game-die rect { fill: #fffaf0; stroke: currentColor; stroke-width: 1.6; }
+.new-game-die circle { fill: currentColor; }
+.new-game-seed-note { text-align: left; font-size: 14px; }
+.new-game-seed-note.bad { color: var(--warn-ink); font-weight: 700; }
+.new-game-foot { flex: none; width: min(560px, 100%); margin: 0 auto; display: flex; }
+.new-game-sheet .new-game-foot .new-game-start { flex: 1; height: 58px; font-size: 19px; }
+.new-game-sheet .new-game-foot .new-game-start:disabled { opacity: 0.5; }
+/* (A phone upright: the four steps two by two, each wide enough for its name.) */
+/* (A row of fewer steps keeps them in a line. A phone upright: the four hills two by two, each wide enough for its name.) */
+.new-game-steps:not(:has(> :nth-child(4))) { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+@media (max-width: 440px) { .row-hills .new-game-steps { grid-template-columns: repeat(2, 1fr); } .chip.new-game-step { flex-direction: row; min-height: 56px; gap: 8px; } }
+/* (A phone on its side: little height, so a smaller head and foot, the rows two by two across the width, each row's
+   steps in a line with their pictures over their names, and the rows from the top.) */
+@media (max-height: 500px) {
+  .new-game-sheet { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  .new-game-head, .new-game-body, .new-game-foot { width: min(820px, 100%); }
+  .new-game-title { font-size: 22px; }
+  .new-game-sheet .new-game-back { height: 44px; }
+  .new-game-body { justify-content: flex-start; padding: 6px 2px; gap: 8px; }
+  .new-game-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; align-items: start; }
+  .new-game-row { gap: 5px; }
+  .new-game-label { font-size: 15px; }
+  .new-game-steps { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; }
+  .chip.new-game-step { min-height: 52px; flex-direction: column; gap: 2px; padding: 5px 2px; font-size: 14px; }
+  .new-game-pic { width: 30px; height: 17px; }
+  .new-game-blurb { font-size: 13px; min-height: 0; }
+  .new-game-seed, .new-game-sheet .new-game-dice { height: 46px; }
+  /* (Wide enough to say it in one line: its two sentences side by side.) */
+  .new-game-warn { padding: 5px 10px; font-size: 14px; white-space: normal; }
+  .new-game-sheet .new-game-foot .new-game-start { height: 48px; }
+}
+@media (prefers-reduced-motion: reduce) { .new-game-sheet:not([hidden]) { animation: none; } }
 /* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening. The
    opening screen keeps its name and its train just where they were (the bar goes, keeping its room); the title's own
    name stays hidden, and its cards fade in below the train (their top set from where the train ends). */
@@ -1528,36 +1586,136 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-join-line { padding-inline: 8px; display: inline-flex; align-items: center; gap: 6px; }
 /* A lacquer disc in the line's colour before its name, as the card's own swatch. */
 .route-join-line::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--line, #888); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -2px 0 rgba(0, 0, 0, 0.2); flex: 0 0 auto; }
-/* The Lines view: a sheet at the bottom (the tray's away), each line a row. */
+/* The Lines list: a sheet at the bottom (the tray's away), each line a row to tap, problems first. */
 .lines-open .tray, .lines-open .tray-draw, .lines-open .tray-orient { display: none; }
-.lines-view { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); gap: 8px; padding: 12px; }
-.lines-head { display: flex; align-items: center; justify-content: space-between; color: #6a4a2c; }
-.lines-list { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
-.lines-row { display: flex; align-items: center; gap: 10px; }
+.lines-view { width: min(calc(100vw - 24px), 460px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); gap: 8px; padding: 12px 12px 12px; }
+.lines-head { display: flex; align-items: center; gap: 8px; color: #3a2a1c; min-height: 44px; padding-right: 40px; }
+.lines-head b { font-size: 20px; font-weight: 900; }
+.lines-count { font-size: 13.5px; font-weight: 700; color: #74522f; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lines-head .lines-new { flex: 0 0 auto; }
+.lines-view > .lines-head .lines-close { top: 12px; right: 8px; }
+.lines-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
-/* A line's actions, under its row (audit F12): Edit stops, + Train. */
-.lines-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 54px; }
-/* (On a phone held upright, the actions under the whole row: four fit in a line at 360 px.) */
-@media (max-width: 480px) { .lines-actions { padding-left: 0; } .lines-actions button { flex: 1 1 auto; padding-inline: 8px; } }
-.lines-actions button { min-height: 44px; }
+.lines-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; padding: 10px 12px 10px; border: 0; border-radius: 14px; background: #fffaf0; box-shadow: inset 0 0 0 2px #ead8bb; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; }
+.lines-row:active { transform: translateY(1px); }
+.lines-row.stuck { box-shadow: inset 0 0 0 2px #e7a796; }
+.lines-top { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.lines-dot { width: 16px; height: 16px; flex: 0 0 16px; border-radius: 50%; background: var(--line); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.2); }
+.lines-name { flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lines-chev { font-size: 22px; font-weight: 900; color: #74522f; line-height: 1; }
+/* Its stops drawn small: a bar in the line's colour, a ring a stop, the ends named. */
+.lines-diag { position: relative; display: flex; justify-content: space-between; padding: 0 2px; height: 32px; }
+.lines-diag::before { content: ""; position: absolute; left: 8px; right: 8px; top: 5px; height: 6px; border-radius: 3px; background: var(--line); }
+.lines-stop { position: relative; display: flex; flex-direction: column; align-items: center; width: 0; }
+.lines-stop::before { content: ""; width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 3px var(--line); }
+.lines-stop.more::before { background: var(--line); box-shadow: none; transform: scale(0.6); }
+.lines-stop:first-child { align-items: flex-start; }
+.lines-stop:last-child { align-items: flex-end; }
+.lines-stop-name { margin-top: 2px; font-size: 12px; font-weight: 800; color: #5e4128; white-space: nowrap; }
+.lines-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13.5px; font-weight: 800; }
+.lines-loads { color: #5e4128; font-weight: 700; }
+.lines-pill, .ls-pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12.5px; font-weight: 800; white-space: nowrap; }
+.lines-pill i, .ls-pill i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.lines-pill.moving, .ls-pill.moving { background: #dcefd6; color: #1f4a1b; }
+.lines-pill.moving i, .ls-pill.moving i { background: #3f8f4a; }
+.lines-pill.waiting, .ls-pill.waiting { background: #fbe7c0; color: #6b4310; }
+.lines-pill.waiting i, .ls-pill.waiting i { background: #e2a12b; }
+.lines-pill.stuck, .ls-pill.stuck { background: #f6d3c9; color: #8a2a14; }
+.lines-pill.stuck i, .ls-pill.stuck i { background: #c8442f; }
+.lines-pill.none, .ls-pill.none { background: #efe3cf; color: #5e4128; }
+.lines-pill.none i, .ls-pill.none i { background: #b9a07e; }
 /* Reversed on a ring, trains that couldn't be turned round: why, in the warning ink, and Turn round to try again. */
-.lines-note { display: flex; align-items: center; gap: 8px; padding-left: 54px; font-size: 0.85em; color: var(--warn-ink); font-weight: 600; line-height: 1.3; }
+.lines-note { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--warn-ink); font-weight: 700; line-height: 1.3; }
 .lines-note span { flex: 1 1 auto; min-width: 0; }
 .lines-note button { flex: 0 0 auto; min-height: 44px; }
-@media (max-width: 480px) { .lines-note { padding-left: 0; } }
-.lines-head .lines-new { margin-left: auto; margin-right: 6px; }
+.lines-none { font-size: 14px; font-weight: 700; color: #5e4128; padding: 12px; border-radius: 12px; border: 2px dashed #d7bf98; text-align: center; }
 /* A place's card: the lines that call there, and New route from here (audit F12). */
 .depot-routes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .depot-routes .route-join-line, .depot-routes .route-new-here { min-height: 44px; }
-.lines-swatch { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; padding: 0; }
-.lines-swatch.on { outline: 3px solid #3a2a1c; outline-offset: 1px; }
-.lines-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.lines-name { font: inherit; font-weight: 700; color: #3a2a1c; background: transparent; border: none; border-bottom: 2px dashed rgba(106, 74, 44, 0.3); padding: 2px 0; min-width: 0; width: 100%; min-height: 44px; box-sizing: border-box; }
-.lines-head button, .lines-show { min-height: 44px; min-width: 44px; }
-.lines-name:focus { outline: none; border-bottom-color: #6a4a2c; background: rgba(255, 255, 255, 0.6); }
-.lines-info { font-size: 0.8em; opacity: 0.7; }
-.lines-palette { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 4px 54px; }
-.lines-none { font-size: 0.9em; opacity: 0.75; }
+
+/* The line sheet (routes UX option B): one line at the bottom, its stops as a line diagram, a stop opening in place.
+   At most 45% of the screen high (it scrolls inside), so the map above stays there to tap places on. */
+.planning .engine-card { display: none !important; }
+.line-sheet { left: 0; right: 0; bottom: 0; transform: none; width: auto; min-width: 0; max-width: 560px; margin: 0 auto; box-sizing: border-box; border-radius: 20px 20px 0 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); gap: 8px; align-items: stretch; max-height: min(46vh, 420px); display: flex; flex-direction: column; color: #3a2a1c; }
+.line-sheet[hidden] { display: none; }
+/* (It slides up from the bottom edge, its size as it will be: not the cards' scale-in.) */
+.line-sheet:not([hidden]) { animation: ls-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1); }
+@keyframes ls-up { from { opacity: 0; translate: 0 24px; } }
+@media (prefers-reduced-motion: reduce) { .line-sheet:not([hidden]) { animation: none; } }
+@media (orientation: landscape) and (max-height: 500px) { .line-sheet { left: auto; right: max(8px, env(safe-area-inset-right)); width: min(400px, 52vw); max-height: calc(100vh - 80px); border-radius: 18px; bottom: 8px; } }
+.ls-head { display: flex; align-items: center; gap: 6px; min-height: 44px; flex: 0 0 auto; }
+.ls-swatch { width: 44px; height: 44px; flex: 0 0 44px; padding: 0; border: 0; border-radius: 50%; background: var(--line); box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.15), 0 0 0 3px #fff; cursor: pointer; }
+.ls-name { flex: 1 1 auto; min-width: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; border: 0; border-radius: 10px; background: transparent; font: inherit; font-size: 19px; font-weight: 900; color: #3a2a1c; cursor: text; text-align: left; }
+.ls-name:disabled { cursor: default; color: #3a2a1c; }
+.ls-name-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ls-name-edit { font-size: 15px; color: #74522f; flex: 0 0 auto; }
+.ls-name-input { flex: 1 1 auto; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid #c9a274; border-radius: 10px; background: #fffaf0; font: inherit; font-size: 17px; font-weight: 800; }
+.ls-more { width: 44px; padding: 0; font-size: 20px; flex: 0 0 auto; }
+.ls-done { flex: 0 0 auto; }
+.ls-palette, .ls-menu { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 0 0 auto; }
+.ls-colour { width: 44px; height: 44px; border: 3px solid #fff; border-radius: 50%; padding: 0; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; }
+.ls-colour[aria-pressed="true"] { outline: 3px solid #3a2a1c; outline-offset: 1px; }
+.ls-menu .chip { flex: 1 1 auto; }
+.ls-tabs { display: flex; gap: 3px; padding: 3px; border-radius: 14px; background: #ead8bb; flex: 0 0 auto; }
+.ls-tab { flex: 1 1 0; min-height: 44px; border: 0; border-radius: 11px; background: transparent; font: inherit; font-weight: 800; font-size: 15px; color: #5e4128; cursor: pointer; }
+.ls-tab.on { background: linear-gradient(180deg, #fffaf0, #f3dcb6); color: #3a2a1c; box-shadow: 0 2px 4px rgba(90, 60, 30, 0.25); }
+.ls-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding-bottom: 2px; }
+/* The stops: a spine in the line's colour down the numbers, a row a stop. */
+.ls-stops { list-style: none; margin: 0; padding: 0; position: relative; }
+.ls-stop, .ls-via { position: relative; display: grid; grid-template-columns: 28px 30px 1fr; align-items: center; column-gap: 8px; min-height: 52px; }
+.ls-stop::before, .ls-via::before { content: ""; position: absolute; left: 47px; top: 0; bottom: 0; width: 8px; background: var(--line); }
+.ls-stops > :first-child::before { top: 26px; }
+.ls-stops > :last-child::before { bottom: calc(100% - 26px); }
+.ls-stops > :only-child::before { display: none; }
+.ls-handle { display: flex; align-items: center; justify-content: center; width: 28px; height: 44px; color: #74522f; font-size: 18px; cursor: grab; touch-action: none; user-select: none; }
+.ls-handle.none { cursor: default; }
+.ls-num { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #fffaf0; color: #3a2a1c; font-size: 14px; font-weight: 900; box-shadow: inset 0 0 0 3px var(--line); }
+.ls-stop.next .ls-num { background: var(--line); color: var(--line-ink, #fff); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.2); }
+.ls-stop-main { min-width: 0; min-height: 52px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; padding: 4px 6px; border: 0; border-radius: 12px; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.ls-stop-name { font-size: 16px; font-weight: 900; line-height: 1.15; }
+.ls-place-num { font-weight: 700; color: #74522f; }
+.ls-tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: rgba(58, 42, 28, 0.1); font-size: 12px; font-weight: 800; color: #3a2a1c; vertical-align: 2px; }
+.ls-tag.pass { margin-left: 0; margin-right: 6px; background: #efe3cf; }
+.ls-goods { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 13.5px; font-weight: 700; color: #5e4128; }
+.ls-down { color: #1d4a85; }
+.ls-up { color: #1f5a1b; }
+.ls-stop.lost .ls-stop-name { text-decoration: line-through; opacity: 0.75; }
+.ls-stop.open, .ls-via.open { grid-template-rows: auto auto; align-items: start; margin: 4px 0; padding: 4px 6px 10px 0; border-radius: 14px; background: #fffaf0; box-shadow: inset 0 0 0 2px #ead8bb; }
+.ls-stop.open > .ls-handle, .ls-stop.open > .ls-num { margin-top: 8px; }
+.ls-opts, .ls-via > .ls-acts { grid-column: 3; display: flex; flex-direction: column; gap: 8px; padding: 0 0 0 6px; }
+.ls-says { font-size: 14.5px; font-weight: 700; line-height: 1.35; }
+.ls-ticks, .ls-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ls-tick { display: inline-flex; align-items: center; gap: 8px; padding: 0 12px 0 8px; font-size: 15px; }
+.ls-box { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px; background: #fffaf0; box-shadow: inset 0 0 0 2px #74522f; font-size: 15px; font-weight: 900; color: #fff; }
+.ls-tick.on .ls-box { background: #2f7a38; box-shadow: none; }
+.ls-tick.on .ls-box::after { content: "✓"; }
+.ls-note { font-size: 13px; font-weight: 700; color: #5e4128; line-height: 1.3; }
+.ls-note.warn { color: var(--warn-ink, #b0391f); }
+.ls-acts .route-move { width: 44px; padding: 0; font-size: 18px; }
+.ls-acts .ls-remove, .ls-acts .ls-via-remove { margin-left: auto; }
+.ls-via { min-height: 40px; }
+.ls-via-dot { position: relative; z-index: 1; justify-self: center; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 3px var(--line); }
+.ls-via .ls-stop-main { flex-direction: row; align-items: center; min-height: 44px; font-size: 14px; font-weight: 700; color: #5e4128; }
+.ls-stop.lifted { z-index: 2; background: #fffaf0; border-radius: 14px; box-shadow: 0 8px 20px rgba(60, 40, 20, 0.3); }
+.ls-drop-bar { position: absolute; left: 30px; right: 0; height: 4px; border-radius: 2px; background: #3a2a1c; pointer-events: none; }
+.ls-hint { font-size: 13.5px; font-weight: 700; color: #5e4128; }
+.ls-hint.empty { padding: 12px; border-radius: 12px; border: 2px dashed #d7bf98; text-align: center; font-size: 14.5px; }
+.ls-foot { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding-top: 6px; border-top: 2px solid #ead8bb; }
+.ls-foot .ls-hint { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 1.25; }
+.ls-foot .ls-add-via { flex: 0 0 auto; }
+.ls-add-via.on { box-shadow: inset 0 0 0 3px #2f6fb5; }
+/* The trains on it, and free ones to add. */
+.ls-trains { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ls-train { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; border-radius: 12px; background: #fffaf0; box-shadow: inset 0 0 0 2px #ead8bb; }
+.ls-train-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; font-size: 15px; }
+.ls-train-status { font-size: 13px; font-weight: 700; color: #5e4128; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-train .chip { flex: 0 0 auto; font-size: 14px; padding-inline: 10px; }
+.ls-h { font-size: 12px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: #74522f; margin-top: 2px; }
+.ls-empty { padding: 10px; border-radius: 12px; border: 2px dashed #d7bf98; font-size: 14.5px; font-weight: 700; color: #5e4128; text-align: center; }
+.ls-free { display: flex; flex-wrap: wrap; gap: 6px; }
+.ls-add-train { font-size: 14.5px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-add-train span { font-weight: 700; color: #5e4128; }
+.ls-carries { font-size: 13px; font-weight: 700; color: #5e4128; }
 
 /* The growth menu (Game mode): a bottom sheet "Larkfield grew! Pick one", three big cards, one tap takes one. */
 .growth-sheet { position: fixed; inset: 0; z-index: 33; display: flex; align-items: flex-end; justify-content: center; background: rgba(40, 28, 16, 0.28); }

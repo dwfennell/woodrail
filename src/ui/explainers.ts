@@ -244,7 +244,7 @@ export const EXPLAINERS: Readonly<Record<ExplainerId, Explainer>> = {
       },
       {
         heading: "What it does at a stop",
-        text: "Tap a stop on the route to choose: Drop & pick up, Only drop or Only pick up. Wait to fill holds the train till its wagons are full; Pass by goes past.",
+        text: "Tap a stop on the route: tick Drop, Pick up or both. Wait to fill holds the train till its wagons are full; untick both and it passes by.",
         picture: ROUTE_STOP,
         alt: "A train at a stop, dropping goods off and picking goods up.",
       },

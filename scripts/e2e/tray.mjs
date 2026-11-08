@@ -53,7 +53,7 @@ const allPictures = (c) => c.items > 0 && c.icons === 0 && c.pictures === c.item
 /** From the title, into Sandbox by the button labelled `label`. */
 async function enter(label) {
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await p.evaluate((label) => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => b.textContent.includes(label)).click(), label);
+  await p.evaluate((label) => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => b.textContent.includes(label)).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()), label);
   await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown, null, { timeout: 120000 });
 }
 
@@ -140,7 +140,7 @@ async function trackPieces() {
   await freshPage();
   await p.goto(URL);
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+  await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());

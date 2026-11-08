@@ -12,7 +12,7 @@ await page.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 await page.goto(server.resolvedUrls.local[0] + (mapFile ? "?dev#load=" + readFileSync(mapFile, "utf8").trim() : ""));
 await page.waitForFunction(() => window.woodrail?.title?.shown !== undefined, null, { timeout: 300000 });
 await page.waitForTimeout(3000);
-await page.evaluate(() => window.woodrail.title.shown && [...document.querySelectorAll(".title-card button")].find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click());
+await page.evaluate(() => window.woodrail.title.shown && [...document.querySelectorAll(".title-card button")].find((x) => !x.hidden && x.offsetParent && x.classList.contains("primary"))?.click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await page.waitForFunction(() => !window.woodrail.title.shown && document.querySelector("#loading.done"), null, { timeout: 300000 });
 await page.waitForTimeout(8000);
 const out = await page.evaluate(() => {

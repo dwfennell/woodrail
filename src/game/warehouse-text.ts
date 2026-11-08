@@ -17,7 +17,7 @@ export function storeSkipText(routed: boolean): string {
 }
 
 /** The warehouse's card: how to use it, under what it holds. */
-export const STORE_HELP = "Drop goods here to keep them for later. Choose below what it takes and gives; on a route, set its stop to Only drop or Only pick up";
+export const STORE_HELP = "Drop goods here to keep them for later. Choose below what it takes and gives; on a route, untick Drop or Pick up on its stop";
 
 /** What each store mode is called on the warehouse's card (`StoreMode`). */
 export const STORE_MODE_WORDS: Record<StoreMode, string> = { both: "Takes and gives", in: "Takes only", out: "Gives only", off: "Closed" };

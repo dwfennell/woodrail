@@ -79,20 +79,21 @@ describe("lines", () => {
     expect(w.economy.lines.size).toBe(0);
   });
 
-  it("stopLine: the train goes anywhere, and the line no train runs is forgotten", () => {
+  it("stopLine: the train goes anywhere; the line stays, run by no train (lines stand alone: lines-standalone.test.ts)", () => {
     const w = world();
     editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }));
     stopLine(w.economy, w.engine);
     expect(w.economy.routeOf(w.engine)).toBeUndefined();
-    expect(w.economy.lines.size).toBe(0);
+    expect(w.economy.lines.size).toBe(1);
+    expect(w.economy.lineIdOf.size).toBe(0);
   });
 
-  it("an engine taken off the map takes its line with it (pruned)", () => {
+  it("an engine taken off the map leaves its line (pruned); the line stays, run by no train", () => {
     const w = world();
     editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }));
     w.sim.removeTrain(w.sim.trainIds()[0]);
     w.economy.prune();
-    expect(w.economy.lines.size).toBe(0);
+    expect(w.economy.lines.size).toBe(1);
     expect(w.economy.lineIdOf.size).toBe(0);
   });
 
@@ -201,20 +202,21 @@ describe("route edits undone (audit F1)", () => {
     expect(line.stops).toEqual([{ depotId: w.forest, action: "auto", via: [7, 8] }, { depotId: w.mill, action: "pick" }]);
   });
 
-  it("Leave on a line's only train, undone: the line is back, with its name, colour and stops, and the train on it", () => {
+  it("Leave on a line's only train, undone: the train is back on the line (kept meanwhile, with its name, colour and stops)", () => {
     const w = world();
     editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }, { depotId: w.mill, action: "auto" }));
     const line = lineOf(w.economy, w.engine)!;
     renameLine(w.economy, line.id, "Logs");
     const next = w.economy.routeOf(w.engine)!.next;
     const leave = undoable(w, () => stopLine(w.economy, w.engine));
-    expect(w.economy.lines.size).toBe(0);
+    expect(w.economy.lines.get(line.id)).toBe(line);
+    expect(w.economy.lineIdOf.size).toBe(0);
     leave.undo();
     expect(lineOf(w.economy, w.engine)).toBe(line);
     expect(line.name).toBe("Logs");
     expect(w.economy.routeOf(w.engine)).toMatchObject({ stops: line.stops, next });
     leave.redo();
-    expect(w.economy.lines.size).toBe(0);
+    expect(w.economy.lines.get(line.id)).toBe(line);
     expect(w.economy.routeOf(w.engine)).toBeUndefined();
   });
 

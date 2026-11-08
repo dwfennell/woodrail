@@ -274,7 +274,9 @@ function freeEnd(t: Tour, id: number): number {
 
 describe("the grand tour", () => {
   it("plays all of Game mode's content on the starter map, to a city ★★", () => {
-    const T = new Tour(buildStarterWorld());
+    // (Hilly: the starter map's land the tour's places were picked on, its mine's branch by the hills near the start.
+    // The gentler default's own play is the balance play-through's.)
+    const T = new Tour(buildStarterWorld(true, "hilly"));
     const w = () => T.w;
     const st = (i: number) => w().stations.get(w().landscape.towns[i].id)!;
     const depotPiece = (kind: string) => [...w().depots.values()].find((id) => w().layout.getPiece(id)!.type === `depot-${kind}`)!;

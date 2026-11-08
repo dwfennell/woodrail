@@ -14,3 +14,5 @@ export * from "./edges";
 export * from "./edit";
 export * from "./coast";
 export * from "./secrets";
+export * from "./hills";
+export * from "./water";

@@ -32,7 +32,7 @@ const p = await ctx.newPage();
 p.on("pageerror", (e) => console.log("pageerror", e.message));
 await p.goto(PAGE);
 await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
 await p.evaluate(() => {
   const help = document.querySelector(".help");

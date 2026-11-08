@@ -7,11 +7,11 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { CAR_LOOKS, Sim } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, givesChoice, isStore, pilesOf, RECIPES, type BoatState, type CargoKind, type DepotState, type StoreMode } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, givesChoice, isStore, pilesOf, RECIPES, type BoatState, type CargoKind, type DepotState, type RouteStopDef, type StoreMode } from "../economy";
 
 import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, pieceOfRef, relaxJoints, pathLength, angleDiff, isLift, type SignalStyle, type Pose, type RelaxOptions } from "../track";
 import { BARGE_LOADS, isBulk, isDock, MAX_BOATS } from "../game/boats";
-import { joinSavedLine, LINE_COLOURS, MAX_VIAS, type SavedLine } from "../game/lines";
+import { joinSavedLine, LINE_COLOURS, loadSavedLines, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, serializeLandscape } from "./landscape-data";
 import { FEAT_NONE, FEAT_RUIN, planSecrets, ringOf } from "../landscape";
@@ -86,6 +86,15 @@ function vanYardOf(world: World, depotId: number): { vanYard?: Record<string, nu
   return y && Object.values(y).some((n) => (n ?? 0) > 0) ? { vanYard: { ...y } as Record<string, number> } : {};
 }
 
+/** A line's stops as the save keeps them: depots still on the map (renumbered), via points still laid. */
+function savedStops(stops: readonly RouteStopDef[], renumbered: ReadonlyMap<number, number>, layout: Layout): SavedLine["stops"] {
+  return stops.flatMap((s): SavedLine["stops"] => {
+    if (!renumbered.has(s.depotId)) return [];
+    const via = (s.via ?? []).filter((p) => layout.getPiece(p)).slice(0, MAX_VIAS);
+    return [via.length > 0 ? [renumbered.get(s.depotId)!, s.action, !!s.waitFill, via] : [renumbered.get(s.depotId)!, s.action, !!s.waitFill]];
+  });
+}
+
 export function serializeWorld(world: World): SaveData {
   const { layout, sim } = world;
   const pieces: SaveData["pieces"] = [];
@@ -115,17 +124,13 @@ export function serializeWorld(world: World): SaveData {
       const line = world.economy.lines.get(world.economy.lineIdOf.get(car.id) ?? -1);
       let lineId = savedLine.get(r.stops);
       if (lineId === undefined) {
-        const stops = r.stops.flatMap((s): SavedLine["stops"] => {
-          if (!renumbered.has(s.depotId)) return [];
-          const via = (s.via ?? []).filter((p) => layout.getPiece(p)).slice(0, MAX_VIAS);
-          return [via.length > 0 ? [renumbered.get(s.depotId)!, s.action, !!s.waitFill, via] : [renumbered.get(s.depotId)!, s.action, !!s.waitFill]];
-        });
+        const stops = savedStops(r.stops, renumbered, layout);
         if (stops.length === 0) continue;
         lineId = line?.id ?? spareId++;
         savedLine.set(r.stops, lineId);
         const look = line ?? LINE_COLOURS[(lineId - 1) % LINE_COLOURS.length];
         const told = !!line && world.economy.sections.toldFullOn(line.id);
-        lines.push({ id: lineId, colour: look.colour, name: line?.name ?? `${LINE_COLOURS[(lineId - 1) % LINE_COLOURS.length].name} line`, stops, ...(told ? { toldFull: true as const } : {}) });
+        lines.push({ id: lineId, colour: look.colour, name: line?.name ?? `${LINE_COLOURS[(lineId - 1) % LINE_COLOURS.length].name} line`, stops, ...(told ? { toldFull: true as const } : {}), ...(line?.transient ? { transient: true as const } : {}) });
       }
       const kept = r.stops.slice(0, r.next).filter((s) => renumbered.has(s.depotId)).length;
       const n = lines.find((l) => l.id === lineId)!.stops.length;
@@ -133,6 +138,15 @@ export function serializeWorld(world: World): SaveData {
       const via = !r.at && r.viaFor === r.next % r.stops.length && renumbered.has(r.stops[r.next % r.stops.length].depotId) ? (r.viaDone ?? 0) : 0;
       lineSaved.set(car.id, { id: lineId, next: Math.min(kept, n - 1), ...(line ? world.economy.sections.savedPlace(car.id) : {}), ...(via > 0 ? { via } : {}) });
     }
+  // Lines no train runs now (made from the Lines list, or whose last train left): kept too, with their stops at depots
+  // still on the map (one left with none isn't). A transient line (a call home) isn't: it's for its train alone.
+  for (const line of world.economy.lines.values()) {
+    if (savedLine.has(line.stops) || line.transient) continue;
+    const stops = savedStops(line.stops, renumbered, layout);
+    if (stops.length === 0) continue;
+    savedLine.set(line.stops, line.id);
+    lines.push({ id: line.id, colour: line.colour, name: line.name, stops });
+  }
   const trains: SaveData["trains"] = sim.trainIds().map((id) => {
     const t = sim.getTrain(id)!;
     return {
@@ -459,6 +473,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
     economy.roadGot.set(townId, goods);
   }
+  // Every saved line first, run by a train or not (`loadSavedLines`); the trains then join theirs.
+  loadSavedLines(economy, save.lines ?? []);
   // Ids as saved (v14): the counters go on from the save's (and past every saved car's id); a train whose cars all
   // have ids, none taken, gets them back. Older saves: fresh ids, as before.
   const used = new Set<number>();
