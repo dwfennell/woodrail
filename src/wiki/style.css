@@ -116,6 +116,13 @@ h1 .icon { width: 1.4em; height: 1.4em; }
 .chains .arrow { color: var(--ink-muted); font-weight: 900; }
 .chains .maker { font-weight: 900; color: var(--ink-wood); }
 
+/* The game's own tray pictures (176×144, on clear): beside the lead on a page, atop a card, small in a chip. */
+.pic { display: block; width: 176px; height: auto; aspect-ratio: 176 / 144; }
+.pic.hero { float: right; width: min(264px, 42%); margin: -8px -6px 8px 12px; filter: drop-shadow(0 6px 8px rgba(60, 40, 20, 0.18)); }
+.facts, h2, .flow { clear: both; }
+.card-pic { display: block; width: 100%; max-width: 176px; height: auto; aspect-ratio: 176 / 144; margin: -4px auto 4px; }
+.chip-pic { width: 34px; height: auto; aspect-ratio: 176 / 144; margin: -4px 0 -4px -8px; }
+
 .guide figure { margin: 8px 0; }
 .guide svg { max-width: 100%; height: auto; }
 
@@ -133,4 +140,9 @@ footer a { color: var(--ink-soft); }
   .flow td:first-child { border-radius: 10px 10px 0 0; }
   .flow td:last-child { border-radius: 0 0 10px 10px; }
   .card { padding: 16px 16px 20px; }
+  .pic.hero { float: none; width: 220px; margin: 0 auto 4px; }
+  /* Two across: a picture card a column wide is mostly picture. */
+  .cards:has(.card-pic) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .cards:has(.card-pic) a { padding: 8px 10px 10px; }
+  .cards:has(.card-pic) strong { font-size: 15px; }
 }

@@ -4,7 +4,7 @@
  * same files work under any base. Pure: `npm run wiki` (scripts/wiki.mjs) writes what `buildWiki` returns.
  */
 import { CARGO, type CargoKind } from "../economy/cargo";
-import { wikiData, type Cost, type GoodData, type GuideData, type IndustryData, type Ref, type RowData, type Section, type VehicleData, type WikiData } from "./data";
+import { pictureFile, wikiData, type Cost, type GoodData, type GuideData, type IndustryData, type Ref, type RowData, type Section, type VehicleData, type WikiData } from "./data";
 import css from "./style.css?raw";
 
 /** Where the wiki is served (canonical URLs and the sitemap). */
@@ -64,6 +64,16 @@ function goodIcon(glyph: string): string {
   return `<span class="icon" aria-hidden="true">${svg.replace(/<title>[^<]*<\/title>/, "").replace("<svg ", '<svg focusable="false" ')}</span>`;
 }
 
+/** The pictures there are (`npm run wiki:pictures` saves them; `npm run wiki` copies them to `pictures/`). */
+const PICTURES: ReadonlySet<string> = new Set(Object.keys(import.meta.glob("./pictures/*.webp")).map((f) => f.slice("./pictures/".length)));
+
+/** A page's picture, as an `<img>` from page `from` (its name as the alt text), or "" if it has none. */
+function picture(from: string, r: Ref, cls = "pic"): string {
+  const file = pictureFile(r);
+  if (!PICTURES.has(file)) return "";
+  return `<img class="${cls}" src="${rel(from, `pictures/${file}`).replace(/\/$/, "")}" alt="${esc(r.name)}" width="176" height="144" loading="lazy">`;
+}
+
 const goodName = (kind: string): string => (CARGO as Record<string, { label: string } | undefined>)[kind]?.label ?? kind;
 const goodWord = (kind: string): string => goodName(kind).toLowerCase();
 
@@ -108,7 +118,7 @@ const facts = (rows: readonly (readonly [string, string] | null)[]): string =>
 
 // ---- the page frame --------------------------------------------------------------------------------------------
 
-function frame(p: { path: string; title: string; description: string; crumbs: readonly Ref[] | null; heading: string; band?: string; body: string }): Page {
+function frame(p: { path: string; title: string; description: string; crumbs: readonly Ref[] | null; heading: string; band?: string; body: string; image?: Ref }): Page {
   const from = p.path;
   const crumbs = p.crumbs
     ? `<nav class="crumbs" aria-label="Breadcrumb"><a href="${rel(from, "")}">Wiki</a>${p.crumbs.map((c) => ` <span aria-hidden="true">›</span> <a href="${rel(from, c.slug ? pathOf(c) : `${c.section}/`)}">${esc(c.name)}</a>`).join("")}</nav>`
@@ -126,7 +136,7 @@ function frame(p: { path: string; title: string; description: string; crumbs: re
 <meta property="og:site_name" content="Woodrail wiki">
 <meta property="og:title" content="${esc(fullTitle)}">
 <meta property="og:description" content="${esc(p.description)}">
-<meta name="theme-color" content="#cfe3b4">
+${p.image && PICTURES.has(pictureFile(p.image)) ? `<meta property="og:image" content="${WIKI_BASE}pictures/${pictureFile(p.image)}">\n` : ""}<meta name="theme-color" content="#cfe3b4">
 <link rel="stylesheet" href="${rel(from, "style.css").replace(/\/$/, "")}">
 </head>
 <body>
@@ -151,7 +161,7 @@ ${p.body}
 function rowPage(d: WikiData, r: RowData): Page {
   const from = pathOf(r);
   const unlocks = r.unlocks.length
-    ? `<ul class="chips">${r.unlocks.map((u) => `<li>${u.ref ? `<a href="${rel(from, pathOf(u.ref))}">${esc(u.name)}</a>` : esc(u.name)}</li>`).join("")}</ul>`
+    ? `<ul class="chips">${r.unlocks.map((u) => `<li>${u.ref ? `<a href="${rel(from, pathOf(u.ref))}">${picture(from, u.ref, "chip-pic")}${esc(u.name)}</a>` : esc(u.name)}</li>`).join("")}</ul>`
     : `<p>${esc(r.row.brings)}</p>`;
   const body = `<p class="tag" style="background:${esc(r.branch.color)}">${esc(r.branch.label)} · tier ${r.tier}</p>
 <p class="lead">${esc(r.row.blurb)}</p>
@@ -204,7 +214,7 @@ function industryPage(d: WikiData, i: IndustryData): Page {
           .join("")}</tbody></table>`;
   // A place that takes every good (a warehouse, a harbour, a school) lists none: the table would be every good.
   const many = takesList.length > 12;
-  const body = `${i.blurb ? `<p class="lead">${esc(i.blurb)}</p>` : ""}
+  const body = `${picture(from, i, "pic hero")}${i.blurb ? `<p class="lead">${esc(i.blurb)}</p>` : ""}
 ${facts([
   cycle ? ["Makes", esc(cycle)] : null,
   i.near ? ["Must stand near", esc(i.near)] : null,
@@ -215,7 +225,7 @@ ${facts([
 ${!many && takesList.length ? `<h2>Goods in</h2>${goodsLines(takesList, "in")}` : ""}
 ${made.length && !many ? `<h2>Goods out</h2>${goodsLines(made, "out")}` : ""}`;
   const desc = clip(cycle ? `The ${i.name} in Woodrail makes ${cycle}. What it needs, where its goods go and how to unlock it.` : `The ${i.name} in Woodrail: ${i.blurb ?? "what it does and how to build it"}`);
-  return frame({ path: from, title: `${i.name} (industry)`, description: desc, crumbs: [{ section: "industries", slug: "", name: SECTIONS.industries.title }], heading: esc(i.name), body });
+  return frame({ path: from, title: `${i.name} (industry)`, description: desc, crumbs: [{ section: "industries", slug: "", name: SECTIONS.industries.title }], heading: esc(i.name), body, image: i });
 }
 
 function goodPage(g: GoodData): Page {
@@ -242,7 +252,7 @@ function vehiclePage(d: WikiData, v: VehicleData): Page {
   const from = pathOf(v);
   const e = v.engine;
   const made = v.gift ? `<span class="muted">A gift: it can't be made at the workshop</span>` : costChips(from, d.goods, v.price);
-  const body = `${v.blurb ? `<p class="lead">${esc(v.blurb)}</p>` : ""}${v.detail ? `<p>${esc(v.detail)}.</p>` : ""}
+  const body = `${picture(from, v, "pic hero")}${v.blurb ? `<p class="lead">${esc(v.blurb)}</p>` : ""}${v.detail ? `<p>${esc(v.detail)}.</p>` : ""}
 ${facts([
   e ? ["Pulls", plural(e.pulls, "car")] : null,
   e ? ["Top speed", esc(times(e.speed))] : null,
@@ -255,7 +265,7 @@ ${facts([
 ])}`;
   const what = e ? `pulls ${plural(e.pulls, "car")} at ${e.speed === 1 ? "the classic speed" : `${e.speed}× the classic speed`}` : v.carries.length ? `carries ${v.carries.map(goodWord).join(", ")}` : (v.blurb ?? v.detail ?? "a wagon");
   const desc = clip(`The ${v.name} in Woodrail ${what}. ${v.row ? `Unlocked by ${v.row.name}.` : "Yours from the start."}`);
-  return frame({ path: from, title: `${v.name} (${e ? "engine" : "wagon"})`, description: desc, crumbs: [{ section: v.section, slug: "", name: SECTIONS[v.section].title }], heading: esc(v.name), body });
+  return frame({ path: from, title: `${v.name} (${e ? "engine" : "wagon"})`, description: desc, crumbs: [{ section: v.section, slug: "", name: SECTIONS[v.section].title }], heading: esc(v.name), body, image: v });
 }
 
 function guidePage(g: GuideData): Page {
@@ -270,7 +280,7 @@ ${g.seeAlso.length ? `<h2>See also</h2>${links(from, g.seeAlso)}` : ""}`;
 // ---- index pages and home ----------------------------------------------------------------------------------------
 
 const cardList = (from: string, items: readonly { ref: Ref; line: string; icon?: string; band?: string }[]): string =>
-  `<ul class="cards">${items.map((it) => `<li${it.band ? ` style="--band:${esc(it.band)}"` : ""}><a href="${rel(from, pathOf(it.ref))}"><strong>${it.icon ?? ""}${esc(it.ref.name)}</strong><span>${esc(it.line)}</span></a></li>`).join("")}</ul>`;
+  `<ul class="cards">${items.map((it) => `<li${it.band ? ` style="--band:${esc(it.band)}"` : ""}><a href="${rel(from, pathOf(it.ref))}">${picture(from, it.ref, "card-pic")}<strong>${it.icon ?? ""}${esc(it.ref.name)}</strong><span>${esc(it.line)}</span></a></li>`).join("")}</ul>`;
 
 function indexPage(d: WikiData, s: Section): Page {
   const from = `${s}/`;

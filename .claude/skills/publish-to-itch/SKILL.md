@@ -46,6 +46,8 @@ Run these from a clean worktree of `$C`, not a tree you're editing:
   as it is on main. Never add seeds to `KNOWN_WORSE` to make a release pass.
 - `npm run perf:check` after the build (about 16 min): the frame, draw-call, bundle and memory budgets.
 - For a release that touched balance, also `npm run balance:sweep`.
+- `npm run wiki:pictures` after the build: the wiki's pictures drawn again from this build's models. If any changed
+  (`git status src/wiki/pictures`), commit them to main with the devlog: the wiki shows them once that's deployed.
 
 If the commit already went through the coordinator's gate with these suites on the same tree (`git rev-parse
 $C^{tree}`), you can cite that run instead of running it again.
