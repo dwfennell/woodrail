@@ -16,7 +16,7 @@ function stubMaterials(): Materials {
   return new Proxy({ lacquer } as unknown as Materials, { get: (t, k) => (k in t ? t[k as keyof Materials] : m()) });
 }
 
-/** Triangles in a built model, as the props draw it (`PROP_DETAIL` 0.5; underlays left out, as `bake` does). */
+/** Triangles in a built model, as the props draw it (underlays left out, as `bake` does). */
 function triangles(root: Object3D): number {
   let n = 0;
   root.traverse((o) => {
@@ -35,18 +35,27 @@ function triangles(root: Object3D): number {
  * is about 2,100, the playground 2,200, the fountain 1,200.
  */
 const BUDGET = { grand: 14000 } as const;
+/**
+ * A finished stage's: a city's trophy, looked at close, so built at full detail (`Asset.detail`) or in Blender
+ * (tools/blender/grand.py). The biggest: Grand Central at full detail, about 39,300; the Exhibition hall on its opening
+ * day in Blender, about 38,400.
+ */
+const FINISHED_BUDGET = 40000;
 
 const kit = new Kit(stubMaterials(), 0.5);
+/** Built as the props are: at half detail (`PROP_DETAIL`), or its own. */
+const kitOf = (detail = 0.5) => (detail === 0.5 ? kit : new Kit(stubMaterials(), detail));
 const listed = new Set(PROP_TABS.flatMap((t) => t.shelves).flatMap((s) => s.assets));
 
 describe("grand projects' models", () => {
   for (const [kind, list] of [["grand", grand]] as const) {
     for (const a of list) {
-      it(`${a.id} builds under ${BUDGET[kind]} triangles, loads by its file and is on a Sandbox shelf`, () => {
-        const root = a.build(kit);
+      const budget = a.detail ? FINISHED_BUDGET : BUDGET[kind];
+      it(`${a.id} builds under ${budget} triangles, loads by its file and is on a Sandbox shelf`, () => {
+        const root = a.build(kitOf(a.detail));
         const tris = triangles(root);
         expect(tris, a.id).toBeGreaterThan(50);
-        expect(tris, a.id).toBeLessThan(BUDGET[kind]);
+        expect(tris, a.id).toBeLessThan(budget);
         expect(fileOf(a.id)).toBe(kind);
         expect(listed.has(a.id), a.id).toBe(true);
         a.animate?.(root, 2);

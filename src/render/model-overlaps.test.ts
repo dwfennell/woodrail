@@ -12,7 +12,7 @@ import { loadModelSet, type ModelSet } from "./blender-models";
  * down are skipped: they sit on the floor, never seen.
  */
 
-const SETS: ModelSet[] = ["trains", "life", "buildings", "dressing", "industry", "floors"];
+const SETS: ModelSet[] = ["trains", "life", "buildings", "dressing", "industry", "floors", "grand"];
 /** Two faces this close (mm) count as in one plane. */
 const SAME_PLANE = 0.05;
 /** Two parts' faces overlapping by less than this much in all (mm²) are a seam or a sliver, not a fight. */

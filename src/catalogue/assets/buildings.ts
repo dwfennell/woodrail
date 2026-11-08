@@ -100,6 +100,8 @@ export const ASSETS: Asset[] = [
     tags: ["observatory", "telescope", "dome", "stars", "hilltop", "station"],
     notes: "A white tower under a silver dome, its telescope looking out, and a platform along the line. In Game mode, the Observatory research: a halt on a hilltop where stargazers ride to from any town, at three times the fare.",
     build: (k) => buildObservatory(k),
+    // (Seen close, at the end of a viaduct: its dome round.)
+    detail: 1,
   },
   {
     id: "bldg-harbour-station",

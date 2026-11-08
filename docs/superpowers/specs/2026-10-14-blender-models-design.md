@@ -156,3 +156,21 @@ apartment block's 24); the rounded edges leave a groove at each join. Each house
 They're built into a file of their own, `public/models/floors.glb` (`tools/blender/floors.py`, 642 KB), which nothing
 loads yet, so they cost nothing until the feature uses them: it adds "floors" to `ModelSet` and loads it with
 `loadModelSet("floors", true)`.
+
+## 9. Grand projects' finished buildings
+
+`tools/blender/grand.py` builds `public/models/grand.glb`: the Exhibition hall (`grand-exhibition-3`, and `-4`, its
+opening day) and the Cathedral (`grand-cathedral-3`, `-4`, its stained glass), ported from `grand.ts` line for line in
+its frame (the cathedral's 1.2 scale baked in). The catalogue's `grand` file waits for the set as it loads (registry
+`MODEL_SETS`), so it's fetched the first time a grand project is drawn, never at boot: 460 KB, 149 KB gzipped.
+
+- **Why these two:** a city's trophies, looked at close. The building sites (stages 0 to 2) stay in the Kit, seen for a
+  while only. So do Grand Central (a kit piece: real track runs through it, its model sized to the kit), the World's
+  Fair wheel (its gondolas are drawn from one and tinted one by one) and the Royal Train (the game's own Kit cars,
+  `royal-train.ts`): those three are built at full Kit detail instead (`Asset.detail`).
+- **Lean small parts:** people, lamps, flags, bunting, stands and elms through a lean kit (`k.small`), and the iron
+  ribs' tubes 8 round (`ring(..., tube_segments)`). Full detail everywhere made the opening day 63k triangles; it's
+  38k (the code at full detail: 50k; at the props' half: 13.6k). The cathedral with its glass: 24k (27k; 8k).
+- **Nudged from grand.ts** where two parts' faces met in one plane (model-overlaps.test.ts): the cornice a millimetre
+  longer, the iron columns 3.8 wide, the glass vault 0.4 shorter than its ridge, the porch's pediment 27 deep, the
+  bunting's flags 0.5 thick. Each is commented where it's made.

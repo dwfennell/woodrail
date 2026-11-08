@@ -267,10 +267,11 @@ class Kit:
         n.position.set(x, y + length / 2 + r, z)
         return n
 
-    def ring(self, mat, r, tube, x=0, y=0, z=0, upright=False, arc=math.pi * 2):
-        """A torus lying flat in x/z (upright: in the x/y plane), centred at (x, y, z); `arc` for part of one."""
+    def ring(self, mat, r, tube, x=0, y=0, z=0, upright=False, arc=math.pi * 2, tube_segments=None):
+        """A torus lying flat in x/z (upright: in the x/y plane), centred at (x, y, z); `arc` for part of one;
+        `tube_segments` round its tube (by default by its size)."""
         nu = _segs(32, r)
-        nv = _segs(12, tube, 0.6, 16)
+        nv = tube_segments or _segs(12, tube, 0.6, 16)
         full = arc >= math.pi * 2 - 1e-6
         steps = nu if full else max(4, math.ceil(nu * arc / (2 * math.pi)))
         bm = bmesh.new()

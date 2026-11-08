@@ -1,4 +1,5 @@
 import { Group, type Object3D } from "three";
+import { catalogueModel, loadModelSet } from "../../render/blender-models";
 import { TOY, type Kit } from "../kit";
 import { goodsStacks, named, pennant, plinth, ribs, scaffold, stick, towerCrane, vault } from "../build-parts";
 import type { Asset } from "../types";
@@ -15,6 +16,12 @@ const GLASS = "#bcdcea";
  */
 
 export type Stage = 0 | 1 | 2 | 3 | 4;
+
+/**
+ * The finished buildings, made in Blender (tools/blender/grand.py: the Exhibition hall and the Cathedral, stages 3 and
+ * 4): waited for when this file loads. The building sites, and the other projects, are built here.
+ */
+const MODELS = await loadModelSet("grand", true);
 
 const CAT = "Stations & buildings" as const;
 
@@ -890,8 +897,14 @@ export const ASSETS: Asset[] = PROJECTS.flatMap((p) =>
       category: p.id === "grand-royal-train" ? "Trains" : CAT,
       tags: [...p.tags, `stage ${stage}`],
       notes: stage === p.stages ? p.notes : stage === 0 ? `${p.name}'s plot, fenced off and marked out, before its first goods arrive.` : `${p.name}, ${name} (stage ${stage} of ${p.stages}): the building site as the goods arrive.`,
-      build: (k: Kit) => (stage === 0 ? plot(k, SITES[p.id], SIGN[p.id]) : p.build(k, stage)),
+      build: (k: Kit) => {
+        const model = MODELS.get(`${p.id}-${stage}`);
+        return model ? catalogueModel(model, k) : stage === 0 ? plot(k, SITES[p.id], SIGN[p.id]) : p.build(k, stage);
+      },
       animate: stage >= 3 ? p.animate : undefined,
+      // (Finished, a city's trophy, looked at close: at full detail, where it's not modelled in Blender. The building
+      // site is seen for a while only.)
+      detail: stage >= 3 ? 1 : undefined,
     };
   }),
 );

@@ -17,6 +17,11 @@ export interface Asset {
   /** Already in the game (shown for reference)? */
   inGame?: boolean;
   /**
+   * The Kit's detail when the game builds it as a prop (see `Kit`): props are built at half (small on screen, and many);
+   * 1 for the few that players look at close up, whose round shapes show their facets at half (a dome, a hull).
+   */
+  detail?: number;
+  /**
    * Build it (standing on y = 0, facing +x). Parts marked `userData.underlay` (a strip of river under a bridge) are for
    * showing it off in the catalogue, and are left out in the game.
    */
