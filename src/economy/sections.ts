@@ -607,7 +607,8 @@ export class Sections {
    */
   onFull: ((lineId: number, room: number, trains: number, more: number) => void) | null = null;
   /** Loops on each line's way, by its stops and the track's revisions. */
-  private readonly loopCount = new Map<number, { key: string; topo: Topology; n: number; set: ReadonlySet<number>; way: ReadonlySet<number>; regions: ReadonlySet<number>; pinnedLoop: boolean }>();
+  // (`n` is as last asked (`shared` or not: see `loopsOn`); `plain` and `withSignals` are both, worked out together.)
+  private readonly loopCount = new Map<number, { stops: readonly number[]; revision: number; topo: Topology; slotCount: number; n: number; plain: number; withSignals: number; set: ReadonlySet<number>; way: ReadonlySet<number>; regions: ReadonlySet<number>; pinnedLoop: boolean }>();
   /** Engines just granted a move: steer them now. */
   readonly steerSoon = new Set<number>();
   /**
@@ -2747,22 +2748,30 @@ export class Sections {
    */
   private loopsOn(lineId: number, topo: Topology, shared = false): number {
     const stops = this.host.stopPieces(lineId);
-    const key = `${stops.join(",")}|${this.layout.revision}:${topo.slots.length}:${shared ? 1 : 0}`;
     const hit = this.loopCount.get(lineId);
-    // (The same topology too: pinning a loop's switches changes it, not the track's revision.)
-    if (hit && hit.key === key && hit.topo === topo) return hit.n;
+    // (Kept by its stops, the track's revision and the topology (pinning a loop's switches changes it, not the track's
+    // revision). Only the count depends on `shared`, so both are worked out at once: `line` asks for a line both ways
+    // in a tick (`turns`), and keyed by `shared` too it was worked out afresh at every ask.)
+    if (hit && hit.topo === topo && hit.revision === this.layout.revision && hit.slotCount === topo.slots.length && sameNumbers(hit.stops, stops)) {
+      hit.n = shared ? hit.withSignals : hit.plain;
+      return hit.n;
+    }
     const loops = new Set<number>();
     const way = this.wayOf(lineId);
     let slots = 0;
+    let signalSlots = 0;
     for (const piece of way) {
       const s = topo.slotOf.get(piece);
       if (s === undefined) continue;
       // (A waiting point alone doesn't make a line managed: an oval with signals is the sim's block working, §3.4.)
       // (Sharing a network with other lines, signals' waiting points count too: it takes its turns with theirs.)
-      if (topo.slots[s].kind !== "signal" || shared) slots++;
+      if (topo.slots[s].kind !== "signal") slots++;
+      else signalSlots++;
       if (topo.slots[s].kind === "road") loops.add(topo.slots[s].loop);
     }
-    const n = slots === 0 ? -1 : loops.size;
+    const plain = slots === 0 ? -1 : loops.size;
+    const withSignals = slots + signalSlots === 0 ? -1 : loops.size;
+    const n = shared ? withSignals : plain;
     // (Its network: the slots and sections its ways run through, and its loops' other roads. A train elsewhere, on
     // track it doesn't use or a layout of its own, is none of its business.)
     const regions = new Set<number>();
@@ -2787,7 +2796,7 @@ export class Sections {
     }
     // (A loop on its way pinned so every train takes one road: no passing place till it's unpinned.)
     const pinnedLoop = topo.pinnedLoops.some((pl) => pl.pieces.some((p) => way.has(p)));
-    this.loopCount.set(lineId, { key, topo, n, set: loops, way, regions, pinnedLoop });
+    this.loopCount.set(lineId, { stops, revision: this.layout.revision, topo, slotCount: topo.slots.length, n, plain, withSignals, set: loops, way, regions, pinnedLoop });
     return n;
   }
 
@@ -2949,6 +2958,13 @@ const NO_NETWORK: ReadonlyMap<number, { topo: Topology; lines: readonly number[]
  * card), whichever way round it runs: its first car is a wagon once it's reversed. Its first car when it has none.
  */
 const nameOf = engineOf;
+
+/** The same numbers in the same order? */
+function sameNumbers(a: readonly number[], b: readonly number[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 
 /** A piece's slot (its id) or section (−1 − its id), as one number; null for a piece in neither. */
 function regionOf(topo: Topology, pieceId: number): number | null {
