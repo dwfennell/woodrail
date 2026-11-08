@@ -244,9 +244,9 @@ export function inUse(world: World, id: ThingId): number {
     if (name.startsWith("depot-")) for (const pid of world.depots.values()) if (world.layout.getPiece(pid)?.type === name) n--;
   } else if (kind === "look") {
     // (A train in that look: its engines in it, one each.)
-    for (const tid of world.sim.trainIds()) for (const c of world.sim.getTrain(tid)!.cars) if (c.kind === "engine" && world.sim.lookOf(c.id) === name) n++;
+    for (const t of world.sim.trains()) for (const c of t.cars) if (c.kind === "engine" && world.sim.lookOf(c.id) === name) n++;
   } else {
-    for (const tid of world.sim.trainIds()) for (const c of world.sim.getTrain(tid)!.cars) if (c.kind === name) n++;
+    for (const t of world.sim.trains()) for (const c of t.cars) if (c.kind === name) n++;
   }
   return n;
 }

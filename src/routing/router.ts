@@ -92,7 +92,7 @@ export type LeverResult = { ok: true } | { refused: "under-train" } | { deferred
 /** What the router asks of the game (the economy): its routed trains and their stops, and sections' hints. */
 export interface RouterHost {
   readonly layout: Layout;
-  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trainIds" | "getTrain" | "trainByKey" | "ticks" | "trainCount" | "hasSignals" | "pathSignalAt"> & { onTurnedRound?: Sim["onTurnedRound"] };
+  readonly sim: Pick<Sim, "findCar" | "piecesUnder" | "pointsHeld" | "toggleSwitch" | "trains" | "getTrain" | "trainByKey" | "ticks" | "trainCount" | "hasSignals" | "pathSignalAt"> & { onTurnedRound?: Sim["onTurnedRound"] };
   /** The routed engines, in the order they're steered (the economy's routes). */
   readonly routed: { readonly size: number; keys(): Iterable<number>; has(engine: number): boolean };
   /** The piece of a routed engine's next stop (or the via point it's aimed at on the way, §3.5); −1 while none on the map. */
@@ -268,9 +268,9 @@ export class Router {
       }
       return this.bookings;
     }
-    for (const id of sim.trainIds()) {
-      const t = sim.getTrain(id);
-      const stamp = !t || t.derailed ? 0 : coverStamp(layout, t);
+    for (const t of sim.trains()) {
+      const id = t.id;
+      const stamp = t.derailed ? 0 : coverStamp(layout, t);
       if (stamps.get(id) === stamp) continue;
       this.bookings.releaseAll(id, "under");
       if (stamp === 0) {
@@ -278,7 +278,7 @@ export class Router {
         continue;
       }
       stamps.set(id, stamp);
-      for (const [p, m] of this.underCache.of(layout, t!)) this.bookings.hold(p, id, m, "under");
+      for (const [p, m] of this.underCache.of(layout, t)) this.bookings.hold(p, id, m, "under");
     }
     if (stamps.size > sim.trainCount)
       for (const id of [...stamps.keys()])
@@ -813,8 +813,7 @@ export class Router {
     const seen = this.handSeen;
     seen.clear();
     if (sim.trainCount >= 2)
-      for (const id of sim.trainIds()) {
-        const train = sim.getTrain(id)!;
+      for (const train of sim.trains()) {
         if (train.derailed || train.turnback >= 0) continue;
         let engine = -1;
         let routedHere = false;

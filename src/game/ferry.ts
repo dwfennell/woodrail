@@ -181,8 +181,7 @@ export class Ferries {
   /** A train standing on the slip's piece whose route calls at the slip (one going nowhere else isn't taken). */
   private trainAt(world: World, slip: number, pieceId: number) {
     const { economy, sim } = world;
-    for (const id of sim.trainIds()) {
-      const t = sim.getTrain(id)!;
+    for (const t of sim.trains()) {
       if (Math.abs(t.speed) > 1 || !t.bogies.some((b) => b.pieceId === pieceId)) continue;
       if (t.cars.some((c) => this.tripOf(c.id) || this.back.has(c.id))) continue;
       const routed = t.cars.some((c) => c.kind === "engine" && economy.routeOf(c.id)?.stops.some((s) => s.depotId === slip));

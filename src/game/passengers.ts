@@ -191,8 +191,7 @@ export function isView(world: World, pieceId: number): boolean {
  * a few seconds to cross even a short bridge. Only trains with an observation car and riders are looked at.
  */
 export function noteViews(world: World): void {
-  for (const id of world.sim.trainIds()) {
-    const t = world.sim.getTrain(id)!;
+  for (const t of world.sim.trains()) {
     if (!hasObservation(world, t.cars)) continue;
     let seen = false;
     for (const b of t.bogies)

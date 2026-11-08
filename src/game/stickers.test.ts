@@ -339,7 +339,7 @@ describe("milestone stickers", () => {
     const t = new StickerTracker();
     // (A stand-in sim: so many trains, each running or stopped.)
     let speeds: number[] = [];
-    const sim = { trainIds: () => speeds.map((_, i) => i), getTrain: (i: number) => ({ derailed: false, speed: speeds[i] }) };
+    const sim = { trains: () => speeds.map((speed, id) => ({ id, derailed: false, speed })).values() };
     const v = Object.assign(Object.create(Object.getPrototypeOf(w)), w, { sim }) as World;
     speeds = [...Array(BUSY_TRAINS - 1).fill(100), 0, 0];
     expect(earn(t, v)).not.toContain("five-trains");

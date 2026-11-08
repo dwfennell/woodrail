@@ -194,8 +194,7 @@ export class Breakdown {
   /** Crane trains on the map: their crane car's id, the train, and whether it's free to send (no job, on no line, railed). */
   cranes(): { crane: number; train: Train; free: boolean; idle: boolean }[] {
     const out: { crane: number; train: Train; free: boolean; idle: boolean }[] = [];
-    for (const id of this.sim.trainIds()) {
-      const t = this.sim.getTrain(id)!;
+    for (const t of this.sim.trains()) {
       const crane = t.cars.find((c) => c.kind === "crane");
       if (!crane) continue;
       const engines = t.cars.filter((c) => c.kind === "engine");
@@ -272,8 +271,7 @@ export class Breakdown {
     // (A train the player called the crane off from, put right or gone since: forgotten.)
     for (const id of this.calledOff) if (!this.sim.findCar(id)?.train.derailed) this.calledOff.delete(id);
     let derailed: Train[] | null = null;
-    for (const id of this.sim.trainIds()) {
-      const t = this.sim.getTrain(id)!;
+    for (const t of this.sim.trains()) {
       if (t.derailed && t.cars.length > 0 && !this.jobFor(t.cars[0].id) && !t.cars.some((c) => this.calledOff.has(c.id))) (derailed ??= []).push(t);
     }
     if (!derailed) return;

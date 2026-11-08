@@ -33,8 +33,8 @@ export interface TrainInReach {
 export function trainsInReach(world: Pick<World, "layout" | "sim" | "props">, x: number, z: number, wired: boolean): TrainInReach[] {
   const points = [{ x, z }, ...(wired ? wiredPoles(world.props, x, z) : [])];
   const out: TrainInReach[] = [];
-  for (const id of world.sim.trainIds()) {
-    const train = world.sim.getTrain(id)!;
+  for (const train of world.sim.trains()) {
+    const id = train.id;
     const engine = train.cars.find((c) => c.kind === "engine");
     if (!engine || train.derailed) continue;
     let best = Infinity;

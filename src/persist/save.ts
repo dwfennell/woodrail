@@ -117,8 +117,8 @@ export function serializeWorld(world: World): SaveData {
   const lineSaved = new Map<number, { id: number; next: number }>();
   const savedLine = new Map<object, number>();
   let spareId = Math.max(0, ...world.economy.lines.keys()) + 1;
-  for (const id of sim.trainIds())
-    for (const car of sim.getTrain(id)!.cars) {
+  for (const t of sim.trains())
+    for (const car of t.cars) {
       const r = world.economy.routeOf(car.id);
       if (!r) continue;
       const line = world.economy.lines.get(world.economy.lineIdOf.get(car.id) ?? -1);
@@ -147,8 +147,7 @@ export function serializeWorld(world: World): SaveData {
     savedLine.set(line.stops, line.id);
     lines.push({ id: line.id, colour: line.colour, name: line.name, stops });
   }
-  const trains: SaveData["trains"] = sim.trainIds().map((id) => {
-    const t = sim.getTrain(id)!;
+  const trains: SaveData["trains"] = [...sim.trains()].map((t) => {
     return {
       cars: t.cars.map((c) => {
         const cargo = world.economy.cargoOf(c.id);

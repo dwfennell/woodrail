@@ -532,6 +532,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       rerailAll: () => {
         let n = 0;
+        // (The ids, a copy: a train re-railed is put back under a new id, at the end of the trains.)
         for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed && game.rerail(id) !== -1) n++;
         hud.toast(n ? `Re-railed ${n} train${n > 1 ? "s" : ""}` : "Nothing to re-rail");
         scheduleSave();
@@ -677,7 +678,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           view: { camera: [c.x, c.y, c.z].map(Math.round), target: [t.x, t.y, t.z].map(Math.round) },
           screen: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, pixelRatio: game.renderer.getPixelRatio(), touch: matchMedia("(pointer: coarse)").matches },
           quality: game.quality.tier,
-          counts: { pieces: game.layout.pieceCount, trains: game.sim.trainIds().length, props: game.props.size },
+          counts: { pieces: game.layout.pieceCount, trains: game.sim.trainCount, props: game.props.size },
           hand: interaction.debugState(),
           trains: trainsForReport(game.sim, game.economy, game.layout, whyCantMove()),
           userAgent: navigator.userAgent,
@@ -1411,7 +1412,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!timberHinted && mode === "sandbox" && game.landscape.depots.length > 0) {
       timberHinted = true;
       window.setTimeout(() => {
-        const hasTimber = game.sim.trainIds().some((id) => game.sim.getTrain(id)?.cars.some((c) => c.kind === "timber"));
+        let hasTimber = false;
+        for (const t of game.sim.trains()) if (t.cars.some((c) => c.kind === "timber")) hasTimber = true;
         if (!hasTimber) hud.toast("Try a flatbed train: forest logs → sawmill → planks for the towns", false, 6000);
       }, 3500);
     }
@@ -2071,10 +2073,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
   /** A train waiting under a crane for a full load (its engine's car id), or null: Leave now's tip. */
   function waitingEngineNow(): number | null {
-    for (const id of game.sim.trainIds()) {
-      const t = game.sim.getTrain(id);
-      const engine = t?.cars.find((c) => c.kind === "engine");
-      if (engine && game.economy.waitingToFill(id)) return engine.id;
+    for (const t of game.sim.trains()) {
+      const engine = t.cars.find((c) => c.kind === "engine");
+      if (engine && game.economy.waitingToFill(t.id)) return engine.id;
     }
     return null;
   }
@@ -3084,8 +3085,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (The picker shows the counts only as requirements met, or riders: the workshop's clock sees those in its key.)
     counters.collect(game.economy, progress);
     // A train set going that's too heavy for its engines says so, once.
-    for (const id of game.sim.trainIds()) {
-      const t = game.sim.getTrain(id)!;
+    for (const t of game.sim.trains()) {
+      const id = t.id;
       const why = t.cars.some((c) => c.kind === "engine" && c.lever !== 0) ? tooHeavy(game.world, t) : null;
       if (why && !warnedHeavy.has(id)) hud.toast(why, false, 4200);
       if (why) warnedHeavy.add(id);
@@ -3127,16 +3128,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * planks the workshop would take, once per workshop. Once a second: a lookup per bogie of each train.
    */
   function storeToasts(): void {
-    for (const id of game.sim.trainIds()) {
-      const d = game.economy.storeItSkips(id);
-      if (!d || storesTold.has(d.id)) continue;
-      const t = game.sim.getTrain(id);
-      if (!t || game.economy.routeOfTrain(t)) continue;
+    for (const t of game.sim.trains()) {
+      const d = game.economy.storeItSkips(t.id);
+      if (!d || storesTold.has(d.id) || game.economy.routeOfTrain(t)) continue;
       storesTold.add(d.id);
       hud.toast(STORE_NO_ROUTE, false, 4200);
     }
     // A routed train passing the workshop with planks, no stop there: it keeps them (once per workshop).
-    for (const id of game.sim.trainIds()) {
+    for (const { id } of game.sim.trains()) {
       const kept = game.economy.keptAt(id);
       if (!kept || kept.why !== "not-stop" || kept.depot.role !== "workshop" || shopsTold.has(kept.depot.id)) continue;
       shopsTold.add(kept.depot.id);
@@ -4434,7 +4433,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The free trains list, cached: worked out (paths searched) only when what it depends on changes, or a second on. */
   let freeCache = { key: "", at: 0, free: [] as number[] };
   function freeCached(id: number): number[] {
-    const key = `${id}|${game.trackVersion}|${game.layout.switchesVersion}|${game.sim.trainIds().length}|${game.economy.lineIdOf.size}|${game.economy.lines.get(id)?.stops.map((s) => s.depotId).join(",")}`;
+    const key = `${id}|${game.trackVersion}|${game.layout.switchesVersion}|${game.sim.trainCount}|${game.economy.lineIdOf.size}|${game.economy.lines.get(id)?.stops.map((s) => s.depotId).join(",")}`;
     const now = performance.now();
     if (key !== freeCache.key || now - freeCache.at > 1000) freeCache = { key, at: now, free: freeFor(id) };
     return freeCache.free;
@@ -6040,10 +6039,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    */
   function freeTrains(ok: (engine: number) => boolean, near: readonly Vector3[]): number[] {
     const out: { e: number; d: number }[] = [];
-    for (const id of game.sim.trainIds()) {
-      const t = game.sim.getTrain(id);
-      const engine = t?.cars.find((c) => c.kind === "engine");
-      if (!t || t.derailed || !engine || game.economy.lineIdOf.has(engine.id) || !ok(engine.id)) continue;
+    for (const t of game.sim.trains()) {
+      const engine = t.cars.find((c) => c.kind === "engine");
+      if (t.derailed || !engine || game.economy.lineIdOf.has(engine.id) || !ok(engine.id)) continue;
       const at = trainSpot(engine.id);
       out.push({ e: engine.id, d: at && near.length > 0 ? Math.min(...near.map((p) => p.distanceTo(at))) : 0 });
     }
@@ -7036,8 +7034,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return Math.abs(c.x) <= 1 && Math.abs(c.y) <= 1 && c.z < 1 ? listen(x, z) : null;
     });
     if (rung) audio.crossingBell(rung[0], rung[1]);
-    for (const id of game.sim.trainIds()) {
-      const t = game.sim.getTrain(id)!;
+    for (const t of game.sim.trains()) {
       if (t.derailed || t.speed < 5 || !t.cars.some((c) => c.kind === "engine" && c.lever !== 0)) continue;
       hum += listen(t.world[0].x, t.world[0].z)[0];
     }
@@ -7116,7 +7113,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showRefusals();
     showEmpty();
     let derailed = false;
-    for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
+    for (const t of game.sim.trains()) if (t.derailed) derailed = true;
     hud.setRerailVisible(derailed);
     showCraneNews();
     if (dt > 0) fps += (1 / dt - fps) * 0.05;

@@ -99,7 +99,7 @@ function wayInto(layout: Layout, t: Train, goal: number, box: ReadonlySet<number
 
 export function boxedConvoy(run: HarnessRun): boolean {
   const { sim, layout } = run;
-  const trains = sim.trainIds().map((id) => sim.getTrain(id)!);
+  const trains = [...sim.trains()];
   const engineOf = (t: Train) => t.cars.find((c) => c.kind === "engine")?.id ?? -1;
   const stuck = trains.filter((t) => run.stalls.stuckOf(engineOf(t)) !== null);
   const routed = stuck.filter((t) => run.routed(engineOf(t)));

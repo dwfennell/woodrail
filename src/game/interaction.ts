@@ -920,10 +920,7 @@ export class Interaction {
   private trainGap(): number {
     const g = this.game;
     let len = 0;
-    for (const id of g.sim.trainIds()) {
-      const t = g.sim.getTrain(id);
-      if (t && !t.derailed) len = Math.max(len, trainLength(t));
-    }
+    for (const t of g.sim.trains()) if (!t.derailed) len = Math.max(len, trainLength(t));
     if (len === 0) len = CAR_SPECS.engine.length + 2 * CAR_SPECS.timber.length + 2 * COUPLER_GAP;
     return len + 2 * 6;
   }
@@ -1126,10 +1123,7 @@ export class Interaction {
   private markWaits(at: number): boolean {
     const g = this.game;
     let len = 0;
-    for (const id of g.sim.trainIds()) {
-      const t = g.sim.getTrain(id);
-      if (t && !t.derailed) len = Math.max(len, trainLength(t));
-    }
+    for (const t of g.sim.trains()) if (!t.derailed) len = Math.max(len, trainLength(t));
     if (len === 0) len = CAR_SPECS.engine.length + 2 * CAR_SPECS.timber.length + 2 * COUPLER_GAP;
     return topologyOf(g.layout, len).slots.some((s) => s.kind === "signal" && s.mark === at);
   }
@@ -3114,9 +3108,8 @@ export class Interaction {
     this.wagonCheckAt = now;
     const { sim, economy } = this.game;
     let warn = "";
-    for (const id of sim.trainIds()) {
-      const t = sim.getTrain(id);
-      if (!t || t.speed > 1 || !t.bogies.some((b) => economy.depotAtPiece(b.pieceId) === d) || !t.cars.some((c) => carCarries(c.kind))) continue;
+    for (const t of sim.trains()) {
+      if (t.speed > 1 || !t.bogies.some((b) => economy.depotAtPiece(b.pieceId) === d) || !t.cars.some((c) => carCarries(c.kind))) continue;
       const h = loadHint(t, (pieceId) => economy.depotAtPiece(pieceId), null);
       if (h && h.depot === d && h.why === "wagon") {
         const need = needsWagonText(h.kind);
@@ -5378,8 +5371,8 @@ export class Interaction {
     // Two trains each with an engine stay two trains (each keeps its own route): wagons join a train, an engine
     // joins wagons.
     const heldEngine = cars.some((c) => c.kind === "engine");
-    for (const id of sim.trainIds()) {
-      const t = sim.getTrain(id)!;
+    for (const t of sim.trains()) {
+      const id = t.id;
       if (t.derailed || (heldEngine && t.cars.some((c) => c.kind === "engine"))) continue;
       const ends = [t.world[0], t.world[t.world.length - 1]];
       ends.forEach((w, k) => {
@@ -6525,9 +6518,7 @@ export class Interaction {
       v.set(p.x, p.y + CAR_BODY_MID_MM, p.z).project(this.game.camera);
       return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
     };
-    for (const trainId of sim.trainIds()) {
-      const t = sim.getTrain(trainId);
-      if (!t) continue;
+    for (const t of sim.trains()) {
       t.cars.forEach((car, i) => {
         const a = t.world[2 * i];
         const b = t.world[2 * i + 1];

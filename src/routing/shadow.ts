@@ -533,8 +533,7 @@ export class ReservationShadow {
 
   private *allTrains(): Iterable<{ key: number; engine: number }> {
     const { sim } = this.world;
-    for (const id of sim.trainIds()) {
-      const t = sim.getTrain(id)!;
+    for (const t of sim.trains()) {
       const e = t.cars.find((c) => c.kind === "engine") ?? t.cars[0];
       yield { key: e.id, engine: e.id };
     }

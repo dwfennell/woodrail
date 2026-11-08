@@ -648,8 +648,7 @@ export class HarnessRun implements InvariantWorld {
 
   private record(): void {
     let s = "";
-    for (const id of this.sim.trainIds()) {
-      const t = this.sim.getTrain(id)!;
+    for (const t of this.sim.trains()) {
       s += `T:${t.speed}:${t.derailed ? 1 : 0}`;
       for (const b of t.bogies) s += `|${b.pieceId},${b.pathIndex},${b.reversed ? 1 : 0},${b.s}`;
     }

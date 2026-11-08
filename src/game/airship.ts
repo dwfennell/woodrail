@@ -47,8 +47,8 @@ export function tourSights(world: Pick<World, "layout" | "landscape" | "sim">, a
   }
   const towns = world.landscape.towns.filter((t) => near(t.centre.x, t.centre.z)).length;
   let trains = 0;
-  for (const id of world.sim.trainIds()) {
-    const b = world.sim.getTrain(id)!.bogies[0];
+  for (const t of world.sim.trains()) {
+    const b = t.bogies[0];
     const p = b && world.layout.getPiece(b.pieceId);
     if (p && near(p.pose.x, p.pose.z)) trains++;
   }

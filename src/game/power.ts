@@ -59,8 +59,8 @@ export interface PowerPlan {
 /** Electric engines on the map: car ids, oldest (lowest id) first. */
 export function electricEngines(world: Pick<World, "sim">): number[] {
   const out: number[] = [];
-  for (const id of world.sim.trainIds()) {
-    for (const c of world.sim.getTrain(id)!.cars) if (c.kind === "engine" && world.sim.lookOf(c.id) === ELECTRIC) out.push(c.id);
+  for (const t of world.sim.trains()) {
+    for (const c of t.cars) if (c.kind === "engine" && world.sim.lookOf(c.id) === ELECTRIC) out.push(c.id);
   }
   return out.sort((a, b) => a - b);
 }
