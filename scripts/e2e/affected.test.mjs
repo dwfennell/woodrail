@@ -73,7 +73,8 @@ describe("classifyCss", () => {
   });
 });
 
-describe("affected, on real commits", () => {
+// (Each reads two commits' trees from git: a few seconds on a busy CI runner, past the 5 s default (unit 2/4, run 42471175121).)
+describe("affected, on real commits", { timeout: 60_000 }, () => {
   it.skipIf(!has("92e325b5"))("92e325b5 (e2e train-summary: Delete cargo's words): train-summary and the copy smoke", () => {
     expect(pick("92e325b5^", "92e325b5").suites).toEqual({ "train-summary": "all", ...smokeOnly });
   });
