@@ -908,9 +908,12 @@ export class Hud {
       if (missing.length > 0) this.handlers.needThumbnails(missing.splice(0));
       if (kits.length > 0) this.handlers.kitsShown?.(kits.splice(0));
     };
+    /** The shelf shown now (its label), or null on a tab's top level. */
+    let shownShelf: string | null = null;
     // Top level: one button per group; open one to see its items, with a way back first in the row.
     const showGroups = (groups: TrayGroup[]) => {
       this.trayGlide++;
+      shownShelf = null;
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.remove("in-group");
@@ -937,6 +940,8 @@ export class Hud {
     };
     const showItems = (groups: TrayGroup[], group: TrayGroup, back = true) => {
       this.trayGlide++;
+      // (A tab with only the one shelf shows its items straight away: not a shelf the player is on.)
+      shownShelf = back ? group.label : null;
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.add("in-group");
@@ -1077,8 +1082,13 @@ export class Hud {
         else {
           void propGroups(tab.props).then((g) => {
             loadedGroups.set(tab.id, g);
+            if (openId !== tab.id) return;
+            // (On one of the tab's own shelves, the one asked for or none asked: the shelves that came in change nothing
+            // there. Opened again, it hid a card just opened from a tile on it: a tap there lost, as Show me's Jam
+            // kitchen tile was in e2e:feature-tips.)
+            if (shownShelf !== null && (!shelf || shelf === shownShelf)) return;
             // (Opened on a shelf, as "Show me" does: it opens on that shelf once its props are in.)
-            if (openId === tab.id) openTab(tab, shelf);
+            openTab(tab, shelf);
           });
           if (groups.length === 0) {
             this.trayGlide++;

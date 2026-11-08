@@ -685,6 +685,10 @@ async function openMapOn(M) {
     await M.waitForTimeout(100);
   }
   await glided(M);
+  // (Till the game says the map has settled: the view still a moment, the labels laid out afresh where they'll stay. A
+  // second with no frame drawn alone wasn't it on a loaded CI box, a frame taking over a second mid-glide: 2 of 4 towns'
+  // labels read, and a badge tapped where it had been.)
+  await M.waitForFunction(() => window.woodrail.mapSettled?.() ?? true, null, { timeout: 120000, polling: 250 }).catch(() => console.log("  (the map hadn't settled after 120 s)"));
   // (Till the glide up has ended: no frame drawn for a second, so the labels are where they'll stay.)
   await M.evaluate(async () => {
     const w = window.woodrail;

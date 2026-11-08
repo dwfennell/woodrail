@@ -3250,17 +3250,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Build on a project's tile: its site found by the city, its coins paid, its plot put up. */
   async function buildGrand(town: Town, id: GrandId): Promise<void> {
     const g = grandOf(id)!;
-    try {
-      await grandModels(id);
-    } catch {
-      hud.toast("Couldn't load the plans just now. Try again in a moment", false, 3200);
-      return;
-    }
-    const level = statusOf(game.world, town.id).level;
     // Grand Central: a station of its own, its kit given into the toy box for the player to put on a line by the city.
+    // (No site models to load: its stages are its kits. Loading its props' four stages first built models nothing
+    // shows, and on a slow phone held the tap up for seconds; CI's e2e:grand ran out waiting.)
     if (g.kits) {
       const kit = g.kits[0];
-      const r = startGrand(game.world, progress, town, level, id, () => ({ ...town.station, y: 0 }), () => {
+      const r = startGrand(game.world, progress, town, statusOf(game.world, town.id).level, id, () => ({ ...town.station, y: 0 }), () => {
         progress.add(`piece:${kit}`, 1);
         hud.refreshTrayBadges();
         return -1;
@@ -3270,6 +3265,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(`🚉 Grand Central is in your toy box (Industries tab, Stations): put it on a line by ${town.name}, and lay track to its three roads`, true, 6000);
       return;
     }
+    try {
+      await grandModels(id);
+    } catch {
+      hud.toast("Couldn't load the plans just now. Try again in a moment", false, 3200);
+      return;
+    }
+    const level = statusOf(game.world, town.id).level;
     const fps = Array.from({ length: g.stages.length + 1 }, (_, i) => game.propLibrary.footprint(siteAsset(g, i)));
     const fp = unionFootprint(fps, g.scale);
     const r = startGrand(
@@ -6285,6 +6287,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     mapReturn = { target: c.target.clone(), distance: sph.radius, phi: sph.phi, theta: sph.theta };
     mapView.setOpen(true);
     hud.setMapOpen(true);
+    // (Moving till the glide lands and the view stays still a moment: `mapSettled` false from the start.)
+    mapMoving = true;
     game.steepAllowed = true;
     // Every place marked on the player's land (its ruins too), fitted between the map's bars (where the labels and badges
     // go), as far out as the camera may go: on a big map they can't all be, and a drag pans to the rest (QA: on 22 plots
@@ -7126,7 +7130,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints });
+
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving });
   // (Its code is loaded the first time it's shown.)
   const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m))) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));

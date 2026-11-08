@@ -53,22 +53,29 @@ const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), 
 
 /** Tap the middle of the first visible element matching `selector` (scrolled into view first). */
 const tap = async (selector) => {
-  const at = await p.evaluate((selector) => {
-    const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
-    if (!el) return null;
-    el.scrollIntoView({ block: "center" });
+  // (Found again after its scroll: a card redraws a row when what it shows changes (coins, a month on), and the button
+  // found before may have gone. A few tries, then false: the caller's own wait says what didn't happen.)
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const at = await p.evaluate((selector) => {
+      const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
+      if (!el) return null;
+      el.scrollIntoView({ block: "center" });
+      return true;
+    }, selector);
+    if (!at) return false;
+    await p.waitForTimeout(250);
+    const again = await p.evaluate((selector) => {
+      const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    }, selector);
+    if (!again) continue;
+    await p.touchscreen.tap(again.x, again.y);
+    await p.waitForTimeout(600);
     return true;
-  }, selector);
-  if (!at) return false;
-  await p.waitForTimeout(250);
-  const again = await p.evaluate((selector) => {
-    const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0);
-    const r = el.getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-  }, selector);
-  await p.touchscreen.tap(again.x, again.y);
-  await p.waitForTimeout(600);
-  return true;
+  }
+  return false;
 };
 
 const openGame = async () => {
@@ -463,9 +470,13 @@ const turning = await p.evaluate(async () => {
   w.turbinesView.calm = false;
   const a0 = w.turbinesView.time ?? 0;
   const n0 = w.framesDrawn;
-  await new Promise((r) => setTimeout(r, 2500));
+  // (Two of its frames, waited for up to 30 s: a frame takes a second or two under SwiftShader, more on a loaded box,
+  // and 2.5 s of the clock caught one or two, or, under load, none.)
+  for (let t = 0; t < 30000 && w.framesDrawn - n0 < 2; t += 250) await new Promise((r) => setTimeout(r, 250));
   const running = w.framesDrawn - n0;
   w.paused = true;
+  // (The frame under way when it paused let finish: two animation frames, then a moment.)
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   await new Promise((r) => setTimeout(r, 600));
   const n1 = w.framesDrawn;
   await new Promise((r) => setTimeout(r, 2500));
@@ -496,11 +507,20 @@ await p.evaluate(() => {
   w.progress().coins = Math.max(w.progress().coins, 1500);
   w.hud.setCoins(w.progress().coins);
 });
+await closeSheets();
 await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
 await p.waitForTimeout(900);
 check("9. Grand Central: Larkfield's card offers it", (await p.evaluate(() => !!document.querySelector('.grand-tile.build[data-grand="central"]'))) === true);
-await tap('.grand-tile[data-grand="central"] .place-btn');
-await p.waitForFunction(() => window.woodrail.world.economy.grandPlans.has("central"), null, { timeout: 30000 }).catch(() => {});
+// (As the other projects: a sheet come up late over the card (the wheel's month on) is shut, and the tap made again.)
+for (let attempt = 0; attempt < 2; attempt++) {
+  if (attempt > 0) {
+    await closeSheets();
+    await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
+    await p.waitForTimeout(900);
+  }
+  await tap('.grand-tile[data-grand="central"] .place-btn');
+  if (await p.waitForFunction(() => window.woodrail.world.economy.grandPlans.has("central"), null, { timeout: 30000 }).then(() => true, () => false)) break;
+}
 const kitOwned = await p.evaluate(() => window.woodrail.progress().owned.get("piece:kit-grand-central-1") ?? 0);
 check("9. Grand Central: Build gives its kit into the toy box", kitOwned === 1, String(kitOwned));
 await p.evaluate(() => window.woodrail.hud.hideCards?.());
@@ -542,18 +562,25 @@ const spot = await p.evaluate((townId) => {
   return null;
 }, town.id);
 check("9. Grand Central: there's a clear spot for it by Larkfield", !!spot, JSON.stringify(spot));
+let from = null;
 if (spot) {
   await p.evaluate((v) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, 0, v.z), 1500, { duration: 0.1, phi: 0.9 }), spot);
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
   await settle();
-  await clickText(".tabs button", "Industries");
-  await clickText(".tray-item.tray-group", "Stations");
-  const from = await p.evaluate(() => {
-    const el = document.querySelector(".tray-item[data-key='piece:kit-grand-central-1']");
-    el.scrollIntoView({ inline: "center" });
-    const r = el.getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-  });
+  // (The shelf opened again till the tile shows: the tab redraws itself once its prop shelves come in.)
+  for (let attempt = 0; attempt < 3 && !from; attempt++) {
+    await clickText(".tabs button", "Industries");
+    await clickText(".tray-item.tray-group", "Stations");
+    from = await p.evaluate(() => {
+      const el = document.querySelector(".tray-item[data-key='piece:kit-grand-central-1']");
+      if (!el) return null;
+      el.scrollIntoView({ inline: "center" });
+      const r = el.getBoundingClientRect();
+      return r.width > 0 ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+    });
+  }
+}
+if (spot && from) {
   const to = await p.evaluate((v) => {
     const w = window.woodrail;
     const c = new w.camera.position.constructor(v.x, 0, v.z).project(w.camera);

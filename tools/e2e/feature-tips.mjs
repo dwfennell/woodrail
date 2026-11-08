@@ -136,6 +136,23 @@ const tipGone = (id) =>
   p
     .waitForFunction((id) => window.woodrail.tips().isDone(id) && !document.querySelector(`.goal.feature-tip[data-feature-tip="${id}"]`), id, { timeout: 15000 })
     .then(() => true, () => false);
+/**
+ * A tray tile's place card with `text` in it, caught as it shows: set up before the tap. (A tap that picks nothing up
+ * shows it for 3.5 s, and the tap's own wait (its click, two frames) can take that long under SwiftShader: looked for
+ * after, it had gone, "no card".)
+ */
+const watchCard = (text) =>
+  p.evaluate((text) => {
+    window.__cardSeen = null;
+    const look = () => {
+      const c = document.querySelector(".place-card:not([hidden])");
+      if (c && c.textContent.includes(text) && window.__cardSeen === null) window.__cardSeen = c.innerText;
+    };
+    new MutationObserver(look).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  }, text);
+/** What the card watched for said (null if it never showed in 15 s). */
+const cardSeen = () =>
+  p.waitForFunction(() => window.__cardSeen !== null, null, { timeout: 15000, polling: 200 }).then(() => p.evaluate(() => window.__cardSeen), () => null);
 const learn = (...ids) => p.evaluate((ids) => ids.forEach((id) => window.woodrail.learn(id)), ids);
 const gotIt = async (id) => {
   await tipRow(id);
@@ -264,8 +281,9 @@ if (!setup.error) {
   check("the Jam kitchen's tip shows under the goals", jam.shown && !!jam.row?.includes("fruit and sugar"), JSON.stringify(jam));
   await shot("onboarding-jam-tip");
   await tapButton(`.goal.feature-tip[data-feature-tip="jam"] .tip-show`);
+  await watchCard("Makes jam");
   await tapButton(`.tray-item[data-tip-name="Jam kitchen"]`);
-  const jamCard = await p.waitForFunction(() => document.querySelector(".place-card:not([hidden])")?.textContent.includes("Makes jam"), null, { timeout: 15000 }).then(() => p.evaluate(() => document.querySelector(".place-card").innerText), () => null);
+  const jamCard = await cardSeen();
   check("its Show me opens Industries; a tap on the Jam kitchen's tile says what it makes, from what", !!jamCard?.includes("Makes jam from fruit and sugar"), jamCard ?? "no card");
   await shot("onboarding-jam-tray");
   check("Got it: the jam tip goes", await gotIt("jam"));
@@ -276,8 +294,9 @@ if (!setup.error) {
   const tel = await tipRow("telegraph");
   check("the Telegraph's tip shows under the goals", tel.shown && !!tel.row?.includes("telegraph poles"), JSON.stringify(tel));
   await tapButton(`.goal.feature-tip[data-feature-tip="telegraph"] .tip-show`);
+  await watchCard("signal box");
   await tapButton(`.tray-item[data-tip-name="Telegraph pole"]`);
-  const telCard = await p.waitForFunction(() => document.querySelector(".place-card:not([hidden])")?.textContent.includes("signal box"), null, { timeout: 15000 }).then(() => p.evaluate(() => document.querySelector(".place-card").innerText), () => null);
+  const telCard = await cardSeen();
   check("its Show me opens Lineside; the Telegraph pole's tile says what it's for", !!telCard?.includes("A chain of poles carries a signal box's reach"), telCard ?? "no card");
   await shot("onboarding-telegraph-tray");
   check("Got it: the telegraph tip goes", await gotIt("telegraph"));
@@ -383,10 +402,22 @@ if (!setup.error) {
   await settle();
   await p.waitForTimeout(1500);
   await settle();
+  // (What asks for a frame meanwhile, for a failure's detail.)
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.__asked = [];
+    for (const k of ["invalidate", "redraw"]) {
+      const real = w[k].bind(w);
+      w[k] = (...a) => {
+        w.__asked.push(`${k}: ${new Error().stack.split("\n").slice(2, 5).join(" < ").replace(/\s+/g, " ")}`);
+        return real(...a);
+      };
+    }
+  });
   const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
   await p.waitForTimeout(2000);
   const idle = (await p.evaluate(() => window.woodrail.framesDrawn)) - f0;
-  check("idle: no frames drawn over 2 s", idle === 0, `${idle} frames`);
+  check("idle: no frames drawn over 2 s", idle === 0, `${idle} frames ${JSON.stringify(await p.evaluate(() => window.woodrail.__asked))}`);
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
