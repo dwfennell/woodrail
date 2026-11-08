@@ -264,7 +264,8 @@ const followOther = { x: 0, y: 0, z: 0 };
 export class Sim {
   private nextTrainId = 1;
   private nextCarId = 1;
-  private readonly trains = new Map<number, Train>();
+  /** The trains by id, in the order they were put on (`trains()`): one turned round, split or re-railed goes to the end. */
+  private readonly byId = new Map<number, Train>();
   private events: SimEvent[] = [];
   /**
    * Optional speed limit for a powered train this tick (mm/s), set by the economy so trains crawl through depots and
@@ -352,19 +353,29 @@ export class Sim {
   constructor(readonly layout: Layout) {}
 
   get trainCount(): number {
-    return this.trains.size;
+    return this.byId.size;
   }
 
+  /**
+   * Every train, in the order of `trainIds()`, without a new array: the map's own iterator, live. Don't put on, take
+   * off, turn round, split or re-rail a train while going through it (each moves a train to the end, so it would come
+   * round again): take `trainIds()`, a copy, for that.
+   */
+  trains(): IterableIterator<Train> {
+    return this.byId.values();
+  }
+
+  /** The trains' ids, a copy: for a loop that changes the trains (`trains()` doesn't allow it). */
   trainIds(): number[] {
-    return [...this.trains.keys()];
+    return [...this.byId.keys()];
   }
 
   getTrain(id: number): Train | undefined {
-    return this.trains.get(id);
+    return this.byId.get(id);
   }
 
   findCar(carId: number): { train: Train; index: number } | undefined {
-    for (const train of this.trains.values()) {
+    for (const train of this.byId.values()) {
       const index = train.cars.findIndex((c) => c.id === carId);
       if (index !== -1) return { train, index };
     }
@@ -469,7 +480,7 @@ export class Sim {
       memory: new Map(),
       world: bogies.map(() => createWorldSample()),
     };
-    this.trains.set(train.id, train);
+    this.byId.set(train.id, train);
     for (const car of train.cars) if (car.kind === "engine" && !this.names.has(car.id)) this.nameEngine(car.id);
     // Put down straddling a switch on the road its points aren't set for (its front out along a branch, its back on
     // the trunk): the rest follow its road onto the switch, not the points, or the train splits across both roads.
@@ -511,7 +522,7 @@ export class Sim {
     const w = createWorldSample();
     for (const b of bogies) {
       cursorWorld(this.layout, b, w);
-      for (const t of this.trains.values()) {
+      for (const t of this.byId.values()) {
         if (t === except) continue;
         for (let c = 0; c < t.cars.length; c++) {
           const f = t.world[2 * c];
@@ -531,18 +542,18 @@ export class Sim {
   }
 
   removeTrain(id: number): boolean {
-    const t = this.trains.get(id);
+    const t = this.byId.get(id);
     if (t) {
       const key = trainKey(t);
       this.turnBlocked.delete(key);
       this.endBehind.delete(key);
     }
-    return this.trains.delete(id);
+    return this.byId.delete(id);
   }
 
   /** The train with this key (`trainKey`) now, if any. */
   trainByKey(key: number): Train | undefined {
-    for (const t of this.trains.values()) if (trainKey(t) === key) return t;
+    for (const t of this.byId.values()) if (trainKey(t) === key) return t;
     return undefined;
   }
 
@@ -603,7 +614,7 @@ export class Sim {
   /** Give a new engine a name no other engine on the track has. */
   private nameEngine(carId: number): void {
     const taken = new Set<string>();
-    for (const t of this.trains.values()) for (const c of t.cars) if (c.kind === "engine" && c.id !== carId && this.names.has(c.id)) taken.add(this.names.get(c.id)!);
+    for (const t of this.byId.values()) for (const c of t.cars) if (c.kind === "engine" && c.id !== carId && this.names.has(c.id)) taken.add(this.names.get(c.id)!);
     this.names.set(carId, pickEngineName(carId, taken));
     this.namesVersion++;
   }
@@ -624,7 +635,7 @@ export class Sim {
    * it's moving, derailed, riding a deck, or there's no room to set it down turned round.
    */
   turnNow(trainId: number): Train | null {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     if (!t || t.derailed || t.speed >= 1 || t.bogies.length === 0) return null;
     if (this.rides.size > 0 && this.riding(t)) return null;
     const atLineEnd = this.onTurn !== null && this.endAhead(t, LINE_END_NEAR) !== null;
@@ -644,7 +655,7 @@ export class Sim {
    * `by`: the train in the way, if one is).
    */
   liftAndTurn(trainId: number): { kind: "turned"; train: Train } | { kind: "derailed" | "riding" | "none" } | { kind: "no-room"; by: number | null } {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     if (!t || t.bogies.length === 0) return { kind: "none" };
     if (t.derailed) return { kind: "derailed" };
     if (this.rides.size > 0 && this.riding(t)) return { kind: "riding" };
@@ -730,9 +741,9 @@ export class Sim {
       flipCursor(this.layout, c);
       bogies.push(c);
     }
-    this.trains.delete(t.id);
+    this.byId.delete(t.id);
     const blocked = this.occupied(bogies);
-    this.trains.set(t.id, t);
+    this.byId.set(t.id, t);
     if (blocked) return "no-room";
     // Facing out from its new end, so it leads.
     engine.facing = atFront ? -1 : 1;
@@ -821,12 +832,12 @@ export class Sim {
       moved.push(c);
     }
     if (moved.length === part.bogies.length) {
-      this.trains.delete(t.id);
+      this.byId.delete(t.id);
       const blocked = this.occupied(moved);
-      this.trains.set(t.id, t);
+      this.byId.set(t.id, t);
       if (!blocked) part.bogies = moved;
     }
-    this.trains.set(part.id, part);
+    this.byId.set(part.id, part);
     this.rememberStraddledSwitches(t);
     this.rememberStraddledSwitches(part);
     this.refreshWorld(part);
@@ -841,7 +852,7 @@ export class Sim {
     // Signals are found again (their aspects worked out on the next tick).
     this.signals = null;
     this.lifts = null;
-    for (const train of this.trains.values()) {
+    for (const train of this.byId.values()) {
       if (train.derailed) continue;
       for (const b of train.bogies) {
         if (!this.layout.getPiece(b.pieceId) || this.layout.isLifted(b.pieceId) || moved.includes(b.pieceId)) {
@@ -857,13 +868,13 @@ export class Sim {
    * two bogies, or between two cars, is as taken as one a bogie stands on (see `coveredBy`).
    */
   pieceOccupied(pieceId: number): boolean {
-    for (const t of this.trains.values()) if (!t.derailed && this.coveredBy(t).pieces.has(pieceId)) return true;
+    for (const t of this.byId.values()) if (!t.derailed && this.coveredBy(t).pieces.has(pieceId)) return true;
     return false;
   }
 
   /** The pieces under a train's cars, end to end (empty for one off the rails or not there). */
   piecesUnder(trainId: number): ReadonlySet<number> {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     return t && !t.derailed ? this.coveredBy(t).pieces : EMPTY_PIECES;
   }
 
@@ -911,7 +922,7 @@ export class Sim {
       walk(last, span);
     }
     const cover: Cover = { bogies: b, at: b.map((x) => x.pieceId * 8 + x.pathIndex), track: L.revision, joints: L.jointsVersion, switches: L.switchesVersion, pieces };
-    if (this.covers.size > this.trains.size + 8) for (const id of this.covers.keys()) if (!this.trains.has(id)) this.covers.delete(id);
+    if (this.covers.size > this.byId.size + 8) for (const id of this.covers.keys()) if (!this.byId.has(id)) this.covers.delete(id);
     this.covers.set(train.id, cover);
     return cover;
   }
@@ -925,7 +936,7 @@ export class Sim {
 
   /** Put a (derailed) train back on the nearest track, motor off. Returns the new train id, or -1 if there is no room. */
   rerail(trainId: number, maxDistance = 150, near?: { x: number; z: number }): number {
-    const train = this.trains.get(trainId);
+    const train = this.byId.get(trainId);
     if (!train) return -1;
     const lead = train.world[0];
     const at = near ?? lead;
@@ -934,7 +945,7 @@ export class Sim {
     for (const heading of [lead.heading, lead.heading + Math.PI]) {
       const near = nearestCursor(this.layout, at.x, at.z, maxDistance, heading);
       if (!near) return -1;
-      this.trains.delete(trainId);
+      this.byId.delete(trainId);
       // Where it lies, or slid along the track either way to the nearest stretch that's free (another train may be
       // lying where it came off).
       for (let d = 0; d <= RERAIL_SLIDE; d += RERAIL_STEP) {
@@ -949,7 +960,7 @@ export class Sim {
           if (placed.kind === "placed") return placed.trainId;
         }
       }
-      this.trains.set(trainId, train);
+      this.byId.set(trainId, train);
     }
     return -1;
   }
@@ -1045,7 +1056,7 @@ export class Sim {
     const def = piece && getPieceDef(piece.type, piece.flipped);
     if (!def?.gated) return null;
     if (this.rides.has(pieceId) || (def.lift && this.layout.deckTurning(pieceId))) return "turning";
-    for (const t of this.trains.values()) {
+    for (const t of this.byId.values()) {
       if (t.derailed) continue;
       let on = 0;
       for (const b of t.bogies) if (b.pieceId === pieceId) on++;
@@ -1082,7 +1093,7 @@ export class Sim {
   private startRide(pieceId: number, from: number, to: number, done: number, forward = false): void {
     const piece = this.layout.getPiece(pieceId)!;
     const def = getPieceDef(piece.type, piece.flipped);
-    const riders = [...this.trains.values()].filter((t) => !t.derailed && t.bogies.length > 0 && t.bogies.every((b) => b.pieceId === pieceId));
+    const riders = [...this.byId.values()].filter((t) => !t.derailed && t.bogies.length > 0 && t.bogies.every((b) => b.pieceId === pieceId));
     if (riders.length === 0 || from === to) return;
     const a = def.paths[from].geom;
     const b = def.paths[to].geom;
@@ -1159,7 +1170,7 @@ export class Sim {
       const u = over ? 1 : (this.ticks - r.start) / (r.done - r.start);
       const e = u * u * (3 - 2 * u);
       r.trainIds.forEach((tid, i) => {
-        const t = this.trains.get(tid);
+        const t = this.byId.get(tid);
         // (One that came off the rails meanwhile, a deck picked up under it, lies where it fell.)
         if (!t || t.derailed) return;
         if (over) this.refreshWorld(t);
@@ -1186,7 +1197,7 @@ export class Sim {
   }
 
   deckCarries(pieceId: number): boolean {
-    for (const t of this.trains.values()) if (!t.derailed && t.bogies.some((b) => b.pieceId === pieceId)) return true;
+    for (const t of this.byId.values()) if (!t.derailed && t.bogies.some((b) => b.pieceId === pieceId)) return true;
     return false;
   }
 
@@ -1235,7 +1246,7 @@ export class Sim {
     this.layout.setSwitchState(pieceId, to);
     this.layout.setDeckTurning(pieceId, true);
     this.decksTurning.set(pieceId, done);
-    const riders = [...this.trains.values()].filter((t) => !t.derailed && t.bogies.length > 0 && t.bogies.every((c) => c.pieceId === pieceId));
+    const riders = [...this.byId.values()].filter((t) => !t.derailed && t.bogies.length > 0 && t.bogies.every((c) => c.pieceId === pieceId));
     const from0 = riders.map((t) => t.world.map((w) => ({ ...w })));
     const lenA = a.length;
     const lenB = b.length;
@@ -1316,7 +1327,7 @@ export class Sim {
 
   /** A train at a lift, for its engine's card: being carried, waiting at it (held at its far end, or on it), or null. */
   liftState(trainId: number): "riding" | "waiting" | null {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     if (!t || t.derailed || !this.lifts || this.lifts.length === 0) return null;
     for (const [id, r] of this.rides) if (r.trainIds.includes(t.id) && this.liftDef(id)) return "riding";
     return t.speed < 1 && drive(t) !== 0 && this.liftCap(t, false) === 0 ? "waiting" : null;
@@ -1403,7 +1414,7 @@ export class Sim {
 
   /** A train held at a raised lift bridge, for its engine's card. */
   bridgeWait(trainId: number): boolean {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     return !!t && !t.derailed && t.speed < 1 && drive(t) !== 0 && this.bridgeCap(t) === 0;
   }
 
@@ -1578,7 +1589,7 @@ export class Sim {
    * as that train stays (routing spec §16 Q3), and wait chains (economy/stalls.ts) see who for.
    */
   heldBy(trainId: number): number | null {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     const h = t && this.held.get(trainKey(t));
     if (!h || h.tick < this.ticks - 1) return null;
     return this.trainByKey(h.by)?.id ?? null;
@@ -1586,7 +1597,7 @@ export class Sim {
 
   /** How `heldBy`'s train holds this one (null: none does). */
   heldHow(trainId: number): HeldHow | null {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     const h = t && this.held.get(trainKey(t));
     return h && h.tick >= this.ticks - 1 && this.trainByKey(h.by) ? h.how : null;
   }
@@ -1602,7 +1613,7 @@ export class Sim {
     }
     this.held.set(key, { by: trainKey(by), how, tick: this.ticks });
     // (Trains come and go: what's said of gone ones, or long ago, goes.)
-    if (this.held.size > 4 * this.trains.size) for (const [k, x] of this.held) if (x.tick < this.ticks - 1 || !this.trainByKey(k)) this.held.delete(k);
+    if (this.held.size > 4 * this.byId.size) for (const [k, x] of this.held) if (x.tick < this.ticks - 1 || !this.trainByKey(k)) this.held.delete(k);
   }
 
   /** Is any of this train on a lift's platform? */
@@ -1614,7 +1625,7 @@ export class Sim {
 
   /** A train other than `me` on this lift, or null. */
   private liftUser(pieceId: number, me: Train): Train | null {
-    for (const t of this.trains.values()) {
+    for (const t of this.byId.values()) {
       if (t === me || t.derailed) continue;
       for (const b of t.bogies) if (b.pieceId === pieceId) return t;
     }
@@ -1626,7 +1637,7 @@ export class Sim {
    * would run up to the end it closes? Trains on it are looked at by the caller.
    */
   private approaching(pieceId: number): boolean {
-    for (const t of this.trains.values()) {
+    for (const t of this.byId.values()) {
       if (t.derailed || t.bogies.length === 0 || t.bogies.some((b) => b.pieceId === pieceId)) continue;
       const net = drive(t);
       if (t.speed === 0 && net === 0) continue;
@@ -1653,7 +1664,7 @@ export class Sim {
       for (const id of this.layout.pieceIds()) if (this.liftDef(id)) this.lifts.push(id);
       for (const id of this.liftWaits.keys()) if (!this.lifts.includes(id)) this.liftWaits.delete(id);
     }
-    for (const id of this.liftRefused) if (!this.trains.has(id)) this.liftRefused.delete(id);
+    for (const id of this.liftRefused) if (!this.byId.has(id)) this.liftRefused.delete(id);
     for (const id of this.lifts) {
       const def = this.liftDef(id);
       if (!def || this.layout.isLifted(id) || this.rides.has(id)) {
@@ -1665,7 +1676,7 @@ export class Sim {
       let ridersReady = true;
       let riders = 0;
       let halted = false;
-      for (const t of this.trains.values()) {
+      for (const t of this.byId.values()) {
         if (t.derailed) continue;
         let on = 0;
         for (const b of t.bogies) if (b.pieceId === id) on++;
@@ -1697,8 +1708,8 @@ export class Sim {
     if (this.lifts === null || this.lifts.length > 0) {
       this.updateLifts();
       // (Who's on a lift now, for `comingOffLift`; those long off it forgotten.)
-      for (const t of this.trains.values()) if (!t.derailed && this.onLift(t)) this.offLift.set(t.id, this.ticks);
-      for (const [id, at] of this.offLift) if (this.ticks - at >= LIFT_GRACE || !this.trains.has(id)) this.offLift.delete(id);
+      for (const t of this.byId.values()) if (!t.derailed && this.onLift(t)) this.offLift.set(t.id, this.ticks);
+      for (const [id, at] of this.offLift) if (this.ticks - at >= LIFT_GRACE || !this.byId.has(id)) this.offLift.delete(id);
     }
     if (this.decksTurning.size > 0) {
       for (const [id, done] of this.decksTurning)
@@ -1709,7 +1720,7 @@ export class Sim {
     }
     this.updateSignals();
     this.showPathSignals();
-    for (const train of this.trains.values()) {
+    for (const train of this.byId.values()) {
       if (train.derailed) continue;
       // Riding a turning deck: held where it stands till the deck's there.
       if (this.rides.size > 0 && this.riding(train)) continue;
@@ -1733,7 +1744,7 @@ export class Sim {
         // end is a stall, said on its card.
         train.turnback = TURN_RETRY_TICKS;
         const by = this.turnBlocker(train);
-        const b = by === null ? undefined : this.trains.get(by);
+        const b = by === null ? undefined : this.byId.get(by);
         if (b) this.turnBlocked.set(trainKey(train), trainKey(b));
         else this.turnBlocked.delete(trainKey(train));
       }
@@ -1755,7 +1766,7 @@ export class Sim {
       // Waiting to turn back, it stands still (not pressing on into a buffer or a train it met).
       if (train.turnback >= 0) continue;
       this.move(train);
-      if (train.speed < 1 && this.trains.size > 1) this.endOfLineBehind(train);
+      if (train.speed < 1 && this.byId.size > 1) this.endOfLineBehind(train);
     }
     this.resolveContacts();
   }
@@ -1808,7 +1819,7 @@ export class Sim {
 
   /** Is this train standing at a red signal, waiting for it to clear (for the engine card)? */
   atRedSignal(trainId: number): boolean {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     return !!t && !t.derailed && t.speed < 1 && this.signalCap(t) === 0;
   }
 
@@ -1883,7 +1894,7 @@ export class Sim {
 
   /** The red signal a train is held by or braking for, by key (`signalList`), or −1. */
   redSignalKeyAhead(trainId: number): number {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     return t ? (this.redAhead(t)?.key ?? -1) : -1;
   }
 
@@ -1892,7 +1903,7 @@ export class Sim {
 
   /** How long (s) a train has stood at a red signal: 0 if it isn't standing at one (signals spec §6). */
   redWaitSeconds(trainId: number): number {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     const since = this.redSince.get(trainId);
     if (!t || since === undefined || !this.atRedSignal(trainId)) return 0;
     return (this.ticks - since) / SIM_HZ;
@@ -2061,8 +2072,8 @@ export class Sim {
     const list = this.signals!;
     if (list.length === 0) return;
     // Pieces with a train on them: which of their paths (a bit each); and a stamp of all of it.
-    let stamp = (this.layout.switchesVersion * 31 + this.trains.size) | 0;
-    for (const t of this.trains.values()) {
+    let stamp = (this.layout.switchesVersion * 31 + this.byId.size) | 0;
+    for (const t of this.byId.values()) {
       if (t.derailed) continue;
       for (const b of t.bogies) stamp = (Math.imul(stamp, 0x01000193) ^ (b.pieceId * 16 + b.pathIndex)) | 0;
     }
@@ -2078,7 +2089,7 @@ export class Sim {
     this.pathCache.clear();
     const occupied = this.onPieces;
     occupied.clear();
-    for (const t of this.trains.values()) {
+    for (const t of this.byId.values()) {
       if (t.derailed) continue;
       for (const b of t.bogies) {
         const o = occupied.get(b.pieceId);
@@ -2211,14 +2222,14 @@ export class Sim {
     if (red.dist >= 0.5) return Math.sqrt(2 * ACCELERATION * (red.dist - 0.5));
     if (!this.redSince.has(train.id)) this.redSince.set(train.id, this.ticks);
     // (Standing at it for a train on its block or way, or holding its points: held by that train, for wait chains.)
-    const by = red.by >= 0 ? this.trains.get(red.by) : undefined;
+    const by = red.by >= 0 ? this.byId.get(red.by) : undefined;
     if (by && by !== train) this.holdBy(train, by, "signal");
     return 0;
   }
 
   /** The red signal (its piece) a train is held by or braking for, or −1 (for the engine card and reports). */
   redSignalAhead(trainId: number): number {
-    const t = this.trains.get(trainId);
+    const t = this.byId.get(trainId);
     const red = t ? this.redAhead(t) : null;
     return red === null ? -1 : red.key < 0 ? pieceOfRef(this.layout.getSignal(markOfKey(red.key))?.at ?? -1) : signalPiece(red.key);
   }
@@ -2344,10 +2355,10 @@ export class Sim {
 
   writeSnapshot(snap: SimSnapshot): SimSnapshot {
     let n = 0;
-    for (const t of this.trains.values()) n += t.cars.length;
+    for (const t of this.byId.values()) n += t.cars.length;
     if (snap.ids.length < n) Object.assign(snap, createSnapshot(Math.max(n, snap.ids.length * 2)));
     let i = 0;
-    for (const train of this.trains.values()) {
+    for (const train of this.byId.values()) {
       for (let c = 0; c < train.cars.length; c++) {
         const car = train.cars[c];
         const f = train.world[2 * c];
@@ -2396,9 +2407,9 @@ export class Sim {
     }
     // Behind another train's engine, it eases down to the gap it holds back at, and keeps it (else it would step into it
     // each tick and be stopped after: a creep that reads as standing still).
-    if (v > 0 && this.trains.size > 1 && hasEngine(train)) v = Math.min(v, this.followCap(train, v));
+    if (v > 0 && this.byId.size > 1 && hasEngine(train)) v = Math.min(v, this.followCap(train, v));
     // Coming to a crossing, or a switch, another train is on or coming onto by the other road: it stops short and waits.
-    if (v > 0 && this.trains.size > 1) v = Math.min(v, this.crossCap(train, v));
+    if (v > 0 && this.byId.size > 1) v = Math.min(v, this.crossCap(train, v));
     // Coming to a rack it has no rack engine for: it stops short and waits (Game mode).
     if (v > 0 && this.mayRack !== null) v = Math.min(v, this.rackCap(train, v));
     // (Too slow to see: standing.)
@@ -2460,11 +2471,11 @@ export class Sim {
     const ids = train.cars.map((c) => c.id);
     const facings = train.cars.map((c) => c.facing);
     const levers = train.cars.map((c) => c.lever);
-    this.trains.delete(train.id);
+    this.byId.delete(train.id);
     // Mirrored: the old front car is the new front car, now at the other end of the stretch.
     const placed = this.addTrain(kinds, lead, ids, train.id);
     if (placed.kind !== "placed") {
-      this.trains.set(train.id, train);
+      this.byId.set(train.id, train);
       return null;
     }
     // (This run's state, kept by id, ends with the turn, as it did when a turn gave a new id.)
@@ -2475,7 +2486,7 @@ export class Sim {
     this.covers.delete(train.id);
     this.pathCache.clear();
     for (const fn of this.turnedHooks) fn(train.id);
-    const t = this.trains.get(placed.trainId)!;
+    const t = this.byId.get(placed.trainId)!;
     t.cars.forEach((car, i) => {
       car.facing = facings[i];
       car.lever = levers[i];
@@ -2539,12 +2550,12 @@ export class Sim {
 
   private resolveContacts(): void {
     const riding = this.rides.size > 0;
-    for (const a of this.trains.values()) {
+    for (const a of this.byId.values()) {
       if (a.derailed || a.speed <= 0) continue;
       this.endFace(a, true, face);
-      for (const b of this.trains.values()) {
+      for (const b of this.byId.values()) {
         // (A train riding a turning deck is swept round past the roads' ends: nothing couples to it till it's there.)
-        if (b === a || b.derailed || !this.trains.has(a.id) || (riding && this.riding(b))) continue;
+        if (b === a || b.derailed || !this.byId.has(a.id) || (riding && this.riding(b))) continue;
         const reach = Math.max(4, a.speed * SIM_DT + 2);
         // End to end (meeting, or touching as they part): not a blow to b's side.
         let ends = false;
@@ -2609,7 +2620,7 @@ export class Sim {
     let least = Infinity;
     let by: Train | null = null;
     let nose = false;
-    for (const b of this.trains.values()) {
+    for (const b of this.byId.values()) {
       if (b === train || b.derailed || !hasEngine(b)) continue;
       for (let side = 0; side < 2; side++) {
         const front = side === 1;
@@ -2792,7 +2803,7 @@ export class Sim {
    * `POINTS_CLEAR_S` ago; else null. (Wagons with no engine on them aren't: an engine runs onto them and couples.)
    */
   private onPoints(train: Train, pieceId: number): Train | null {
-    for (const t of this.trains.values()) {
+    for (const t of this.byId.values()) {
       if (t === train || t.derailed || !hasEngine(t)) continue;
       for (const b of t.bogies)
         if (b.pieceId === pieceId) {
@@ -2812,7 +2823,7 @@ export class Sim {
 
   /** Another train on, or coming onto, a piece by one of the paths in `mask` (a bit each), or null. */
   private crossHeld(train: Train, pieceId: number, mask: number): Train | null {
-    for (const t of this.trains.values()) {
+    for (const t of this.byId.values()) {
       if (t === train || t.derailed) continue;
       for (const b of t.bogies) if (b.pieceId === pieceId && (mask >> b.pathIndex) & 1) return t;
     }
@@ -2864,7 +2875,7 @@ export class Sim {
     b.world = [...b.world, ...a.world];
     for (const [k, m] of a.memory) if (!b.memory.has(k)) b.memory.set(k, m);
     b.speed = v;
-    this.trains.delete(a.id);
+    this.byId.delete(a.id);
     this.events.push({ kind: "coupled", trainId: b.id, absorbedTrainId: a.id });
   }
 }
