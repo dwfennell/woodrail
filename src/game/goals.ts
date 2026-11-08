@@ -11,6 +11,7 @@ import { schoolTown, type World, fixedPieces, plotsForSale } from "./world";
 import { nearestRuin } from "./restore";
 import { restoredType } from "./map-sites";
 import type { SiteRole } from "../landscape";
+import type { Car } from "../sim";
 
 /** How far along a goal is: done or not, with an optional count toward a target ("2 / 3 towns"). */
 export interface GoalProgress {
@@ -98,11 +99,17 @@ export function goalTickTitle(goal: Goal): string {
 const RUNNING = 5;
 
 /** The trains running now (not stopped, not derailed). */
-export const running = (w: World) =>
-  w.sim.trainIds().filter((id) => {
-    const t = w.sim.getTrain(id);
-    return t && !t.derailed && t.speed > RUNNING;
-  });
+export const running = (w: World) => {
+  const out: number[] = [];
+  for (const t of w.sim.trains()) if (!t.derailed && t.speed > RUNNING) out.push(t.id);
+  return out;
+};
+
+/** Does any train on the map pass the test? */
+const anyTrain = (w: World, test: (cars: readonly Car[]) => boolean) => {
+  for (const t of w.sim.trains()) if (test(t.cars)) return true;
+  return false;
+};
 
 /** The towns of the largest network of track joining two or more towns (empty when no two are joined). */
 export function largestNetwork(w: World): number[] {
@@ -127,12 +134,12 @@ const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z);
 const townAt = (w: World, id: number): Point => w.landscape.towns.find((t) => t.id === id)!.centre;
 const piecePoint = (w: World, id: number): Point => w.layout.getPiece(id)!.pose;
 
-/** Where a train is (its first bogie's piece). */
-const trainPoint = (w: World, trainId: number): Point | null => {
-  const b = w.sim.getTrain(trainId)?.bogies[0];
-  return b ? piecePoint(w, b.pieceId) : null;
+/** Where the trains are (each one's first bogie's piece). */
+const trainPoints = (w: World) => {
+  const out: Point[] = [];
+  for (const t of w.sim.trains()) if (t.bogies[0]) out.push(piecePoint(w, t.bogies[0].pieceId));
+  return out;
 };
-const trainPoints = (w: World) => w.sim.trainIds().flatMap((id) => trainPoint(w, id) ?? []);
 
 /** The player's own track (not stations or depots). */
 const trackPoints = (w: World): Point[] => {
@@ -402,7 +409,7 @@ export const GOALS: readonly Goal[] = [
     // (Trains are made up from their parts: an engine first, its wagons coupled on after.)
     title: "Put an engine on the track",
     hint: "Drag an engine from the Trains tab onto your rails.",
-    check: (w) => ({ done: w.sim.trainIds().some((id) => w.sim.getTrain(id)?.cars.some((c) => c.kind === "engine")) }),
+    check: (w) => ({ done: anyTrain(w, (cars) => cars.some((c) => c.kind === "engine")) }),
     guide: (w) => guideTrains(w, "trains", "Engines"),
   },
   {
@@ -433,10 +440,7 @@ export const GOALS: readonly Goal[] = [
     title: "Make up a flatbed train",
     hint: "Drag a flatbed wagon onto your engine to couple it.",
     check: (w) => ({
-      done: w.sim.trainIds().some((id) => {
-        const cars = w.sim.getTrain(id)?.cars ?? [];
-        return cars.some((c) => c.kind === "engine") && cars.some((c) => c.kind === "timber");
-      }),
+      done: anyTrain(w, (cars) => cars.some((c) => c.kind === "engine") && cars.some((c) => c.kind === "timber")),
     }),
     guide: (w) => guideTrains(w, "trains", "Wagons"),
   },
@@ -444,7 +448,7 @@ export const GOALS: readonly Goal[] = [
     id: "load-logs",
     title: "Load logs at the forest",
     hint: "Lay track to the forest yard and stop a flatbed wagon under its crane.",
-    check: (w) => ({ done: w.sim.trainIds().some((id) => w.sim.getTrain(id)?.cars.some((c) => w.economy.cargoOf(c.id).kind === "log")) }),
+    check: (w) => ({ done: anyTrain(w, (cars) => cars.some((c) => w.economy.cargoOf(c.id).kind === "log")) }),
     guide: (w) => guideDepot(w, "forest"),
   },
   {
@@ -590,7 +594,7 @@ export const GOALS: readonly Goal[] = [
       const n = running(w).length;
       // One train on the map: the second engine first (QA: what to do wasn't said).
       const p: GoalProgress = { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
-      return n < 2 && w.sim.trainIds().length < 2 ? { ...p, hint: TWO_TRAINS_HINT } : p;
+      return n < 2 && w.sim.trainCount < 2 ? { ...p, hint: TWO_TRAINS_HINT } : p;
     },
     guide: (w) => guideTrains(w, "trains", "Engines"),
   },

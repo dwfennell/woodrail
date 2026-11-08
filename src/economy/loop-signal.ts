@@ -20,9 +20,9 @@ export function loopSignalHold(layout: Layout, sim: Sim, markId: number): { trai
   if (joined === -1) return null;
   const there = pieceOfRef(joined);
   const key = markKey(markId);
-  for (const id of sim.trainIds()) {
-    const t = sim.getTrain(id);
-    if (!t || t.derailed || t.speed >= 1 || sim.redSignalKeyAhead(id) !== key) continue;
+  for (const t of sim.trains()) {
+    const id = t.id;
+    if (t.derailed || t.speed >= 1 || sim.redSignalKeyAhead(id) !== key) continue;
     const topo = topologyOf(layout, trainLength(t));
     const slot = topo.slotOf.get(here);
     const s = slot === undefined ? undefined : topo.slots[slot];

@@ -63,7 +63,10 @@ function placed(w: World, roles: readonly DepotRole[]) {
 }
 
 /** Any car of this kind on the map. */
-const hasCar = (w: World, kind: string) => w.sim.trainIds().some((id) => w.sim.getTrain(id)?.cars.some((c) => c.kind === kind));
+const hasCar = (w: World, kind: string) => {
+  for (const t of w.sim.trains()) if (t.cars.some((c) => c.kind === kind)) return true;
+  return false;
+};
 
 /** Any piece whose type passes the test. */
 const hasPieceType = (w: World, test: (type: string) => boolean) => {

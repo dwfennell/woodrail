@@ -11,7 +11,7 @@ import { connectorRef, getPieceDef, type Layout } from "../track";
 import { flipCursor, type Cursor, type Sim, type Train } from "../sim";
 
 /** What `roadFacing` and `mouthWay` look at: the trains. */
-type Trains = Pick<Sim, "trainIds" | "getTrain">;
+type Trains = Pick<Sim, "trains">;
 import { next, SEARCH, waysFrom } from "./graph";
 import { driveOf } from "../sim/train-cars";
 
@@ -145,9 +145,8 @@ export function roadFacing(layout: Layout, sim: Trains, own: Train | undefined, 
     if (ways.length !== 1 || ways[0].exit < 0) break;
     at = next(layout, at.pieceId, ways[0].exit);
   }
-  for (const id of sim.trainIds()) {
-    const t = sim.getTrain(id);
-    if (!t || t === own || t.derailed || !t.bogies.some((b) => road.has(b.pieceId))) continue;
+  for (const t of sim.trains()) {
+    if (t === own || t.derailed || !t.bogies.some((b) => road.has(b.pieceId))) continue;
     const net = driveOf(t);
     if (net === 0) continue;
     const c: Cursor = { ...(net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };

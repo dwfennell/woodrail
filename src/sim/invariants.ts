@@ -445,12 +445,12 @@ export class Invariants {
    */
   private checkOwners(names: ReadonlyMap<number, { key: number; engine: number }>): void {
     const { sim, layout } = this.world;
-    if (sim.trainIds().length < 2) {
+    if (sim.trainCount < 2) {
       this.owners.clear();
       return;
     }
     const on = new Map<number, number[]>();
-    for (const id of sim.trainIds()) {
+    for (const { id } of sim.trains()) {
       for (const pieceId of sim.piecesUnder(id)) {
         const p = layout.getPiece(pieceId);
         if (!p) continue;
@@ -507,9 +507,8 @@ export class Invariants {
     this.excuse(list, this.aspectsSeen);
     this.aspectsWas = new Map(list.map((g) => [g.key, g.clear]));
     this.leadWas.clear();
-    for (const id of sim.trainIds()) {
-      const t = sim.getTrain(id)!;
-      if (!t.derailed) this.leadWas.set(id, { pieceId: t.bogies[0].pieceId, pathIndex: t.bogies[0].pathIndex, reversed: t.bogies[0].reversed });
+    for (const t of sim.trains()) {
+      if (!t.derailed) this.leadWas.set(t.id, { pieceId: t.bogies[0].pieceId, pathIndex: t.bogies[0].pathIndex, reversed: t.bogies[0].reversed });
     }
   }
 
@@ -540,8 +539,8 @@ export class Invariants {
         if (!t || t.derailed || !pieces || !t.bogies.some((b) => pieces.has(b.pieceId))) trains.delete(id);
       }
     }
-    for (const id of sim.trainIds()) {
-      const t = sim.getTrain(id)!;
+    for (const t of sim.trains()) {
+      const id = t.id;
       const was = this.leadWas.get(id);
       if (t.derailed || !was || was.pieceId === t.bogies[0].pieceId) continue;
       const p = layout.getPiece(was.pieceId);
@@ -580,8 +579,8 @@ export class Invariants {
         continue;
       }
       if (!was) continue;
-      for (const id of sim.trainIds()) {
-        const t = sim.getTrain(id)!;
+      for (const t of sim.trains()) {
+        const id = t.id;
         const b = t.bogies[0];
         const p = layout.getPiece(b.pieceId);
         if (t.derailed || !p || b.pieceId !== g.pieceId) continue;
@@ -602,8 +601,7 @@ export class Invariants {
 
   private *allTrains(): Iterable<{ key: number; engine: number }> {
     const { sim } = this.world;
-    for (const id of sim.trainIds()) {
-      const t = sim.getTrain(id)!;
+    for (const t of sim.trains()) {
       let engine = -1;
       for (const c of t.cars) {
         if (c.kind !== "engine") continue;

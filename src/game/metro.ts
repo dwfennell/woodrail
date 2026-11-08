@@ -124,8 +124,8 @@ export function settleDigging(p: Progress, onMap: number, laid = true): number {
  */
 export function metroDraw(world: World, seconds: number, clock: Map<number, number>): void {
   const coal = CARGO.coal.index;
-  for (const id of world.sim.trainIds()) {
-    const t = world.sim.getTrain(id)!;
+  for (const t of world.sim.trains()) {
+    const id = t.id;
     if (t.speed < 1 || !isMetroTrain(world.sim, t)) continue;
     let s = (clock.get(id) ?? 0) + seconds;
     while (s >= METRO_COAL_SECONDS) {

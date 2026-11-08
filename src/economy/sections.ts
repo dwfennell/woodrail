@@ -711,7 +711,7 @@ export class Sections {
     // (A train on no line, running where a line is managed: it stops short of a train ahead of it, whatever train. On a
     // managed line's network, it works the single track with the line's trains too, going the way the points lie.)
     if (engine === -1) {
-      const working = this.shared && this.sim.trainIds().length > 1 ? this.workingFor(train) : null;
+      const working = this.shared && this.sim.trainCount > 1 ? this.workingFor(train) : null;
       if (!working) {
         // (Taken off its line: what it held, and why it waited, are forgotten.)
         for (const car of train.cars) if (car.kind === "engine") this.states.delete(car.id);
@@ -747,9 +747,8 @@ export class Sections {
     if (this.linesTick === this.sim.ticks) return this.linesNow;
     this.linesTick = this.sim.ticks;
     const out = new Set<number>();
-    for (const id of this.sim.trainIds()) {
-      const t = this.sim.getTrain(id);
-      if (!t || t.derailed) continue;
+    for (const t of this.sim.trains()) {
+      if (t.derailed) continue;
       for (const car of t.cars) {
         if (car.kind !== "engine") continue;
         const l = this.host.lineOf(car.id);
@@ -857,9 +856,8 @@ export class Sections {
     // (Any train standing just past its slot's end, its own move not granted on through it: it waits short of it, not
     // running up to the end of the slot into its overhang.)
     if (st.exitPiece !== -1 && !this.ownsAhead(st))
-      for (const id of this.sim.trainIds()) {
-        const t = this.sim.getTrain(id);
-        if (!t || t === train || t.speed >= 1 || !t.bogies.some((b) => b.pieceId === st.exitPiece)) continue;
+      for (const t of this.sim.trains()) {
+        if (t === train || t.speed >= 1 || !t.bogies.some((b) => b.pieceId === st.exitPiece)) continue;
         const u = nameOf(t);
         st.faceHold = true;
         this.hold(st, why({ kind: "slot", engine: u }));
@@ -1056,9 +1054,8 @@ export class Sections {
   private inDeadEnd(r: number, engine: number, own: Train | undefined): number {
     const ends = deadEndsOf(this.layout);
     const pieces = ends.mouths[r].pieces;
-    for (const id of this.sim.trainIds()) {
-      const t = this.sim.getTrain(id);
-      if (!t || t === own || t.derailed) continue;
+    for (const t of this.sim.trains()) {
+      if (t === own || t.derailed) continue;
       if (t.bogies.some((b) => pieces.has(b.pieceId))) return nameOf(t);
     }
     const now = this.sim.ticks;
@@ -2237,18 +2234,17 @@ export class Sections {
     // takes its turns with theirs (`turns`). Else it was a train not on their line, never asked to wait, and one of
     // theirs whose way it kept crossing waited for good: 2026-11-06, a mill's hopper shuttle and a towns line.)
     const turns = (l: number) => !!net && this.host.live(l).length === 1 && net.lines.some((x) => x !== l && this.loopsOn(x, topo) >= 0);
-    const loops = engines.length >= 2 || net || (this.shared && engines.length === 1 && this.sim.trainIds().length > 1) ? this.loopsOn(lineId, topo, turns(lineId)) : -1;
+    const loops = engines.length >= 2 || net || (this.shared && engines.length === 1 && this.sim.trainCount > 1) ? this.loopsOn(lineId, topo, turns(lineId)) : -1;
     const peers: number[] = [];
     if (net && loops >= 0) for (const l of net.lines) if (l !== lineId && this.loopsOn(l, topo, turns(l)) >= 0) peers.push(...this.host.live(l));
     // (Trains on no line with their levers on, on the network's slots and sections: they work its single track too.)
     const loose: number[] = [];
     const looseTrains: Train[] = [];
-    if (this.shared && loops >= 0 && this.sim.trainIds().length > engines.length + peers.length) {
+    if (this.shared && loops >= 0 && this.sim.trainCount > engines.length + peers.length) {
       const regions = new Set<number>(this.loopCount.get(lineId)?.regions ?? EMPTY);
       if (net) for (const l of net.lines) for (const r of this.loopCount.get(l)?.regions ?? EMPTY) regions.add(r);
-      for (const id of this.sim.trainIds()) {
-        const t = this.sim.getTrain(id);
-        if (!t || t.derailed || this.host.drive(t) === 0 || !t.cars.some((c) => c.kind === "engine")) continue;
+      for (const t of this.sim.trains()) {
+        if (t.derailed || this.host.drive(t) === 0 || !t.cars.some((c) => c.kind === "engine")) continue;
         if (t.cars.some((c) => c.kind === "engine" && this.host.lineOf(c.id) >= 0)) continue;
         if (!t.bogies.some((b) => regions.has(regionOf(topo, b.pieceId) ?? NaN))) continue;
         loose.push(nameOf(t));
@@ -2268,10 +2264,7 @@ export class Sections {
       // Every other train on the track (another line's, or one standing on its own) is in the way where it stands.
       const mine = new Set([...engines, ...peers].map((e) => this.sim.findCar(e)?.train.id ?? -1));
       for (const t of looseTrains) mine.add(t.id);
-      for (const id of this.sim.trainIds()) {
-        const t = this.sim.getTrain(id);
-        if (t && !t.derailed && !mine.has(id)) foreign.push(t);
-      }
+      for (const t of this.sim.trains()) if (!t.derailed && !mine.has(t.id)) foreign.push(t);
       // Which trains it has room for: kept once given (a train is never left without room mid-way), more let in as
       // room allows, in the order they came to the line. Room: a train more than its passing loops, less the loops a
       // standing train it has no room for (or one not on the line) takes a road of.
@@ -2512,9 +2505,8 @@ export class Sections {
 
   private networkNow(): ReadonlyMap<number, { topo: Topology; lines: readonly number[] }> {
     const engines: number[] = [];
-    for (const id of this.sim.trainIds()) {
-      const t = this.sim.getTrain(id);
-      if (!t || t.derailed) continue;
+    for (const t of this.sim.trains()) {
+      if (t.derailed) continue;
       for (const car of t.cars)
         if (car.kind === "engine" && this.host.lineOf(car.id) >= 0) {
           engines.push(car.id);
@@ -2601,10 +2593,7 @@ export class Sections {
     if (among) {
       for (const t of among) if (t !== train && !t.derailed) others.push(t);
     } else
-      for (const id of this.sim.trainIds()) {
-        const t = this.sim.getTrain(id);
-        if (t && t !== train && !t.derailed) others.push(t);
-      }
+      for (const t of this.sim.trains()) if (t !== train && !t.derailed) others.push(t);
     if (others.length === 0) return Infinity;
     const held = own ? this.clearHeld.get(train.id) : undefined;
     if (own) this.clearHeld.delete(train.id);
@@ -2633,7 +2622,7 @@ export class Sections {
             // (A train on no line: it waits for that one, however long (routing spec §16 Q3), saying who for.)
             this.clearHeld.set(train.id, held ?? this.sim.ticks);
             this.clearBy.set(train.id, { by: t.id, tick: this.sim.ticks });
-            if (this.clearBy.size > 4 * this.sim.trainIds().length) for (const [id, c] of this.clearBy) if (c.tick < this.sim.ticks - 1) this.clearBy.delete(id);
+            if (this.clearBy.size > 4 * this.sim.trainCount) for (const [id, c] of this.clearBy) if (c.tick < this.sim.ticks - 1) this.clearBy.delete(id);
             return 0;
           }
         }

@@ -20,7 +20,7 @@ import type { Sim, Train } from "./sim";
 export type OnBy = "axles" | "cars";
 
 /** What a scan asks of the sim (a `Sim`, or a view of one). */
-export type OccupancySim = Pick<Sim, "trainIds" | "getTrain" | "piecesUnder">;
+export type OccupancySim = Pick<Sim, "trains" | "piecesUnder">;
 
 export interface OnOptions {
   /** Not this train (or its id). */
@@ -48,15 +48,13 @@ export function trainOn(sim: OccupancySim, pieces: ReadonlySet<number> | ((piece
   const has = typeof pieces === "function" ? pieces : (id: number) => pieces.has(id);
   const exceptId = opts.except === undefined ? -1 : typeof opts.except === "number" ? opts.except : opts.except.id;
   const by = opts.by ?? "axles";
-  for (const id of sim.trainIds()) {
-    if (id === exceptId) continue;
-    const t = sim.getTrain(id);
-    if (!t) continue;
+  for (const t of sim.trains()) {
+    if (t.id === exceptId) continue;
     if (opts.standing && t.speed >= 1) continue;
     if (opts.onRails && t.derailed) continue;
     if (by === "cars") {
       if (t.derailed) continue;
-      for (const p of sim.piecesUnder(id)) if (has(p)) return t;
+      for (const p of sim.piecesUnder(t.id)) if (has(p)) return t;
     } else for (const b of t.bogies) if (has(b.pieceId)) return t;
   }
   return undefined;
@@ -76,7 +74,7 @@ export class CoverIndex {
     if (this.at !== tick) {
       this.at = tick;
       this.under.clear();
-      for (const id of sim.trainIds()) for (const p of sim.piecesUnder(id)) this.under.set(p, this.under.has(p) && this.under.get(p) !== id ? -1 : id);
+      for (const { id } of sim.trains()) for (const p of sim.piecesUnder(id)) this.under.set(p, this.under.has(p) && this.under.get(p) !== id ? -1 : id);
     }
     return this.under.get(pieceId);
   }

@@ -804,9 +804,8 @@ export class Economy {
     if (!t || !d) return null;
     const tracks = new Set([d.pieceId, ...t.roads.map((r) => r.pieceId)]);
     let by = -1;
-    for (const tid of this.sim.trainIds()) {
-      const tr = this.sim.getTrain(tid);
-      if (!tr || !tr.bogies.some((b) => tracks.has(b.pieceId))) continue;
+    for (const tr of this.sim.trains()) {
+      if (!tr.bogies.some((b) => tracks.has(b.pieceId))) continue;
       by = tr.cars.find((c) => c.kind === "engine")?.id ?? -1;
       if (by !== -1) break;
     }
@@ -1452,9 +1451,8 @@ export class Economy {
       if (!d || d.piles[CARGO[from.cargo].index] <= 0) return null;
       const kind = from.cargo;
       let best: { carId: number; score: number } | null = null;
-      for (const id of this.sim.trainIds()) {
-        const train = this.sim.getTrain(id);
-        if (!train || train.derailed) continue;
+      for (const train of this.sim.trains()) {
+        if (train.derailed) continue;
         for (let c = 0; c < train.cars.length; c++) {
           const car = train.cars[c];
           const front = train.bogies[2 * c];
@@ -2741,8 +2739,7 @@ export class Economy {
    * trains' cars, once a second, only while some wagon has goods.
    */
   private sortOnTheMove(): void {
-    for (const id of this.sim.trainIds()) {
-      const train = this.sim.getTrain(id)!;
+    for (const train of this.sim.trains()) {
       for (const car of train.cars) {
         if (car.kind !== "sortvan") continue;
         const c = this.cargo.get(car.id);

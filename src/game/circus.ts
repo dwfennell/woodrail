@@ -36,10 +36,9 @@ export const isCircus = (t: Train): boolean => t.cars.some((c) => c.kind === "ca
  * passing through: a cage train with nothing to load stops for no crane). Null if none.
  */
 export function circusStop(world: Pick<World, "sim" | "economy">): DepotState | null {
-  for (const id of world.sim.trainIds()) {
-    const t = world.sim.getTrain(id)!;
+  for (const t of world.sim.trains()) {
     if (!isCircus(t)) continue;
-    const serving = world.economy.servingDepot(id);
+    const serving = world.economy.servingDepot(t.id);
     if (serving?.role === "town") return serving;
     for (const b of t.bogies) {
       const d = world.economy.depotAtPiece(b.pieceId);

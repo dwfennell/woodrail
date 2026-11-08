@@ -104,8 +104,7 @@ export function replayBugMap(world: World, opts: { seconds?: number; seed?: numb
 /** Once a second: each lever-on train's stand (s) so far, not busy by its own choice; its longest kept. */
 function stands(world: World, live: ReturnType<typeof economyWorld>, standing: Map<number, number>, longest: Map<number, number>): void {
   const sim = world.sim;
-  for (const id of sim.trainIds()) {
-    const t = sim.getTrain(id)!;
+  for (const t of sim.trains()) {
     const engine = t.cars.find((c) => c.kind === "engine");
     if (!engine || engine.lever === 0 || t.derailed) continue;
     const still = t.speed === 0 && !live.busy!(t, engine.id);

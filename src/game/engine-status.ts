@@ -615,8 +615,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
  * front is on, and what it's doing (with the depot or signal holding it). Small and JSON-able.
  */
 export function trainsForReport(sim: Sim, economy: Economy, layout: Layout, cantMove: CantMove | null = null): Record<string, unknown>[] {
-  return sim.trainIds().map((id) => {
-    const t = sim.getTrain(id)!;
+  return [...sim.trains()].map((t) => {
+    const id = t.id;
     const engines = t.cars.filter((c) => c.kind === "engine");
     const lever = engines.find((c) => c.lever !== 0)?.lever ?? 0;
     const front = t.bogies[0];

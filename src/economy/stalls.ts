@@ -166,8 +166,7 @@ export class Stalls {
   tick(): void {
     const { sim } = this;
     if (sim.ticks % CHECK_TICKS !== 0) return;
-    const ids = sim.trainIds();
-    if (ids.length < 2) {
+    if (sim.trainCount < 2) {
       if (this.stuck.size > 0) this.stuck = new Map();
       this.since.clear();
       return;
@@ -175,8 +174,8 @@ export class Stalls {
     // (Each standing train with its lever on: who it waits for, if anyone.)
     const on = new Map<number, number>();
     const standing = new Set<number>();
-    for (const id of ids) {
-      const t = sim.getTrain(id)!;
+    for (const t of sim.trains()) {
+      const id = t.id;
       // (Waiting at the end of the line to turn round counts only when another train leaves it no room: `heldHow` "turn".)
       if (t.derailed || t.speed >= 1 || (t.turnback >= 0 && sim.heldHow(id) !== "turn") || drive(t) === 0) continue;
       standing.add(id);

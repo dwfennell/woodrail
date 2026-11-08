@@ -731,8 +731,8 @@ export class Editor {
   private underTrains(): PieceRecord[] | null {
     let out: PieceRecord[] | null = null;
     const seen = new Set<number>();
-    for (const t of this.sim.trainIds()) {
-      for (const id of this.sim.piecesUnder(t)) {
+    for (const t of this.sim.trains()) {
+      for (const id of this.sim.piecesUnder(t.id)) {
         if (seen.has(id)) continue;
         seen.add(id);
         const r = this.record(id);
