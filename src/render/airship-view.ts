@@ -60,7 +60,8 @@ export class AirshipView {
       here.add(m.id);
       let ship = this.ships.get(m.id);
       if (!ship) {
-        this.template ??= buildShip(new Kit(this.mats, 0.5));
+        // (At full detail: one of it, its envelope round.)
+        this.template ??= buildShip(new Kit(this.mats, 1));
         ship = this.template.clone();
         this.ships.set(m.id, ship);
         this.group.add(ship);

@@ -228,3 +228,72 @@ appear on a late map.
 3. Only then, if close-up quality still matters, port the grand projects' final stages to Blender as a lazily loaded
    set of their own.
 4. Delete the 18 built-for-real `train-*` sketches from the viewer (done).
+
+## Done since: the three steps (2026-11-07, later)
+
+The user asked for recommendations 1 to 3. `bpy` 5.2.2 was installed (in a venv, Python 3.13), so step 3 was built
+for real, not estimated.
+
+### 1. The Kit-built cars merged by material
+
+`kitCar` in `src/render/train-models.ts`: each Kit-built car (the 10 wagon kinds, the observation car, the Royal Train's
+engine and saloon, the track cleaner) is built once per kind and merged by material, as the Blender bake does: its
+lacquer colours as one vertex-coloured paint mesh (the `Batcher`, as props are), each other material one mesh. Moving
+parts keep a node of their own: every named node (the crane's turret, rope and hook; the cleaner's brushes and beacon)
+and each axle, the two wheels on it merged into one turning node. Every car of a kind is a copy sharing its geometry
+(`userData.sharedGeometry`), as Blender cars are, and the last copy disposed frees it (`disposeObject`): kept for good,
+the tray's pictures of every kind left their geometry on the GPU, 14 GL buffers over the mobile budget.
+
+| Car | Meshes before | after | Triangles |
+|---|---|---|---|
+| Milk tank wagon | 22 | 7 | 1,484 (same) |
+| Cold van | 29 | 7 | 2,384 |
+| Tank wagon | 29 | 7 | 1,960 |
+| Breakdown crane | 33 | 13 | 2,256 |
+| Car carrier | 36 | 7 | 3,208 |
+| Mail van / sorting van | 21 / 24 | 8 / 7 | 1,396 / 1,912 |
+| Circus cage | 70 | 8 | 3,576 |
+| Track cleaner | 32 | 10 | 2,404 |
+| Observation car | 31 | 7 | 2,960 |
+| Royal engine / saloon | 54 / 89 | 6 / 6 | 2,764 / 2,324 |
+
+On the track (the `blender-kit.mjs` scene: a goods train of four Blender and six Kit-built cars, one frame with its
+shadows): **671 draw calls before, 345 after** from the phone's usual height; 512 and 279 close up. Triangles the same.
+The cars look the same (`train-near` before and after).
+
+### 2. Close-up props at full Kit detail
+
+`Asset.detail` (`src/catalogue/types.ts`): the Kit's detail for a prop that's looked at close, honoured by the prop
+library (its models and kit pieces). Set to 1 on the observatory, the river tug, the cargo ship, the train ferry and
+every grand project's finished stages; the airship's own Kit too (`airship-view.ts`). Triangles at half → full detail:
+the observatory 1.4k → 3.9k, the cargo ship 10.2k → 24.2k, the tug 2.8k → 8.6k, the ferry 3.4k → 6.9k, Grand Central
+12.8k → 39.3k, the Royal Train display 7.2k → 20.2k, the wheel 5.0k → 15.8k. The secrets weren't changed (on every
+Game map, and the memory budget is tight).
+
+### 3. The Exhibition hall and the Cathedral in Blender
+
+`tools/blender/grand.py` → `public/models/grand.glb` (460 KB, **149 KB gzipped**; the estimate was ~194 KB for all
+five projects), loaded with the `grand` catalogue file, never at boot. Only these two: Grand Central is a kit piece with
+real track through it, the wheel's gondolas are tinted one by one as they're drawn, and the Royal Train is the game's
+Kit cars; those three are at full Kit detail instead (step 2). See the Blender models spec, §9.
+
+Built with full Blender detail everywhere, the opening day was 63k triangles, more than the Kit at full detail (50k):
+elms' leaf balls of 48 segments and the iron ribs' 16-round tubes. With the small parts lean (people, lamps, flags,
+trees) and the ribs 8 round: **38.4k** (the cathedral with its glass 24.1k, against the Kit's 27k at full detail).
+Five faces that met in one plane in `grand.ts`'s design were stepped apart (model-overlaps.test.ts checks the set).
+
+### Cost, measured
+
+`npm run perf:memory` (features map) on the commit before these steps and after:
+
+| | mobile before | after | desktop before | after |
+|---|---|---|---|---|
+| GPU geometry | 67.5 MB | 67.5 MB | 73.0 MB | 70.1 MB |
+| geometries | 721 | 669 | 759 | 697 |
+| GL buffers | 3,162 | 2,990 | 3,324 | 3,116 |
+| shader programs | 64 | 64 | 69 | 70 |
+
+The Kit cars' saving pays for the full-detail props on that map; the mobile headroom stays 0.7 MB. Grand projects
+aren't on the perf maps, so their cost is the triangles above, not in these budgets. The frame-time half of
+`perf:check` needs Linux (`/proc`): it couldn't run on this Mac, so frame times weren't measured; run it in CI or on
+Linux before shipping.

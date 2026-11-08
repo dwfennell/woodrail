@@ -85,6 +85,7 @@ const r = await p.evaluate(async () => {
     "dressing",
     "industry",
     "floors",
+    "grand",
   ]) {
     const m = await bm.loadModelSet(s, s !== "trains");
     sets[s] = {};

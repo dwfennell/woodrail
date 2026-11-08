@@ -24,7 +24,7 @@ export type CatalogueFile = keyof typeof FILES;
  * The model sets a file's assets are (the file waits for them as it loads). Fetched first, here: a fetch that fails
  * then fails before the file is imported, so asking again retries, where a failed module would stay failed.
  */
-const MODEL_SETS: Partial<Record<CatalogueFile, ModelSet>> = { life: "life", bldg: "buildings" };
+const MODEL_SETS: Partial<Record<CatalogueFile, ModelSet>> = { life: "life", bldg: "buildings", grand: "grand" };
 
 const loaded = new Map<CatalogueFile, Promise<Map<string, Asset>>>();
 
