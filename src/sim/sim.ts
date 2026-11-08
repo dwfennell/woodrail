@@ -155,6 +155,24 @@ export function trainKey(train: Train): number {
 export type TurnCause = "buffer" | "open-end";
 
 /**
+ * A train turned round, as told to `Sim.onTurn` (tests and dev checks: the `midTurn` invariant). `how`: at the end of
+ * its wait at a line end ("line-end": a buffer, an open end, or close behind a train standing at one, §16 Q9), by
+ * `turnNow` ("now": the card's Continue, or giving way), or by `liftAndTurn` ("lift": the player's Reverse on a ring
+ * line). `atLineEnd`: the track ahead of its front ended within `LINE_END_NEAR` as it turned.
+ */
+export interface TurnSeen {
+  key: number;
+  trainId: number;
+  newTrainId: number;
+  pieceId: number;
+  how: "line-end" | "now" | "lift";
+  atLineEnd: boolean;
+}
+
+/** How near the end of the track (mm ahead of its front axle) a train turned by `turnNow` must be to be at the line's end. */
+export const LINE_END_NEAR = 60;
+
+/**
  * How one train holds another where it stands (`Sim.heldBy`): short of a crossing or switch it's on or coming onto
  * ("cross"), close behind it ("follow"), nose to nose with it ("nose"), against its side ("side"), or at the end of the
  * line with no room to turn round for it ("turn"), or at a red signal whose block (or way, past a path signal) it's on or
@@ -608,10 +626,12 @@ export class Sim {
     const t = this.trains.get(trainId);
     if (!t || t.derailed || t.speed >= 1 || t.bogies.length === 0) return null;
     if (this.rides.size > 0 && this.riding(t)) return null;
+    const atLineEnd = this.onTurn !== null && this.endAhead(t, LINE_END_NEAR) !== null;
     const turned = this.turnAround(t);
     if (!turned) return null;
     turned.lastTurn = t.lastTurn;
     this.events.push({ kind: "turned", trainId: t.id, newTrainId: turned.id });
+    this.onTurn?.({ key: trainKey(t), trainId: t.id, newTrainId: turned.id, pieceId: t.bogies[0].pieceId, how: "now", atLineEnd });
     return turned;
   }
 
@@ -627,11 +647,13 @@ export class Sim {
     if (!t || t.bogies.length === 0) return { kind: "none" };
     if (t.derailed) return { kind: "derailed" };
     if (this.rides.size > 0 && this.riding(t)) return { kind: "riding" };
+    const atLineEnd = this.onTurn !== null && this.endAhead(t, LINE_END_NEAR) !== null;
     const turned = this.turnAround(t);
     if (!turned) return { kind: "no-room", by: this.turnBlocker(t) };
     turned.lastTurn = t.lastTurn;
     this.turnBlocked.delete(trainKey(t));
     this.events.push({ kind: "turned", trainId: t.id, newTrainId: turned.id });
+    this.onTurn?.({ key: trainKey(t), trainId: t.id, newTrainId: turned.id, pieceId: t.bogies[0].pieceId, how: "lift", atLineEnd });
     return { kind: "turned", train: turned };
   }
 
@@ -1457,6 +1479,11 @@ export class Sim {
    * Who's on the way onto each piece where paths meet, by the path it'll take (`pieceId * MAX_PATHS + path`): the train,
    * and the tick it said so (good that tick and the next). See `crossCap`.
    */
+  /**
+   * Told of every turn round (`TurnSeen`), after it: the tests' and dev checks' `midTurn`. Null (the game's default):
+   * nothing is worked out for it. Setting it changes no move.
+   */
+  onTurn: ((e: TurnSeen) => void) | null = null;
   private readonly crossClaims = new Map<number, { key: number; tick: number }>();
   /** Points a train coming up to them last saw another train on (`onPoints`), and when. */
   private readonly pointsSeen = new Map<number, { key: number; tick: number }>();
@@ -1683,6 +1710,7 @@ export class Sim {
           this.turnBlocked.delete(trainKey(train));
           this.endBehind.delete(trainKey(train));
           this.events.push({ kind: "turned", trainId: train.id, newTrainId: turned.id });
+          this.onTurn?.({ key: trainKey(train), trainId: train.id, newTrainId: turned.id, pieceId: train.bogies[0].pieceId, how: "line-end", atLineEnd: true });
           continue; // moves from next tick, as a new train
         }
         // No room to set it down turned round (another train close behind it, as a rule): it waits there and tries

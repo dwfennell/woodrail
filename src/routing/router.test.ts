@@ -414,10 +414,12 @@ describe("route locks: two trains", () => {
     const goals = new Map([[j.engine().id, j.b], [behind, j.a]]);
     const r = routerOn(j.layout, j.sim, goals);
     r.look();
-    // (Set for the first; the second's ask, for the other road, refused: it holds nothing.)
+    // (Set for the first; the second, behind it, asks for nothing while the first is between it and them (a train
+    // behind another holds no points that one needs first: ring fuzz seed 6): it holds nothing, and nothing is refused.)
     expect(j.layout.switchState(j.sw)).toBe(1);
     expect(r.router.holders(j.sw)).toBe(1);
-    expect(r.router.refused).toBeGreaterThan(0);
+    expect(r.router.holdersOf(j.sw).has(behind)).toBe(false);
+    expect(r.router.refused).toBe(0);
     const underTrain = spyThrows(j.layout, j.sim);
     const second = j.sim.findCar(behind)!.train;
     let atA = false;

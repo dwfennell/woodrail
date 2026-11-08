@@ -14,7 +14,7 @@
  */
 import { readMapText, mapText } from "../persist/bug-map";
 import { deserializeWorld, modeKeys, serializeWorld } from "../persist/save";
-import { economyChecks } from "../game/dev-checks";
+import { economyChecks, economyWorld } from "../game/dev-checks";
 import type { GameMode } from "../game/modes";
 import type { World } from "../game/world";
 import { rng } from "../lib/rng";
@@ -40,6 +40,12 @@ export interface Replayed {
   /** Stops come to, per routed engine (by its car id, kept by the save since v14). */
   arrivals: Map<number, number>;
   checks: Invariants;
+  /**
+   * Liveness (routing redesign §4 step 0): per lever-on train (by its first engine's car id), the longest it stood (s)
+   * not busy where it was by its own choice (`InvariantWorld.busy`: at a stop, turning back): stuck for a reason on its
+   * card counts, as the player sees a train that doesn't move.
+   */
+  longestStand: Map<number, number>;
 }
 
 /** A copied map's text read into a world, as the game loads its save. Throws if it isn't a map or doesn't load. */
@@ -58,7 +64,7 @@ export async function loadBugMap(text: string): Promise<BugMap> {
  * (the sim and economy don't use it today; anything that does stays repeatable). `stopAtFirst`: stop at the first break.
  * `events`: what the player did after the copy (a lever tap, Go), scripted at a time, as the routing harness's are.
  */
-export function replayBugMap(world: World, opts: { seconds?: number; seed?: number; stopAtFirst?: boolean; events?: ScriptedTap[] } = {}): Replayed {
+export function replayBugMap(world: World, opts: { seconds?: number; seed?: number; stopAtFirst?: boolean; events?: ScriptedTap[]; onTick?: (world: World) => void } = {}): Replayed {
   const { seconds = 600, seed = 1, stopAtFirst = true } = opts;
   const events = [...(opts.events ?? [])].sort((a, b) => a.at - b.at);
   let e = 0;
@@ -68,6 +74,9 @@ export function replayBugMap(world: World, opts: { seconds?: number; seed?: numb
   Math.random = rng(seed);
   const arrivals = new Map<number, number>();
   const at = new Map<number, boolean>();
+  const longestStand = new Map<number, number>();
+  const standing = new Map<number, number>();
+  const live = economyWorld(world.economy);
   let ticks = 0;
   try {
     const end = Math.round(seconds * SIM_HZ);
@@ -81,13 +90,30 @@ export function replayBugMap(world: World, opts: { seconds?: number; seed?: numb
         if (now && !at.get(engine)) arrivals.set(engine, (arrivals.get(engine) ?? 0) + 1);
         at.set(engine, now);
       }
+      opts.onTick?.(world);
+      if (ticks % SIM_HZ === 0) stands(world, live, standing, longestStand);
       if (first && stopAtFirst) break;
     }
   } finally {
     Math.random = random;
     checks.off();
   }
-  return { first, seconds: ticks / SIM_HZ, arrivals, checks };
+  return { first, seconds: ticks / SIM_HZ, arrivals, checks, longestStand };
+}
+
+/** Once a second: each lever-on train's stand (s) so far, not busy by its own choice; its longest kept. */
+function stands(world: World, live: ReturnType<typeof economyWorld>, standing: Map<number, number>, longest: Map<number, number>): void {
+  const sim = world.sim;
+  for (const id of sim.trainIds()) {
+    const t = sim.getTrain(id)!;
+    const engine = t.cars.find((c) => c.kind === "engine");
+    if (!engine || engine.lever === 0 || t.derailed) continue;
+    const still = t.speed === 0 && !live.busy!(t, engine.id);
+    const n = still ? (standing.get(engine.id) ?? 0) + 1 : 0;
+    standing.set(engine.id, n);
+    if (n > (longest.get(engine.id) ?? 0)) longest.set(engine.id, n);
+    if (!longest.has(engine.id)) longest.set(engine.id, 0);
+  }
 }
 
 /** A world as "Copy map for a bug report" copies it (its save; no session, goals or progress): for hand-made maps. */

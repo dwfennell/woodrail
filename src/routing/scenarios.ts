@@ -768,8 +768,9 @@ export const OTHERS: readonly Scenario[] = [
  * The user's 2026-11-05 deadlock, small: a line with a station spur (`junction`: Forest yard ⊐ Y ══ ══ ══ ══ points, the
  * straight road on to a buffer, the curved one ══ Sawmill ⊏). Clover is routed Sawmill → Forest yard (a single-train line);
  * Willow, four cars, has no route ("goes anywhere") and shuttles along the straight as the points lie. They met head on
- * on the trunk and stood for good, each "in the way" of the other, though Willow could have turned back. Now Willow
- * gives way (turns round, as at the end of the line), and Clover gets on with its route.
+ * on the trunk and stood for good, each "in the way" of the other. From 2026-11-05 Willow turned round to give way; since
+ * 2026-11-07 nothing turns a train round short of the end of its line (the user, firm), so they stand, said stuck, the
+ * card's fix a passing loop: a true deadlock, no road out ahead of either.
  */
 export const routedMeetsHandRun: Scenario = {
   name: "a routed train meets a hand-run one head on by a station spur",
@@ -787,8 +788,8 @@ export const routedMeetsHandRun: Scenario = {
 
 /**
  * Two single-train lines, Red and Blue, both A ⇄ B round an oval but put down going opposite ways, close: they meet
- * nose to nose. Turned round, either has a way round the oval to its stop that doesn't run through the other
- * (`wayRound`), so one gives way, and both go the same way round from then on.
+ * nose to nose. The way round the oval is behind each: from 2026-11-05 one turned round to take it; since 2026-11-07
+ * (nothing turns a train round short of the end of its line) they stand, said stuck in each other's way.
  */
 export const routedHeadOnRing: Scenario = {
   name: "two routed trains head on round an oval",
@@ -806,8 +807,8 @@ export const routedHeadOnRing: Scenario = {
 
 /**
  * A true deadlock: a hand-run train between a buffer and a routed train whose stop is behind it (`⊐ A ══ … ══ B ⊏`, the
- * routed one going for A). The hand-run one gives way once (it turns, runs to the buffer, turns there and comes back),
- * but there's nowhere for it to go: it doesn't again till the routed one has got somewhere, so both are said stuck.
+ * routed one going for A). There's no road out ahead of either, so both are said stuck (till 2026-11-07 the hand-run
+ * one turned round once first, ran to the buffer and came back).
  */
 export const handRunBoxedIn: Scenario = {
   name: "a hand-run train boxed in between a buffer and a routed train",
@@ -832,7 +833,10 @@ export const handRunBoxedIn: Scenario = {
  * never did again till that one got somewhere, which it couldn't. All three stood for good, said stuck (seed 142:
  * 82 stops all hand-run, 8 with the route). And the points thrown for it, never gone over, were left thrown for good
  * (the `restore` invariant; fuzz seed 95's break on cf529c9a). Now they go back once the road hasn't taken
- * (`Router.thrownTaken`), and a train that gave way by a road and still stands in the ring turns round at the next try.
+ * (`Router.thrownTaken`). And the road takes: the two hand-run trains, standing, passed the loop's points' lock to and
+ * fro (`Router.release` handed it to whichever wanted them), each waiting on the other, so the free road could never be
+ * given; a standing hand-run train isn't handed a lock now. (From ec76a224 till 2026-11-07 the one that gave way by a
+ * road turned round at the next try instead.)
  */
 export const handRunRoadHeld: Scenario = {
   name: "a hand-run train given way by a road that didn't take",
@@ -866,6 +870,8 @@ export const handRunRoadHeld: Scenario = {
  * the road clear of the train facing it (`Router.outOfDeadEnd`), but a standing train locks nothing, so they stayed
  * thrown with no train on them or coming (seed 77: "points 5 left at 1 (default 0)" at 131.4 s, for 2.9 s, till it
  * went). Now points so thrown, not locked in half a second, go back, and aren't thrown for it again while it stands.
+ * The routed train follows the hand-run one into the line's end and they meet head on there: no road out ahead, so they
+ * stand, said stuck (till 2026-11-07 the hand-run one turned round).
  */
 export const deadEndMouthThrown: Scenario = {
   name: "points thrown at a dead end's mouth for a train standing in it",
@@ -923,7 +929,9 @@ export const boxedOnLoopLine: Scenario = {
  * Boxed in past a passing loop (fuzz seed 125, small: its layout by hand). `⊐ A ══ ══ (loop) ══ ══ (loop) ══ ══ (siding
  * points) ══ ══ B ⊐`. The routed train runs A ⇄ B; two hand-run ones shuttle. It comes to stand on the single line past
  * the second loop, bound for B, a hand-run train boxed in by B on its stop: each waits on the other. Neither has a way
- * round; but behind the routed train is the loop. Turned back to it (`letsBy`), it lets the boxed one out, and they pass.
+ * round, and the loop is behind the routed train: no road out ahead, so they stand, said stuck. (From 9158a7a9 till
+ * 2026-11-07 the routed one turned back to the loop to let the boxed one out; nothing turns a train round short of the
+ * end of its line now.)
  */
 export const boxedPastLoop: Scenario = {
   name: "boxed in past a passing loop",

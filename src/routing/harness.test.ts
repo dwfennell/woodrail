@@ -191,7 +191,7 @@ const OTHERS: Case[] = [
         r.stalls.stuck.forEach((n) => expect(n).toBeGreaterThan(60 * SIM_HZ));
       },
       // (Giving way: a single line, neither has a way round to its stop, so neither turns.)
-      "nobody gives way: no way round": (r) => expect(r.gaveWay).toEqual({ any: 0, routed: 0 }),
+      "nobody gives way: no road out ahead": (r) => expect(r.gaveWay).toEqual({ any: 0 }),
     },
   },
   {
@@ -291,72 +291,76 @@ const SHARED: Case[] = [
         expect(r.stalls.begun).toBe(1);
       },
  
-      "nobody gives way: no way round": (r) => expect(r.gaveWay).toEqual({ any: 0, routed: 0 }),
+      "nobody gives way: no road out ahead": (r) => expect(r.gaveWay).toEqual({ any: 0 }),
     },
   },
 ];
 
 /**
  * Giving way (economy/stalls.ts, the user 2026-11-05: "everything stops even though it could easily keep going"): a ring
- * of waits is broken where the track allows, by a hand-run train turning round, or a routed one with a way round; one
- * nobody can break is still said stuck, steadily (no ping-pong).
+ * of waits is broken where the track ahead allows, by a hand-run train taking another road, going forwards. Nothing
+ * turns a train round to give way (the user, firm, 2026-11-07: "trains should not turn around except at the end of
+ * lines"; every case checks `midTurn`): a ring with no road out ahead is said stuck, steadily, on each train's card.
  */
+/** Stuck for good, each "in the way" of another, from one stall on: no turning, no ping-pong. */
+const stuckSteadily = (n: number, s: number) => (r: Report) => {
+  expect(r.stalls.why).toEqual(r.stalls.why.map(() => "in-way"));
+  expect(r.stalls.begun).toBeLessThanOrEqual(n);
+  r.stalls.stuck.forEach((t) => expect(t).toBeGreaterThan(s * SIM_HZ));
+};
+const nobodyGaveWay = (r: Report) => expect(r.gaveWay).toEqual({ any: 0 });
 const GIVE_WAY: Case[] = [
   {
+    // (Head on with nothing between them but the points the hand-run one stands on: no road out ahead for either.
+    // Before 2026-11-07 the hand-run one turned round, short of the end of its line.)
     scenario: S.routedMeetsHandRun,
     checks: {
-      "payoff: the routed train 8+ stops in 5 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(8),
-      "never stuck": noStall,
-      "the hand-run one gave way, not the routed one": (r) => {
-        expect(r.gaveWay.any).toBeGreaterThanOrEqual(1);
-        expect(r.gaveWay.routed).toBe(0);
+      "both stand, stuck in each other's way, the card's fix a passing loop": (r) => {
+        stuckSteadily(1, 200)(r);
+        expect(r.arrivals).toEqual([0, 0]);
       },
-      "the hand-run one keeps going: 8+ turns at the buffers": (r) => expect(r.turns[1].buffer).toBeGreaterThanOrEqual(8),
-      "turns back only at the buffers": endsOnly,
+      "nobody gives way: no road out ahead": nobodyGaveWay,
+      "nobody turns back": (r) => expect(r.turns).toEqual(r.turns.map(() => ({ buffer: 0, "open-end": 0 }))),
     },
   },
   {
+    // (Nose to nose round an oval: the way round is behind each. Before 2026-11-07 one turned round to take it.)
     scenario: S.routedHeadOnRing,
     checks: {
-      "payoff: each 20+ stops in 5 min": arrivals(20),
-      "never stuck": noStall,
-      "one gave way, once, round the oval": (r) => expect(r.gaveWay).toEqual({ any: 1, routed: 1 }),
+      "both stand, stuck in each other's way": stuckSteadily(1, 200),
+      "nobody gives way": nobodyGaveWay,
       "nobody turns back at an end (an oval has none)": (r) => expect(r.turns).toEqual(r.turns.map(() => ({ buffer: 0, "open-end": 0 }))),
     },
   },
   {
     scenario: S.handRunBoxedIn,
     checks: {
-      "it gave way once, then not again to no end": (r) => expect(r.gaveWay).toEqual({ any: 1, routed: 0 }),
-      "both said stuck in each other's way, steadily (one stall)": (r) => {
-        expect(r.stalls.why).toEqual(["in-way", "in-way"]);
-        expect(r.stalls.begun).toBe(1);
-        r.stalls.stuck.forEach((n) => expect(n).toBeGreaterThan(80 * SIM_HZ));
-      },
+      "nobody gives way: boxed in, no road out ahead": nobodyGaveWay,
+      "both said stuck in each other's way, steadily (one stall)": stuckSteadily(1, 80),
     },
   },
   {
     // (Points thrown for a road given way that didn't take go back to the player's way: `restore` holds, as every case's.
-    // And the train that gave way by it, still standing in the ring, turns round at the next try.)
+    // And a standing hand-run train isn't handed a lock it can't use (`Router.release`): two standing in the ring passed
+    // the loop's points to and fro, each waiting on the other, so the free road could never be given. Before 2026-11-07
+    // the one that gave way turned round instead.)
     scenario: S.handRunRoadHeld,
     checks: {
-      // (Before: 3 stops, then all three said stuck for good, having given way twice.)
+      // (Before: 3 stops, then all three said stuck for good.)
       "payoff: the routed train 8+ stops in 5 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(8),
       "never stuck": noStall,
-      "hand-run ones gave way, not the routed one": (r) => {
-        expect(r.gaveWay.any).toBeGreaterThanOrEqual(3);
-        expect(r.gaveWay.routed).toBe(0);
-      },
       "the hand-run ones keep going: 5+ turns at the buffers each": (r) => r.turns.slice(1).forEach((t) => expect(t.buffer).toBeGreaterThanOrEqual(5)),
     },
   },
   {
     // (Points a standing train's look threw at its dead end's mouth go back: `restore` holds, as every case's. Before:
-    // "131.4 s: points 5 left at 1 (default 0), no train on them".)
+    // "131.4 s: points 5 left at 1 (default 0), no train on them". The routed train comes in behind the hand-run one in
+    // the line's end, where they meet head on: no road out ahead, so they stand, and the third waits behind them. Before
+    // 2026-11-07 the hand-run one turned round.)
     scenario: S.deadEndMouthThrown,
     checks: {
-      "payoff: the routed train 3+ stops": (r) => expect(r.arrivals[1]).toBeGreaterThanOrEqual(3),
-      "never stuck": noStall,
+      "all stand, said stuck in the way": stuckSteadily(2, 100),
+      "nobody gives way": nobodyGaveWay,
     },
   },
   {
@@ -370,14 +374,13 @@ const GIVE_WAY: Case[] = [
     },
   },
   {
-    // (Fuzz seed 125: the routed train turns back to the loop behind it and lets the boxed-in one out. Before: no stop,
-    // all three stuck.)
+    // (Fuzz seed 125: the routed train past the last loop, a hand-run one boxed in by B on the routed one's stop, facing
+    // it. The loop is behind the routed train: no road out ahead for either, so they stand, and the third waits behind.
+    // Before 2026-11-07 the routed one turned back to the loop to let it out.)
     scenario: S.boxedPastLoop,
     checks: {
-      "payoff: the routed train 5+ stops in 5 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(5),
-      "never stuck": noStall,
-      "the routed one gave way": (r) => expect(r.gaveWay.routed).toBeGreaterThanOrEqual(1),
-      "the hand-run ones keep going: 5+ turns at the buffers each": (r) => r.turns.slice(1).forEach((t) => expect(t.buffer).toBeGreaterThanOrEqual(5)),
+      "all stand, said stuck in the way": stuckSteadily(2, 200),
+      "nobody gives way": nobodyGaveWay,
     },
   },
 ];

@@ -22,10 +22,11 @@ function worldWithTrain(): World {
 }
 
 describe("an old save whose layout leant on turning back (routing §16 Q3)", () => {
-  it("loads as it is (no migration); two hand-run trains head on along one line meet, and one gives way", async () => {
+  it("loads as it is (no migration); two hand-run trains head on along one line meet, and stand, said stuck", async () => {
     // (Saved as a layout that ran before: two trains on one line of track, set going toward each other. They met and
-    // turned back, again and again; then (§16 Q3) they stood, stuck. Now, neither routed (they go anywhere), one gives
-    // way where they meet (stalls.ts): it turns round, as at the end of the line, and both run on, never said stuck.)
+    // turned back, again and again; then (§16 Q3) they stood, stuck. From 2026-11-05 one gave way by turning round; since
+    // 2026-11-07 nothing turns a train round short of the end of its line (the user, firm): no road out ahead of either,
+    // so they stand nose to nose, said stuck on their cards, and nobody turns.)
     const world = buildStarterWorld();
     const [a] = world.landscape.towns;
     let last = world.stations.get(a.id)!;
@@ -53,8 +54,9 @@ describe("an old save whose layout leant on turning back (routing §16 Q3)", () 
     }
     const engines = w.sim.trainIds().map((id) => w.sim.getTrain(id)!.cars[0].id);
     expect(engines).toHaveLength(2);
-    expect(w.economy.stalls.gaveWay).toBeGreaterThanOrEqual(1);
-    expect(stuck).toBe(0);
+    expect(w.economy.stalls.gaveWay).toBe(0);
+    expect(stuck).toBeGreaterThan(40 * SIM_HZ);
+    expect(engines.map((e) => w.economy.stalls.stuckOf(e)?.kind)).toEqual(["in-way", "in-way"]);
   });
 });
 
