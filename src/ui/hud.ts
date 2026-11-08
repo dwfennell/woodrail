@@ -1063,6 +1063,9 @@ export class Hud {
       if (openId !== "" && openId !== tab.id) this.handlers.trayTabChanged();
       openId = tab.id;
       openDef = tab;
+      // (No shelf of this tab's shown yet: the one shown till now was the last tab's. Left set, a tab whose shelves all
+      // come with its props (Sandbox's Machines) stayed on "Unpacking…" when they came in: e2e:kits, no kits.)
+      shownShelf = null;
       this.hidePlaceCard();
       // The Land tab switches land editing on (with its first tool), any other tab off.
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
