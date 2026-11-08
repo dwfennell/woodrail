@@ -13,6 +13,7 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { testClockIn } from "./lib/fast.mjs";
 
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
@@ -27,6 +28,10 @@ const check = (name, ok, detail = "") => {
 };
 
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+// (The test clock: each engine's climb is game time, and at a frame or two a second under SwiftShader a frame's 0.1 s
+// step made each take 4 to 7 min on CI, the suite killed at 37 min short of its end. The same fixed sim ticks, more
+// of them a frame: lib/fast.mjs.)
+testClockIn(b);
 const errors = [];
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 const p = await ctx.newPage();
