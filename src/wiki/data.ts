@@ -14,7 +14,7 @@ import { INDUSTRY_ROLE } from "../game/world";
 import { CARGO, CARGO_KINDS, CARRIES, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { RECIPES, type DepotRole, type Recipe } from "../economy/economy";
 import { WAGON_NAME } from "../economy/wagons";
-import { INDUSTRY_GROUPS, TRAIN_ITEMS, type TrayItem } from "../ui/tray-catalogue";
+import { INDUSTRY_GROUPS, TRAIN_ITEMS, trayKey, type TrayItem } from "../ui/tray-catalogue";
 import { EXPLAINERS, type Explainer } from "../ui/explainers";
 import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
@@ -62,6 +62,8 @@ export interface IndustryData extends Ref {
   readonly row?: Ref;
   /** The research row's blurb, as its description, if a row unlocks it. */
   readonly blurb?: string;
+  /** Its tray picture's key (`trayKey`): `npm run wiki:pictures` saves it as `pictures/<pictureFile>`. */
+  readonly picture: string;
 }
 
 export interface GoodData extends Ref {
@@ -93,6 +95,8 @@ export interface VehicleData extends Ref {
   readonly row?: Ref;
   readonly detail?: string;
   readonly blurb?: string;
+  /** Its tray picture's key, as an industry's. */
+  readonly picture: string;
 }
 
 export interface GuideData extends Ref {
@@ -113,6 +117,9 @@ export interface WikiData {
 /** A slug from a game id: lower case, letters, digits and dashes. */
 export const slugOf = (id: string): string => id.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
+/** A page's picture's file name, in `src/wiki/pictures/` and the wiki's `pictures/` ("industries-sawmill.webp"). */
+export const pictureFile = (r: Pick<Ref, "section" | "slug">): string => `${r.section}-${r.slug}.webp`;
+
 const costFrom = (goods: Readonly<Record<string, number>>, coins = 0): Cost => ({ goods: Object.entries(goods).map(([kind, n]) => ({ kind, n })), coins });
 const priceOf = (rule: ThingRule | undefined): Cost => costFrom(rule?.cost ?? {}, rule?.coins ?? 0);
 
@@ -125,8 +132,8 @@ const industryItems = (): { item: TrayItem & { label: string }; thing: ThingId; 
   });
 
 /** Engines and wagons by the tray's order: single cars (a whole train, "Full train", isn't one). */
-function vehicleItems(): { car: CarKind; look?: CarLook; label: string; detail?: string; engine: boolean; slug: string }[] {
-  const out: { car: CarKind; look?: CarLook; label: string; detail?: string; engine: boolean; slug: string }[] = [];
+function vehicleItems(): { item: TrayItem; car: CarKind; look?: CarLook; label: string; detail?: string; engine: boolean; slug: string }[] {
+  const out: { item: TrayItem; car: CarKind; look?: CarLook; label: string; detail?: string; engine: boolean; slug: string }[] = [];
   for (const item of TRAIN_ITEMS) {
     if (item.kind !== "train") continue;
     const looks = new Set(item.looks ?? []);
@@ -135,7 +142,7 @@ function vehicleItems(): { car: CarKind; look?: CarLook; label: string; detail?:
     const car = item.cars[0];
     const look = [...looks][0];
     const engine = car === "engine";
-    out.push({ car, look, label: item.label, detail: item.gameDetail, engine, slug: slugOf(item.label) });
+    out.push({ item, car, look, label: item.label, detail: item.gameDetail, engine, slug: slugOf(item.label) });
   }
   return out;
 }
@@ -164,6 +171,7 @@ export function wikiData(): WikiData {
       price: priceOf(rule),
       row,
       blurb: row ? TECHS.find((t) => t.id === rule!.tech)!.blurb : undefined,
+      picture: trayKey(item),
     };
   });
   const industryByThing = new Map<ThingId, Ref>(industryItems().map(({ thing }, i) => [thing, industries[i]]));
@@ -188,6 +196,7 @@ export function wikiData(): WikiData {
       row,
       detail: v.detail,
       blurb: row ? TECHS.find((t) => t.id === tech)!.blurb : undefined,
+      picture: trayKey(v.item),
     };
   });
   const engines = vehicles.filter((v) => v.section === "engines");
@@ -243,4 +252,11 @@ export function wikiData(): WikiData {
   const guides: GuideData[] = Object.values(EXPLAINERS).map((e) => ({ ...guideRef(e), section: "guides", explainer: e, seeAlso: (e.seeAlso ?? []).map((id) => guideRef(EXPLAINERS[id])) }));
 
   return { rows, industries, goods, engines, wagons, guides };
+}
+
+/** The tray items whose pictures the wiki shows, by file (for `npm run wiki:pictures`, which draws them in the game). */
+export function wikiPictureItems(): { file: string; key: string; item: TrayItem }[] {
+  const industries = industryItems().map(({ item, slug }) => ({ file: pictureFile({ section: "industries", slug }), key: trayKey(item), item }));
+  const vehicles = vehicleItems().map((v) => ({ file: pictureFile({ section: v.engine ? "engines" : "wagons", slug: v.slug }), key: trayKey(v.item), item: v.item }));
+  return [...industries, ...vehicles];
 }

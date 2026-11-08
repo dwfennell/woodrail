@@ -4,7 +4,8 @@ import { CARGO_KINDS } from "../economy/cargo";
 import { INDUSTRY_GROUPS, TRAIN_GROUPS } from "../ui/tray-catalogue";
 import { WAGON_NAME } from "../economy/wagons";
 import { EXPLAINERS } from "../ui/explainers";
-import { slugOf, wikiData } from "./data";
+import { pictureFile, slugOf, wikiData } from "./data";
+import { industryWikiUrl, researchWikiUrl, WIKI_URL } from "../ui/wiki-link";
 import { buildWiki, PLAY_URL, WIKI_BASE } from "./pages";
 
 const data = wikiData();
@@ -19,7 +20,7 @@ function resolve(from: string, href: string): string {
     else if (seg !== "." && seg !== "") parts.push(seg);
   }
   const out = parts.join("/");
-  return out && !out.endsWith(".css") ? `${out}/` : out;
+  return out && !/\.(css|webp)$/.test(out) ? `${out}/` : out;
 }
 
 describe("wiki", () => {
@@ -60,6 +61,25 @@ describe("wiki", () => {
       expect(paths.has(`${section}/${slugOf(item.label!)}/`), item.label).toBe(true);
     }
     for (const car of Object.keys(WAGON_NAME)) expect(data.wagons.some((w) => w.car === car), car).toBe(true);
+  });
+
+  it("shows the game's picture on every industry, engine and wagon page (`npm run wiki:pictures` after a new one)", () => {
+    const files = new Set(Object.keys(import.meta.glob("./pictures/*.webp")).map((f) => f.slice("./pictures/".length)));
+    for (const r of [...data.industries, ...data.engines, ...data.wagons]) {
+      expect(files.has(pictureFile(r)), `no picture for ${r.name}: run npm run wiki:pictures`).toBe(true);
+      expect(wiki.pages.find((p) => p.path === `${r.section}/${r.slug}/`)!.html, r.name).toContain(`src="../../pictures/${pictureFile(r)}"`);
+    }
+    // And every picture a page shows is there.
+    for (const p of wiki.pages) for (const [, src] of p.html.matchAll(/<img[^>]* src="([^"]+)"/g)) expect(files.has(resolve(p.path, src).replace(/^pictures\//, "")), `${p.path} → ${src}`).toBe(true);
+  });
+
+  it("is linked from the game: its industry cards and research tickets go to pages that exist", () => {
+    expect(WIKI_URL).toBe(WIKI_BASE);
+    const page = (url: string | null) => url && paths.has(url.slice(WIKI_BASE.length));
+    for (const item of INDUSTRY_GROUPS.flatMap((g) => g.items)) if (item.kind === "piece") expect(page(industryWikiUrl(item.type)), item.type).toBe(true);
+    for (const t of TECHS.filter(built)) expect(page(researchWikiUrl(t.id)), t.id).toBe(true);
+    for (const t of TECHS.filter((t) => !built(t))) expect(researchWikiUrl(t.id), t.id).toBe(null);
+    expect(industryWikiUrl("depot-town")).toBe(null);
   });
 
   it("gives every page a unique path, a title and a short description", () => {

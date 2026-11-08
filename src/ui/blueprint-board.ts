@@ -1,4 +1,5 @@
 import type { CardState, ResearchCardView } from "../game/research-text";
+import { researchWikiUrl } from "./wiki-link";
 
 /** One blueprint, as a tag on the board's web. */
 export interface Station {
@@ -667,13 +668,17 @@ export class BlueprintBoard {
     if (s.state === "learned") foot = `<span class="bp-done">Learned</span>`;
     else if (s.research) foot = researchFoot(s.id, s.research, !!s.goal);
     else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
+    const wiki = researchWikiUrl(s.id);
+    const wikiLink = wiki ? `<a class="learn-more wiki-link" href="${wiki}" target="_blank" rel="noopener">On the wiki</a>` : "";
     const fact = (label: string, body: string, cls: string) => `<div class="bp-fact ${cls}"><b>${label}</b><span class="bp-fact-body">${body}</span></div>`;
     const facts =
       (makes ? `<div class="bp-fact bp-makes"><b class="bp-makes-head">Unlocks:</b><span class="bp-fact-body">${makes}</span></div>` : "") +
       // (What must be done first, besides research, sits with what it needs: "Needs: Harvesters ✓ [100 logs cut]".)
       (needs.length || (s.state !== "learned" && reqs) ? fact("Needs:", `${needs.length ? `<span>${esc(needs.join(" + "))}</span>` : ""}${s.state !== "learned" ? reqs : ""}`, "bp-ticket-needs") : "") +
       (opens.length ? fact("Opens:", `${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}`, "bp-opens") : "") +
-      (s.state !== "learned" ? `<div class="bp-full-cost"><b>Costs:</b> ${esc(s.cost)}</div>` : "");
+      (s.state !== "learned" ? `<div class="bp-full-cost"><b>Costs:</b> ${esc(s.cost)}</div>` : "") +
+      // (Last in the facts: on a phone, folded with them, so the list above keeps its room.)
+      wikiLink;
     // A phone: the facts folded under one line saying what's in them (the foot, with its button, always shows).
     const more = makes ? `Unlocks ${s.makes.length === 1 ? esc(s.makes[0].label) : `${s.makes.length} things`}` : "Details";
     const factsHtml = !facts ? "" : this.narrow() ? `<details class="bp-more"${this.detailsOpen ? ` open=""` : ""}><summary>${more}<span class="bp-more-hint" aria-hidden="true"></span></summary><div class="bp-facts">${facts}</div></details>` : `<div class="bp-facts">${facts}</div>`;

@@ -232,7 +232,7 @@ export const RULES = [
   [["src/ui/hud.ts", "src/ui/tray-catalogue.ts"], ["names", "locked", "focus-ring", "research", "tray", "sandbox-chains", "touch:tabs-reach"]],
   ["src/ui/prefs.ts", ["sandbox-chains"]],
   [["src/ui/explainers.ts", "src/ui/explainer-sheet.ts", "src/ui/hud.ts", "src/style.css"], ["learn-more"]],
-  [["src/ui/blueprint-board.ts", "src/ui/cost-tag.ts"], ["research", "locked"]],
+  [["src/ui/blueprint-board.ts", "src/ui/cost-tag.ts", "src/ui/wiki-link.ts"], ["research", "locked"]],
   ["src/ui/feedback-sheet.ts", ["touch:feedback", "click:feedback"]],
   [["src/ui/controls-tutorial.ts", "src/ui/title.ts"], ["tutorial"]],
   ["src/ui/focus-ring.ts", ["focus-ring"]],

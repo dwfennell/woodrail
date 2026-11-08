@@ -23,6 +23,7 @@ import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
 import type { CreditsSheet } from "./credits-sheet";
 import type { ExplainerSheet } from "./explainer-sheet";
 import { EXPLAINER_TITLES, explainerIdFor, type ExplainerId } from "./explainer-keys";
+import { WIKI_URL } from "./wiki-link";
 
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
@@ -354,6 +355,11 @@ export class Hud {
   private depotStockKey = "";
   /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
   private readonly depotHelp = el("div", "card-hint depot-help");
+  /**
+   * The industry's page on the wiki (`setDepotWiki`), or hidden (a town, a station): in the title's row, across from
+   * ✕, so the card is no taller (a taller card leaves less map above it for Show to frame things in).
+   */
+  private readonly depotWiki = Object.assign(el("a", "learn-more wiki-link", "Wiki"), { target: "_blank", rel: "noopener", title: "This industry on the Woodrail wiki" });
   /** What the crane's toggles do now, in words (their tooltips never show on a phone). */
   private readonly depotModeHint = el("div", "card-hint depot-mode-hint");
   /** Sandbox's chain hints on a depot card: how it's doing, and where its goods come from and go (`setDepotChain`). */
@@ -651,6 +657,10 @@ export class Hud {
         this.coach.close(true);
         this.showHelp();
       }, "menu-item"),
+      button("Woodrail wiki", "Every industry, good and research row, on the web", () => {
+        this.menu.hidden = true;
+        window.open(WIKI_URL, "_blank", "noopener");
+      }, "menu-item"),
       button("Show controls", "Show the camera controls again", () => {
         this.menu.hidden = true;
         this.help.hidden = true;
@@ -824,7 +834,7 @@ export class Hud {
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.depotPower.hidden = true;
     this.root.appendChild(this.depotCard);
@@ -2467,6 +2477,13 @@ export class Hud {
     const from = Number.isNaN(this.trayArrowDeg) ? d : this.trayArrowDeg;
     this.trayArrowDeg = from + ((((d - from) % 360) + 540) % 360) - 180;
     this.tray.style.setProperty("--tray-turn", `${this.trayArrowDeg}deg`);
+  }
+
+  /** The open industry card's wiki page (`wiki-link.ts`), or null: none for it. */
+  setDepotWiki(url: string | null): void {
+    this.depotWiki.hidden = !url;
+    if (url) this.depotWiki.href = url;
+    this.depotWiki.setAttribute("aria-label", "This industry on the Woodrail wiki");
   }
 
   showDepotCard(title: string): void {

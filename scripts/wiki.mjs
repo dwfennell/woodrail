@@ -5,9 +5,9 @@
  *   npm run wiki [-- --out dist/wiki]
  *
  * The game's modules have extensionless imports and worker chunks, so they're loaded through Vite's SSR loader with
- * the project's config, as Vitest loads them. Writes each page's index.html, style.css and sitemap.xml under --out.
+ * the project's config, as Vitest loads them. Writes each page's index.html, style.css, sitemap.xml and pictures/ under --out.
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createServer } from "vite";
 
@@ -27,6 +27,8 @@ try {
   }
   writeFileSync(join(out, "style.css"), wiki.css);
   writeFileSync(join(out, "sitemap.xml"), wiki.sitemap);
+  // The game's pictures of its industries, engines and wagons (`npm run wiki:pictures`).
+  if (existsSync("src/wiki/pictures")) cpSync("src/wiki/pictures", join(out, "pictures"), { recursive: true });
   console.log(`wrote ${wiki.pages.length} wiki pages to ${out}`);
 } finally {
   await vite.close();
