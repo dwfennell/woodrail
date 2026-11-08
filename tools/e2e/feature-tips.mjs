@@ -104,10 +104,23 @@ const tapButton = async (sel, text) => {
   await p.evaluate(([sel, text]) => [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text))).scrollIntoView({ block: "nearest" }), [sel, text]);
   await frames();
   await p.waitForTimeout(400);
-  const [x, y] = await p.evaluate(([sel, text]) => {
-    const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text))).getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, [sel, text]);
+  const at = () =>
+    p.evaluate(([sel, text]) => {
+      const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text)))?.getBoundingClientRect();
+      return r ? [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)] : null;
+    }, [sel, text]);
+  // (Where it stays: the same on two looks a frame apart (a card opened just now may still be laid out round it, or the
+  // tray under it redrawn), up to ~10 s. Tapped where it was a moment before, a finger misses it.)
+  let [x, y] = (await at()) ?? [0, 0];
+  for (let k = 0; k < 20; k++) {
+    await frames();
+    const now = await at();
+    if (!now) break;
+    if (now[0] === x && now[1] === y) break;
+    [x, y] = now;
+    await p.waitForTimeout(300);
+  }
+  tapButton.last = { sel, x, y, under: await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? `${e.tagName.toLowerCase()}.${[...e.classList].join(".")}` : null; }, [x, y]) };
   await tapped(() => p.touchscreen.tap(x, y));
 };
 const enterGame = async () => {
@@ -330,7 +343,7 @@ if (!setup.error) {
   await shot("onboarding-leave-now-showme");
   await tapButton(".engine-card .leave-now");
   const left = await p.waitForFunction((t) => !window.woodrail.economy.waitingToFill(t), waiting.train, { timeout: 15000 }).then(() => true, () => false);
-  check("Leave now sends it on with what it has, and the tip goes", left && (await tipGone("leave-now")));
+  check("Leave now sends it on with what it has, and the tip goes", left && (await tipGone("leave-now")), left ? "" : JSON.stringify(tapButton.last));
   await p.keyboard.press("Escape");
 
   // 7. A ring line: Train routes learned, the train given a line round the oval (forest, sawmill) in code.
