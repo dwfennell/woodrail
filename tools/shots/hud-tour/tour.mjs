@@ -100,6 +100,20 @@ const S = {
       w.interaction.selectPiece(id);
     });
   },
+  // A boat's card, for its route's look only: the card itself, shown with a made-up view through its own show(). A
+  // named shortcut (no boat on the staged map: that takes a boatyard and goods; e2e:water plays that path).
+  async boat(p) {
+    await look(p, 1500);
+    await p.evaluate(async () => {
+      const { BoatCard } = await import("/src/ui/boat-card.ts");
+      const noop = () => {};
+      const card = new BoatCard({ close: noop, plan: noop, cycleStop: noop, removeStop: noop, goStop: noop });
+      card.el.classList.add("hw-tour-boat");
+      document.querySelector(".hud").append(card.el);
+      card.show({ id: 1, name: "Tug 1", barges: 2, maxBarges: 3, load: "Carrying 8 of 12: 🪵 8 logs", status: "Heading for Mill landing", planning: false, more: "", going: true,
+        stops: [{ label: "Forest landing", action: "pick", current: false }, { label: "Mill landing", action: "both", current: true }, { label: "Town quay", action: "drop", current: false }] });
+    });
+  },
   async map(p) { await click(p, '.actions .chip[aria-label^="Map"]'); await p.waitForTimeout(1500); },
   async explainer(p) { await look(p); await p.evaluate(() => window.woodrail.hud.showExplainer("signals")); await p.waitForTimeout(1200); },
   async credits(p) { await look(p); await menuItem(p, "Credits"); await p.waitForTimeout(800); },
@@ -118,6 +132,7 @@ export default Object.entries(S).map(([name, fn]) => ({
   },
   async after(p) {
     if (name === "map") await click(p, '.actions .chip[aria-label^="Map"]');
+    if (name === "boat") await p.evaluate(() => document.querySelectorAll(".hw-tour-boat").forEach((e) => e.remove()));
     if (name === "newgame") await click(p, ".new-game-sheet:not([hidden]) .new-game-back, .new-game-sheet:not([hidden]) button", "Back");
   },
 }));
