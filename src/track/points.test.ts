@@ -97,4 +97,26 @@ describe("points: one definition of what counts as points", () => {
         expect(offersChoice(d), t).toBe(old);
       }
   });
+
+  // (Masks as the booking table and the router ask them: a mutation run found masksFoul's own rules (none for an empty
+  // mask, every pair on a deck, a foul by any one of a mask's paths) checked only through bookings.test.ts.)
+  it("masks foul: on a switch or a crossing two roads do; an empty mask never; on a deck any two; any one path of a mask will do", () => {
+    for (const t of ["switch", "crossing"] as const) {
+      const d = def(t);
+      expect(masksFoul(d, 0b01, 0b10), t).toBe(true);
+      expect(masksFoul(d, 0, 0b11), t).toBe(false);
+      expect(masksFoul(d, 0b11, 0), t).toBe(false);
+    }
+    const deck = PIECE_TYPES.map((t) => def(t)).find((d) => d.gated && d.paths.length > 1 && !doubleTrack(d))!;
+    expect(deck, "a deck with several roads").toBeDefined();
+    expect(masksFoul(deck, 0b01, 0b10)).toBe(true);
+    // (A crossover: its two straights clear of each other, but a mask of a straight and a diagonal fouls the other.)
+    const x = def("crossover");
+    const straights: number[] = [];
+    for (let i = 0; i < x.paths.length; i++) for (let j = i + 1; j < x.paths.length; j++) if (!pathsFoul(x, i, j)) straights.push(i, j);
+    const [a, b] = straights;
+    const diagonal = [...x.paths.keys()].find((k) => k !== a && k !== b)!;
+    expect(masksFoul(x, 1 << a, 1 << b)).toBe(false);
+    expect(masksFoul(x, (1 << a) | (1 << diagonal), 1 << b)).toBe(true);
+  });
 });
