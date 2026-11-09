@@ -6418,6 +6418,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function showGuide(guide: GoalGuide): void {
     interaction.guideSpots = guide.marks.map((p) => ({ x: p.x, z: p.z }));
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
+    if (guide.draw) hud.nudgeDraw();
     // The card to choose from ("Make a switch": the workshop's, its Switch row there to tap).
     if (guide.card !== undefined) interaction.openDepotCard(guide.card);
     // An old industry's ruin to restore ("Open a farm"): its card, with Restore on it.

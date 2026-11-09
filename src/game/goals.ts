@@ -34,6 +34,8 @@ export interface GoalGuide {
   /** The tray tab to open, and a shelf in it. */
   tab?: "track" | "trains" | "industries";
   shelf?: string;
+  /** Light up the Draw chip a moment too (the Track tab open): the line can be drawn rather than laid piece by piece. */
+  draw?: boolean;
   /**
    * A piece the goal asks for, and the way round it fits at the guided spot: taken from the tray after "Show me", it
    * comes out turned that way (held so, a depot takes the straight's place that way round), not as the view would
@@ -454,9 +456,11 @@ export const GOALS: readonly Goal[] = [
   {
     id: "deliver-planks",
     title: "Deliver planks to a town",
-    hint: "Take logs to the sawmill, then carry its planks to a town's station.",
+    // The first goal whose line has to turn a corner (QA: a player on a tablet laid only straights toward the town
+    // and left): the hint says so, and Show me opens the Curve shelf and lights up Draw.
+    hint: "Take logs to the sawmill, then carry its planks to a town's station. To turn a corner, lay a Curve, or tap ✎ Draw and draw the line.",
     check: (w) => ({ done: deliveredTotal(w) > 0 }),
-    guide: (w) => guideDepot(w, "sawmill"),
+    guide: (w) => ({ ...guideDepot(w, "sawmill"), tab: "track", shelf: "Curve", draw: true }),
   },
   {
     id: "grow-town",

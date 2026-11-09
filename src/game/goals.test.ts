@@ -176,6 +176,14 @@ describe("goal guides", () => {
     expect(goal("lay-switch").guide(w)).toMatchObject({ tab: "track", shelf: "Switch" });
     expect(goal("build-bridge").guide(w)).toMatchObject({ tab: "track", shelf: "Bridges" });
   });
+
+  it("delivering planks, the first line round a corner: the sawmill marked, the Curve shelf open and Draw lit", () => {
+    const { w } = joined();
+    const mill = w.landscape.depots.find((d) => d.kind === "sawmill")!;
+    const pose = w.layout.getPiece(w.depots.get(mill.id)!)!.pose;
+    expect(goal("deliver-planks").guide(w)).toMatchObject({ marks: [pose], tab: "track", shelf: "Curve", draw: true });
+    expect(goal("deliver-planks").hint).toMatch(/Curve.*Draw/);
+  });
 });
 
 describe("build-bridge guide", () => {

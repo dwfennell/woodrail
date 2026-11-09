@@ -1373,6 +1373,12 @@ export class Hud {
     this.toastEl.classList.toggle("taps-through", this.mapTaps.size > 0);
   }
 
+  /** Light up the Draw chip a moment (a goal's Show me: the line can be drawn). */
+  nudgeDraw(): void {
+    this.drawBtn.classList.add("nudge");
+    window.setTimeout(() => this.drawBtn.classList.remove("nudge"), 4000);
+  }
+
   /** Show whether drawing track is on (the Draw chip lit). */
   setDrawing(on: boolean): void {
     this.setMapTaps("drawing", on);
