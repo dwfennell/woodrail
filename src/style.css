@@ -12,7 +12,8 @@
      thickness cut square along the bottom; buttons that matter are lacquered blocks in the logo's colours; rows on a
      board are maple tiles; state is a peg; counts and prices are stamped; rules are pencil. Shadows are short and
      nearly hard, a block standing on a table, never a soft halo. ---- */
-  --display: "Lilita One", "Nunito", system-ui, sans-serif;
+  /* (the icon font first, as everywhere a font is named: the game's own drawings for 🪙, 📘, the goods) */
+  --display: "Woodrail Icons", "Lilita One", "Nunito", system-ui, sans-serif;
   /* The grain: one 256 px tile of brown with alpha (scripts/grain.py), laid over a board's colour. */
   --grain: url("./assets/grain.webp") 0 0 / 256px 256px;
   --beech-hi: #f6e2bd;
@@ -97,7 +98,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .topbar > * { pointer-events: auto; }
 .brand { font-weight: 800; font-size: 20px; letter-spacing: 0.02em; color: var(--wood-ink); background: var(--wood-panel); padding: 8px 14px 11px 10px; border-radius: 10px; box-shadow: var(--wood-panel-edge), var(--top-drop); display: flex; align-items: center; gap: 8px; }
 /* (stamped beside the name: "BETA"; before the phone rules that hide it in the top bar) */
-.mode-tag { display: inline-flex; align-items: center; height: 22px; font-family: "Nunito", sans-serif; font-size: 12px; font-weight: 900; letter-spacing: 0.04em; line-height: 1; padding: 0 7px; border-radius: 3px; background: var(--mottle); color: var(--stamp-red); box-shadow: inset 0 0 0 1.6px var(--stamp-red); transform: rotate(-3deg); margin-left: 2px; white-space: nowrap; }
+.mode-tag { display: inline-flex; align-items: center; height: 22px; font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 12px; font-weight: 900; letter-spacing: 0.04em; line-height: 1; padding: 0 7px; border-radius: 3px; background: var(--mottle); color: var(--stamp-red); box-shadow: inset 0 0 0 1.6px var(--stamp-red); transform: rotate(-3deg); margin-left: 2px; white-space: nowrap; }
 .brand-block { font-size: 26px; }
 /* The brand is the way home (back to my railway): a finger's height, and a ⌖ while it's pressed. */
 .brand { position: relative; min-height: 44px; min-width: 44px; cursor: pointer; transition: transform 0.12s; }
@@ -154,7 +155,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip.danger { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--red); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--red-cut), var(--block-drop); }
 .chip.attention { color: var(--wood-ink); background: var(--sheen), var(--yellow); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -4px 0 var(--yellow-cut), var(--block-drop); animation: nudge 1.6s ease-in-out infinite; }
 /* Lettering printed on the toy box: the words on painted blocks, titles and tabs. */
-.chip.primary, .chip.danger, .chip.go, .chip.attention { font-family: "Woodrail Icons", var(--display); font-weight: 400; letter-spacing: 0.02em; }
+.chip.primary, .chip.danger, .chip.go, .chip.attention { font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; }
 /* Under the top bar, on the right (the goals panel is on the left); the toast, which is centred, sits above it. */
 .menu-update { color: var(--stamp-green-ink); background: transparent; box-shadow: inset 0 0 0 1.6px var(--stamp-green); }
 .chip .ui-icon { display: block; margin: 0 auto; }
@@ -179,7 +180,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tabs::-webkit-scrollbar { display: none; }
 /* Tabs hang from the tray's top edge: bare wood, each with its colour painted along its foot; the open one is painted
    all over and hangs lower. The colour cycles red, blue, green, yellow (the logo's blocks). */
-.tab { flex: none; border: none; font: inherit; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 15px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); padding: 8px 13px 12px; border-radius: 0 0 8px 8px; cursor: pointer;
+.tab { flex: none; border: none; font: inherit; font-family: var(--display); font-weight: 400; font-size: 15px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); padding: 8px 13px 12px; border-radius: 0 0 8px 8px; cursor: pointer;
   --c: var(--red); --d: var(--red-cut); background: var(--groove); box-shadow: inset 0 2px 3px rgba(80, 45, 10, 0.22), inset 0 -4px 0 var(--c); }
 .tab:nth-child(4n+2) { --c: var(--blue); --d: var(--blue-cut); }
 .tab:nth-child(4n+3) { --c: var(--green); --d: var(--green-cut); }
@@ -226,7 +227,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 /* A card sits just clear of the tray (138 px with its tabs): over it, it would cover the tabs. */
 .card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); background: var(--wood-panel); color: var(--wood-ink); border-radius: 12px; box-shadow: var(--wood-panel-edge), var(--board-drop); padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
-.card-title { font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; line-height: 1.15; color: var(--wood-ink); }
+.card-title { font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; line-height: 1.15; color: var(--wood-ink); }
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); text-align: center; margin-top: -6px; max-width: 300px; }
 /* A landing's or yard's own rows (water-controls.ts): stacked with room, each line clear of the buttons around it. */
@@ -345,9 +346,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-card .corner.follow.active { background: var(--sheen), var(--green); color: var(--paint-ink); box-shadow: inset 0 -3px 0 var(--green-cut); }
 /* Its title is the engine's name, painted on its cab too: a tap renames it (a little text box in its place, 14 letters). */
 /* (44 px to tap, but no taller in the card than a plain title: its margins give back what its height adds.) */
-.engine-card .engine-name { border: none; background: transparent; padding: 0 8px; margin: -12px auto; height: 44px; line-height: 1; max-width: calc(100% - 96px); border-radius: 8px; cursor: text; font-family: "Woodrail Icons", var(--display); font-weight: 400; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.engine-card .engine-name { border: none; background: transparent; padding: 0 8px; margin: -12px auto; height: 44px; line-height: 1; max-width: calc(100% - 96px); border-radius: 8px; cursor: text; font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* (the ✎ beside the name, on its centre line) */
-.engine-card .engine-name::after { content: "✎"; display: inline-block; font-family: "Nunito", sans-serif; font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); margin-left: 5px; vertical-align: 0.15em; }
+.engine-card .engine-name::after { content: "✎"; display: inline-block; font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); margin-left: 5px; vertical-align: 0.15em; }
 .engine-card .engine-name:hover, .engine-card .engine-name:focus-visible { background: rgba(150, 100, 50, 0.1); }
 .engine-card .engine-name-input { margin: -12px auto; width: 11em; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid var(--end-grain); border-radius: 8px; background: var(--maple); text-align: center; font-family: inherit; font-size: 16px; }
 .engine-card .engine-name-input:focus { outline: none; border-color: #8a5a2c; }
@@ -395,7 +396,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-actions { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .engine-actions > .chip { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 8px; font-size: 14px; white-space: nowrap; }
 .engine-actions > .chip[hidden] { display: none; }
-.engine-actions > .chip.remove { flex: 0 0 auto; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
+.engine-actions > .chip.remove { flex: 0 0 auto; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
 /* (a pencil line between the train's tools and Remove) */
 .engine-actions .engine-actions-gap { flex: 0 0 0; height: 28px; margin: 0 3px; border-left: 1.5px dashed var(--pencil); }
 /* Editing the line: the line alone (its load, status, Go and tools go). */
@@ -424,7 +425,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
 /* (As wide as its words, up to the screen less a margin: from `left: 50%` it would otherwise shrink to half the screen
    and wrap a short message onto three lines.) */
-.toast { position: fixed; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); transform: translate(-50%, -14px) rotate(0deg); color: var(--wood-ink); padding: 11px 18px 14px; border-radius: 9px; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 18px; letter-spacing: 0.01em; line-height: 1.2; opacity: 0;
+.toast { position: fixed; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); transform: translate(-50%, -14px) rotate(0deg); color: var(--wood-ink); padding: 11px 18px 14px; border-radius: 9px; font-family: var(--display); font-weight: 400; font-size: 18px; letter-spacing: 0.01em; line-height: 1.2; opacity: 0;
   /* a yellow lacquered block, clicked into place */
   background: var(--sheen), var(--yellow); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -5px 0 var(--yellow-cut), 0 7px 6px -3px rgba(40, 22, 6, 0.5); transition: opacity 0.18s, transform 0.32s cubic-bezier(0.2, 1.4, 0.4, 1); pointer-events: none; width: max-content; max-width: calc(100% - 32px); text-align: center; }
 .toast.show { opacity: 1; transform: translate(-50%, 0) rotate(-1.5deg); pointer-events: auto; cursor: pointer; }
@@ -437,7 +438,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .hud:has(.menu:not([hidden])) ~ .toast { z-index: 9; }
 /* A win: a green block with a ✓ stamped on it. */
 .toast.celebrate { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -5px 0 var(--green-cut), 0 7px 6px -3px rgba(40, 22, 6, 0.5); }
-.toast.celebrate::before { content: "✓"; display: inline-grid; place-items: center; width: 24px; height: 22px; margin-right: 10px; font: 900 15px/1 "Nunito", sans-serif; color: var(--paint-ink); box-shadow: inset 0 0 0 2px var(--paint-ink); border-radius: 3px; transform: rotate(-4deg); vertical-align: 1px; text-shadow: none; opacity: 0.95; }
+.toast.celebrate::before { content: "✓"; display: inline-grid; place-items: center; width: 24px; height: 22px; margin-right: 10px; font: 900 15px/1 "Woodrail Icons", "Nunito", sans-serif; color: var(--paint-ink); box-shadow: inset 0 0 0 2px var(--paint-ink); border-radius: 3px; transform: rotate(-4deg); vertical-align: 1px; text-shadow: none; opacity: 0.95; }
 
 .help { position: absolute; inset: 0; z-index: 32; background: rgba(40, 28, 16, 0.35); display: grid; place-items: center; padding: 16px; }
 .help-card { background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--board-drop); border-radius: 12px; padding: 22px 24px; max-width: 520px; display: flex; flex-direction: column; gap: 6px; }
@@ -820,7 +821,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals-label { flex: none; font-family: var(--display); font-weight: 400; font-size: 15px; line-height: 1; letter-spacing: 0.06em; text-transform: uppercase; color: var(--wood-ink-soft); padding-top: 2px; }
 /* The count is stamped in red, a little crooked: a mark on the board, not a badge. */
 .goals-count { flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 6px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: var(--display); font-weight: 400; font-size: 13.5px; line-height: 1; color: var(--stamp-red); background: var(--mottle); border-radius: 3px; box-shadow: inset 0 0 0 2px var(--stamp-red); transform: rotate(-2deg); }
-.goals-now { display: none; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 18px; letter-spacing: 0.01em; line-height: 1.15; padding-top: 1px; min-width: 0; }
+.goals-now { display: none; font-family: var(--display); font-weight: 400; font-size: 18px; letter-spacing: 0.01em; line-height: 1.15; padding-top: 1px; min-width: 0; }
 /* The fold chevron: points up (fold) when open, down (unfold) when folded. A square cut in the board. */
 .goals-fold { flex: none; margin-left: auto; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 7px; color: var(--wood-ink-soft); background: var(--groove); box-shadow: var(--groove-sh); transition: transform 0.2s ease-out; }
 .goals.collapsed .goals-fold { transform: rotate(180deg); }
@@ -855,7 +856,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A goal: its box sits on its title's centre line (Lilita 19 px, a 22 px line). */
 .goal { display: flex; gap: 12px; align-items: flex-start; }
 .goal > div { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: stretch; }
-.goal b { font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.01em; display: block; line-height: 22px; color: var(--wood-ink); }
+.goal b { font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.01em; display: block; line-height: 22px; color: var(--wood-ink); }
 .goal p { margin: 3px 0 0; font-size: 13.5px; font-weight: 700; line-height: 1.4; color: var(--wood-ink-soft); }
 /* Progress, stamped in green: "0 / 2 towns". */
 .goal-progress { align-self: flex-start; display: inline-flex; align-items: center; height: 22px; margin-top: 6px; padding: 0 7px; font-size: 12.5px; font-weight: 800; line-height: 1; color: var(--stamp-green-ink); background: var(--mottle); border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--stamp-green); transform: rotate(-1.5deg); }
@@ -876,7 +877,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tip-buttons .tip-show { order: 2; }
 .tip-buttons .tip-done { order: 1; }
 /* The Journal's buttons: words printed on, Show me painted blue. */
-.goals-body .chip { height: 44px; padding: 0 14px; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; }
+.goals-body .chip { height: 44px; padding: 0 14px; font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; }
 .goals-show, .tip-show { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--blue) !important; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--blue-cut), var(--block-drop) !important; }
 .goal.arrive { animation: goal-arrive 0.5s cubic-bezier(0.3, 1.4, 0.5, 1); }
 @keyframes goal-arrive { from { opacity: 0; transform: translateY(14px); } }
@@ -888,12 +889,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals-pane { display: flex; flex-direction: column; gap: 10px; }
 .goals-pane[hidden], .news-pane[hidden], .goals-bell[hidden], .goals-tab-badge[hidden] { display: none; }
 /* The bell: a little yellow block. */
-.goals-bell { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 24px; white-space: nowrap; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 14px; line-height: 1; color: var(--wood-ink); background: var(--sheen), var(--yellow); border-radius: 5px; padding: 0 7px; box-shadow: inset 0 -2px 0 var(--yellow-cut); }
+.goals-bell { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 24px; white-space: nowrap; font-family: var(--display); font-weight: 400; font-size: 14px; line-height: 1; color: var(--wood-ink); background: var(--sheen), var(--yellow); border-radius: 5px; padding: 0 7px; box-shadow: inset 0 -2px 0 var(--yellow-cut); }
 /* The view switch: a groove with a maple block slid to the open side. */
 .goals-tabs { display: flex; gap: 4px; align-items: center; margin-bottom: 0; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); }
 /* The open Journal shows its count on the tab, not twice. */
 .goals:not(.collapsed) .goals-bell { display: none; }
-.goals-tab { flex: 1; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 7px; background: transparent; box-shadow: none; font: inherit; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
+.goals-tab { flex: 1; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 7px; background: transparent; box-shadow: none; font: inherit; font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
 .goals-tab.on { background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); color: var(--wood-ink); }
 .goals-tab-badge { display: inline-flex; align-items: center; justify-content: center; height: 20px; min-width: 20px; padding: 0 6px; border-radius: 5px; font-size: 13px; line-height: 1; color: var(--wood-ink); background: var(--sheen), var(--yellow); box-shadow: inset 0 -2px 0 var(--yellow-cut); }
 .goals-close { display: none; flex: none; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 18px; font-weight: 900; color: var(--wood-ink-soft); cursor: pointer; }
@@ -1375,7 +1376,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* The goal's research: its button ringed (nothing is picked without a tap). */
 .chip.bp-goal { box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 0 0 3px var(--yellow), var(--block-drop); }
 .bp-ticket-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
-.bp-ticket-head b { font-family: "Woodrail Icons", var(--display); font-size: 22px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.1; }
+.bp-ticket-head b { font-family: var(--display); font-size: 22px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.1; }
 .bp-ticket-head > span:last-child { flex-basis: 100%; font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); }
 .bp-makes .bp-fact-body { gap: 6px; }
 .bp-make { display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 4px; border-radius: 4px; background: var(--groove); font-size: 12.5px; font-weight: 700; color: var(--wood-ink); }
@@ -1443,7 +1444,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @keyframes alert-pulse { 50% { transform: scale(1.3); } }
 @media (prefers-reduced-motion: reduce) { .icon-btn-alert::after { animation: none; } }
 /* Game mode's coins, by the logo: a stack of toy coins and the count. */
-.coins { display: inline-flex; align-items: center; gap: 5px; font-family: "Woodrail Icons", var(--display); font-size: 17px; font-weight: 400; line-height: 1; color: var(--wood-ink); font-variant-numeric: tabular-nums; padding: 2px 4px; }
+.coins { display: inline-flex; align-items: center; gap: 5px; font-family: var(--display); font-size: 17px; font-weight: 400; line-height: 1; color: var(--wood-ink); font-variant-numeric: tabular-nums; padding: 2px 4px; }
 .coins i { width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 2px #c98a1c, 0 2px 0 #b07a1a; }
 .coins.pop { animation: goal-pop 0.6s ease-out; }
 /* The railway's date, beside the coins (Game mode). */
@@ -1725,7 +1726,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lines-count { font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lines-head .lines-new { flex: 0 0 auto; }
 /* + New line: the panel's one painted block. */
-.lines-view .chip.lines-new { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
+.lines-view .chip.lines-new { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
 .lines-view > .lines-head .lines-close { top: 12px; right: 8px; }
 .lines-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
@@ -1781,22 +1782,22 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-head { display: flex; align-items: center; gap: 6px; min-height: 44px; flex: 0 0 auto; }
 /* The line's colour: a painted disc, a peg seen from above. */
 .ls-swatch { width: 44px; height: 44px; flex: 0 0 44px; padding: 0; border: 0; border-radius: 50%; background: var(--sheen), var(--line); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.25), 0 3px 3px -1px rgba(40, 22, 6, 0.4); cursor: pointer; }
-.ls-name { flex: 1 1 auto; min-width: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-family: "Woodrail Icons", var(--display); font-size: 23px; font-weight: 400; letter-spacing: 0.01em; line-height: 1; color: var(--wood-ink); cursor: text; text-align: left; }
+.ls-name { flex: 1 1 auto; min-width: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-family: var(--display); font-size: 23px; font-weight: 400; letter-spacing: 0.01em; line-height: 1; color: var(--wood-ink); cursor: text; text-align: left; }
 .ls-name:disabled { cursor: default; color: var(--wood-ink); }
 .ls-name-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ls-name-edit { font-family: "Nunito", sans-serif; font-size: 14px; color: var(--wood-ink-soft); flex: 0 0 auto; }
+.ls-name-edit { font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 14px; color: var(--wood-ink-soft); flex: 0 0 auto; }
 .ls-name-input { flex: 1 1 auto; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid var(--end-grain); border-radius: 8px; background: var(--maple); font: inherit; font-size: 17px; font-weight: 800; }
 .ls-more { width: 44px; padding: 0; font-size: 20px; flex: 0 0 auto; }
 .ls-done { flex: 0 0 auto; }
 /* Done: the sheet's one painted block. */
-.line-sheet .chip.ls-done { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
+.line-sheet .chip.ls-done { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
 .ls-palette, .ls-menu { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 0 0 auto; }
 .ls-colour { width: 44px; height: 44px; border: 0; border-radius: 50%; padding: 0; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.25), 0 3px 3px -1px rgba(40, 22, 6, 0.4); cursor: pointer; }
 .ls-colour[aria-pressed="true"] { outline: 3px solid var(--wood-ink); outline-offset: 2px; }
 .ls-menu .chip { flex: 1 1 auto; }
 /* Stops / Trains: a groove with a maple block slid to the open side. */
 .ls-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); flex: 0 0 auto; }
-.ls-tab { flex: 1 1 0; min-height: 42px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
+.ls-tab { flex: 1 1 0; min-height: 42px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
 .ls-tab.on { background: var(--maple); color: var(--wood-ink); box-shadow: var(--tile-face), var(--tile-drop); }
 .ls-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding-bottom: 2px; }
 /* The stops: a spine in the line's colour down the numbers, a row a stop. */
@@ -1812,9 +1813,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-num { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 15px; font-weight: 400; line-height: 1; box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); }
 .ls-stop.next .ls-num { background: var(--sheen), var(--line); color: var(--line-ink, #fff); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
 .ls-stop-main { min-width: 0; min-height: 52px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; padding: 4px 6px; border: 0; border-radius: 12px; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
-.ls-stop-name { font-family: "Woodrail Icons", var(--display); font-size: 18px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.15; }
-.ls-place-num { font-family: "Nunito", sans-serif; font-weight: 700; color: var(--wood-ink-soft); }
-.ls-tag { display: inline-flex; align-items: center; height: 20px; margin-left: 6px; padding: 0 6px; border-radius: 3px; background: var(--mottle); box-shadow: inset 0 0 0 1.4px rgba(90, 58, 26, 0.6); font-family: "Nunito", sans-serif; font-size: 12px; font-weight: 800; line-height: 1; color: var(--stamp-brown); vertical-align: 2px; }
+.ls-stop-name { font-family: var(--display); font-size: 18px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.15; }
+.ls-place-num { font-family: "Woodrail Icons", "Nunito", sans-serif; font-weight: 700; color: var(--wood-ink-soft); }
+.ls-tag { display: inline-flex; align-items: center; height: 20px; margin-left: 6px; padding: 0 6px; border-radius: 3px; background: var(--mottle); box-shadow: inset 0 0 0 1.4px rgba(90, 58, 26, 0.6); font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 12px; font-weight: 800; line-height: 1; color: var(--stamp-brown); vertical-align: 2px; }
 .ls-tag.pass { margin-left: 0; margin-right: 6px; }
 .ls-goods { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); }
 .ls-down { color: var(--blue-cut); }
@@ -1836,7 +1837,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-acts .route-move { width: 44px; padding: 0; font-size: 18px; }
 .ls-acts .ls-remove, .ls-acts .ls-via-remove { margin-left: auto; }
 /* Take off: a destructive ask, stamped in red (as Remove on a train card). */
-.line-sheet .chip.ls-remove, .line-sheet .chip.ls-via-remove { color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
+.line-sheet .chip.ls-remove, .line-sheet .chip.ls-via-remove { color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
 .ls-via { min-height: 40px; }
 .ls-via-dot { position: relative; z-index: 1; justify-self: center; width: 14px; height: 14px; border-radius: 50%; background: var(--maple); box-shadow: inset 0 0 0 3px var(--line); }
 .ls-via .ls-stop-main { flex-direction: row; align-items: center; min-height: 44px; font-size: 14px; font-weight: 700; color: var(--wood-ink-soft); }
