@@ -5,7 +5,6 @@ import { INDUSTRY_GROUPS, TRAIN_GROUPS } from "../ui/tray-catalogue";
 import { WAGON_NAME } from "../economy/wagons";
 import { EXPLAINERS } from "../ui/explainers";
 import { pictureFile, slugOf, wikiData } from "./data";
-import { industryWikiUrl, researchWikiUrl, WIKI_URL } from "../ui/wiki-link";
 import { buildWiki, PLAY_URL, WIKI_BASE } from "./pages";
 
 const data = wikiData();
@@ -73,14 +72,7 @@ describe("wiki", () => {
     for (const p of wiki.pages) for (const [, src] of p.html.matchAll(/<img[^>]* src="([^"]+)"/g)) expect(files.has(resolve(p.path, src).replace(/^pictures\//, "")), `${p.path} → ${src}`).toBe(true);
   });
 
-  it("is linked from the game: its industry cards and research tickets go to pages that exist", () => {
-    expect(WIKI_URL).toBe(WIKI_BASE);
-    const page = (url: string | null) => url && paths.has(url.slice(WIKI_BASE.length));
-    for (const item of INDUSTRY_GROUPS.flatMap((g) => g.items)) if (item.kind === "piece") expect(page(industryWikiUrl(item.type)), item.type).toBe(true);
-    for (const t of TECHS.filter(built)) expect(page(researchWikiUrl(t.id)), t.id).toBe(true);
-    for (const t of TECHS.filter((t) => !built(t))) expect(researchWikiUrl(t.id), t.id).toBe(null);
-    expect(industryWikiUrl("depot-town")).toBe(null);
-  });
+  // (The game doesn't link here: its own help, src/ui/help.ts, has a page for each of these; help.test.ts.)
 
   it("gives every page a unique path, a title and a short description", () => {
     expect(paths.size).toBe(wiki.pages.length);

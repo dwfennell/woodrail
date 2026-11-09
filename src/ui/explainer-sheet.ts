@@ -1,16 +1,19 @@
-import { explainer, type Explainer, type ExplainerId } from "./explainers";
+import { helpPage, type HelpBlock, type HelpLink, type HelpPage } from "./help";
+import { HELP_HOME } from "./help-link";
 
 /**
- * The "Learn more" sheet: an explainer (explainers.ts) as a card over the game, its sections each a heading, a few
- * lines and a small picture. Built the first time it's opened (nothing is made, drawn or listened to before), and
- * redrawn only when another explainer is shown. ✕, Back or Escape closes it; what was being placed is still ready.
+ * The "Learn more" sheet: a help page (help.ts) as a card over the game: an explainer (explainers.ts), its sections
+ * each a heading, a few lines and a small picture; or an industry's, a research row's, a good's, an engine's or a
+ * wagon's facts, its links each to another page in the sheet (never out of the game). Built the first time it's opened
+ * (nothing is made, drawn or listened to before), and redrawn only when another page is shown. Back goes back a page,
+ * and closes it from the first; ✕ or Escape closes it; what was being placed is still ready.
  */
 export class ExplainerSheet {
   readonly root: HTMLElement;
   private readonly card: HTMLElement;
-  private shownId: ExplainerId | null = null;
-  /** The explainers this one was opened from ("More about routes" from Signals): Back goes to the last. */
-  private trail: ExplainerId[] = [];
+  private shownId: string | null = null;
+  /** The pages this one was opened from ("More about routes" from Signals): Back goes to the last. */
+  private trail: string[] = [];
   private onClose: (() => void) | null = null;
   private body: HTMLElement;
   private titleEl: HTMLElement;
@@ -70,15 +73,16 @@ export class ExplainerSheet {
   }
 
   /** Is it open? */
-  get shown(): ExplainerId | null {
+  get shown(): string | null {
     return this.shownId;
   }
 
-  /** Open explainer `id` (`onClose` when it's closed). */
-  show(id: ExplainerId, onClose?: () => void): void {
+  /** Open help page `ref` (an explainer's id, "industries/sawmill", …; `onClose` when it's closed). */
+  show(ref: string, onClose?: () => void): void {
     if (onClose) this.trail = [];
-    if (this.shownId !== id) this.draw(explainer(id));
-    this.shownId = id;
+    const page = helpPage(ref);
+    if (this.shownId !== page.ref) this.draw(page);
+    this.shownId = page.ref;
     this.onClose = onClose ?? this.onClose;
     this.root.hidden = false;
     this.card.scrollTop = 0;
@@ -95,15 +99,51 @@ export class ExplainerSheet {
     done?.();
   }
 
-  private draw(x: Explainer): void {
-    this.titleEl.textContent = x.title;
-    const parts: HTMLElement[] = [];
-    const intro = document.createElement("p");
-    intro.className = "explainer-intro";
-    intro.textContent = x.intro;
-    parts.push(intro);
-    for (const s of x.sections) {
-      const sec = document.createElement("section");
+  /** A link to page `l.ref` (opened in the sheet, this page kept for Back), or its plain words if it has none. */
+  private link(l: HelpLink, cls: string): HTMLElement {
+    const b = document.createElement(l.ref ? "button" : "span");
+    b.className = cls;
+    if (l.icon) {
+      const i = document.createElement("span");
+      i.className = "help-icon";
+      i.setAttribute("aria-hidden", "true");
+      i.textContent = l.icon;
+      b.append(i);
+    }
+    const name = document.createElement("span");
+    name.className = "help-name";
+    name.textContent = l.name;
+    b.append(name);
+    if (l.line) {
+      const line = document.createElement("span");
+      line.className = "help-line";
+      line.textContent = l.line;
+      b.append(line);
+    }
+    if (l.ref && b instanceof HTMLButtonElement) {
+      const ref = l.ref;
+      b.type = "button";
+      b.dataset.help = ref;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (this.shownId) this.trail.push(this.shownId);
+        this.show(ref);
+      });
+    }
+    return b;
+  }
+
+  private block(b: HelpBlock): HTMLElement {
+    const sec = document.createElement("section");
+    const heading = (text: string | undefined) => {
+      if (!text) return;
+      const h = document.createElement("h3");
+      h.className = "explainer-heading";
+      h.textContent = text;
+      sec.append(h);
+    };
+    if (b.kind === "section") {
+      const s = b.section;
       sec.className = "explainer-section";
       const pic = document.createElement("div");
       pic.className = "explainer-picture";
@@ -111,33 +151,70 @@ export class ExplainerSheet {
       pic.setAttribute("aria-label", s.alt);
       // (Our own drawings, from explainers.ts: no outside text goes in here.)
       pic.innerHTML = s.picture;
-      const h = document.createElement("h3");
-      h.className = "explainer-heading";
-      h.textContent = s.heading;
+      sec.append(pic);
+      heading(s.heading);
       const p = document.createElement("p");
       p.className = "explainer-text";
       p.textContent = s.text;
-      sec.append(pic, h, p);
-      parts.push(sec);
-    }
-    if (x.seeAlso?.length) {
-      const more = document.createElement("div");
-      more.className = "explainer-more";
-      for (const id of x.seeAlso) {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = "learn-more explainer-see";
-        b.dataset.explainer = id;
-        b.textContent = `More about ${explainer(id).title.toLowerCase()}`;
-        b.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (this.shownId) this.trail.push(this.shownId);
-          this.show(id);
-        });
-        more.append(b);
+      sec.append(p);
+    } else if (b.kind === "list") {
+      sec.className = "help-section";
+      heading(b.heading);
+      const ul = document.createElement("ul");
+      ul.className = "help-list";
+      for (const l of b.links) {
+        const li = document.createElement("li");
+        li.append(this.link(l, l.ref ? "help-item" : "help-item plain"));
+        ul.append(li);
       }
-      parts.push(more);
+      sec.append(ul);
+    } else {
+      sec.className = "help-section";
+      heading(b.heading);
+      const dl = document.createElement("dl");
+      dl.className = "help-facts";
+      for (const f of b.facts) {
+        const row = document.createElement("div");
+        const dt = document.createElement("dt");
+        dt.textContent = f.term;
+        const dd = document.createElement("dd");
+        if (f.text) {
+          const t = document.createElement("span");
+          t.className = "help-fact-text";
+          t.textContent = f.text;
+          dd.append(t);
+        }
+        for (const l of f.links ?? []) dd.append(this.link(l, "learn-more help-chip"));
+        row.append(dt, dd);
+        dl.append(row);
+      }
+      sec.append(dl);
     }
+    return sec;
+  }
+
+  private draw(x: HelpPage): void {
+    this.titleEl.textContent = x.title;
+    this.card.style.setProperty("--band", x.band ?? "transparent");
+    this.card.classList.toggle("banded", !!x.band);
+    const parts: HTMLElement[] = [];
+    if (x.intro) {
+      const intro = document.createElement("p");
+      intro.className = "explainer-intro";
+      intro.textContent = x.intro;
+      parts.push(intro);
+    }
+    for (const b of x.blocks) parts.push(this.block(b));
+    const more = document.createElement("div");
+    more.className = "explainer-more";
+    for (const l of x.more ?? []) {
+      const b = this.link(l, "learn-more explainer-see");
+      b.dataset.explainer = l.ref;
+      more.append(b);
+    }
+    // Every page but the front one leads to it: the way to any other topic.
+    if (x.ref !== HELP_HOME) more.append(this.link({ name: "All help topics", ref: HELP_HOME }, "learn-more help-home"));
+    parts.push(more);
     this.body.replaceChildren(...parts);
   }
 }

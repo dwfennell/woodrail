@@ -3,7 +3,8 @@
  * scripts. Each page sits in its own folder (`research/junctions/index.html`) and links to others relatively, so the
  * same files work under any base. Pure: `npm run wiki` (scripts/wiki.mjs) writes what `buildWiki` returns.
  */
-import { CARGO, type CargoKind } from "../economy/cargo";
+import type { CargoKind } from "../economy/cargo";
+import { costWords, cycleWords as recipeWords, goodWord, plural, times } from "./words";
 import { pictureFile, wikiData, type Cost, type GoodData, type GuideData, type IndustryData, type Ref, type RowData, type Section, type VehicleData, type WikiData } from "./data";
 import css from "./style.css?raw";
 
@@ -74,17 +75,6 @@ function picture(from: string, r: Ref, cls = "pic"): string {
   return `<img class="${cls}" src="${rel(from, `pictures/${file}`).replace(/\/$/, "")}" alt="${esc(r.name)}" width="176" height="144" loading="lazy">`;
 }
 
-const goodName = (kind: string): string => (CARGO as Record<string, { label: string } | undefined>)[kind]?.label ?? kind;
-const goodWord = (kind: string): string => goodName(kind).toLowerCase();
-
-const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
-
-/** A cost in words: "6 planks + 120 coins". */
-function costWords(c: Cost): string {
-  const parts = c.goods.map((g) => `${g.n} ${goodWord(g.kind)}`);
-  if (c.coins) parts.push(`${c.coins} coins`);
-  return parts.join(" + ") || "free";
-}
 
 /** A list of links, or `none` when empty. */
 function links(from: string, refs: readonly Ref[], none = "None"): string {
@@ -183,16 +173,7 @@ ${links(from, r.leadsTo, "Nothing yet")}`;
 }
 
 /** "1 load of planks every 8 seconds, from 1 load of logs": an industry's recipe in words. */
-function cycleWords(i: IndustryData): string | null {
-  const c = i.recipe?.cycle;
-  if (!c || Object.keys(c.makes).length === 0) return null;
-  const bag = (b: Readonly<Record<string, number | undefined>>) =>
-    Object.entries(b)
-      .map(([k, n]) => `${n} ${n === 1 ? "load" : "loads"} of ${goodWord(k)}`)
-      .join(" and ");
-  const uses = Object.keys(c.uses).length ? `from ${bag(c.uses)}` : "from nothing but the land around it";
-  return `${bag(c.makes)} every ${c.seconds} seconds, ${uses}`;
-}
+const cycleWords = (i: IndustryData): string | null => recipeWords(i.recipe);
 
 function industryPage(d: WikiData, i: IndustryData): Page {
   const from = pathOf(i);
@@ -245,8 +226,6 @@ ${facts([
   const desc = clip(`${g.name} in Woodrail: ${g.madeAt.length ? `made at ${g.madeAt.map((m) => m.name).join(", ")}` : "how you get it"}${g.wagons.length ? `, carried in a ${g.wagons.map((w) => w.name.toLowerCase()).join(" or ")}` : ""}${g.towns ? ", and towns pay for it" : ""}. Where ${word} goes and what it's for.`);
   return frame({ path: from, title: `${g.name} (goods)`, description: desc, crumbs: [{ section: "goods", slug: "", name: SECTIONS.goods.title }], heading: `${goodIcon(g.icon)}${esc(g.name)}`, body });
 }
-
-const times = (x: number): string => (x === 1 ? "the same as the classic engine" : `${x}× the classic engine's`);
 
 function vehiclePage(d: WikiData, v: VehicleData): Page {
   const from = pathOf(v);

@@ -333,8 +333,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .close:hover { background: rgba(150, 100, 50, 0.1); }
 /* Titles of cards with a ✕ keep clear of it (padded both sides, so they stay centred). */
 .depot-card > .card-title, .piece-card > .card-title { padding: 0 34px; }
-/* (Room for the Wiki link across from ✕, kept even both sides so the title stays centred.) */
-.depot-card:has(> .wiki-link:not([hidden])) > .card-title { padding: 0 52px; }
+/* (Room for Help across from ✕, kept even both sides so the title stays centred.) */
+.depot-card:has(> .depot-learn:not([hidden])) > .card-title { padding: 0 52px; }
 
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
 /* (As wide as its words, up to the screen less a margin: from `left: 50%` it would otherwise shrink to half the screen
@@ -1898,11 +1898,10 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .learn-more:active { background: rgba(90, 163, 90, 0.16); }
 .place-card .learn-more { pointer-events: auto; align-self: flex-start; margin: -8px 0 -10px -8px; }
 .piece-card .card-learn { margin: -6px 0 -4px; }
-/* "On the wiki": the public wiki's page for this industry or research row, in a new tab (wiki-link.ts). */
-.wiki-link::after { content: "↗"; font-size: 13px; }
-.depot-card > .wiki-link { position: absolute; top: 0; left: 0; height: 44px; margin: 0; padding: 0 4px 0 10px; font-size: 12.5px; }
-.depot-card .wiki-link[hidden] { display: none; }
-.bp-facts .wiki-link { align-self: flex-start; min-height: 36px; margin: -4px 0 -8px -8px; }
+/* Help on an industry card, Learn more on a research ticket: its help page in the Learn more sheet (help.ts). */
+.depot-card > .depot-learn { position: absolute; top: 0; left: 0; height: 44px; margin: 0; padding: 0 4px 0 10px; font-size: 12.5px; }
+.depot-card .depot-learn[hidden] { display: none; }
+.bp-facts .bp-learn { align-self: flex-start; min-height: 44px; margin: -6px 0 -10px -8px; }
 /* The "Learn more" sheet: a card in the middle of the screen, scrolling on a short one. */
 .explainer-scrim { position: fixed; inset: 0; z-index: 40; background: rgba(40, 28, 16, 0.32); animation: scrim-in 0.2s ease-out; }
 @keyframes scrim-in { from { opacity: 0; } }
@@ -1918,7 +1917,27 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .explainer-picture svg { width: 100%; height: auto; display: block; }
 .explainer-heading { margin: 4px 0 0; font-size: 15px; font-weight: 800; color: #3a2a1c; }
 .explainer-text { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.4; color: #5e4128; text-wrap: pretty; }
-.explainer-more { display: flex; justify-content: center; }
+.explainer-more { display: flex; flex-wrap: wrap; justify-content: center; column-gap: 8px; }
+/* A help page (help.ts) with a research branch: its colour as a band under the title. */
+.explainer-sheet.banded > .card-title { box-shadow: inset 0 -4px 0 var(--band); padding-bottom: 6px; }
+.help-section { display: flex; flex-direction: column; gap: 4px; }
+.help-facts { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.help-facts > div { display: grid; grid-template-columns: minmax(84px, 34%) 1fr; gap: 8px; align-items: baseline; }
+.help-facts dt { font-size: 13px; font-weight: 800; color: #74522f; }
+.help-facts dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; font-size: 14px; font-weight: 600; line-height: 1.35; color: #3a2a1c; }
+.help-facts .help-chip { margin: -10px 0 -10px -8px; }
+.help-facts .help-chip::after { content: none; }
+.help-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* A topic: a maple tile, its name and a line, the whole of it the 44 px target. */
+.help-item { width: 100%; min-height: 44px; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; text-align: left; padding: 7px 34px 7px 12px; border: none; border-radius: 12px; background: #f3e4c8; box-shadow: inset 0 1px 0 #fff8, 0 2px 0 rgba(106, 74, 44, 0.22); font: inherit; color: #3a2a1c; cursor: pointer; position: relative; }
+button.help-item::after { content: "›"; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 20px; font-weight: 800; color: #8a6a44; }
+button.help-item:active { background: #ead6b2; }
+.help-item.plain { cursor: default; background: rgba(243, 228, 200, 0.5); box-shadow: none; }
+.help-item .help-icon { grid-row: span 2; font-size: 20px; line-height: 1; }
+.help-item .help-name { grid-column: 2; font-size: 14.5px; font-weight: 800; }
+.help-item .help-line { grid-column: 2; font-size: 12.5px; font-weight: 600; line-height: 1.3; color: #74522f; text-wrap: pretty; }
+.help-item:not(:has(.help-icon)) .help-name, .help-item:not(:has(.help-icon)) .help-line { grid-column: 1 / -1; }
+.learn-more .help-icon { font-size: 15px; text-decoration: none; }
 .explainer-row { justify-content: center; position: sticky; bottom: -14px; margin: 0 -16px -14px; padding: 8px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
 .explainer-back { min-width: 140px; }
 @media (prefers-reduced-motion: reduce) { .explainer-sheet, .explainer-scrim { animation: none; } }

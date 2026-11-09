@@ -8,7 +8,14 @@
 //      Learn more again (the place card put by under it) and Back closes it too, still placing, the card back; a tap
 //      beside the sheet closes it and places nothing; a tap on the track then puts a signal down.
 //   4. A signal's card (long press on its post): Learn more about signals opens the sheet; ✕ closes it, the card stays.
-// Pictures: learn-more-details.jpg, learn-more-sheet.jpg (and -sheet-2, the rest scrolled), learn-more-card.jpg.
+//   5. The forest's card (opened as a tap on it would): Help (44 px) opens the forest's help page, which names what the
+//      game's own recipe says it makes (logs); a tap on Logs opens its page (made at the forest, carried in a wagon);
+//      Back goes back; 0 frames drawn while open; ✕ closes it and the card stays. Nothing opens a new tab.
+//   6. ☰ Help topics: the front page; Industries, then Sawmill: it names logs in and planks out, from the recipe.
+//   7. The research board on Mills (opened as a locked tile's note would): the ticket's Learn more (44 px) opens the
+//      Mills page over the board, naming what the row unlocks (the mill, the van); Back closes it, the board still up.
+// Pictures: learn-more-details.jpg, learn-more-sheet.jpg (and -sheet-2, the rest scrolled), learn-more-card.jpg,
+// help-industry.jpg, help-good.jpg, help-index.jpg, help-sawmill.jpg, help-research.jpg.
 //
 // Usage: npm run e2e:learn-more [-- <out dir>]   (default out: e2e-out/learn-more)
 import { existsSync, mkdirSync } from "node:fs";
@@ -298,6 +305,113 @@ if (marks1.length) {
   s = await state();
   check("4. ✕ closes it, the signal's card still open", s.sheet === null && still, JSON.stringify({ ...s, still }));
 }
+
+// ---- 5. An industry card's Help: the forest's page, from the game's own recipe ----------------------------------------
+await p.evaluate(() => {
+  // (Any new tab the help might open, counted: none should.)
+  window.__opened = 0;
+  const open = window.open;
+  window.open = (...a) => (window.__opened++, open.apply(window, a));
+});
+const forest = await p.evaluate(async () => {
+  const w = window.woodrail;
+  const { RECIPES } = await import("/src/economy/economy.ts");
+  const { CARGO } = await import("/src/economy/cargo.ts");
+  const id = [...w.world.depots.values()].find((id) => w.layout.getPiece(id)?.type === "depot-forest");
+  // (Its card opened as a tap on it does: e2e:touch and others test the tap itself.)
+  w.interaction.openDepotCard(w.economy.depotAtPiece(id).id);
+  return { makes: RECIPES.forest.gives.map((k) => CARGO[k].label), takes: RECIPES.forest.takes.map((k) => CARGO[k].label) };
+}).catch((e) => ({ error: e.message }));
+await frames();
+await p.waitForTimeout(400);
+const helpBtn = await box(".depot-card .depot-learn");
+check("5. the forest's card has Help, a 44 px target", !!helpBtn && helpBtn.h >= 44 && helpBtn.w >= 44, JSON.stringify({ helpBtn, forest }));
+await tapSel(".depot-card .depot-learn");
+await sheetIs("industries/forest");
+s = await state();
+const helpText = () => p.evaluate(() => document.querySelector(".explainer-sheet")?.innerText ?? "");
+let text = await helpText();
+// (The forest's piece is the Harvester's: a forest yard, the tray's name for it.)
+check("5. Help opens the forest's page in the sheet", s.sheet === "industries/forest" && /^Harvester/.test(text), JSON.stringify(s));
+check("5. …naming what the forest really makes (from its recipe)", !!forest.makes?.length && forest.makes.every((g) => text.includes(g)) && /Goods out/.test(text), JSON.stringify({ forest, text: text.slice(0, 300) }));
+const targets = await p.evaluate(() => [...document.querySelectorAll(".explainer-sheet button")].filter((b) => b.offsetWidth > 0).map((b) => [b.textContent.slice(0, 20), b.offsetHeight]).filter(([, h]) => h < 44));
+check("5. every button on the page is a 44 px target", targets.length === 0, JSON.stringify(targets));
+await sheetSettled();
+await shot("help-industry");
+const idle5 = await idleFrames();
+check("5. 0 frames drawn while it's open", idle5 === 0, `${idle5} frames`);
+await tapSel('.explainer-sheet [data-help="goods/log"]');
+await sheetIs("goods/log");
+text = await helpText();
+check("5. a tap on Logs opens its page: made at the forest yard, carried in a wagon", /Made at\s+Harvester/.test(text) && /Carried in\s+Flatbed wagon/.test(text), text.slice(0, 300));
+await shot("help-good");
+await tapSel(".explainer-sheet .explainer-back");
+s = await state();
+check("5. Back goes back to the forest", s.sheet === "industries/forest", JSON.stringify(s));
+await tapToClose(".explainer-sheet .explainer-x");
+const depotStill = await p.evaluate(() => !document.querySelector(".depot-card").hidden);
+check("5. ✕ closes it, the forest's card still open", (await state()).sheet === null && depotStill);
+await p.keyboard.press("Escape");
+await frames();
+
+// ---- 6. ☰ Help topics: the front page, Industries, the sawmill ----------------------------------------------------------
+await tapSel('button[aria-label="Menu"]');
+await frames();
+const topics = await p.evaluate(() => [...document.querySelectorAll(".menu .menu-item")].find((b) => b.textContent === "Help topics" && b.offsetWidth > 0));
+check("6. ☰ has Help topics (and no wiki link out)", topics && (await p.evaluate(() => ![...document.querySelectorAll(".menu .menu-item")].some((b) => /wiki/i.test(b.textContent)))));
+await tapped(() => p.evaluate(() => [...document.querySelectorAll(".menu .menu-item")].find((b) => b.textContent === "Help topics")?.click()));
+await sheetIs("help");
+text = await helpText();
+check("6. Help topics opens the front page: How things work, and every section", /Signals/.test(text) && /Industries/.test(text) && /Research/.test(text) && /Goods/.test(text) && /Engines/.test(text), text.slice(0, 300));
+await sheetSettled();
+await shot("help-index");
+await tapSel('.explainer-sheet [data-help="industries"]');
+await sheetIs("industries");
+await p.evaluate(() => document.querySelector('.explainer-sheet [data-help="industries/sawmill"]')?.scrollIntoView({ block: "center" }));
+await frames();
+await tapSel('.explainer-sheet [data-help="industries/sawmill"]');
+await sheetIs("industries/sawmill");
+const saw = await p.evaluate(async () => {
+  const { RECIPES } = await import("/src/economy/economy.ts");
+  const { CARGO } = await import("/src/economy/cargo.ts");
+  return { takes: RECIPES.sawmill.takes.map((k) => CARGO[k].label), gives: RECIPES.sawmill.gives.map((k) => CARGO[k].label) };
+});
+text = await helpText();
+check("6. the Sawmill's page names its real goods in and out", saw.takes.every((g) => text.includes(g)) && saw.gives.every((g) => text.includes(g)) && /Goods in/.test(text) && /Goods out/.test(text), JSON.stringify({ saw, text: text.slice(0, 300) }));
+await shot("help-sawmill");
+await tapToClose(".explainer-sheet .explainer-x");
+
+// ---- 7. A research ticket's Learn more: the row's page over the board ------------------------------------------------
+// (The board opened on Mills as a locked tile's note opens it: e2e:locked and e2e:research test those taps.)
+await p.evaluate(() => window.woodrail.hud.handlers.showResearch?.("mills"));
+await p.waitForFunction(() => !!document.querySelector(".board-open"), null, { timeout: 20000 }).catch(() => {});
+await p.waitForTimeout(400);
+// (On a phone the ticket's facts are folded: opened as a tap on their line does.)
+await p.evaluate(() => {
+  const d = document.querySelector(".board-sheet details.bp-more");
+  if (d && !d.open) d.querySelector("summary")?.click();
+});
+await frames();
+const learnBtn = await box('.board-sheet .bp-learn[data-id="research/mills"]');
+check("7. the Mills ticket has Learn more, a 44 px target", !!learnBtn && learnBtn.h >= 44, JSON.stringify(learnBtn));
+await tapSel('.board-sheet .bp-learn[data-id="research/mills"]');
+await sheetIs("research/mills");
+const mills = await p.evaluate(async () => {
+  const { unlocksOf } = await import("/src/game/tech.ts");
+  const { THING_RULES } = await import("/src/game/things.ts");
+  return unlocksOf("mills").map((t) => THING_RULES[t].label);
+});
+text = await helpText();
+check("7. Learn more opens the Mills page over the board", (await state()).sheet === "research/mills" && /Mills/.test(text));
+check("7. …naming what Mills really unlocks", mills.length > 0 && mills.every((m) => text.toLowerCase().includes(m.toLowerCase())) && /What it unlocks/.test(text), JSON.stringify({ mills, text: text.slice(0, 400) }));
+await sheetSettled();
+await shot("help-research");
+await tapSel(".explainer-sheet .explainer-back");
+const boardStill = await p.evaluate(() => !!document.querySelector(".board-open"));
+const s7 = await state();
+check("7. Back closes it, the board still up", s7.sheet === null && boardStill, JSON.stringify({ ...s7, boardStill }));
+const opened = await p.evaluate(() => window.__opened);
+check("5–7. nothing opened a new tab", opened === 0, `${opened}`);
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 console.log(`${failures === 0 ? "ALL PASSED" : `${failures} FAILED`}`);

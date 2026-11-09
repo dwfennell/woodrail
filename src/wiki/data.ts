@@ -1,7 +1,8 @@
 /**
  * The wiki's data (docs/superpowers/specs/2026-11-07-wiki-design.md): the game's own tables, read into one plain model
- * for the pages (`pages.ts`). Never imported by the game: `npm run wiki` and its test load it. Only built research rows
- * are in it (a planned one is a promise the game doesn't keep yet), and nothing links to a planned one.
+ * for the web pages (`pages.ts`) and the in-game help (`src/ui/help.ts`, loaded the first time help is opened, never
+ * with the game). Only built research rows are in it (a planned one is a promise the game doesn't keep yet), and
+ * nothing links to a planned one.
  */
 import { BRANCHES, describeNeed, type Blueprint, type Branch } from "../game/blueprints";
 import { costOf, STUDY_SECONDS } from "../game/research";

@@ -2463,6 +2463,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     pick: (id) => picked(id, toggleQueue),
     now: (id) => picked(id, startNow),
     close: () => setBoardOpen(false),
+    // (Over the board: Back or ✕ shuts the help, and the board is as it was.)
+    help: (ref) => hud.showExplainer(ref),
     picture: (key) => thumbnails.get(key),
     // A kit's, a prop's or a car's picture is drawn on demand if it isn't yet, as for the tray (the cars' and the other
     // pieces' are drawn at start-up, or with Game mode's models), before the tray's; none once the board's shut ([]).

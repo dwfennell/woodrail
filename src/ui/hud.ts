@@ -23,7 +23,7 @@ import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
 import type { CreditsSheet } from "./credits-sheet";
 import type { ExplainerSheet } from "./explainer-sheet";
 import { EXPLAINER_TITLES, explainerIdFor, type ExplainerId } from "./explainer-keys";
-import { WIKI_URL } from "./wiki-link";
+import { HELP_HOME } from "./help-link";
 
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
@@ -360,10 +360,13 @@ export class Hud {
   /** How to use this depot, under its goods (a warehouse's: what it's for), or hidden. */
   private readonly depotHelp = el("div", "card-hint depot-help");
   /**
-   * The industry's page on the wiki (`setDepotWiki`), or hidden (a town, a station): in the title's row, across from
-   * ✕, so the card is no taller (a taller card leaves less map above it for Show to frame things in).
+   * Help: the industry's help page (`setDepotLearn`, help.ts), in the Learn more sheet; or hidden (a town, a station).
+   * In the title's row, across from ✕, so the card is no taller (a taller card leaves less map above it for Show to
+   * frame things in).
    */
-  private readonly depotWiki = Object.assign(el("a", "learn-more wiki-link", "Wiki"), { target: "_blank", rel: "noopener", title: "This industry on the Woodrail wiki" });
+  private readonly depotLearn = el("button", "learn-more depot-learn", "Help") as HTMLButtonElement;
+  /** The help page the open industry card's Help opens. */
+  private depotLearnRef: string | null = null;
   /** What the crane's toggles do now, in words (their tooltips never show on a phone). */
   private readonly depotModeHint = el("div", "card-hint depot-mode-hint");
   /** Sandbox's chain hints on a depot card: how it's doing, and where its goods come from and go (`setDepotChain`). */
@@ -654,9 +657,9 @@ export class Hud {
         this.coach.close(true);
         this.showHelp();
       }, "menu-item"),
-      button("Woodrail wiki", "Every industry, good and research row, on the web", () => {
+      button("Help topics", "How every industry, good, train and research works", () => {
         this.menu.hidden = true;
-        window.open(WIKI_URL, "_blank", "noopener");
+        this.showExplainer(HELP_HOME);
       }, "menu-item"),
       button("Show controls", "Show the camera controls again", () => {
         this.menu.hidden = true;
@@ -832,7 +835,15 @@ export class Hud {
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
+    this.depotLearn.type = "button";
+    this.depotLearn.hidden = true;
+    this.depotLearn.title = "How this industry works";
+    this.depotLearn.setAttribute("aria-label", "How this industry works");
+    this.depotLearn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.depotLearnRef) this.showExplainer(this.depotLearnRef);
+    });
+    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotLearn, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.depotPower.hidden = true;
     this.root.appendChild(this.depotCard);
@@ -2488,11 +2499,10 @@ export class Hud {
     this.tray.style.setProperty("--tray-turn", `${this.trayArrowDeg}deg`);
   }
 
-  /** The open industry card's wiki page (`wiki-link.ts`), or null: none for it. */
-  setDepotWiki(url: string | null): void {
-    this.depotWiki.hidden = !url;
-    if (url) this.depotWiki.href = url;
-    this.depotWiki.setAttribute("aria-label", "This industry on the Woodrail wiki");
+  /** The open industry card's help page (`help-link.ts`), or null: none for it (Help hidden). */
+  setDepotLearn(ref: string | null): void {
+    this.depotLearnRef = ref;
+    this.depotLearn.hidden = !ref;
   }
 
   showDepotCard(title: string): void {
@@ -2854,17 +2864,21 @@ export class Hud {
     if (this.placeCard.key !== null && !this.placeCard.timed) this.hidePlaceCard();
   }
 
-  /** Open the "Learn more" sheet for explainer `id` (`onClose` once it's closed). */
-  showExplainer(id: ExplainerId, onClose?: () => void): void {
+  /**
+   * Open the "Learn more" sheet at help page `id`: an explainer ("signals"), an industry's, a research row's
+   * ("research/sawmills", `help-link.ts`), or the front page (`HELP_HOME`). `onClose` once it's closed.
+   */
+  showExplainer(id: ExplainerId | string, onClose?: () => void): void {
     this.tips.hide();
     const open = (sheet: ExplainerSheet) => sheet.show(id, onClose ?? (() => {}));
     if (this.explainers) return open(this.explainers);
     // (Its words, pictures and code are loaded the first time: nothing of them before.)
-    void import("./explainer-sheet").then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
+    // (On the page, not in the HUD: over the research board too, which sits above the HUD.)
+    void import("./explainer-sheet").then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(document.body))));
   }
 
   /** The explainer open now, or null (for tests). */
-  get explainerShown(): ExplainerId | null {
+  get explainerShown(): string | null {
     return this.explainers?.shown ?? null;
   }
 

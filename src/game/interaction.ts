@@ -67,7 +67,7 @@ import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLA
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 import { givesBlockText, GIVES_HELP, STORE_HELP, storeStock } from "./warehouse-text";
 import { SHOP_HELP } from "./workshop-text";
-import { industryWikiUrl } from "../ui/wiki-link";
+import { industryHelpRef } from "../ui/help-link";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
 function whenIdle(f: () => void): void {
@@ -3209,7 +3209,7 @@ export class Interaction {
     this.shownDepot.id = -1;
     this.hud.showDepotCard(this.depotTitle(depotId));
     const stop = this.game.economy.depot(depotId);
-    this.hud.setDepotWiki(industryWikiUrl(stop ? (this.game.layout.getPiece(stop.pieceId)?.type ?? "") : ""));
+    this.hud.setDepotLearn(industryHelpRef(stop ? (this.game.layout.getPiece(stop.pieceId)?.type ?? "") : ""));
     const metro = this.game.economy.isMetro(stop);
     this.hud.setDepotLine(metro);
     if (metro) this.hud.onShowLine = () => this.showMetroLine(stop!.pieceId);

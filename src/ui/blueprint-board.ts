@@ -1,5 +1,5 @@
 import type { CardState, ResearchCardView } from "../game/research-text";
-import { researchWikiUrl } from "./wiki-link";
+import { researchHelpRef } from "./help-link";
 
 /** One blueprint, as a tag on the board's web. */
 export interface Station {
@@ -64,6 +64,8 @@ export interface BlueprintBoardHandlers {
   /** Research now, for one in the queue: it swaps in for the one under way (which waits up next). */
   now?(id: string): void;
   close(): void;
+  /** Learn more on a ticket: open help page `ref` (`help-link.ts`'s `researchHelpRef`) over the board. */
+  help?(ref: string): void;
   /** A thing's tray picture (an image URL) by its key, if drawn. */
   picture?(key: string): string | undefined;
   /**
@@ -369,6 +371,7 @@ export class BlueprintBoard {
         this.render();
       } else if (act === "pick") handlers.pick(b.dataset.id!);
       else if (act === "now") handlers.now?.(b.dataset.id!);
+      else if (act === "help") handlers.help?.(b.dataset.id!);
     };
     this.body.addEventListener("click", onClick);
     // (Scroll events don't bubble: the web pane's caught on the way down.)
@@ -668,8 +671,9 @@ export class BlueprintBoard {
     if (s.state === "learned") foot = `<span class="bp-done">Learned</span>`;
     else if (s.research) foot = researchFoot(s.id, s.research, !!s.goal);
     else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
-    const wiki = researchWikiUrl(s.id);
-    const wikiLink = wiki ? `<a class="learn-more wiki-link" href="${wiki}" target="_blank" rel="noopener">On the wiki</a>` : "";
+    // Learn more: this row's help page (help.ts), in the sheet over the board.
+    const help = this.handlers.help && researchHelpRef(s.id);
+    const helpLink = help ? `<button type="button" class="learn-more bp-learn" data-act="help" data-id="${esc(help)}" aria-label="Learn more about ${esc(s.label)}">Learn more</button>` : "";
     const fact = (label: string, body: string, cls: string) => `<div class="bp-fact ${cls}"><b>${label}</b><span class="bp-fact-body">${body}</span></div>`;
     const facts =
       (makes ? `<div class="bp-fact bp-makes"><b class="bp-makes-head">Unlocks:</b><span class="bp-fact-body">${makes}</span></div>` : "") +
@@ -678,7 +682,7 @@ export class BlueprintBoard {
       (opens.length ? fact("Opens:", `${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}`, "bp-opens") : "") +
       (s.state !== "learned" ? `<div class="bp-full-cost"><b>Costs:</b> ${esc(s.cost)}</div>` : "") +
       // (Last in the facts: on a phone, folded with them, so the list above keeps its room.)
-      wikiLink;
+      helpLink;
     // A phone: the facts folded under one line saying what's in them (the foot, with its button, always shows).
     const more = makes ? `Unlocks ${s.makes.length === 1 ? esc(s.makes[0].label) : `${s.makes.length} things`}` : "Details";
     const factsHtml = !facts ? "" : this.narrow() ? `<details class="bp-more"${this.detailsOpen ? ` open=""` : ""}><summary>${more}<span class="bp-more-hint" aria-hidden="true"></span></summary><div class="bp-facts">${facts}</div></details>` : `<div class="bp-facts">${facts}</div>`;
