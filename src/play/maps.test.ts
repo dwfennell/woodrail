@@ -38,7 +38,7 @@ function endToward(layout: Layout, id: number, x: number, z: number): number {
 }
 
 describe("buildability on generated maps", () => {
-  it("reports how often a casual player joins depots and towns, and what stops it", () => {
+  it("a casual player joins depots and towns as often as today (and it reports what stops it)", () => {
     const tally = new Map<string, number>();
     let tried = 0;
     let joined = 0;
@@ -69,5 +69,8 @@ describe("buildability on generated maps", () => {
     }
     console.log(`maps: ${joined}/${tried} joined (${((100 * joined) / Math.max(1, tried)).toFixed(0)}%); ${JSON.stringify(Object.fromEntries(tally))}`);
     expect(tried).toBeGreaterThan(10);
+    // The floor is today's rate (25 of 43, 2026-11-09; the seeds are fixed, so it's the same each run): before, only
+    // `tried` was checked, and a fall in how often a player joins things on a real map passed. Raise it as it rises.
+    expect(joined, "joined on generated maps: below today's floor").toBeGreaterThanOrEqual(25);
   }, 300_000);
 });
