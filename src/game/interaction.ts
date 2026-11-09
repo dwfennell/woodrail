@@ -15,7 +15,7 @@ import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
 import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
-import { topologyOf, trainLength } from "../economy/sections";
+import { ROAD_MARGIN, topologyOf, trainLength } from "../economy/sections";
 import { SIGNAL_MODES, type SignalStyle } from "../track";
 import { pieceInfo } from "../ui/piece-info";
 import { powerOf, RADIO_MAST, WIND_TURBINE } from "./power";
@@ -1118,14 +1118,15 @@ export class Interaction {
 
   /**
    * Can a train wait at a signal here (sections make a waiting point of it: room in front for the longest train on the
-   * map, clear of points; a three-car train's if there are none)?
+   * map, clear of points; a three-car train's if there are none)? Shorter trains may wait at one too short for the
+   * longest; the card speaks for them all.
    */
   private markWaits(at: number): boolean {
     const g = this.game;
     let len = 0;
     for (const t of g.sim.trains()) if (!t.derailed) len = Math.max(len, trainLength(t));
     if (len === 0) len = CAR_SPECS.engine.length + 2 * CAR_SPECS.timber.length + 2 * COUPLER_GAP;
-    return topologyOf(g.layout, len).slots.some((s) => s.kind === "signal" && s.mark === at);
+    return topologyOf(g.layout, len).slots.some((s) => s.kind === "signal" && s.length >= len + ROAD_MARGIN && !!s.ways?.some((w) => w.mark === at));
   }
 
   // ---- tray -------------------------------------------------------------------------------------------------

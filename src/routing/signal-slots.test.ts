@@ -249,6 +249,53 @@ describe("signals: sections' waiting points (step 3)", { timeout: 120_000 }, () 
     }
   });
 
+  /**
+   * Book to the next signal (the user, 2026-11-09: "it's like the trains claim as far as they can to their next
+   * destination, but they should just claim to the next signal"). The tray places signals in pairs, one each way. A
+   * long single stretch between two loops with two such pairs: both trains head for B, the follower on the first loop.
+   * Before, only one signal of a pair could be a waiting point (the first placed: here the one facing A), so trains
+   * going to B had none and the follower waited at its loop till the leader had cleared the whole stretch.
+   */
+  it("pairedFollowers: with signals in pairs, the follower gets in behind the leader, block by block", () => {
+    const paired = (withSignals: boolean): Scenario => ({
+      name: `pairedFollowers${withSignals ? "" : " (no signals)"}`,
+      seconds: 1800,
+      build: (layout) => {
+        const l = longLine(layout, 12, 2);
+        stretch = l.mid;
+        if (withSignals)
+          for (const k of [3, 7]) {
+            // (The one facing A first, then its partner facing B, at the same joint.)
+            signal(layout, l.mid[k + 1], 0);
+            signal(layout, l.mid[k], 1);
+          }
+        return {
+          trains: [
+            { pieceId: l.mid[1], stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+            { pieceId: l.l1.main[0], stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+          ],
+        };
+      },
+    });
+    const run = new HarnessRun(new Layout(), paired(true));
+    // (Three stretches between the loops, each a waiting point both ways.)
+    expect(waitingPoints(run)).toBe(3);
+    const both = together(run, 1800);
+    const r = run.run(0);
+    noBreaks(r);
+    expect(r.stalls.begun).toBe(0);
+    const base = new HarnessRun(new Layout(), paired(false));
+    const bothBase = together(base, 1800);
+    const without = base.run(0);
+    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+    if (ENV.SHOW) console.log(`pairedFollowers: both in the stretch ${(both / SIM_HZ).toFixed(1)} s (${(bothBase / SIM_HZ).toFixed(1)} s with no signals); arrivals ${r.arrivals} (${without.arrivals})`);
+    expect(bothBase).toBe(0);
+    // (The follower is in the stretch behind the leader, going its way, for a good while: 280 s here; 76 s before, when
+    // half of each pair counted, and 0 with no signals.)
+    expect(both).toBeGreaterThan(150 * SIM_HZ);
+    expect(sum(r.arrivals)).toBeGreaterThan(sum(without.arrivals));
+  });
+
   it("no signals: the topology has no waiting points", () => {
     const run = new HarnessRun(new Layout(), followers(false));
     expect(waitingPoints(run)).toBe(0);
