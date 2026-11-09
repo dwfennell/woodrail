@@ -578,6 +578,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-extra.ledger .town-pane > .town-next { grid-column: 1 / -1; }
   .depot-extra.ledger .town-pane-grow > .ledger-goods, .depot-extra.ledger .town-pane-station > .ledger-rows { grid-column: 1; grid-row: span 4; }
   .depot-extra.ledger .place-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* (In the narrow right column, what holds it back has its button under its words.) */
+  .depot-extra.ledger .ledger-holding { flex-direction: column; align-items: stretch; }
   /* (Narrower columns: the good's name, its bar and its count fit in half a 667 px phone's card.) */
   .depot-extra.ledger .ledger-good { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 8px; font-size: 13.5px; }
   .depot-extra.ledger .ledger-row { font-size: 13.5px; }

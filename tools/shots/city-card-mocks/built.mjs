@@ -18,5 +18,17 @@ const scenes = (size) => [
       await clearToasts(p);
     },
   },
+  {
+    name: `city-card-built-${size}-7-find-mill`,
+    size,
+    async run(p, s) {
+      await closeAll(p);
+      await openTownCard(p, s.town);
+      await tab(p, "grow");
+      await p.evaluate(() => document.querySelector(".ledger-holding-btn, .town-next-find")?.click());
+      await p.waitForTimeout(1200);
+      console.log("find a mill:", JSON.stringify(await p.evaluate(() => ({ card: !document.querySelector(".depot-card")?.hidden, tab: document.querySelector(".tray .tab.on, .tray .tab.active")?.dataset.tab ?? null, pointed: document.querySelector(".tray-item.pointed")?.dataset.key ?? null }))));
+    },
+  },
 ];
 export default [...scenes("phone"), ...scenes("side").slice(0, 4), ...scenes("desktop")];

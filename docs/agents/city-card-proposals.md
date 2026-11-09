@@ -109,7 +109,7 @@ C's desktop board is a good later step if desktop players want everything at onc
 
 ## 5. As built (direction B)
 
-Pictures: `docs/agents/shots/city-card-built-*.jpg` (`SCENES=built.mjs node tools/shots/city-card-mocks/stage.mjs`).
+Pictures: `docs/agents/shots/city-card-built-*.jpg` (`SCENES=built.mjs node tools/shots/city-card-mocks/stage.mjs`): the card on a phone (each tab), on its side, on a desktop, the Journal's Build it in and where its row lands, and Find a mill › (the tray at the mill, ringed).
 
 - **The card** (`src/ui/town-ledger.ts`, drawn by `showTownCard` in `main.ts`): the header (the level stamped, the goods toward the next, a bar), a groove of tabs, and a pane per tab. All four panes are drawn when the card's key changes, as the rows were before; a tab's tap only shows its pane (no redraw), and the card keeps its tab while it's drawn again. A yellow peg on Build or Projects when there's something to start there.
 - **Grow**: the goods with their wagons; a good nothing makes as a row with **Find a mill ›** (the tray's Industries, its tile ringed in blue till the next tap) or **Learn Mills ›** (the Research board there); what it always buys; the pay rule.
