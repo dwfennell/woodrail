@@ -202,7 +202,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 - `npm run e2e:joints`. Known failure on main too (2 of 7, 2026-10-31): "an older build's save of QA's line comes back joined" and its tolerance check (9-10 3.596°, 10-11 6.338°…).
 - **Screenshots and idle:** a small Playwright script. Load playwright-core with `createRequire("<repo>/package.json")`, wait for `settled()`, then check `framesDrawn` stays at 0 over 5 s.
 
-**Sections and lines** (`src/economy/sections.test.ts`, `sections-qa.test.ts`; about 320 QA rows):
+**Sections and lines** (`src/economy/sections.test.ts`, `sections-qa*.test.ts`, their shared worlds in `sections-qa-testing.ts`; about 320 QA rows):
 - Run with `SHOW=1` for arrivals, all-still time, the longest wait ring, meets, releases, turn-backs, card changes and overlaps.
 - Diff the rows on main against the branch, and explain every difference.
 - **To isolate a sim change:** keep the branch's test file and swap in `sim.ts` from main. Restore it afterwards.
@@ -218,7 +218,7 @@ The goal: track setup and train behaviour that feel delightful. This team owns:
 
 **Invariants** (`src/sim/invariants.ts`, architecture review §3.1): wrongRoad, split, underTrain, pinned, restore (harness only), deadlock (a lever-on train standing 60 s with nothing to say why; a wait naming a train that isn't there for 1 s; sections' safety net), lockRun, redRun (a front past a red signal's joint, but one past braking when it turned red: `redLate`), blockOne (two trains in a plain signal's block that came in through its signal). redRun and blockOne came from signals step 1's harness; a host that changes signals between ticks calls `Invariants.beforeTick()` (the harness does), else the last check's note stands for it. One module, run on any `Sim` + `Sections` + `Router` + `Stalls`:
 - **Pinned:** a lever tap on pinned points is the player's own throw (a pin keeps routes off them): `Router.tapping` marks it, and it isn't a break.
-- **Where:** the routing harness and fuzz (every tick), sections QA (every world: `KNOWN_BREAKS` in sections-qa.test.ts), the play-throughs (`Player.checks`; the goals play-through asserts against `GOALS_KNOWN_BREAKS`, the balance run prints `invariants:`), and dev builds (`npm run dev`, or any build with `?dev`: `src/game/dev-checks.ts`, every 30 ticks, fronts every tick).
+- **Where:** the routing harness and fuzz (every tick), sections QA (every world: `KNOWN_BREAKS` in sections-qa-testing.ts, checked by each sections-qa*.test.ts), the play-throughs (`Player.checks`; the goals play-through asserts against `GOALS_KNOWN_BREAKS`, the balance run prints `invariants:`), and dev builds (`npm run dev`, or any build with `?dev`: `src/game/dev-checks.ts`, every 30 ticks, fronts every tick).
 - **On an economy:** `economyChecks(economy)` (dev-checks.ts) hooks `Economy.checker`. Stuck sanity there: a stand is explained when the card can say why (`trainState` isn't "held-up") or `Sim.heldBy` names a train.
 - **In dev:** a break logs once (per invariant and train or piece) as `[invariants] …`, and a red badge at the top shows the count and the latest (it takes no taps, so it never covers a control; the list is in the console). `window.__invariants` has the checks. Production without `?dev` runs none of it (8.9 KB of the bundle).
 - **Known breaks** are bugs found on main (each with why); a fix takes its entry off (a guard fails on one that no longer breaks). New breaks fail the test.
