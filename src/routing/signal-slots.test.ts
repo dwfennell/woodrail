@@ -136,7 +136,7 @@ describe("signals: sections' waiting points (step 3)", { timeout: 120_000 }, () 
     for (const a of r.arrivals) expect(a).toBeGreaterThan(4);
   });
 
-  it("shortWaitingPoint: a signal with too little room in front of it makes no slot; sections run as without it", () => {
+  it("shortWaitingPoint: a signal with too little room in front of it for the trains: they run through it, as without it", () => {
     const short = (withSignal: boolean): Scenario => ({
       name: `shortWaitingPoint${withSignal ? "" : " (none)"}`,
       seconds: 900,
@@ -153,7 +153,8 @@ describe("signals: sections' waiting points (step 3)", { timeout: 120_000 }, () 
       },
     });
     const run = new HarnessRun(new Layout(), short(true));
-    expect(waitingPoints(run)).toBe(0);
+    // (A waiting point, for a train that fits: an engine alone. Not for these.)
+    expect(waitingPoints(run)).toBe(1);
     const r = run.run(900);
     noBreaks(r);
     const without = new HarnessRun(new Layout(), short(false)).run(900);
