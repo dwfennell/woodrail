@@ -1600,6 +1600,18 @@ export class Hud {
   openTray(id: string, shelf?: string): void {
     this.openTrayTab(id, shelf);
   }
+
+  /**
+   * Point at a tray tile (`trayKey`: "piece:depot-mill"): scrolled into view on its shelf and ringed in blue till the
+   * next tap anywhere (a town card's Find a mill ›). After `openTray` for its tab.
+   */
+  pointAtTile(key: string): void {
+    const tile = this.tray.querySelector<HTMLElement>(`.tray-item[data-key="${CSS.escape(key)}"]`);
+    if (!tile) return;
+    tile.scrollIntoView({ block: "nearest", inline: "center" });
+    tile.classList.add("pointed");
+    setTimeout(() => window.addEventListener("pointerdown", () => tile.classList.remove("pointed"), { once: true, capture: true }), 0);
+  }
   private trayMode: GameMode | null = null;
 
   setMode(mode: GameMode): void {

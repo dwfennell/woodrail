@@ -37,6 +37,12 @@ export interface TownLedger {
   goods: LedgerGood[];
   /** A plain fact about what's holding it back (a good no industry on the map makes yet, and how to get one), or null. */
   holding: string | null;
+  /**
+   * The same as parts, for its button: the good, the industry that makes it (its tray key, `piece:depot-…`, and name),
+   * and the blueprint to learn first (null: it's on the tray now). Null when nothing's holding it back, or nothing
+   * makes the good.
+   */
+  missing: { kind: CargoKind; label: string; icon: string; maker: string; makerName: string; tech: string | null; techName: string | null } | null;
   /** Its school, with how it's grown (a college, a library wing), or null. */
   school: { depotId: number; name: string; note: string } | null;
   /** What a market pays for deliveries, against a town without one (1: no market). */
@@ -132,6 +138,13 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
   const depots = world.economy.allDepots();
   const missing = goods.find((g) => g.have < g.need && !depots.some((x) => RECIPES[x.role].gives.includes(g.kind) && x.role !== "warehouse" && x.role !== "harbour"));
   const holding = missing ? `Needs ${missing.icon} ${missing.label.toLowerCase()}: ${howToGet(missing.kind, ctx.learned)}` : null;
+  const maker = missing ? makerOf(missing.kind) : undefined;
+  const makerTech = maker ? ruleOf(`piece:depot-${maker}` as ThingId)?.tech : undefined;
+  const unlearned = makerTech && !ctx.learned.has(makerTech) ? makerTech : null;
+  const missingParts: TownLedger["missing"] =
+    missing && maker
+      ? { kind: missing.kind, label: missing.label, icon: missing.icon, maker: `piece:depot-${maker}`, makerName: DEPOT_NAMES[maker], tech: unlearned, techName: unlearned ? (techOf(unlearned)?.label ?? unlearned) : null }
+      : null;
   const s = depots.find((x) => x.role === "school" && x.townId === town.id);
   let school: TownLedger["school"] = null;
   if (s) {
@@ -152,6 +165,7 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     need,
     goods,
     holding,
+    missing: missingParts,
     school,
     market: townLandmarks(town).has("market") ? MARKET_BONUS : 1,
     road: roadLine(world, town.id),

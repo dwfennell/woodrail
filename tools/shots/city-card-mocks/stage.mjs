@@ -4,6 +4,7 @@
 // the game), screenshotted at the scene's size.
 //
 // Usage: node tools/shots/city-card-mocks/stage.mjs [<out dir>] [<scene,…>]   (default out: tools/shots/city-card-mocks/out)
+// SCENES=built.mjs: the card as built (the "after" pictures) in place of the mocks.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
@@ -18,8 +19,8 @@ await server.listen();
 const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined;
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const SIZES = { phone: { width: 390, height: 844, touch: true }, desktop: { width: 1440, height: 900, touch: false } };
-const scenes = (await import(`${DIR}scenes.mjs?${Date.now()}`)).default;
+const SIZES = { phone: { width: 390, height: 844, touch: true }, side: { width: 844, height: 390, touch: true }, desktop: { width: 1440, height: 900, touch: false } };
+const scenes = (await import(`${DIR}${process.env.SCENES ?? "scenes.mjs"}?${Date.now()}`)).default;
 
 for (const [size, vp] of Object.entries(SIZES)) {
   const todo = scenes.filter((s) => s.size === size && (!ONLY || ONLY.includes(s.name)));

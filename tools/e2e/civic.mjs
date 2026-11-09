@@ -110,7 +110,12 @@ const town = await p.evaluate(() => {
   const t = w.world.landscape.towns[0];
   return { id: t.id, name: t.name, station: w.world.stations.get(t.id), depot: w.world.economy.depotAtPiece(w.world.stations.get(t.id)).id };
 });
-const openCard = () => p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
+// (Its places and treats are on the card's Build tab: opened by a tap, as a player would.)
+const openCard = async () => {
+  await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
+  await p.waitForTimeout(800);
+  await tap('.town-tab[data-tab="build"]');
+};
 await openCard();
 await p.waitForTimeout(800);
 const tiles = () => p.evaluate(() => [...document.querySelectorAll(".places-sec:not(.treats):not(.grand-sec) .place-tile")].map((t) => `${t.dataset.place}:${[...t.classList].find((c) => c !== "place-tile")}`));
