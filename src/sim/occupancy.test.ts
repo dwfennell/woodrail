@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout } from "../track";
-import { CoverIndex, isOn, trainOn, underByEnds } from "./occupancy";
+import { CoverIndex, isOn, trainOn, UnderCache, underByEnds } from "./occupancy";
 import { engineOf } from "./train-cars";
 import { walkTrack } from "./track-walk";
 import { ADV_BUFFER, ADV_OK, ADV_OPEN_END } from "./cursor";
@@ -94,5 +94,61 @@ describe("occupancy: which train is on these pieces", () => {
     expect(m0).toBeDefined();
     expect(m1).toBeDefined();
     expect(m0! & m1!).toBe(0);
+  });
+});
+
+// The kept span between a train's end axles (`UnderCache`) is the hot path's copy of `underByEnds`: it must never be
+// stale. Before these, a mutation run found every part of its key (the track's revision, the switches, the joints, the
+// axles' pieces) could be dropped with no test failing (docs/agents/audit-2026-11-09.md §7).
+describe("UnderCache", () => {
+  const sorted = (m: ReadonlyMap<number, number>) => [...m].sort((x, y) => x[0] - y[0]);
+
+  it("works the span out again when a piece under the train's middle is laid anew, its axles where they were", () => {
+    const { layout, sim, a, b, c } = line();
+    // (Front axle on c, rear one on a: the 36 mm piece b under the middle, no axle on it.)
+    let t: ReturnType<Sim["getTrain"]>;
+    for (let s = 40; ; s += 2) {
+      if (s > 216) throw new Error("no place with b between the axles");
+      const r = sim.addTrain(["engine", "timber", "timber"], { pieceId: c, pathIndex: 0, reversed: false, s });
+      if (r.kind !== "placed") continue;
+      t = sim.getTrain(r.trainId)!;
+      if (t.bogies.some((x) => x.pieceId === b) || !t.bogies.some((x) => x.pieceId === a)) sim.removeTrain(t.id);
+      else break;
+    }
+    const cache = new UnderCache();
+    expect(cache.of(layout, t!).has(b)).toBe(true);
+    // b taken up and a new 36 mm piece laid in its place, joined at both ends: the same track, a new piece.
+    layout.removePiece(b);
+    const fresh = appendPiece(layout, "straight-36", false, connectorRef(a, 1));
+    expect(layout.joinedConnector(connectorRef(fresh, 1)), "the new piece joins c").toBe(connectorRef(c, 0));
+    const under = cache.of(layout, t!);
+    expect(under.has(b), "the old piece").toBe(false);
+    expect(under.has(fresh), "the new piece").toBe(true);
+    expect(sorted(under)).toEqual(sorted(underByEnds(layout, t!)));
+  });
+
+  it("is what underByEnds says, tick by tick, as a train runs over points and the points are thrown behind it", () => {
+    const layout = new Layout();
+    const sim = new Sim(layout);
+    const runway = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    const start = appendPiece(layout, "straight-216", false, connectorRef(runway, 1));
+    const sw = appendPiece(layout, "switch", false, connectorRef(start, 1));
+    let id: number;
+    id = appendPiece(layout, "straight-216", false, connectorRef(sw, 1));
+    for (let i = 0; i < 4; i++) id = appendPiece(layout, "straight-216", false, connectorRef(id, 1));
+    const r = sim.addTrain(["engine", "timber", "timber"], { pieceId: start, pathIndex: 0, reversed: false, s: 200 });
+    if (r.kind !== "placed") throw new Error("no train");
+    const t = sim.getTrain(r.trainId)!;
+    sim.setLever(t.cars[0].id, 1);
+    const cache = new UnderCache();
+    let overSwitch = 0;
+    for (let k = 0; k < 600; k++) {
+      sim.tick();
+      if (k === 120) layout.setSwitchState(sw, 1);
+      const want = underByEnds(layout, t);
+      if (want.has(sw)) overSwitch++;
+      expect(sorted(cache.of(layout, t)), `tick ${k}`).toEqual(sorted(want));
+    }
+    expect(overSwitch, "the train was over the points for a while").toBeGreaterThan(10);
   });
 });
