@@ -100,6 +100,31 @@ describe("occupancy: which train is on these pieces", () => {
 // The kept span between a train's end axles (`UnderCache`) is the hot path's copy of `underByEnds`: it must never be
 // stale. Before these, a mutation run found every part of its key (the track's revision, the switches, the joints, the
 // axles' pieces) could be dropped with no test failing (docs/agents/audit-2026-11-09.md §7).
+describe("trainOn's options", () => {
+  // (The router asks with `onRails` (router.ts), sections with `standing`: a mutation run found neither checked.)
+  it("standing: only a train at a standstill; onRails: not one off the rails, which still counts without it", () => {
+    const { sim, c } = line();
+    const r = sim.addTrain(["engine"], { pieceId: c, pathIndex: 0, s: 100, reversed: false });
+    if (r.kind !== "placed") throw new Error("no train");
+    const t = sim.getTrain(r.trainId)!;
+    const onC = (p: number) => p === c;
+    expect(trainOn(sim, onC, { onRails: true })).toBe(t);
+    sim.setLever(t.cars[0].id, 1);
+    for (let k = 0; k < 60 && t.speed < 30; k++) sim.tick();
+    expect(t.speed).toBeGreaterThan(1);
+    expect(trainOn(sim, onC)).toBe(t);
+    expect(trainOn(sim, onC, { standing: true }), "moving").toBeUndefined();
+    // Derailed: the piece taken up from under it.
+    sim.setLever(t.cars[0].id, 0);
+    sim.layout.removePiece(c);
+    sim.trackChanged();
+    expect(t.derailed).toBe(true);
+    expect(trainOn(sim, onC), "by axles, off the rails still counts").toBe(t);
+    expect(trainOn(sim, onC, { onRails: true })).toBeUndefined();
+    expect(trainOn(sim, onC, { by: "cars" }), "by cars, never").toBeUndefined();
+  });
+});
+
 describe("UnderCache", () => {
   const sorted = (m: ReadonlyMap<number, number>) => [...m].sort((x, y) => x[0] - y[0]);
 
