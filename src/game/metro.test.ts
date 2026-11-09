@@ -118,7 +118,7 @@ describe("the metro: what it costs", () => {
       expect(r?.coins ?? 0, id).toBeLessThan(train.coins!);
     }
     const metro = BLUEPRINTS.find((b) => b.id === "metro")!;
-    expect(metro.plan).toBeUndefined();
+    expect(metro).toBeDefined();
     expect(metro.price.coins).toBe(400);
     // The metro train takes its own price besides its cars.
     const item = { kind: "train" as const, cars: ["engine", "passenger", "passenger"] as CarKind[], looks: ["metro", "metro", "metro"] as CarLook[] };

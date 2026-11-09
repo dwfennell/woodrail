@@ -100,7 +100,7 @@ import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summar
 import { CARGO, CARGO_KINDS, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, lighthouseNear, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
-import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, needTag, RENAMED, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need, type Plan } from "./game/blueprints";
+import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, needTag, RENAMED, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
 import { drawLedger } from "./ui/town-ledger";
@@ -2702,8 +2702,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return station;
   }
 
-  const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
-
   function refreshBoard(): void {
     hud.setBoardButton(board.open);
     if (!board.open) return;
@@ -2729,7 +2727,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price, cost: costWords(progress, t.id), unlocks: unlocksWords(t.id), requires };
       const state = cardState(progress, t.id);
       if (state === "learned") return { ...base, state };
-      if (state === "soon") return { ...base, state, waits: PLAN_WORDS[t.plan!] };
       const research = researchCard(progress, t.id, school);
       if (research) return { ...base, state, research, ...(state === "next" ? { queued: queuePlace(progress.research, t.id) } : {}), ...(t.id === goalTech && state !== "researching" ? { goal: true } : {}) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));

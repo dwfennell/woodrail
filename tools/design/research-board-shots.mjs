@@ -63,7 +63,7 @@ async function run(name, viewport, mobile) {
   });
   await p.waitForTimeout(300);
   await p.screenshot({ path: `${OUT}/${name}-scrolled.png` });
-  for (const [label, state] of [["Signals and routes", "signals-routes"], ["Dairy farm", "soon"], ["Passengers", "next"], ["Sawmills", "ready"], ["Harvesters II", "locked"]]) {
+  for (const [label, state] of [["Signals and routes", "signals-routes"], ["Dairy farm", "dairy"], ["Passengers", "next"], ["Sawmills", "ready"], ["Harvesters II", "locked"]]) {
     const ok = await p.evaluate((label) => {
       const el = [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === label);
       if (!el) return false;

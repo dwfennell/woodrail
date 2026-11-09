@@ -302,7 +302,7 @@ await tap(".board-sheet button[data-act=pick]", "✕ Remove");
 check("…Farming removed with a tap", JSON.stringify(await queued()) === JSON.stringify(["bridges"]), JSON.stringify(await queued()));
 await board(false);
 
-// 6. Every card state's ticket: learned, researching, next (with its coins short), ready, locked, soon.
+// 6. Every card state's ticket: learned, researching, next (with its coins short), ready, locked.
 await board(true);
 await select("Signals and routes");
 await tap(".board-sheet button[data-act=pick]", "Add to queue");
@@ -314,18 +314,17 @@ for (const [state, name] of [["learned", "Switches"], ["researching", "Bridges a
 }
 // (Locked by something besides blueprints, the bench's 50 planks delivered: one locked behind blueprints has a chain
 // button now, checked in step 10.)
-for (const state of ["locked", "soon"]) {
-  const name = state === "locked" ? "Carpenter's bench" : await p.evaluate((s) => document.querySelector(`.board-body .bp-node.${s} .bp-name`)?.textContent, state);
-  if (name) await select(name);
-  states[state] = await ticket();
-  await shot(`09-card-${state}`);
-}
+await select("Carpenter's bench");
+states.locked = await ticket();
+await shot("09-card-locked");
+// (Only what's in the game is on the board: no "coming soon" cards, nor a key for them. Tree trim, 2026-11-09.)
+const soonOnBoard = await p.evaluate(() => document.querySelectorAll(".board-panel .bp-node.soon, .board-panel .bp-tag.soon, .board-panel .bp-key.soon").length);
 check("learned: Learned, no button", states.learned?.state === "learned" && states.learned.buttons.length === 0, JSON.stringify(states.learned));
 check("researching: live progress, no button", states.researching?.state === "researching" && /\uE000 1\/10/.test(states.researching.foot) && states.researching.buttons.length === 0, JSON.stringify(states.researching));
 check("next: after Bridges, its coins chip short, Remove and Research now", states.next?.state === "next" && /Next up, after Bridges · 60🪙 short/.test(states.next.foot) && /🪙 60/.test(states.next.foot) && states.next.buttons.map((x) => x.text).join("|") === "✕ Remove|Research now", JSON.stringify(states.next));
 check("ready: chips, study time, one 44 px button", states.ready?.state === "ready" && /\uE000 0\/6/.test(states.ready.foot) && states.ready.buttons.length === 1 && states.ready.buttons[0].h >= 44, JSON.stringify(states.ready));
 check("locked: what it waits for", states.locked?.state === "locked" && states.locked.buttons.length === 0, JSON.stringify(states.locked));
-check("soon: coming soon", states.soon?.state === "soon" && states.soon.buttons.length === 0, JSON.stringify(states.soon));
+check("no coming-soon cards on the board", soonOnBoard === 0, String(soonOnBoard));
 // 6b. A tap on a card says what it unlocks and everything it costs, in words (#11), fitting a 360 px phone: the
 // cost line names every good the chips count (same amounts) and the coins the chips show short; the tag's tooltip
 // (a hover on desktop) says the same.

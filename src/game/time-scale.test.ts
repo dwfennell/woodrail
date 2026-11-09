@@ -46,7 +46,7 @@ describe("time control", () => {
   it("the blueprints: Clockmaker after the smithy and a college; the Clock tower a town's place, after its town hall", () => {
     const c = BLUEPRINTS.find((b) => b.id === "clockmaker")!;
     const t = BLUEPRINTS.find((b) => b.id === "clock-tower")!;
-    expect([c.plan, t.plan]).toEqual([undefined, undefined]);
+    expect([c, t]).toEqual([expect.anything(), expect.anything()]);
     expect(c.needs).toEqual(["smithy", "college"]);
     expect(t.needs).toContain("town-hall");
     expect(t.blurb).toMatch(/3×/);

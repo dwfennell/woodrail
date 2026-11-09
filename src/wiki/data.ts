@@ -1,11 +1,11 @@
 /**
  * The wiki's data (docs/superpowers/specs/2026-11-07-wiki-design.md): the game's own tables, read into one plain model
- * for the pages (`pages.ts`). Never imported by the game: `npm run wiki` and its test load it. Only built research rows
- * are in it (a planned one is a promise the game doesn't keep yet), and nothing links to a planned one.
+ * for the pages (`pages.ts`). Never imported by the game: `npm run wiki` and its test load it. Every research row is
+ * in it (the tree holds only what's in the game).
  */
 import { BRANCHES, describeNeed, type Blueprint, type Branch } from "../game/blueprints";
 import { costOf, STUDY_SECONDS } from "../game/research";
-import { built, TECHS, unlocksOf } from "../game/tech";
+import { TECHS, unlocksOf } from "../game/tech";
 import { LOOK_TECH, THING_RULES, type ThingId, type ThingRule } from "../game/things";
 import { ENGINES, type EngineKind } from "../game/engines";
 import { gives, takes } from "../game/chains";
@@ -148,7 +148,7 @@ function vehicleItems(): { item: TrayItem; car: CarKind; look?: CarLook; label: 
 }
 
 export function wikiData(): WikiData {
-  const rowsBuilt = TECHS.filter(built);
+  const rowsBuilt = TECHS;
   const builtIds = new Set(rowsBuilt.map((t) => t.id));
   const rowRef = (id: string | undefined): Ref | undefined => {
     if (!id || !builtIds.has(id)) return undefined;

@@ -52,7 +52,7 @@ function loop(industries: PieceTypeId[], cars: CarKind[]) {
 
 describe("Tank wagons", () => {
   it("is built: after Dairy farm, mostly coins, bringing a tank wagon, an oil well and a water pump", () => {
-    expect(bp("tankers").plan).toBeUndefined();
+    expect(bp("tankers")).toBeDefined();
     expect(bp("tankers")).toMatchObject({ needs: ["dairy"], tier: 2, research: { goods: { planks: 6 }, coins: 120 } });
     expect(THING_RULES["car:oiltank"]).toMatchObject({ tech: "tankers", cost: { planks: 3 } });
     expect(THING_RULES["piece:depot-oilwell"]).toMatchObject({ tech: "tankers" });
@@ -160,7 +160,7 @@ function oval(straights = 8) {
 
 describe("Breakdown crane", () => {
   it("is built: after Goods engine and Quicker cranes, a crane wagon of its own", () => {
-    expect(bp("breakdown").plan).toBeUndefined();
+    expect(bp("breakdown")).toBeDefined();
     expect(bp("breakdown")).toMatchObject({ needs: ["goods-engine", "cranes1"], tier: 2 });
     expect(THING_RULES["car:crane"]).toMatchObject({ tech: "breakdown", cost: { planks: 8 } });
     expect(canCarry("crane")).toBe(false);

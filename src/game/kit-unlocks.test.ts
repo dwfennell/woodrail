@@ -6,7 +6,7 @@ import { BLUEPRINTS } from "./blueprints";
 import { craftNow, Crafting, lacking, workshopStock } from "./crafting";
 import { Progress, inUse } from "./progress";
 import { crateFor } from "./rewards";
-import { built, ready, techOf, unlocksOf } from "./tech";
+import { ready, techOf, unlocksOf } from "./tech";
 import { costText, isFree, isGift, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "./things";
 import { buildStarterWorld, syncIndustries } from "./world";
 
@@ -76,9 +76,9 @@ describe("railway kits in Game mode", () => {
   });
 
   it("their blueprints are built now (no longer coming soon), on their tiers; the viaduct and the lift bridge too (tech tree 5)", () => {
-    for (const id of Object.keys(UNLOCKS)) expect(built(techOf(id)!), id).toBe(true);
+    for (const id of Object.keys(UNLOCKS)) expect(techOf(id), id).toBeDefined();
     expect([techOf("routes")!.tier, techOf("junctions")!.tier, techOf("engine-shed")!.tier, techOf("turntable")!.tier, techOf("scenery")!.tier]).toEqual([2, 1, 2, 2, 1]);
-    for (const id of ["viaduct", "lift-bridge"]) expect(techOf(id)!.plan, id).toBeUndefined();
+    for (const id of ["viaduct", "lift-bridge"]) expect(techOf(id)!, id).toBeDefined();
     const halts = techOf("halts")!;
     expect([halts.branch, halts.needs]).toEqual(["passengers", ["passengers"]]);
     expect(BLUEPRINTS.filter((b) => b.id === "halts")).toHaveLength(1);

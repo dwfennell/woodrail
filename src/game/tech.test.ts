@@ -5,7 +5,7 @@ import { keepsForOrder, orderPlanks } from "./crafting";
 import { GOALS } from "./goals";
 import { Progress } from "./progress";
 import { canResearch } from "./research";
-import { built, ready, TECHS } from "./tech";
+import { ready, TECHS } from "./tech";
 import { THING_RULES } from "./things";
 
 describe("blueprints", () => {
@@ -23,9 +23,9 @@ describe("blueprints", () => {
     expect(capOf("workshop")).toBeGreaterThanOrEqual(most);
   });
 
-  it("every built blueprint is researched (nothing comes by itself), the school and library rows are gone", () => {
+  it("every blueprint is researched (nothing comes by itself), the school and library rows are gone", () => {
     expect(TECHS.some((t) => t.id === "school" || t.id === "library")).toBe(false);
-    for (const t of TECHS.filter(built)) {
+    for (const t of TECHS) {
       expect(Object.keys(t.research.goods).length + (t.research.coins ?? 0), t.id).toBeGreaterThan(0);
       expect("learn" in t, t.id).toBe(false);
       for (const n of t.needs) expect(TECHS.some((x) => x.id === n), `${t.id} needs ${n}`).toBe(true);

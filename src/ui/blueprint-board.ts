@@ -15,7 +15,7 @@ export interface Station {
   makes: { label: string; icon: string; picture?: string }[];
   /**
    * learned: painted. researching: under way at the schools. next: up next. ready: can be picked for research now.
-   * locked: later (needs another blueprint first, or something done). soon: not in the game yet.
+   * locked: later (needs another blueprint first, or something done).
    */
   state: CardState;
   /** How much of it a player sees: all of it, a "?" (it's next to something they know), or nothing yet. */
@@ -36,7 +36,7 @@ export interface Station {
   goal?: boolean;
   /** What must be done first, in words, and whether it is. */
   requires: { text: string; met: boolean }[];
-  /** For `locked`: what it waits for. For `soon`: when (next, coming soon, someday). */
+  /** For `locked`: what it waits for. */
   waits?: string;
   /**
    * For `locked`: the school it must be studied at, while you have none (tech tree 3): its tag in the web says so, in
@@ -251,8 +251,8 @@ const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 /**
  * The Research picker (Game mode), the blueprint board drawn as a web: a band for each branch (track, trains,
  * industry, food…), each blueprint a tag, an arrow from each to what it opens in its branch. Painted tags are learned,
- * the blue one is under way at the schools (another is up next), lit ones can be picked now, plain ones come later,
- * dashed ones are coming soon to the game. A player sees what they know and what's next to it; further on is a "?", and
+ * the blue one is under way at the schools (another is up next), lit ones can be picked now, plain ones come later.
+ * A player sees what they know and what's next to it; further on is a "?", and
  * beyond that nothing yet. Tapping a tag opens its ticket: what it brings, its goods and study time, what it needs, and
  * one button (Research, or Next up). Rebuilt only when what it shows changed.
  */
@@ -270,12 +270,11 @@ const NODE_TAG: Partial<Record<CardState, (s: Station) => string>> = {
       : s.gate
         ? `<span class="bp-tag gate">${esc(s.gate)}</span>`
         : `<span class="bp-tag price later">${esc(s.price)}</span>`,
-  soon: () => `<span class="bp-tag soon">Soon</span>`,
 };
 /** A card's tag in the web (empty for a learned one). */
 export const nodeTag = (s: Station): string => NODE_TAG[s.state]?.(s) ?? "";
 /** How a card stands, in words, for a screen reader (its tag and dot say it on screen). */
-const STATE_WORDS: Record<CardState, string> = { learned: "learned", researching: "researching now", next: "in the queue", ready: "can research", locked: "later", soon: "coming soon" };
+const STATE_WORDS: Record<CardState, string> = { learned: "learned", researching: "researching now", next: "in the queue", ready: "can research", locked: "later" };
 
 /** A tag's tooltip (a hover on desktop; a tap opens its ticket, which says the same): "Mills. Unlocks: Mill. Costs: 6 🌾 grain, 40 🪙 coins". */
 export const tagTitle = (s: Pick<Station, "label" | "unlocks" | "cost">): string => `${s.label}.${s.unlocks ? ` Unlocks: ${s.unlocks}.` : ""} Costs: ${s.cost}`;
@@ -340,7 +339,7 @@ export class BlueprintBoard {
     const legend = document.createElement("div");
     legend.className = "bp-legend";
     legend.hidden = true;
-    const keys: [string, string][] = [["learned", "Learned"], ["researching", "Researching"], ["next", "Next up"], ["ready", "Can research"], ["locked", "Later"], ["soon", "Soon"], ["hint", "Not found yet"]];
+    const keys: [string, string][] = [["learned", "Learned"], ["researching", "Researching"], ["next", "Next up"], ["ready", "Can research"], ["locked", "Later"], ["hint", "Not found yet"]];
     legend.innerHTML = keys.map(([k, w]) => `<span class="bp-legend-item"><span class="bp-key ${k}">${k === "hint" ? "?" : ""}</span>${w}</span>`).join("");
     this.legendBox = head.querySelector("details")!;
     this.legendBox.addEventListener("toggle", () => {

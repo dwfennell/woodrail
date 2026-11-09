@@ -38,7 +38,7 @@ function line(cars: CarKind[], straights = 4, bridge = -1) {
 describe("Night sleepers", () => {
   it("is learned by riders carried, and gates the sleeper coach", () => {
     const row = BLUEPRINTS.find((b) => b.id === "sleeper")!;
-    expect(row.plan).toBeUndefined();
+    expect(row).toBeDefined();
     expect(LOOK_TECH.sleeper).toBe("sleeper");
   });
 
@@ -64,7 +64,7 @@ describe("Observation car", () => {
   it("is a coach with three seats, gated by its blueprint", () => {
     expect(SEATS.observation).toBe(3);
     expect(LOOK_TECH.observation).toBe("observation");
-    expect(BLUEPRINTS.find((b) => b.id === "observation")!.plan).toBeUndefined();
+    expect(BLUEPRINTS.find((b) => b.id === "observation")!).toBeDefined();
   });
 
   it("bridges and hilltop track are views; plain track isn't", () => {

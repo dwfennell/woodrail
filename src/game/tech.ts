@@ -11,14 +11,11 @@ import { THING_RULES, type ThingId } from "./things";
 /** A blueprint (see `Blueprint`). */
 export type Tech = Blueprint;
 
-/** Every blueprint, built or planned. */
+/** Every blueprint. */
 export const TECHS: readonly Tech[] = BLUEPRINTS;
 
 const BY_ID = new Map(TECHS.map((t) => [t.id, t]));
 export const techOf = (id: string): Tech | undefined => BY_ID.get(id);
-
-/** Is it in the game yet (not just planned, "coming soon")? */
-export const built = (t: Tech): boolean => t.plan === undefined;
 
 /** What each blueprint lets you make (`THING_RULES` never changes): made the first time it's asked. */
 let unlocks: Map<string, ThingId[]> | null = null;
@@ -45,7 +42,7 @@ export function statOf(p: Progress, stat: string): number {
   return p.counts.get(stat) ?? 0;
 }
 
-/** Has this requirement been met? (Ones the game can't check yet, like "a town by water", never are.) */
+/** Has this requirement been met? */
 export function needMet(p: Progress, n: Need): boolean {
   switch (n.kind) {
     case "count":
@@ -56,15 +53,13 @@ export function needMet(p: Progress, n: Need): boolean {
       return (n.towns ?? 1) <= 1 && p.bestLevel >= n.level;
     case "landmark":
       return p.landmarks.has(n.id);
-    case "place":
-      return false;
   }
 }
 
-/** Can it be learned now: built, not learned, everything it needs learned and everything it requires done? */
+/** Can it be learned now: not learned, everything it needs learned and everything it requires done? */
 export function ready(p: Progress, id: string): boolean {
   const t = techOf(id);
-  return !!t && built(t) && !p.learned.has(id) && t.needs.every((n) => p.learned.has(n)) && t.requires.every((n) => needMet(p, n));
+  return !!t && !p.learned.has(id) && t.needs.every((n) => p.learned.has(n)) && t.requires.every((n) => needMet(p, n));
 }
 
 /**

@@ -39,7 +39,7 @@ function train(w: ReturnType<typeof buildStarterWorld>): number[] {
 describe("your own colours", () => {
   it("is a blueprint after the Dye works, studied like any other", () => {
     const b = BLUEPRINTS.find((x) => x.id === "paint-trains")!;
-    expect([b.plan, b.needs]).toEqual([undefined, ["paint"]]);
+    expect(b.needs).toEqual(["paint"]);
     const p = Progress.fresh();
     expect(ownColoursOpen(p)).toBe(false);
     p.learned.add("paint-trains");
