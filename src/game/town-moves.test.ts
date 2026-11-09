@@ -213,19 +213,22 @@ describe("moving a town's houses (Game mode)", () => {
   it("a square left inside the town (no open grass beside it) stays a green", () => {
     const { land, editor } = world();
     const g = land.grid;
-    const { town, a, b } = houses(land);
-    const free = green(land, town, [a, b]);
-    for (const id of [a, b]) {
-      const house = town.buildings.find((x) => x.id === id)!;
-      const old = house.cells[0];
-      const open = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dc, dr]) => g.surface[g.index(g.colOf(old) + dc, g.rowOf(old) + dr)] === SURF_GRASS);
-      if (open) continue;
-      const lot = lotFor(land, id, free, editor) as TownLot;
-      moveBuilding(land, id, lot);
-      expect([g.surface[old], g.feature[old]]).toEqual([SURF_TOWN, FEAT_NONE]);
-      expect(town.cells).toContain(old);
-      return;
+    const inner = (i: number) => [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dc, dr]) => g.surface[g.index(g.colOf(i) + dc, g.rowOf(i) + dr)] !== SURF_GRASS);
+    // (Its two first houses both had grass beside them, so this used to check nothing: look for a house inside a town.)
+    let found: { town: Town; id: number } | undefined;
+    for (const town of land.towns) {
+      const house = town.buildings.find((x) => x.cells.length === 1 && !x.landmark && inner(x.cells[0]));
+      if (house) found = { town, id: house.id };
+      if (found) break;
     }
+    expect(found, "a house with no open grass beside it").toBeDefined();
+    const { town, id } = found!;
+    const old = town.buildings.find((x) => x.id === id)!.cells[0];
+    const lot = lotFor(land, id, green(land, town, [id]), editor);
+    expect(typeof lot, `refused: ${String(lot)}`).not.toBe("string");
+    moveBuilding(land, id, lot as TownLot);
+    expect([g.surface[old], g.feature[old]]).toEqual([SURF_TOWN, FEAT_NONE]);
+    expect(town.cells).toContain(old);
   });
 
   it("houses pushed out toward a depot don't box a town in: growth still finds as many lots", () => {

@@ -6,7 +6,7 @@ import { checkPlacement } from "./clearance";
 import { findCrossings } from "./crossings";
 import { generateLandscape } from "./generate";
 import { encodeRoad } from "../roads/pieces";
-import { FEAT_NONE, gridWithPlots, SURF_LANE, SURF_ROAD, SURF_TOWN } from "./grid";
+import { gridWithPlots, SURF_LANE } from "./grid";
 import type { Landscape } from "./generate";
 
 const SEEDS = Array.from({ length: 200 }, (_, i) => i + 1);
@@ -18,24 +18,12 @@ const mapFor = (seed: number) => {
   return l;
 };
 
-function laneCells(seed: number): number[] {
-  const g = mapFor(seed).grid;
-  const out: number[] = [];
-  for (let i = 0; i < g.cellCount; i++) if (g.surface[i] === SURF_LANE) out.push(i);
-  return out;
-}
-
-describe("town gates", () => {
-  it.each(SEEDS)("seed %i: gates lie on flat open felt, each beside a town street", (seed) => {
-    const g = mapFor(seed).grid;
-    for (const i of laneCells(seed)) {
-      expect(g.height[i]).toBe(0);
-      expect(g.feature[i]).toBe(FEAT_NONE);
-      const c = g.colOf(i);
-      const r = g.rowOf(i);
-      const near = [g.index(c - 1, r), g.index(c + 1, r), g.index(c, r - 1), g.index(c, r + 1)];
-      expect(near.some((j) => j !== -1 && (g.surface[j] === SURF_ROAD || g.surface[j] === SURF_TOWN))).toBe(true);
-    }
+// (A "town gates" check stood here: gates on flat open felt beside a street, for each lane cell. The generator makes no
+// lanes now (generate.ts: "no generated roads between towns now"), so it checked nothing on any seed. Lanes come only
+// from the player's roads; this keeps the generator's side of that true.)
+describe("generated maps", () => {
+  it("have no country lanes (the only roads are towns' streets till the player lays one)", () => {
+    for (const seed of SEEDS) expect(mapFor(seed).grid.surface.indexOf(SURF_LANE), `seed ${seed}`).toBe(-1);
   });
 });
 
