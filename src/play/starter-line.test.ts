@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { buildStarterWorld, syncIndustries, fixedPieces } from "../game/world";
+import { generateLandscape } from "../landscape/generate";
+import { CELL } from "../landscape/grid";
 import { LandEditor } from "../landscape/edit";
 import { addTownProps } from "../props/towns";
 import { connectorRef } from "../track";
@@ -78,4 +80,61 @@ it("is laid by a player and grows a hamlet into a town", () => {
   log.push(`best level: ${best}; delivered ${JSON.stringify(Object.fromEntries(w.economy.delivered))}`);
   expect(best, log.join("\n")).toBeGreaterThanOrEqual(2);
 }, 300_000);
+
+it("is laid on the felt from the forest yard to the sawmill: straights, and a curve into the sawmill", () => {
+  // The first lines a new player lays (goals "Load logs" and "Deliver planks"): no ramp, bridge or tunnel on the way,
+  // but the sawmill stands across the line, so the way in to it takes a curve.
+  const w = buildStarterWorld();
+  const fixed = fixedPieces(w);
+  const editor = new Editor(w.layout, w.sim, () => {}, (id) => fixed.has(id));
+  const st = (i: number) => w.stations.get(w.landscape.towns[i].id)!;
+  const depotPiece = (kind: string) => [...w.depots.values()].find((id) => w.layout.getPiece(id)!.type === `depot-${kind}`)!;
+  const legs: [string, number, number][] = [
+    ["Elderwick → forest yard", connectorRef(st(1), 1), connectorRef(depotPiece("forest"), 0)],
+    ["Larkfield → Elderwick", connectorRef(st(0), 1), connectorRef(st(1), 0)],
+    ["Larkfield → sawmill", connectorRef(st(0), 0), connectorRef(depotPiece("sawmill"), 1)],
+  ];
+  const g = w.landscape.grid;
+  for (const [name, a, b] of legs) {
+    const before = new Set(w.layout.pieceIds());
+    const r = play(w.layout, editor, a, b, { blocked: rulesFor(w), maxPieces: 60, fiddle: 3 });
+    expect(r.ok, `${name}: ${JSON.stringify(r)}`).toBe(true);
+    const laid = [...w.layout.pieceIds()].filter((id) => !before.has(id)).map((id) => w.layout.getPiece(id)!);
+    for (const p of laid) {
+      expect(p.type, name).toMatch(/^(straight|curve|auto)/);
+      expect(p.y, `${name}: ${p.type} up a level`).toBe(0);
+      const i = g.cellAtWorld(p.pose.x, p.pose.z);
+      expect(g.height[i], `${name}: ${p.type} on a hill`).toBe(0);
+    }
+    const curves = laid.filter((p) => p.type.startsWith("curve")).length;
+    if (name === "Larkfield → sawmill") expect(curves, "the way in to the sawmill turns").toBeGreaterThanOrEqual(1);
+  }
+});
+
+it("keeps the first lines' ground free of hills on Flat and Gentle starter-style maps", () => {
+  // Every new Game map is starter-style: the ground about the sawmill's turn and on along the line to the forest yard
+  // is level there (Hilly and Mountainous keep their hills: the player chose them).
+  const hilly: number[] = [];
+  for (let seed = 0; seed < 60; seed++) {
+    for (const hills of ["flat", "gentle"] as const) {
+      const land = generateLandscape(seed, { starter: true, hills });
+      const [a] = land.towns;
+      const [saw, forest] = land.depots;
+      const x0 = saw.centre.x - 2 * CELL;
+      const x1 = forest.centre.x + 2 * CELL;
+      const z0 = Math.min(saw.centre.z, a.centre.z) - 2 * CELL;
+      const z1 = Math.max(saw.centre.z, a.centre.z) + 2 * CELL;
+      let n = 0;
+      land.grid.forEachCell((i, col, row) => {
+        const x = land.grid.centreX(col);
+        const z = land.grid.centreZ(row);
+        const nearSawmill = x < a.centre.x && z >= z0 && z <= z1;
+        const nearLine = Math.abs(z - a.centre.z) <= 2 * CELL;
+        if (x >= x0 && x <= x1 && (nearSawmill || nearLine) && land.grid.height[i] > 0) n++;
+      });
+      if (n > 0) hilly.push(seed);
+    }
+  }
+  expect(hilly, "seeds with hills on the first lines' ground").toEqual([]);
+});
 });
