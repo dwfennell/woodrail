@@ -197,3 +197,32 @@ What changed from A:
 
 Still to do before building: the expanded Journal (its Goals/News tabs and Show me / Got it buttons are only lightly
 restyled here), the research board, the line sheet and place cards, then `npm run perf:check`.
+
+## 8. Round three: the Journal, the research board and the line sheet in A+
+
+Shots (phone, 390×844 @2x): `hud-wood-toybox-plus-<journal|news|research|lines|linesheet>.jpg`; desktop (1440×900):
+`hud-wood-toybox-plus-desktop-<journal|research|lines|linesheet>.jpg`; today's of each for comparison
+(`hud-wood-today-…`); side by side: `hud-wood-<today|toybox-plus>-panels-sheet.jpg`. Stylesheet:
+`themes/toybox-panels.css`, loaded after `toybox.css` and `toybox-plus.css` (run with
+`SCREENS=journal,news,research,lines,linesheet THEMES=toybox-plus`, and `DESKTOP=1`).
+
+The same few parts everywhere, so the panels read as one family with the tray and the cards:
+
+- **Panel:** a beech board (grain, square-cut edge, short shadow). The research board's squared paper goes: the
+  board itself is the ground, so there's one surface, not two.
+- **Row:** a maple tile with its edge cut along the bottom, like a tray tile: goals' tips, News items, research
+  tickets and nodes, Lines rows, an open stop. This replaces the soft 2 px rings (`inset 0 0 0 2px #ead8bb`).
+- **State is a peg:** painted green for done or learned, painted yellow for ready to research, painted blue for
+  researching or next, and a bare hole bored in the wood for not yet (a goal's box, a node you can't research, an
+  unticked "Wait to fill"). The coloured rail down each research node's left side goes; the subject's colour is on its
+  band's painted tab.
+- **Stamps:** a goal's progress ("0 / 2 towns"), prices on research nodes (gold ink when you can pay now), News
+  dates, and a line's status (Moving, Waiting, Stuck, No trains) are stamped in their colour. Statuses stand upright
+  (a reading); counts are crooked (a mark). Take off on a stop is stamped red, as Remove is on a train card.
+- **Pencil:** dashed rules between research bands, along a ticket's tear-off foot, and over the line sheet's foot.
+- **View switches** (Goals/News, Stops/Trains): a groove with a maple block slid to the open side.
+- **Painted blocks** only for the one main action on a panel: + New line, Done, Show me, and Research on a ticket.
+- **Lilita** for headings: goal titles, Research, ticket names, Lines, line and stop names, stop numbers.
+
+Not done: the research board's legend (ⓘ), the Trains tab of the line sheet, Stickers, and the town and industry
+cards. Same parts would cover them.

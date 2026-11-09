@@ -12,7 +12,7 @@ const FONTS = {
   enamel: "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@600;700&display=block",
 };
 // A direction built on another: its sheets in order.
-const THEME_FILES = { "toybox-plus": ["toybox", "toybox-plus"] };
+const THEME_FILES = { "toybox-plus": ["toybox", "toybox-plus", "toybox-panels"] };
 FONTS["toybox-plus"] = FONTS.toybox;
 const SIZE = process.env.DESKTOP ? "desktop-" : "";
 // A+ proposes a new drawing for Clear (the sponge read as a yellow block): a school eraser, pink and blue, in the
@@ -42,8 +42,16 @@ async function reset(p) {
     const m = document.querySelector(".menu");
     if (m && !m.hidden && m.offsetParent) document.querySelector('button[aria-label="Menu"]')?.click();
     document.querySelectorAll(".toast").forEach((t) => t.classList.remove("show"));
+    // Fold the Journal; close the Lines list and line sheet if a screen left them open.
+    const g = document.querySelector(".goals");
+    if (g && !g.classList.contains("collapsed")) (g.querySelector(".goals-close") ?? g.querySelector(".goals-head"))?.click();
+    const visible = (sel) => [...document.querySelectorAll(sel)].find((e) => e.offsetParent);
+    visible(".line-sheet .ls-done")?.click();
+    [...document.querySelectorAll(".lines-view button, .lines-view .chip")].find((b) => b.offsetParent && /^(Done|✕|Close)$/.test(b.textContent.trim()))?.click();
   });
   await p.waitForTimeout(400);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
 }
 async function lookOval(p, dist) {
   await p.evaluate((dist) => {
@@ -93,9 +101,57 @@ const SCREENS = {
   },
 };
 
+// Round three: the Journal, the research board and the line sheet (SCREENS=journal,research,lines,linesheet).
+Object.assign(SCREENS, {
+  async journal(p) {
+    await reset(p);
+    await lookOval(p, 2600);
+    await p.evaluate(() => { const g = document.querySelector(".goals"); if (g.classList.contains("collapsed")) g.querySelector(".goals-head").click(); });
+    await p.waitForTimeout(300);
+    await p.evaluate(() => [...document.querySelectorAll(".goals-tab")].find((t) => t.textContent.trim().startsWith("Goals"))?.click());
+    await p.waitForTimeout(500);
+  },
+  async news(p) {
+    await reset(p);
+    await lookOval(p, 2600);
+    await p.evaluate(() => { const g = document.querySelector(".goals"); if (g.classList.contains("collapsed")) g.querySelector(".goals-head").click(); });
+    await p.waitForTimeout(300);
+    await p.evaluate(() => [...document.querySelectorAll(".goals-tab")].find((t) => t.textContent.includes("News"))?.click());
+    await p.waitForTimeout(500);
+  },
+  async research(p) {
+    await reset(p);
+    await p.evaluate(() => document.querySelector('.actions .chip[aria-label^="Research"]').click());
+    await p.waitForTimeout(1200);
+    // pick a node you can research now, so its ticket shows
+    await p.evaluate(() => {
+      const nodes = [...document.querySelectorAll(".bp-node")];
+      const n = nodes.find((x) => x.classList.contains("ready")) ?? nodes[0];
+      n?.click();
+    });
+    await p.waitForTimeout(900);
+  },
+  async lines(p) {
+    await reset(p);
+    await lookOval(p, 2600);
+    await p.evaluate(() => document.querySelector('button[aria-label="Menu"]').click());
+    await p.waitForTimeout(400);
+    await p.evaluate(() => [...document.querySelectorAll(".menu button")].find((b) => b.textContent === "Lines")?.click());
+    await p.waitForTimeout(1500);
+  },
+  async linesheet(p) {
+    await SCREENS.lines(p);
+    await p.evaluate(() => document.querySelector(".lines-row")?.click());
+    await p.waitForTimeout(1200);
+    await p.evaluate(() => document.querySelector(".ls-stop[data-stop='1'] .ls-stop-main")?.click());
+    await p.waitForTimeout(800);
+  },
+});
+const ONLY_SCREENS = process.env.SCREENS?.split(",") ?? ["tray", "menu", "card", "toast"];
+
 const out = [];
 for (const t of THEMES) {
-  for (const [screen, fn] of Object.entries(SCREENS)) {
+  for (const [screen, fn] of Object.entries(SCREENS).filter(([k]) => ONLY_SCREENS.includes(k))) {
     out.push({
       name: `hud-wood-${t}-${SIZE}${screen}`,
       async run(p, s) {

@@ -1,0 +1,145 @@
+/* A+ panels: the Journal, the research board, the Lines list and the line sheet, in the toy box language.
+   Loaded after toybox.css and toybox-plus.css. The parts, reused from the tray and card:
+   - a panel is a beech board (grain, square-cut edge, short shadow);
+   - a row on it is a maple tile, like a tray tile: pale, square-ish, its edge cut along the bottom (no soft rings);
+   - state is a peg: painted green (done / learned), painted yellow (ready), a bare hole bored in the wood (not yet);
+   - counts, prices and statuses are stamped; rules are pencil;
+   - a view switch (Goals/News, Stops/Trains) is a groove with a maple block slid to the side that's open;
+   - headings in Lilita. */
+:root {
+  --tile: #fbf1df;
+  --tile-edge: #dcbf94;
+  --tile-sh: 0 3px 3px -2px rgba(40, 22, 6, .35);
+  --tile-face: inset 0 1px 0 #fff, inset 0 -3px 0 var(--tile-edge);
+  --groove: rgba(110, 66, 20, .16);
+  --groove-sh: inset 0 2px 3px rgba(80, 45, 10, .25);
+  /* a peg: a painted dome, lit from above */
+  --peg-green: radial-gradient(circle at 40% 32%, #7fd08a 0 18%, #2f8b3f 55%, #1b5a26 100%);
+  --peg-yellow: radial-gradient(circle at 40% 32%, #ffe28a 0 18%, #f4b61a 55%, #a97a00 100%);
+  --peg-blue: radial-gradient(circle at 40% 32%, #8fb8ec 0 18%, #2563b0 55%, #143f78 100%);
+  --hole: radial-gradient(circle at 50% 60%, #c9a46c 0 45%, #a77c45 100%);
+  --hole-sh: inset 0 2px 2px rgba(60, 30, 5, .45), 0 1px 0 rgba(255, 255, 255, .6);
+}
+
+/* ===== shared parts ===== */
+.goals-tabs, .ls-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); }
+.goals-tab, .ls-tab { min-height: 42px; border-radius: 7px; background: transparent; box-shadow: none; color: #5a3a1a;
+  font-family: var(--tb-display); font-weight: 400; font-size: 16px; letter-spacing: .02em; display: flex; align-items: center; justify-content: center; gap: 6px; line-height: 1; }
+.goals-tab.on, .ls-tab.on { background: var(--tile); color: var(--tb-ink); box-shadow: var(--tile-face), var(--tile-sh); }
+.goals-tab-badge { display: inline-flex; align-items: center; justify-content: center; height: 20px; min-width: 20px; padding: 0 6px; border-radius: 5px; font: 400 13px/1 var(--tb-display);
+  color: var(--tb-ink); background: var(--tb-gloss), var(--tb-yel); box-shadow: inset 0 -2px 0 var(--tb-yel-dk); }
+.goals .close, .goals-close, .board-panel .close, .lines-view .lines-close { color: #4f3418; }
+
+/* ===== the Journal ===== */
+.goals:not(.collapsed) { border-radius: 12px; }
+.goals-label { font-family: var(--tb-display); font-weight: 400; font-size: 16px; letter-spacing: .04em; color: #4f3418; }
+.goals-body { gap: 8px; }
+/* a goal: its box is a hole bored in the board; done, a green peg in it */
+.goal { align-items: flex-start; gap: 12px; }
+.goal b { font-family: var(--tb-display); font-weight: 400; font-size: 19px; letter-spacing: .01em; line-height: 1.15; color: var(--tb-ink); }
+.goal p { color: #4f3418; font-weight: 700; font-size: 13.5px; }
+.goal-box { width: 22px; height: 22px; border-radius: 50%; margin-top: 0; background: var(--hole); box-shadow: var(--hole-sh); }
+.goal-tick { width: 22px; height: 22px; border-radius: 50%; background: var(--peg-green); box-shadow: 0 2px 1px rgba(40,22,6,.4); font-size: 12px; text-shadow: 0 1px 0 rgba(0,0,0,.3); }
+.goal.upcoming { opacity: 1; color: #5a3a1a; }
+.goal.upcoming .goal-box { width: 16px; height: 16px; margin: 0 3px; }
+/* progress is stamped: "0 / 2 towns" */
+.goal-progress { display: inline-flex; align-items: center; height: 22px; margin-top: 6px; padding: 0 7px; border-radius: 3px; font-size: 12.5px; line-height: 1;
+  color: #1f5a27; background: var(--st-mottle); box-shadow: inset 0 0 0 1.5px #2f7a38; transform: rotate(-1.5deg); }
+/* Show me (in the goal) is the same blue block as the bar's; Got it is a maple block */
+.goals-body .chip, .goals-show { height: 44px; border-radius: 9px; font-family: var(--tb-display); font-weight: 400; font-size: 16px; letter-spacing: .02em; }
+.goals-body .chip.goals-show, .goal .chip:first-of-type { color: #fff8ec; text-shadow: 0 1px 0 rgba(0,0,0,.3); background: var(--tb-gloss), var(--tb-blue); box-shadow: inset 0 -4px 0 var(--tb-blue-dk), 0 4px 4px -2px rgba(40,22,6,.4); }
+/* a new-feature tip: a maple card pinned to the board (no soft ring) */
+.goal.feature-tip { padding: 10px 12px; border-radius: 8px; background: var(--tile); box-shadow: var(--tile-face), var(--tile-sh); }
+.goal.feature-tip b { font-size: 17px; }
+/* News: each item a maple strip; the date stamped small and brown */
+.news-item { min-height: 48px; padding: 8px 10px; border-radius: 7px; background: var(--tile); box-shadow: var(--tile-face), var(--tile-sh); color: var(--tb-ink); font-weight: 700; }
+.news-item.milestone { background: #fff4d6; }
+.news-item i { color: var(--tb-yel-dk); }
+.news-time { align-self: center; height: 20px; display: inline-flex; align-items: center; padding: 0 5px; border-radius: 3px; font-size: 11.5px; font-weight: 800; line-height: 1;
+  color: var(--st-brown); box-shadow: inset 0 0 0 1.2px rgba(90, 58, 26, .55); }
+
+/* ===== the research board ===== */
+.board-panel { background: var(--tb-board); background-blend-mode: multiply; border-radius: 12px; color: var(--tb-ink);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -6px 0 var(--tb-end), 0 12px 12px -6px rgba(40,22,6,.5); }
+.board-head h2 { font-family: var(--tb-display); font-weight: 400; font-size: 26px; letter-spacing: .02em; }
+.board-sub { color: #4f3418; }
+/* the web's paper becomes the board itself (squared paper was a second surface) */
+.bp-web-scroll { background: transparent; box-shadow: none; }
+/* a subject's name: a painted tab in its colour */
+.bp-band-label { height: 26px; padding: 0 10px; border: 0; border-radius: 5px; font: 400 15px/1 var(--tb-display); letter-spacing: .03em; color: #fff8ec; text-shadow: 0 1px 0 rgba(0,0,0,.3);
+  background: var(--tb-gloss), var(--c, #8a6a4a); box-shadow: inset 0 -3px 0 rgba(0,0,0,.22); }
+.bp-band + .bp-band { box-shadow: none; border-top: 1.5px dashed var(--pencil); }
+/* a node: a maple tile (no coloured rail: the band's tab carries the colour), its state a peg */
+.board-panel .bp-node { border: 0; border-radius: 8px; background: var(--tile); box-shadow: var(--tile-face), var(--tile-sh); padding: 6px 8px 8px 7px; column-gap: 9px; }
+.board-panel .bp-node.ready { background: #fffaf0; box-shadow: var(--tile-face), var(--tile-sh); }
+.board-panel .bp-node.locked { background: rgba(251, 241, 223, .6); box-shadow: inset 0 0 0 1.5px rgba(110,66,20,.25); }
+.board-panel .bp-node.soon, .board-panel .bp-node.hint { background: transparent; border: 1.5px dashed var(--pencil); box-shadow: none; }
+.board-panel .bp-node.selected { box-shadow: var(--tile-face), 0 0 0 3px var(--tb-ink), 0 5px 5px -2px rgba(40,22,6,.45); transform: translateY(-2px); }
+.board-panel .bp-node.researching { background: #eef4fc; box-shadow: var(--tile-face), 0 0 0 2.5px var(--tb-blue), var(--tile-sh); }
+.board-panel .bp-node .bp-name { font-size: 13px; font-weight: 800; color: var(--tb-ink); }
+.bp-dot { color: #fff; font-size: 12px; text-shadow: 0 1px 0 rgba(0,0,0,.35); background: var(--hole); box-shadow: var(--hole-sh); }
+.bp-node.done .bp-dot, .bp-node.learned .bp-dot, .bp-ticket.learned .bp-dot { background: var(--peg-green); box-shadow: 0 2px 1px rgba(40,22,6,.4); }
+.bp-node.ready .bp-dot { background: var(--peg-yellow); box-shadow: 0 2px 1px rgba(40,22,6,.4); }
+.bp-node.researching .bp-dot, .bp-node.next .bp-dot { background: var(--peg-blue); box-shadow: 0 2px 1px rgba(40,22,6,.4); }
+/* prices: stamped in brown (gold for one you can pay now) */
+.bp-tag, .bp-tag.price, .bp-tag.price.later { height: 20px; border-radius: 3px; background: var(--st-mottle); color: var(--st-brown); box-shadow: inset 0 0 0 1.4px rgba(90,58,26,.7); }
+.bp-tag.price { color: #6b4300; box-shadow: inset 0 0 0 1.6px #a97a00; }
+.bp-tag.now { color: #fff; background: var(--tb-blue); box-shadow: inset 0 -2px 0 var(--tb-blue-dk); }
+.bp-node-gauge { height: 5px; background: rgba(37,99,176,.18); border-radius: 0 0 8px 8px; }
+/* the ticket: a maple card, its foot torn along a pencil line; the state stamped */
+.bp-ticket { border-left: 0 !important; border-radius: 8px; background: var(--tile); box-shadow: var(--tile-face), 0 6px 6px -3px rgba(40,22,6,.4); padding: 14px 16px 16px; }
+.bp-ticket::before, .bp-ticket::after { display: none; }
+.bp-ticket-head b { font-family: var(--tb-display); font-weight: 400; font-size: 22px; letter-spacing: .01em; }
+.bp-ticket-head > span:last-child { color: #4f3418; }
+.bp-ticket-foot { border-top: 1.5px dashed var(--pencil) !important; }
+.bp-ticket.learned .bp-ticket-foot { color: #1f5a27; }
+.bp-more-hint { border-radius: 6px; background: var(--groove); box-shadow: var(--groove-sh); color: #4f3418; }
+.bp-chip, .bp-make { border-radius: 4px; background: var(--groove); color: #4f3418; }
+.board-sheet .chip.text { font-family: var(--tb-display); font-weight: 400; font-size: 17px; letter-spacing: .02em; }
+.board-sheet .chip.primary { color: #fff8ec; text-shadow: 0 1px 0 rgba(0,0,0,.3); background: var(--tb-gloss), var(--tb-green); box-shadow: inset 0 -4px 0 var(--tb-green-dk), 0 4px 4px -2px rgba(40,22,6,.4); }
+
+/* ===== the Lines list ===== */
+.lines-head b { font-family: var(--tb-display); font-weight: 400; font-size: 24px; letter-spacing: .02em; }
+.lines-head .lines-count { color: #4f3418; }
+.lines-view .chip.lines-new { font-family: var(--tb-display); font-weight: 400; font-size: 16px; color: #fff8ec; text-shadow: 0 1px 0 rgba(0,0,0,.3);
+  background: var(--tb-gloss), var(--tb-green); box-shadow: inset 0 -4px 0 var(--tb-green-dk), 0 4px 4px -2px rgba(40,22,6,.4); }
+.lines-row { border-radius: 8px; background: var(--tile); box-shadow: var(--tile-face), var(--tile-sh); padding: 10px 12px 12px; }
+.lines-row.stuck { box-shadow: var(--tile-face), 0 0 0 2.5px var(--st-red), var(--tile-sh); }
+.lines-name { font-family: var(--tb-display); font-weight: 400; font-size: 19px; letter-spacing: .01em; }
+.lines-dot { box-shadow: inset 0 -2px 0 rgba(0,0,0,.25); border-radius: 4px; }
+.lines-diag::before { border-radius: 2px; box-shadow: inset 0 -2px 0 rgba(0,0,0,.2); }
+.lines-stop-name { color: #4f3418; }
+/* status: stamped in its colour, upright (a reading, not a mark of approval) */
+.lines-pill, .ls-pill { height: 22px; padding: 0 7px; border-radius: 3px; background: var(--st-mottle) !important; font-size: 12.5px; line-height: 1; }
+.lines-pill.moving, .ls-pill.moving { color: #1f5a27; box-shadow: inset 0 0 0 1.6px #2f7a38; }
+.lines-pill.waiting, .ls-pill.waiting { color: #6b4300; box-shadow: inset 0 0 0 1.6px #a97a00; }
+.lines-pill.stuck, .ls-pill.stuck { color: var(--st-red); box-shadow: inset 0 0 0 1.6px var(--st-red); }
+.lines-pill.none, .ls-pill.none { color: var(--st-brown); box-shadow: inset 0 0 0 1.6px rgba(90,58,26,.6); }
+.lines-pill i, .ls-pill i { width: 8px; height: 8px; }
+
+/* ===== the line sheet ===== */
+.line-sheet { border-radius: 12px 12px 0 0; }
+/* the line's colour: a painted disc, like a peg seen from above */
+.ls-swatch { box-shadow: inset 0 2px 0 rgba(255,255,255,.3), inset 0 -4px 0 rgba(0,0,0,.25), 0 3px 3px -1px rgba(40,22,6,.4); }
+.ls-name { font-family: var(--tb-display); font-weight: 400; font-size: 23px; letter-spacing: .01em; color: var(--tb-ink); }
+.line-sheet .chip.ls-more { border-radius: 9px; }
+.line-sheet .chip.ls-done { font-family: var(--tb-display); font-weight: 400; font-size: 17px; color: #fff8ec; text-shadow: 0 1px 0 rgba(0,0,0,.3);
+  background: var(--tb-gloss), var(--tb-green); box-shadow: inset 0 -4px 0 var(--tb-green-dk), 0 4px 4px -2px rgba(40,22,6,.4); }
+/* stops: the rail is the line's colour, cut square; numbers are maple pegs on it */
+.ls-stop::before, .ls-via::before { border-radius: 0; box-shadow: inset 2px 0 0 rgba(255,255,255,.25), inset -2px 0 0 rgba(0,0,0,.2); }
+.ls-num { background: var(--tile); box-shadow: inset 0 0 0 2.5px var(--tb-ink), 0 2px 1px rgba(40,22,6,.35); font-family: var(--tb-display); font-weight: 400; font-size: 15px; line-height: 1; }
+.ls-stop.next .ls-num { box-shadow: inset 0 2px 0 rgba(255,255,255,.3), inset 0 -3px 0 rgba(0,0,0,.25), 0 2px 1px rgba(40,22,6,.35); }
+.ls-stop-name { font-family: var(--tb-display); font-weight: 400; font-size: 18px; letter-spacing: .01em; }
+.ls-goods { color: #4f3418; }
+.ls-handle { color: rgba(79, 52, 24, .7); }
+/* an open stop: a maple tile, its options on it */
+.ls-stop.open, .ls-via.open { border-radius: 8px; background: var(--tile); box-shadow: var(--tile-face), var(--tile-sh); }
+.ls-says { color: var(--tb-ink); }
+.ls-tick { border-radius: 9px; font-weight: 800; }
+.ls-box { border-radius: 4px; background: var(--hole); box-shadow: var(--hole-sh); }
+.ls-tick.on .ls-box { background: var(--tb-gloss), var(--tb-green); box-shadow: inset 0 -2px 0 var(--tb-green-dk); }
+.ls-foot { border-top: 1.5px dashed var(--pencil); }
+.ls-foot .ls-hint, .ls-hint { color: #4f3418; }
+/* Take off: a destructive ask, stamped in red as Remove is on a train card */
+.line-sheet .chip.ls-remove { color: var(--st-red); background: var(--st-mottle); box-shadow: inset 0 0 0 2.5px var(--st-red); transform: rotate(-1.5deg);
+  font-family: var(--tb-display); font-weight: 400; font-size: 16px; letter-spacing: .03em; }
