@@ -604,7 +604,7 @@ await deliver(10);
 await p.waitForFunction(() => window.woodrail.progress().learned.has("bridges"), null, { timeout: 180000 });
 await p.waitForTimeout(800);
 const idlePill = await pillIdle();
-check("Bridges learned with nothing up next: the pill says Pick research, amber, its dot pulsing", idlePill.text === "📘 Pick research" && /\bidle\b/.test(idlePill.cls) && idlePill.dot === "idle-pulse" && idlePill.bg === "rgb(255, 241, 194)", JSON.stringify(idlePill));
+check("Bridges learned with nothing up next: the pill says Pick research, amber, its dot pulsing", idlePill.text === "📘 Pick research" && /\bidle\b/.test(idlePill.cls) && idlePill.dot === "idle-pulse" && idlePill.bg === "rgb(244, 182, 26)", JSON.stringify(idlePill));
 // The toast, after the Learned one: "<school> is idle: pick what to learn next".
 const idleToast = await p
   .waitForFunction(() => {
