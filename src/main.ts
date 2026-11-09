@@ -575,7 +575,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       decouple: () => decouple(),
       emptyCar: () => emptyCars(false),
       emptyTrain: () => emptyCars(true),
-      rotate: () => interaction.rotateSelected(),
+      rotate: (fine) => interaction.rotateSelected(fine),
       flip: () => interaction.flipSelected(),
       deletePiece: () => interaction.deleteSelected(),
       selectMore: () => interaction.selectMore(),
@@ -638,8 +638,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       buttonTap: () => audio.tap(),
       depotAuto: () => interaction.toggleDepotAuto(),
-      trayTurn: () => {
-        interaction.turnTrayPiece(hud.propsTab);
+      trayTurn: (fine) => {
+        interaction.turnTrayPiece(hud.propsTab, fine);
         hud.setTrayOrientation(interaction.trayFlipped);
       },
       trayFlip: () => {

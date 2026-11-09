@@ -70,6 +70,10 @@ put down an underpass first when run alone).
 tray, an engine run up it) and `drag` (#8's curves dragged out and tapped), on one desktop Sandbox page, each finding its
 own room. On the test clock and Battery saver, a tray item's shelf tapped straight off (not shelf after shelf).
 
+**rotate** (`scripts/e2e/rotate.mjs`, about 6 min): `touch` (a 390×844 phone: a held curve twisted 30° by a second
+finger, laid, a curve joined on) and `mouse` (1440×900: Shift+R twice, laid at 30°, a loop of eight from the tray that
+closes, R on to the next eighth). Each on a fresh Sandbox page (#seed-24).
+
 **joints** (`scripts/e2e/joints.mjs`): `qa-line` (QA's drawn line's joints through a reload, an older build's save),
 `slip-draw` (a Draw stroke along a 45° crossing's turn makes it a slip, Game mode). Each on a fresh page.
 

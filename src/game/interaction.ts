@@ -63,6 +63,7 @@ import { canCarry as carCarries } from "../economy/cargo";
 import { needsWagonText, wagonTag, wagonWords } from "../economy/wagons";
 import { progressOf, YARD_COSTS } from "./yards";
 import { capAt, CARGO, CARGO_KINDS, GOODS_ICON, pilesOf, givesChoice, isStore, RECIPES, STORE_MODES, storeListed, storeModeOf, type CargoKind, type CargoSlot, type DepotState, type StoreMode, type YardBuild, type YardOrder } from "../economy";
+import { COARSE_STEP, FINE_STEP, nextCoarse, nextFine, twistHeading } from "./headings";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestKnob, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 import { givesBlockText, GIVES_HELP, STORE_HELP, storeStock } from "./warehouse-text";
@@ -612,6 +613,7 @@ export class Interaction {
     window.addEventListener("pointermove", (e) => this.onMove(e));
     window.addEventListener("pointerup", (e) => this.onUp(e));
     window.addEventListener("pointercancel", (e) => {
+      if (this.twist?.id === e.pointerId) this.endTwist();
       if (this.mode.kind !== "idle" && this.mode.pointerId === e.pointerId) this.cancel();
     });
     window.addEventListener("keydown", (e) => this.onKey(e));
@@ -1188,7 +1190,7 @@ export class Interaction {
         heading:
           this.guided?.type === item.type
             ? this.guided.heading
-            : this.cameraHeading() + (this.trayTurns * Math.PI) / 4 + (this.trayFlipped && this.splices(item.type) ? Math.PI : 0),
+            : this.trayHeading() + (this.trayFlipped && this.splices(item.type) ? Math.PI : 0),
         pieceId: -1,
         tray: item,
         auto: item.auto,
@@ -1760,6 +1762,13 @@ export class Interaction {
 
   /** How pieces come out of the tray: eighth turns from facing away from the camera, and mirrored or not. */
   trayTurns = 0;
+  /** ...and fine steps (15°, `FINE_STEP`) past that eighth: 0, 1 or 2 (Shift+R, Shift on Turn, with nothing in hand). */
+  trayFine = 0;
+
+  /** The heading (plan) the next piece comes out of the tray at. */
+  private trayHeading(): number {
+    return this.cameraHeading() + this.trayTurns * COARSE_STEP + this.trayFine * FINE_STEP;
+  }
   trayFlipped = false;
   /**
    * Flip pressed for the piece in hand (till it's put down, or another's taken): a curved ramp is then as the player
@@ -1794,18 +1803,22 @@ export class Interaction {
   trayArrow(props: boolean): number {
     const d = new Vector3();
     this.game.camera.getWorldDirection(d);
-    const heading = props ? this.nextPropHeading() : this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
+    const heading = props ? this.nextPropHeading() : this.trayHeading();
     const a = ((heading - Math.atan2(d.z, d.x)) * 180) / Math.PI;
     return ((a % 360) + 540) % 360 - 180;
   }
 
-  /** Tray "Turn": turns the piece in hand (if any) and every piece taken out after it (`props`: every model). */
-  turnTrayPiece(props = false): void {
+  /**
+   * Tray "Turn": turns the piece in hand (if any) and every piece taken out after it (`props`: every model), an eighth
+   * (to the next eighth, if it's turned in between), or `fine`, 15° (`FINE_STEP`).
+   */
+  turnTrayPiece(props = false, fine = false): void {
     // (A kit piece from a models shelf, in hand or ready, turns as a piece: the shelf's own Turn is for models.)
     if ((props && !this.holdingKit) || this.mode.kind === "drag-prop") {
-      if (this.mode.kind === "drag-prop") this.rotateSelected();
+      if (this.mode.kind === "drag-prop") this.rotateSelected(fine);
       else {
-        this.propHeading = this.nextPropHeading() + Math.PI / 4;
+        const h = this.nextPropHeading();
+        this.propHeading = fine ? nextFine(h) : nextCoarse(h);
         // (Carried, its ghost turns where it is.)
         const c = this.carriedThing;
         if (c?.m.kind === "drag-prop") {
@@ -1816,11 +1829,17 @@ export class Interaction {
       return;
     }
     const holding = this.mode.kind === "drag-piece";
-    if (holding) this.rotateSelected();
+    if (holding) this.rotateSelected(fine);
+    // (Roads go on squares: a quarter turn each time, fine or not.)
     if (this.mode.kind === "drag-road") this.roads.turnHeld(this.mode.drag);
     else if (this.roadReady) this.roads.turnHeld(this.roadReady.drag);
-    const was = this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
-    this.trayTurns = (this.trayTurns + 1) % 8;
+    const was = this.trayHeading();
+    if (fine && this.trayFine < 2) this.trayFine++;
+    else {
+      // (Turned in between, Turn goes on to the next eighth: as `nextCoarse`.)
+      this.trayFine = 0;
+      this.trayTurns = (this.trayTurns + 1) % 8;
+    }
     this.guided = null;
     // Nothing in hand: the next piece shows for a moment, turning, so you see which way it'll come out. (Carried, its
     // ghost turns.)
@@ -1844,7 +1863,7 @@ export class Interaction {
     const item = this.armed?.kind === "piece" ? this.armed : null;
     const type: PieceTypeId = item && !item.auto ? item.type : "straight-216";
     const flipped = this.trayFlipped && getPieceDef(type, false).flippable;
-    const to = this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
+    const to = this.trayHeading();
     const old = this.nextShown;
     if (old) {
       from = old.heading;
@@ -1893,13 +1912,63 @@ export class Interaction {
     // Waiting at the end of the last one put down: it's shown again there, mirrored (as the player has it now, not
     // turning on as the curve it meets: #8), so a tap on it puts down what's shown.
     else if (!holding && this.preview?.ghost.visible && this.previewAt) this.reshowPreview();
-    else if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.cameraHeading() + (this.trayTurns * Math.PI) / 4);
+    else if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.trayHeading());
     this.onTurned?.();
   }
 
   // ---- pointer ----------------------------------------------------------------------------------------------
 
+  /**
+   * A second finger on the map while the first holds a piece or a model: twisting it about the first turns what's
+   * held, as the line between the fingers turns (on the fine headings: `twistHeading`). Lifting it, the first still
+   * holds. (Was: a second finger dropped the held piece, back in the box, and moved the camera.)
+   */
+  private twist: { id: number; x: number; y: number; start: number; base: number; camera: boolean } | null = null;
+
+  /** The plan angle (world) of the line from the holding finger to the twisting one, or null off the ground. */
+  private twistAngle(x: number, y: number): number | null {
+    const a = this.groundAt(this.lastX, this.lastY);
+    const b = a && this.groundAt(x, y);
+    if (!a || !b || Math.hypot(b.x - a.x, b.z - a.z) < 1) return null;
+    return Math.atan2(b.z - a.z, b.x - a.x);
+  }
+
+  private beginTwist(e: PointerEvent): boolean {
+    const m = this.mode;
+    if (m.kind !== "drag-piece" && m.kind !== "drag-prop") return false;
+    // (A town's house goes about its town on its own squares: it isn't twisted.)
+    if (m.kind === "drag-prop" && m.town) return false;
+    const start = this.twistAngle(e.clientX, e.clientY);
+    if (start === null) return false;
+    // (The camera keeps still under the second finger: a drag out of the tray leaves it free, the finger being off the map.)
+    this.twist = { id: e.pointerId, x: e.clientX, y: e.clientY, start, base: m.heading, camera: this.game.controls.enabled };
+    this.game.controls.enabled = false;
+    return true;
+  }
+
+  private endTwist(): void {
+    if (this.twist?.camera) this.game.controls.enabled = true;
+    this.twist = null;
+  }
+
+  /** Either finger of a twist moved: what's held turns to match (redrawn only when its heading changes). */
+  private applyTwist(): void {
+    const t = this.twist;
+    const m = this.mode;
+    if (!t || (m.kind !== "drag-piece" && m.kind !== "drag-prop")) return;
+    const now = this.twistAngle(t.x, t.y);
+    if (now === null) return;
+    const h = twistHeading(t.base, t.start, now);
+    if (h === m.heading) return;
+    m.heading = h;
+    if (m.kind === "drag-prop") this.propHeading = h;
+    this.updateDrag(this.lastX, this.lastY);
+    this.onTurned?.();
+  }
+
   private onCanvasDown(e: PointerEvent): void {
+    // A second finger while the first holds a piece or a model twists it.
+    if (e.pointerType === "touch" && this.touches.size === 2 && !this.twist && this.beginTwist(e)) return;
     // Two fingers always move the camera: a second touch abandons any press or drag in progress.
     if (e.pointerType === "touch" && this.touches.size > 1) {
       this.cancel();
@@ -2128,8 +2197,22 @@ export class Interaction {
         this.game.invalidate();
       }
     }
+    // The twisting finger only turns what's held.
+    const tw = this.twist;
+    if (tw && tw.id === e.pointerId) {
+      tw.x = e.clientX;
+      tw.y = e.clientY;
+      this.applyTwist();
+      return;
+    }
     if (this.vetoPin(e)) return;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
+    if (tw) {
+      // The holding finger moved: the piece goes with it, and turns as the line between the fingers does.
+      this.updateDrag(e.clientX, e.clientY);
+      this.applyTwist();
+      return;
+    }
     if (m.kind === "erase") {
       this.sweepErase(m, e);
       return;
@@ -2589,8 +2672,14 @@ export class Interaction {
       }
       return;
     }
+    // The twisting finger lifted: the first still holds.
+    if (this.twist?.id === e.pointerId) {
+      this.endTwist();
+      return;
+    }
     const m = this.mode;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
+    this.twist = null;
     this.game.controls.enabled = true;
     const still = this.heldStill;
     const unsure = this.heldUnsure;
@@ -2699,6 +2788,7 @@ export class Interaction {
   }
 
   private cancel(): void {
+    this.twist = null;
     this.game.director.setEdgePointer(null);
     this.hud.setRefusal(null);
     const m = this.mode;
@@ -3458,7 +3548,8 @@ export class Interaction {
     this.changed();
   }
 
-  rotateSelected(): void {
+  /** Turn what's held, carried or selected: an eighth (to the next eighth), or `fine`, 15° (Shift+R). */
+  rotateSelected(fine = false): void {
     if (this.mode.kind === "drag-road") {
       this.roads.turnHeld(this.mode.drag);
       return;
@@ -3473,27 +3564,27 @@ export class Interaction {
       return;
     }
     if (this.carried && this.mode.kind === "idle") {
-      this.turnTrayPiece();
+      this.turnTrayPiece(false, fine);
       return;
     }
     if (this.carriedThing?.m.kind === "drag-prop" && this.mode.kind === "idle") {
-      this.turnTrayPiece(true);
+      this.turnTrayPiece(true, fine);
       return;
     }
     if (this.mode.kind === "drag-piece") {
-      this.mode.heading += Math.PI / 4;
+      this.mode.heading = fine ? nextFine(this.mode.heading) : nextCoarse(this.mode.heading);
       // Seen at once, finger still (it snaps, or is refused, turned).
       this.updateDrag(this.lastX, this.lastY);
       return;
     }
     if (this.mode.kind === "drag-prop") {
-      this.mode.heading += Math.PI / 4;
+      this.mode.heading = fine ? nextFine(this.mode.heading) : nextCoarse(this.mode.heading);
       this.propHeading = this.mode.heading;
       this.updateDrag(this.lastX, this.lastY);
       return;
     }
     if (this.selectedProp !== -1) {
-      this.turnProp(this.selectedProp);
+      this.turnProp(this.selectedProp, fine);
       return;
     }
     if (this.picking) {
@@ -3504,13 +3595,14 @@ export class Interaction {
     const p = id === -1 ? undefined : this.game.layout.getPiece(id);
     if (!p || this.trainOn([id])) return;
     const c = pieceCentre(this.game.layout, id);
-    const pose = poseForCentre(p.type, p.flipped, c.x, c.z, p.pose.heading + Math.PI / 4);
+    const by = (fine ? nextFine(p.pose.heading) : nextCoarse(p.pose.heading)) - p.pose.heading;
+    const pose = poseForCentre(p.type, p.flipped, c.x, c.z, p.pose.heading + by);
     if (!this.allowed(id, p.type, p.flipped, pose, p.y)) {
       this.onRefused?.();
       return;
     }
     const before = { x: p.pose.x, y: p.y, z: p.pose.z, heading: p.pose.heading };
-    if (this.editor().rotate(id, Math.PI / 4)) this.animateChange(id, (mesh, after, done) => turn(mesh, before, after, done));
+    if (this.editor().rotate(id, by)) this.animateChange(id, (mesh, after, done) => turn(mesh, before, after, done));
   }
 
   /**
@@ -5483,6 +5575,7 @@ export class Interaction {
       selectedCar: this.selectedCar,
       selectedScenery: this.selectedScenery,
       trayTurns: this.trayTurns,
+      trayFine: this.trayFine,
       trayFlipped: this.trayFlipped,
       propHeading: this.propHeading,
     };
@@ -5515,7 +5608,7 @@ export class Interaction {
     } else if (mod && e.key.toLowerCase() === "y") {
       e.preventDefault();
       this.redo();
-    } else if (e.key === "r" || e.key === "R") this.rotateSelected();
+    } else if (e.key === "r" || e.key === "R") this.rotateSelected(e.shiftKey);
     else if (e.key === "f" || e.key === "F") this.flipSelected();
     else if (e.key === "Delete" || e.key === "Backspace") this.deleteSelected();
     else if (e.key === "Escape") {
@@ -6008,14 +6101,14 @@ export class Interaction {
   /** A train was called home from a signal box's card (the Telegraph): the game saves its new line. */
   onCalledHome: (() => void) | null = null;
 
-  /** Turn a placed prop an eighth, if it still fits. */
-  private turnProp(id: number): void {
+  /** Turn a placed prop an eighth (or `fine`, 15°), if it still fits. */
+  private turnProp(id: number, fine = false): void {
     const g = this.game;
     const p = g.props.get(id);
     const fp = p && scaleFootprint(g.propLibrary.footprint(p.asset), p.scale);
     if (!p || !fp) return;
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
-    const to = { x: p.x, z: p.z, heading: p.heading + Math.PI / 4 };
+    const to = { x: p.x, z: p.z, heading: fine ? nextFine(p.heading) : nextCoarse(p.heading) };
     // (A crossing prop turns where it stands, on its crossing.)
     const aside = standsAside(p.asset);
     const c: ReturnType<typeof checkProp> = aside ? { kind: "clear", y: p.y } : checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, fp, to, placeOn(p.asset), id);
