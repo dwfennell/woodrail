@@ -531,6 +531,7 @@ describe("a train kept waiting by one going round non-stop is said stuck (fair o
 });
 
 describe("every expected failure names a step", () => {
+  // (A guard for when a case is next marked to fail: none is today, so it checks nothing until then.)
   it("and names a check the case has", () => {
     for (const c of [...KID, ...OTHERS, ...SHARED, ...FORWARD, ...GIVE_WAY]) {
       const names = new Set<string>([...INVARIANTS, ...Object.keys(c.checks ?? {})]);
