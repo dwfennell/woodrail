@@ -1,0 +1,90 @@
+/* C · Station enamel. The HUD is the station's furniture: vitreous enamel signs (deep green, navy, signal red, cream)
+   with a cream rule just inside the edge, screwed on with brass, set in a dark-stained oak frame. Condensed uppercase
+   lettering as on a platform sign. The wood is the frame and the tray; the colour is fired glass, flat and glossy. */
+:root {
+  --en-green: #1f5a3d;  --en-green-dk: #123826;
+  --en-navy: #1d3461;   --en-navy-dk: #101f3d;
+  --en-red: #b8281c;    --en-red-dk: #761810;
+  --en-cream: #f5edd8;  --en-cream-dk: #e3d6b6;
+  --en-ink: #15211b;
+  --en-brass: radial-gradient(circle at 40% 35%, #f6e2a0, #c9a23f 55%, #7e5f17 100%);
+  --en-oak: #6e4524;
+  --en-grain: url(grain.webp);
+  --en-frame: var(--en-grain) 0 0 / 256px 256px, linear-gradient(180deg, #84552d, #5f3a1c);
+  --en-gloss: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0) 40%);
+  --en-rule: inset 0 0 0 3px var(--f), inset 0 0 0 5px var(--en-cream);  /* the cream line round a sign, 3 px in */
+  --en-drop: 0 3px 0 rgba(0,0,0,.25), 0 6px 6px -3px rgba(20,14,6,.5);
+  --en-screws: radial-gradient(circle at 9px 50%, #fff6d0 0 1px, #c9a23f 1.5px 3px, #6d5214 3.5px 4px, transparent 4.5px),
+               radial-gradient(circle at calc(100% - 9px) 50%, #fff6d0 0 1px, #c9a23f 1.5px 3px, #6d5214 3.5px 4px, transparent 4.5px);
+  --en-sign: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --en-body: "Barlow", system-ui, sans-serif;
+}
+.hud, .card, .toast, .menu { font-family: "Woodrail Icons", var(--en-body); }
+/* ---- top bar: navy enamel plates ---- */
+.hud .actions .chip { --f: var(--en-navy); width: 46px; height: 46px; border-radius: 6px; color: var(--en-cream);
+  background: var(--en-gloss), var(--en-navy); box-shadow: var(--en-rule), var(--en-drop); }
+.hud .actions .chip[aria-label="Menu"] { --f: var(--en-red); background: var(--en-gloss), var(--en-red); }
+.hud .actions .chip:active { transform: translateY(2px); }
+/* ---- brand: a cream plate in an oak frame, coins as a brass token ---- */
+.brand { --f: var(--en-cream); border-radius: 6px; color: var(--en-ink); background: var(--en-gloss), var(--en-cream);
+  box-shadow: 0 0 0 4px var(--en-oak), inset 0 0 0 2px var(--en-navy), var(--en-drop); }
+.coins { font-family: var(--en-sign); font-weight: 800; font-size: 18px; color: var(--en-ink); background: transparent; }
+.coins i { background: var(--en-brass); box-shadow: 0 1px 0 #5c430e; }
+/* ---- goals: a green running-in board ---- */
+.goals { --f: var(--en-green); border-radius: 6px; color: var(--en-cream); background: var(--en-gloss), var(--en-green); box-shadow: var(--en-rule), var(--en-drop); }
+.goals.collapsed .goals-head { padding-left: 14px; }
+.goals-now { font-family: var(--en-sign); font-weight: 700; font-size: 20px; text-transform: uppercase; letter-spacing: .05em; color: var(--en-cream); }
+.goals-count { font-family: var(--en-sign); font-weight: 800; font-size: 15px; letter-spacing: .03em; color: var(--en-green-dk); background: var(--en-cream); border-radius: 3px; padding: 1px 7px; }
+.goals-bell { font-family: var(--en-sign); font-weight: 800; font-size: 15px; color: var(--en-ink); background: #e8b830; border-radius: 3px; padding: 1px 7px; }
+.goals-fold { color: var(--en-cream); background: rgba(255,255,255,.12); border-radius: 3px; }
+.goals.collapsed .goals-show-icon { font-family: var(--en-sign); font-weight: 700; font-size: 15px; letter-spacing: .05em; text-transform: uppercase; color: var(--en-green-dk); }
+.goals-show-icon::before, .goals.collapsed .goals-show-icon::before { border-radius: 4px; inset: 7px 2px 7px; background: var(--en-cream); box-shadow: inset 0 -2px 0 var(--en-cream-dk); }
+/* ---- menu: an enamel departures board in an oak frame ---- */
+.menu { --f: var(--en-green); border-radius: 6px; padding: 10px 10px 14px; gap: 0; color: var(--en-cream); background: var(--en-gloss), var(--en-green);
+  box-shadow: 0 0 0 5px var(--en-oak), inset 0 0 0 4px var(--en-green), inset 0 0 0 6px var(--en-cream), 0 10px 10px -4px rgba(20,14,6,.55); }
+.menu-item { font-family: var(--en-sign); font-weight: 700; font-size: 19px; text-transform: uppercase; letter-spacing: .06em; color: var(--en-cream); border-radius: 3px; padding: 9px 14px; }
+.menu-item:hover { background: rgba(255,255,255,.1); }
+.menu-item:disabled { opacity: 1; color: rgba(245,237,216,.5); }
+.menu-sep { height: 2px; margin: 5px 14px; background: rgba(245,237,216,.45); }
+/* ---- card: a cream sign, its name on a green plate across the top ---- */
+.card { --f: var(--en-cream); border-radius: 7px; color: var(--en-ink); background: var(--en-gloss), var(--en-cream);
+  box-shadow: 0 0 0 5px var(--en-oak), inset 0 0 0 3px var(--en-cream), inset 0 0 0 5px var(--en-green), 0 12px 12px -6px rgba(20,14,6,.55); padding-bottom: 18px; }
+.engine-card { padding-top: 64px; }
+.engine-card::before { content: ""; position: absolute; left: 9px; right: 9px; top: 9px; height: 44px; border-radius: 3px; background: var(--en-screws), var(--en-gloss), var(--en-green); }
+.engine-card .engine-name { position: relative; margin-top: -59px; margin-bottom: 8px; font-family: var(--en-sign); font-weight: 800; font-size: 24px; text-transform: uppercase; letter-spacing: .1em; color: var(--en-cream); }
+.engine-card .engine-name::after { color: rgba(245,237,216,.7); }
+.engine-card .corner, .engine-card > .close { top: 9px; color: var(--en-cream); z-index: 1; }
+.engine-card .corner.follow { left: 18px; } .engine-card > .close { right: 18px; }
+.engine-summary, .engine-status { color: #2e3a33; font-weight: 600; }
+.chip, .card .chip { border-radius: 5px; font-family: var(--en-sign); font-weight: 700; letter-spacing: .03em; color: var(--en-ink); background: var(--en-gloss), #fffaf0;
+  box-shadow: inset 0 0 0 2px var(--en-navy), 0 2px 0 rgba(0,0,0,.18); }
+.chip.go { --f: var(--en-green); border-radius: 6px; font-family: var(--en-sign); font-weight: 800; font-size: 25px; letter-spacing: .12em; text-transform: uppercase; color: var(--en-cream);
+  background: var(--en-gloss), var(--en-green); box-shadow: var(--en-rule), 0 3px 0 rgba(0,0,0,.25); }
+.chip.go.stop { --f: var(--en-red); color: var(--en-cream); background: var(--en-gloss), var(--en-red); }
+.engine-card .engine-extra.route { background: var(--en-cream-dk); border-radius: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,.18); }
+.route-chip { border-radius: 4px; }
+.engine-actions > .chip, .card .engine-actions > .chip[aria-disabled="true"] { background: transparent; box-shadow: inset 0 0 0 2px rgba(29,52,97,.45); text-transform: uppercase; }
+.card .engine-actions > .chip[aria-disabled="true"] { color: rgba(21,33,27,.42); box-shadow: inset 0 0 0 2px rgba(29,52,97,.2); }
+.engine-actions > .chip.remove { --f: var(--en-red); color: var(--en-cream); background: var(--en-red); box-shadow: var(--en-rule); }
+/* ---- tray: an oak frame (the wood), its tiles cream enamel; tabs are navy plates, the open one cream ---- */
+.tray { border-radius: 8px; background: var(--en-frame); background-blend-mode: multiply; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -4px 0 #3e2511, 0 12px 12px -6px rgba(20,14,6,.55); padding-bottom: 12px; }
+.tabs { gap: 5px; }
+.tab { --f: var(--en-navy); font-family: var(--en-sign); font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: .07em; color: var(--en-cream); border-radius: 0 0 5px 5px; padding: 8px 12px 7px;
+  background: var(--en-navy); box-shadow: inset 0 -2px 0 var(--en-navy-dk); }
+.tray .tab.active { color: var(--en-navy); background: var(--en-cream); box-shadow: inset 0 0 0 2px var(--en-cream), inset 0 -4px 0 var(--en-navy), 0 3px 3px rgba(0,0,0,.35); padding-bottom: 11px; }
+.tray-draw, .tray-erase, .tray-orient .chip { color: var(--en-ink); }
+.scroller { gap: 8px; padding-top: 10px; }
+.tray-item { border-radius: 5px; background: var(--en-gloss), var(--en-cream); box-shadow: inset 0 0 0 3px var(--en-cream), inset 0 0 0 4.5px rgba(29,52,97,.55), 0 3px 0 rgba(0,0,0,.3); }
+.tray-item { padding-bottom: 5px; }
+.tray-item .label { font-family: var(--en-sign); font-weight: 700; font-size: 13.5px; letter-spacing: .03em; text-transform: uppercase; color: var(--en-ink); }
+.tray-group .count, .tray-item .have { border-radius: 3px; }
+/* ---- toast: a station notice ---- */
+.toast { --f: var(--en-cream); border: 0; border-radius: 6px; padding: 12px 22px 12px; font-family: var(--en-sign); font-weight: 700; font-size: 19px; text-transform: uppercase; letter-spacing: .05em; color: var(--en-navy);
+  background: var(--en-screws), var(--en-gloss), var(--en-cream); box-shadow: inset 0 0 0 3px var(--en-cream), inset 0 0 0 5px var(--en-navy), var(--en-drop); }
+.toast.show { transform: translate(-50%, 0); }
+.toast.celebrate { --f: var(--en-green); color: var(--en-cream); background: var(--en-screws), var(--en-gloss), var(--en-green); box-shadow: var(--en-rule), var(--en-drop); }
+
+/* Uppercase lettering is wider: Show me goes to its icon alone, so the goal keeps its words. */
+.goals.collapsed .goals-show-word { display: none; }
+.goals.collapsed .goals-show-icon { width: 44px; padding: 0; justify-content: center; }
+.tray-item .label { margin-bottom: 4px; }

@@ -1,0 +1,89 @@
+/* A · Toy box lacquer. The HUD is the toy itself: buttons are lacquered blocks in the logo's four colours, boards are
+   natural beech with the grain showing and their thickness cut square along the bottom. Glossy paint on wood; hard,
+   short shadows of a block standing on a table. Lilita One for anything you'd print on a toy box. */
+:root {
+  --tb-ink: #2a1a0e;
+  --tb-beech: #ebc995;
+  --tb-beech-hi: #f6e2bd;
+  --tb-end: #b98447;        /* the cut edge: end grain, darker */
+  --tb-maple: #fbf1df;
+  --tb-red: #cf3a22;   --tb-red-dk: #8f2312;
+  --tb-blue: #2563b0;  --tb-blue-dk: #143f78;
+  --tb-yel: #f4b61a;   --tb-yel-dk: #a97a00;
+  --tb-green: #2f8b3f; --tb-green-dk: #1b5a26;
+  --tb-gloss: linear-gradient(180deg, rgba(255,255,255,.34) 0, rgba(255,255,255,.12) 46%, rgba(0,0,0,0) 47%, rgba(0,0,0,.06) 100%);
+  --tb-grain: url(grain.webp);
+  --tb-board: var(--tb-grain) 0 0 / 256px 256px, linear-gradient(180deg, var(--tb-beech-hi), var(--tb-beech));
+  --tb-drop: 0 6px 6px -3px rgba(40, 22, 6, .45);     /* a block's shadow on the table: short, dark, nearly hard */
+  --tb-display: "Lilita One", "Nunito", system-ui, sans-serif;
+}
+/* ---- lacquered blocks (top bar) ---- */
+.hud .actions .chip { width: 46px; height: 46px; border-radius: 9px; color: #fff8ec;
+  background: var(--tb-gloss), var(--c, var(--tb-red));
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.4), inset 0 -4px 0 var(--d, var(--tb-red-dk)), var(--tb-drop); }
+.hud .actions .chip svg { filter: drop-shadow(0 1px 0 rgba(0,0,0,.35)); }
+.hud .actions .chip[aria-label^="Research"] { --c: var(--tb-blue); --d: var(--tb-blue-dk); }
+.hud .actions .chip[aria-label^="Map"] { --c: var(--tb-green); --d: var(--tb-green-dk); }
+.hud .actions .chip[aria-label^="Undo"], .hud .actions .chip[aria-label^="Redo"] { --c: var(--tb-yel); --d: var(--tb-yel-dk); color: var(--tb-ink); }
+.hud .actions .chip[aria-label^="Pause"] { --c: var(--tb-red); --d: var(--tb-red-dk); }
+.hud .actions .chip[aria-label="Menu"] { --c: #3a2a1c; --d: #1d140c; }
+.hud .actions .chip:active { transform: translateY(2px); box-shadow: inset 0 2px 0 rgba(255,255,255,.4), inset 0 -2px 0 var(--d), 0 3px 3px -2px rgba(40,22,6,.5); }
+/* ---- boards: brand, goals, menu, card, tray ---- */
+.brand, .goals, .menu, .card, .tray { background: var(--tb-board); background-blend-mode: multiply; color: var(--tb-ink); }
+.brand { border-radius: 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -5px 0 var(--tb-end), var(--tb-drop); padding-bottom: 11px; }
+.coins { font-family: var(--tb-display); font-weight: 400; font-size: 17px; color: var(--tb-ink); background: transparent; }
+.goals { border-radius: 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -5px 0 var(--tb-end), var(--tb-drop); }
+.goals.collapsed .goals-head { padding-bottom: 13px; }
+.goals-now { font-family: var(--tb-display); font-weight: 400; font-size: 18px; letter-spacing: .01em; }
+.goals-count { font-family: var(--tb-display); font-weight: 400; font-size: 14px; color: #fff8ec; border-radius: 6px; padding: 3px 8px;
+  background: var(--tb-gloss), var(--tb-green); box-shadow: inset 0 -2px 0 var(--tb-green-dk); }
+.goals-bell { font-family: var(--tb-display); font-weight: 400; font-size: 14px; color: var(--tb-ink); border-radius: 6px; padding: 3px 8px;
+  background: var(--tb-gloss), var(--tb-yel); box-shadow: inset 0 -2px 0 var(--tb-yel-dk); }
+.goals-fold { background: rgba(120,70,20,.16); border-radius: 6px; }
+.goals.collapsed .goals-show-icon { font-family: var(--tb-display); font-weight: 400; font-size: 15px; color: #fff8ec; }
+.goals-show-icon::before, .goals.collapsed .goals-show-icon::before { border-radius: 8px; inset: 4px 0 6px; background: var(--tb-gloss), var(--tb-blue); box-shadow: inset 0 -3px 0 var(--tb-blue-dk); }
+/* ---- menu: a board with a red lacquer lid ---- */
+.menu { border-radius: 10px; padding: 0 8px 12px; gap: 0; box-shadow: inset 0 -6px 0 var(--tb-end), 0 10px 10px -4px rgba(40,22,6,.45); overflow: hidden; }
+.menu::before { content: "Menu"; display: block; margin: 0 -8px 6px; padding: 12px 16px 10px; font: 400 20px/1 var(--tb-display); letter-spacing: .02em; color: #fff8ec;
+  background: var(--tb-gloss), var(--tb-red); box-shadow: inset 0 -4px 0 var(--tb-red-dk); text-shadow: 0 1px 0 rgba(0,0,0,.3); }
+.menu-item { font-weight: 800; font-size: 16px; border-radius: 7px; color: var(--tb-ink); padding: 10px 12px; }
+.menu-item:hover { background: rgba(255,255,255,.4); }
+.menu-item:disabled { opacity: 1; color: rgba(42,26,14,.45); }
+.menu-sep { height: 0; margin: 5px 4px; background: none; border-top: 2px solid rgba(140,90,40,.35); border-bottom: 1px solid rgba(255,255,255,.55); }
+/* ---- card ---- */
+.card { border-radius: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -6px 0 var(--tb-end), 0 12px 12px -6px rgba(40,22,6,.5); padding-bottom: 18px; }
+.engine-card .engine-name { font-family: var(--tb-display); font-weight: 400; font-size: 22px; color: var(--tb-ink); }
+.engine-summary, .engine-status { color: #4f3418; font-weight: 800; }
+.chip, .card .chip { border-radius: 9px; background: var(--tb-gloss), var(--tb-maple); color: var(--tb-ink);
+  box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 #d8b98a, 0 4px 4px -2px rgba(40,22,6,.4); }
+.chip.go { border-radius: 10px; font-family: var(--tb-display); font-weight: 400; font-size: 24px; letter-spacing: .02em; color: #fff8ec; text-shadow: 0 1px 0 rgba(0,0,0,.35);
+  background: var(--tb-gloss), var(--tb-green); box-shadow: inset 0 2px 0 rgba(255,255,255,.4), inset 0 -5px 0 var(--tb-green-dk), 0 5px 5px -2px rgba(40,22,6,.45); }
+.chip.go.stop { color: #fff8ec; background: var(--tb-gloss), var(--tb-red); box-shadow: inset 0 2px 0 rgba(255,255,255,.4), inset 0 -5px 0 var(--tb-red-dk), 0 5px 5px -2px rgba(40,22,6,.45); }
+.engine-card .engine-extra.route { background: rgba(110, 66, 20, .12); border-radius: 8px; box-shadow: inset 0 2px 3px rgba(80,45,10,.25); }
+.route-chip { border-radius: 8px; }
+.engine-actions > .chip, .card .engine-actions > .chip[aria-disabled="true"] { border-radius: 9px; background: transparent; box-shadow: inset 0 0 0 2px rgba(110,66,20,.38); }
+.card .engine-actions > .chip[aria-disabled="true"] { color: rgba(42,26,14,.45); }
+.engine-actions > .chip.remove { color: #fff8ec; background: var(--tb-gloss), var(--tb-red); box-shadow: inset 0 -3px 0 var(--tb-red-dk), 0 4px 4px -2px rgba(40,22,6,.4); }
+/* ---- tray: a beech box; tabs are lacquered blocks, the open one stands up in front ---- */
+.tray { border-radius: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -7px 0 var(--tb-end), 0 12px 12px -6px rgba(40,22,6,.5); padding-bottom: 14px; }
+.tabs { gap: 5px; padding: 0 4px; }
+/* Tabs: unpainted beech blocks with a lacquer dot; the open one is painted all over and stands taller. */
+.tab { font-family: var(--tb-display); font-weight: 400; font-size: 16px; letter-spacing: .02em; color: #4f3418; border-radius: 0 0 8px 8px; padding: 8px 12px;
+  background: rgba(110, 66, 20, .16); box-shadow: inset 0 2px 3px rgba(80,45,10,.22); }
+.tab::after { content: ""; display: inline-block; width: 9px; height: 9px; margin-left: 6px; border-radius: 3px; vertical-align: 2px; background: var(--c); box-shadow: inset 0 -2px 0 var(--d); }
+.tab:nth-child(4n+1) { --c: var(--tb-red); --d: var(--tb-red-dk); }
+.tab:nth-child(4n+2) { --c: var(--tb-blue); --d: var(--tb-blue-dk); }
+.tab:nth-child(4n+3) { --c: var(--tb-green); --d: var(--tb-green-dk); }
+.tab:nth-child(4n+4) { --c: var(--tb-yel); --d: var(--tb-yel-dk); }
+.tray .tab.active { color: #fff8ec; text-shadow: 0 1px 0 rgba(0,0,0,.3); padding-bottom: 12px; background: var(--tb-gloss), var(--c); box-shadow: inset 0 -4px 0 var(--d), 0 5px 4px -2px rgba(40,22,6,.45); }
+.tray .tab.active::after { display: none; }
+.scroller { gap: 8px; padding-top: 10px; }
+.tray-item { border-radius: 8px; background: var(--tb-maple); box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 #dcbf94, 0 4px 4px -2px rgba(40,22,6,.35); }
+.tray-item .label { font-weight: 800; font-size: 12px; color: var(--tb-ink); }
+.tray-group .count, .tray-item .have { border-radius: 5px; }
+.tray-draw, .tray-erase, .tray-orient .chip { border-radius: 9px; }
+/* ---- toast: a yellow lacquered block, clicked into place ---- */
+.toast { border: 0; border-radius: 9px; padding: 11px 18px 14px; font-family: var(--tb-display); font-weight: 400; font-size: 18px; letter-spacing: .01em; color: var(--tb-ink);
+  background: var(--tb-gloss), var(--tb-yel); box-shadow: inset 0 2px 0 rgba(255,255,255,.45), inset 0 -5px 0 var(--tb-yel-dk), 0 7px 6px -3px rgba(40,22,6,.5); }
+.toast.show { transform: translate(-50%, 0) rotate(-1.5deg); }
+.toast.celebrate { background: var(--tb-gloss), var(--tb-green); color: #fff8ec; text-shadow: 0 1px 0 rgba(0,0,0,.35); box-shadow: inset 0 2px 0 rgba(255,255,255,.4), inset 0 -5px 0 var(--tb-green-dk), 0 7px 6px -3px rgba(40,22,6,.5); }

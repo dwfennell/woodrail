@@ -1,0 +1,59 @@
+/* D · Picture book (not wood). The HUD is printed, as in a children's picture book of the railway: cream paper, every
+   shape drawn round with one confident ink line, flat print colours that sit slightly off the line (misregistered),
+   and a short ink shadow like a sticker's. The map stays the 3D toy; the HUD is the book about it. */
+:root {
+  --pb-ink: #1d1712;
+  --pb-paper: #fbf5e6;
+  --pb-paper-2: #f3e8cd;
+  --pb-tomato: #e2512d; --pb-teal: #18748a; --pb-mustard: #f1b22f; --pb-leaf: #3f9a35;
+  --pb-line: 0 0 0 2.5px var(--pb-ink);
+  --pb-shadow: 0 3px 0 2.5px var(--pb-ink);         /* the line, thickened below: a printed sticker standing up */
+  --pb-display: "Bricolage Grotesque", "Nunito", system-ui, sans-serif;
+  /* print dots: a halftone in the corner of a panel, one gradient, no image */
+  --pb-dots: radial-gradient(circle, rgba(29,23,18,.13) 1.1px, transparent 1.6px) 0 0 / 7px 7px;
+}
+.hud, .card, .toast, .menu { font-family: "Woodrail Icons", var(--pb-display); }
+.hud .actions .chip { width: 46px; height: 46px; border-radius: 12px; color: var(--pb-ink); background: var(--pb-paper); box-shadow: var(--pb-shadow); }
+.hud .actions .chip[aria-label^="Research"] { background: var(--pb-mustard); }
+.hud .actions .chip[aria-label="Menu"] { background: var(--pb-ink); color: var(--pb-paper); }
+.hud .actions .chip:active { transform: translateY(2px); box-shadow: 0 1px 0 2.5px var(--pb-ink); }
+.brand, .goals, .menu, .card, .tray { background: var(--pb-paper); color: var(--pb-ink); box-shadow: var(--pb-shadow); }
+.brand { border-radius: 12px; }
+.coins { font-weight: 800; font-size: 17px; color: var(--pb-ink); background: transparent; }
+.goals { border-radius: 14px; }
+.goals-now { font-weight: 800; font-size: 18px; letter-spacing: -.01em; }
+.goals-count { font-weight: 800; font-size: 13px; color: var(--pb-ink); background: var(--pb-leaf); color: #fff; border-radius: 999px; box-shadow: 0 0 0 2px var(--pb-ink); }
+.goals-bell { font-weight: 800; font-size: 13px; color: var(--pb-ink); background: var(--pb-mustard); border-radius: 999px; box-shadow: 0 0 0 2px var(--pb-ink); }
+.goals-fold { background: transparent; box-shadow: inset 0 0 0 2px var(--pb-ink); color: var(--pb-ink); }
+.goals.collapsed .goals-show-icon { font-weight: 800; font-size: 14px; color: #fff; }
+.goals-show-icon::before, .goals.collapsed .goals-show-icon::before { border-radius: 999px; inset: 6px 1px 6px; background: var(--pb-teal); box-shadow: 0 0 0 2px var(--pb-ink); }
+.menu { border-radius: 16px; padding: 10px 10px 14px; gap: 0; background: var(--pb-dots), var(--pb-paper); background-blend-mode: normal; }
+.menu-item { font-weight: 700; font-size: 17px; color: var(--pb-ink); border-radius: 10px; }
+.menu-item:hover { background: var(--pb-paper-2); }
+.menu-item:disabled { opacity: 1; color: rgba(29,23,18,.42); }
+.menu-sep { height: 2.5px; margin: 5px 8px; background: var(--pb-ink); border-radius: 2px; }
+.card { border-radius: 18px; padding-bottom: 18px; }
+.engine-card .engine-name { font-weight: 800; font-size: 24px; letter-spacing: -.02em; color: var(--pb-ink); }
+.engine-summary, .engine-status { color: #3d342b; font-weight: 600; }
+.chip, .card .chip { border-radius: 12px; color: var(--pb-ink); background: var(--pb-paper); box-shadow: 0 2px 0 2px var(--pb-ink); }
+.chip.go { font-weight: 800; font-size: 24px; color: #fff; background: var(--pb-leaf); border-radius: 14px; box-shadow: var(--pb-shadow); text-shadow: 1.5px 1.5px 0 var(--pb-ink); }
+.chip.go.stop { background: var(--pb-tomato); color: #fff; }
+.engine-card .engine-extra.route { background: var(--pb-dots), var(--pb-paper-2); border-radius: 12px; box-shadow: inset 0 0 0 2px var(--pb-ink); }
+.engine-actions > .chip, .card .engine-actions > .chip[aria-disabled="true"] { background: transparent; box-shadow: inset 0 0 0 2px var(--pb-ink); }
+.card .engine-actions > .chip[aria-disabled="true"] { color: rgba(29,23,18,.42); box-shadow: inset 0 0 0 2px rgba(29,23,18,.3); }
+.engine-actions > .chip.remove { color: #fff; background: var(--pb-tomato); box-shadow: 0 2px 0 2px var(--pb-ink); }
+.tray { border-radius: 18px; padding-bottom: 12px; }
+.tabs { gap: 6px; padding: 0 6px; transform: translateY(2px); }
+.tab { font-weight: 800; font-size: 15px; color: var(--pb-ink); border-radius: 0 0 12px 12px; padding: 7px 13px; background: var(--pb-paper-2); box-shadow: inset 0 -2px 0 0 rgba(29,23,18,.2), 0 0 0 2px var(--pb-ink); clip-path: inset(0 -4px -6px -4px); }
+.tray .tab.active { background: var(--pb-mustard); padding-bottom: 10px; box-shadow: 0 2px 0 2px var(--pb-ink); }
+.scroller { gap: 9px; padding-top: 12px; padding-bottom: 4px; }
+.tray-item { border-radius: 14px; background: #fff; box-shadow: 0 0 0 2px var(--pb-ink), 0 3px 0 2px var(--pb-ink); }
+.tray-item .label { font-weight: 700; font-size: 12.5px; color: var(--pb-ink); }
+.toast { border: 0; border-radius: 14px; padding: 11px 20px; font-weight: 800; font-size: 18px; color: var(--pb-ink); background: var(--pb-paper); box-shadow: var(--pb-shadow); }
+.toast.show { transform: translate(-50%, 0) rotate(-1.5deg); }
+/* a win is a speech bubble in leaf green, its tail pointing at the goals */
+.toast.celebrate { background: var(--pb-leaf); color: #fff; text-shadow: 1.5px 1.5px 0 var(--pb-ink); }
+.toast.celebrate::after { content: ""; position: absolute; left: 40px; top: -11px; width: 18px; height: 18px; background: var(--pb-leaf); transform: rotate(45deg); box-shadow: -2.5px -2.5px 0 0 var(--pb-ink); }
+
+.goals.collapsed .goals-show-word { display: none; }
+.goals.collapsed .goals-show-icon { width: 44px; padding: 0; justify-content: center; }

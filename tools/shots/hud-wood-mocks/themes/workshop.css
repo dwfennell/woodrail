@@ -1,0 +1,92 @@
+/* B · Workshop: raw wood and stamps. The HUD is offcuts from the toymaker's bench: unpainted birch ply with its layers
+   showing along the cut edge, corners cut square or chamfered with a saw, labels rubber-stamped or stencilled on, pencil
+   lines for rules, dowel pins holding boards together. One ink (near-black) and one stamp red; everything else is wood. */
+:root {
+  --ws-ink: #241a11;
+  --ws-ink-soft: #4f3b26;
+  --ws-ply: #efdfbf;
+  --ws-ply-dk: #e2cb9f;
+  --ws-layer: #b07f45;     /* the dark glue line between plies */
+  --ws-stamp: #b3301c;
+  --ws-stamp-dk: #7d1f10;
+  --ws-pencil: rgba(60, 50, 40, .55);
+  --ws-grain: url(grain.webp);
+  --ws-board: var(--ws-grain) 0 0 / 256px 256px, linear-gradient(180deg, var(--ws-ply), var(--ws-ply-dk));
+  /* the cut edge: three plies and their glue lines */
+  --ws-edge: inset 0 -2px 0 var(--ws-layer), inset 0 -4px 0 #f3e4c6, inset 0 -6px 0 var(--ws-layer), inset 0 -8px 0 #ecd7b1, inset 0 -9px 0 var(--ws-layer);
+  --ws-drop: 0 3px 0 rgba(50, 30, 10, .35), 0 6px 5px -2px rgba(40, 24, 8, .35);
+  --ws-chamfer: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+  --ws-pins: radial-gradient(circle at 11px 11px, #7a4d22 0 2.5px, #c99a5e 3px 4.5px, transparent 5px),
+             radial-gradient(circle at calc(100% - 11px) 11px, #7a4d22 0 2.5px, #c99a5e 3px 4.5px, transparent 5px);
+  --ws-stencil: "Stardos Stencil", "Bitter", serif;
+  --ws-slab: "Bitter", Georgia, serif;
+}
+.hud, .card, .toast, .menu { font-family: "Woodrail Icons", var(--ws-slab); }
+/* ---- offcut blocks (top bar): chamfered, the icon burnt in ---- */
+.hud .actions .chip { width: 46px; height: 46px; border-radius: 0; clip-path: var(--ws-chamfer); color: var(--ws-ink);
+  background: var(--ws-board); background-blend-mode: multiply; box-shadow: var(--ws-edge); filter: drop-shadow(0 3px 2px rgba(40,24,8,.45)); }
+.hud .actions .chip:active { transform: translateY(2px); filter: drop-shadow(0 1px 1px rgba(40,24,8,.5)); }
+/* ---- boards ---- */
+.brand, .goals, .menu, .card, .tray { background: var(--ws-pins), var(--ws-board); background-blend-mode: normal, normal, multiply, normal; color: var(--ws-ink); }
+.brand { border-radius: 3px; box-shadow: var(--ws-edge), var(--ws-drop); padding-bottom: 13px; background: var(--ws-board); background-blend-mode: multiply; }
+.coins { font-family: var(--ws-slab); font-weight: 800; font-size: 16px; color: var(--ws-ink); background: transparent; }
+.goals { border-radius: 3px; box-shadow: var(--ws-edge), var(--ws-drop); background: var(--ws-board); background-blend-mode: multiply; }
+.goals.collapsed .goals-head { padding-bottom: 14px; }
+.goals-now { font-family: var(--ws-stencil); font-weight: 700; font-size: 17px; text-transform: uppercase; letter-spacing: .04em; color: var(--ws-ink); }
+/* the count is rubber-stamped: a red box, a little crooked, ink not quite even */
+.goals-count { font-family: var(--ws-stencil); font-size: 14px; font-weight: 700; color: var(--ws-stamp); background: transparent; border-radius: 2px; padding: 1px 6px;
+  box-shadow: inset 0 0 0 2px var(--ws-stamp); transform: rotate(-3deg); opacity: .92; }
+.goals-bell { font-family: var(--ws-slab); font-weight: 800; font-size: 13px; color: var(--ws-ink); background: transparent; border-radius: 50%; padding: 1px 7px; box-shadow: inset 0 0 0 1.5px var(--ws-pencil); }
+.goals-fold { background: transparent; border-radius: 2px; box-shadow: inset 0 0 0 1.5px var(--ws-pencil); color: var(--ws-ink-soft); }
+.goals.collapsed .goals-show-icon { font-family: var(--ws-stencil); font-weight: 700; font-size: 14px; text-transform: uppercase; color: #fff7ea; }
+.goals-show-icon::before, .goals.collapsed .goals-show-icon::before { border-radius: 0; inset: 5px 0 7px; clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
+  background: var(--ws-stamp); box-shadow: inset 0 -3px 0 var(--ws-stamp-dk); }
+/* ---- menu: a ply board pinned up, the heading stamped on ---- */
+.menu { border-radius: 3px; padding: 14px 10px 16px; gap: 0; box-shadow: var(--ws-edge), 0 4px 0 rgba(50,30,10,.3), 0 12px 10px -5px rgba(40,24,8,.45); }
+.menu::before { content: "MENU"; align-self: flex-start; margin: 2px 0 8px 10px; padding: 3px 9px 1px; font: 700 18px/1.1 var(--ws-stencil); letter-spacing: .12em; color: var(--ws-stamp);
+  box-shadow: inset 0 0 0 2.5px var(--ws-stamp); transform: rotate(-2.5deg); opacity: .9; }
+.menu-item { font-family: var(--ws-slab); font-weight: 700; font-size: 16px; border-radius: 2px; color: var(--ws-ink); padding: 10px 12px; }
+.menu-item:hover { background: rgba(255,255,255,.35); }
+.menu-item:disabled { opacity: 1; color: rgba(36,26,17,.42); }
+/* a pencil line ruled across */
+.menu-sep { height: 0; margin: 6px 10px; background: none; border-top: 1.5px dashed var(--ws-pencil); }
+/* ---- card ---- */
+.card { border-radius: 3px; box-shadow: var(--ws-edge), 0 4px 0 rgba(50,30,10,.3), 0 14px 10px -6px rgba(40,24,8,.5); padding-bottom: 20px; }
+.engine-card .engine-name { font-family: var(--ws-stencil); font-weight: 700; font-size: 22px; letter-spacing: .08em; text-transform: uppercase; color: var(--ws-ink); }
+.engine-card .engine-name::after { color: var(--ws-ink-soft); }
+.engine-summary, .engine-status { color: var(--ws-ink-soft); font-weight: 700; }
+.chip, .card .chip { border-radius: 2px; font-family: var(--ws-slab); background: var(--ws-board); background-blend-mode: multiply; color: var(--ws-ink);
+  box-shadow: inset 0 0 0 1px rgba(120,80,40,.35), inset 0 -3px 0 var(--ws-layer), inset 0 -5px 0 #f3e4c6, 0 3px 3px -1px rgba(40,24,8,.4); }
+.chip.go { border-radius: 0; clip-path: var(--ws-chamfer); font-family: var(--ws-stencil); font-weight: 700; font-size: 24px; letter-spacing: .1em; text-transform: uppercase; color: #fff7ea;
+  background: #3b7a3a; box-shadow: inset 0 -5px 0 #24521f; }
+.chip.go.stop { color: #fff7ea; background: var(--ws-stamp); box-shadow: inset 0 -5px 0 var(--ws-stamp-dk); }
+.engine-controls { filter: drop-shadow(0 3px 2px rgba(40,24,8,.4)); }
+.engine-card .engine-extra.route { background: transparent; border-radius: 0; box-shadow: none; outline: 1.5px dashed var(--ws-pencil); outline-offset: -1px; }
+.route-chip { border-radius: 2px; }
+.engine-actions > .chip, .card .engine-actions > .chip[aria-disabled="true"] { border-radius: 2px; background: transparent; box-shadow: inset 0 0 0 1.5px var(--ws-pencil); }
+.card .engine-actions > .chip[aria-disabled="true"] { color: rgba(36,26,17,.42); }
+.engine-actions > .chip.remove { color: var(--ws-stamp); box-shadow: inset 0 0 0 2.5px var(--ws-stamp); font-family: var(--ws-stencil); text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+/* ---- tray: a ply box; tabs are stencilled on recessed slats, the open one is the face ply ---- */
+.tray { border-radius: 3px; box-shadow: var(--ws-edge), 0 4px 0 rgba(50,30,10,.3), 0 14px 10px -6px rgba(40,24,8,.5); padding-bottom: 16px; background: var(--ws-board); background-blend-mode: multiply; }
+.tabs { gap: 4px; }
+.tab { font-family: var(--ws-stencil); font-weight: 700; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--ws-ink-soft); border-radius: 0 0 2px 2px; padding: 9px 12px 7px;
+  background: rgba(110, 70, 25, .2); box-shadow: inset 0 3px 3px rgba(70,40,10,.3); }
+.tray .tab.active { color: var(--ws-ink); background: var(--ws-ply); box-shadow: inset 0 -2px 0 var(--ws-layer), inset 0 -4px 0 #f3e4c6, inset 0 -5px 0 var(--ws-layer), 0 4px 3px -1px rgba(40,24,8,.4); padding-bottom: 11px; }
+.scroller { gap: 8px; padding-top: 10px; }
+.tray-item { border-radius: 0; clip-path: var(--ws-chamfer); background: linear-gradient(180deg, #fbf3e2, #f2e3c6); box-shadow: inset 0 0 0 1.5px rgba(120,80,40,.3), inset 0 -4px 0 rgba(176,127,69,.45); }
+.tray-item .label { font-family: var(--ws-slab); font-weight: 700; font-size: 12px; color: var(--ws-ink); }
+.tray-group .count, .tray-item .have { border-radius: 2px; background: transparent; color: var(--ws-ink); box-shadow: inset 0 0 0 1.5px var(--ws-pencil); }
+.tray-draw, .tray-erase, .tray-orient .chip { border-radius: 2px; }
+/* ---- toast: a strip of masking tape stuck on crooked, written on in marker ---- */
+.toast { border: 0; border-radius: 0; padding: 11px 26px 12px; font-family: var(--ws-slab); font-weight: 800; font-size: 17px; color: var(--ws-ink);
+  background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(0,0,0,.03)), #eadfa9;
+  clip-path: polygon(0 4%, 3% 0, 6% 6%, 9% 1%, 91% 0, 94% 5%, 97% 0, 100% 4%, 98% 30%, 100% 55%, 98% 80%, 100% 100%, 96% 96%, 93% 100%, 7% 100%, 4% 95%, 1% 100%, 2% 70%, 0 45%, 2% 20%);
+  box-shadow: none; filter: drop-shadow(0 2px 1px rgba(40,24,8,.35)); }
+.toast.show { transform: translate(-50%, 0) rotate(-2deg); }
+.toast.celebrate { background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(0,0,0,.03)), #eadfa9; }
+.toast.celebrate::before { content: "DONE"; display: inline-block; margin-right: 10px; padding: 1px 6px 0; font: 700 14px/1.2 var(--ws-stencil); letter-spacing: .1em; color: var(--ws-stamp);
+  box-shadow: inset 0 0 0 2px var(--ws-stamp); transform: rotate(-4deg); vertical-align: 2px; }
+
+/* Uppercase lettering is wider: Show me goes to its icon alone, so the goal keeps its words. */
+.goals.collapsed .goals-show-word { display: none; }
+.goals.collapsed .goals-show-icon { width: 44px; padding: 0; justify-content: center; }
