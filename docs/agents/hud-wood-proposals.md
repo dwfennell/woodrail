@@ -160,3 +160,40 @@ Contrast (WCAG, computed from the tokens):
 - **Before building:** fix A's small-text green (`#287a36`), decide the top bar's colour per button (the mock's
   Research blue, Map green, Undo yellow, Pause red, Menu dark), and run the `/impeccable` polish on the remaining
   surfaces (Journal, research board, line sheet, place cards) in the same language, then `npm run perf:check`.
+
+## 7. Round two: A+ (Toy box with B's stamp and pencil)
+
+After the first round the user picked A and asked for: B's stamp and pencil added, careful icon and text alignment,
+the goal title not cut off, a clearer Clear icon, Show me without its word on a phone, a quieter sheen on the top-bar
+blocks (the hard light-over-dark line through the middle), and the desktop HUD in this style.
+
+Shots: `hud-wood-toybox-plus-<tray|menu|card|toast>.jpg` (phone), `hud-wood-toybox-plus-desktop-*.jpg` (1440×900),
+with today's desktop HUD for comparison in `hud-wood-today-desktop-*.jpg`. Stylesheet: `themes/toybox.css` then
+`themes/toybox-plus.css` (run with `THEMES=toybox-plus`, and `DESKTOP=1` for the desktop page).
+
+What changed from A:
+
+- **Sheen:** the lacquer's gloss is a soft lift at the top that fades by halfway (`rgba(255,255,255,.18)` to 0 at 55%),
+  not a hard band at 46%. It applies to every painted block (top bar, tabs, Go/Stop, toasts), so they stay one family.
+- **Stamps** (from B): the goal count is stamped in red on the wood, crooked by 3°; the counts on tray tiles are
+  stamped in brown; Remove on a train card is stamped, not painted (a destructive action shouldn't be the loudest
+  thing on the card); a goal done is a green block with a DONE stamp on it.
+- **Pencil** (from B): dashed pencil rules between the menu's groups, round a train's line in its card, and
+  between a card's buttons.
+- **Goal title:** on a phone, Show me is its icon alone (the label stays for screen readers), so "Join two towns"
+  fits; a longer goal takes a second line rather than an ellipsis. Desktop keeps the word.
+- **Clear:** a new drawing proposed for the eraser: a pink-and-blue school eraser with crumbs, in the icon font's
+  style (the sponge read as a yellow block at 22 px). In the mock it's swapped into the button; shipping it means
+  drawing it in `src/icons/` per DESIGN.md. Desktop shows it with its word, "Clear".
+- **Alignment:** icons in the top bar sit on the centre of the painted face, not the box (lifted half the 4 px cut
+  edge); Undo and Redo's arrows, which carry their weight low, go up 2 px more (measured from the screenshot: 2 px
+  below their neighbours before, level after). Tabs, Draw and Clear, the goal stamp and bell, the card's name and
+  pencil, Go/Stop's mark and word, and route-stop numbers are each laid out as a centred row (`inline-flex`,
+  `align-items: center`, `line-height: 1`), not left to their fonts' baselines.
+- **Tabs:** the coloured dot beside each word is gone (it cost width); the colour is a painted strip along the tab's
+  bottom edge, and the open tab is painted all over.
+- **Desktop top bar:** nine buttons, coloured by kind so it reads as four groups: Research blue; Map and Add land
+  green; Undo and Redo yellow; Pause red; Sound, Fullscreen and Menu dark.
+
+Still to do before building: the expanded Journal (its Goals/News tabs and Show me / Got it buttons are only lightly
+restyled here), the research board, the line sheet and place cards, then `npm run perf:check`.

@@ -13,7 +13,8 @@ const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config
 await server.listen();
 const PAGE = server.resolvedUrls.local[0];
 const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+// DESKTOP=1: a 1440×900 desktop page with a mouse (the HUD's wide layout); otherwise the 390×844 phone at 2x.
+const p = await b.newPage(process.env.DESKTOP ? { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 } : { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
 p.on("pageerror", (e) => console.log("pageerror", e.message));
 await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));

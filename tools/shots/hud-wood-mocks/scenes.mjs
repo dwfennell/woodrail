@@ -11,15 +11,26 @@ const FONTS = {
   picturebook: "https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&display=block",
   enamel: "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@600;700&display=block",
 };
+// A direction built on another: its sheets in order.
+const THEME_FILES = { "toybox-plus": ["toybox", "toybox-plus"] };
+FONTS["toybox-plus"] = FONTS.toybox;
+const SIZE = process.env.DESKTOP ? "desktop-" : "";
+// A+ proposes a new drawing for Clear (the sponge read as a yellow block): a school eraser, pink and blue, in the
+// icon font's style (24 px box, ink outline drawn under the shapes). Swapped into the button for the mock only.
+const ERASER = `<svg class="hw-eraser" viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(-30 12 12)"><rect x="2.4" y="7.4" width="19.2" height="9.2" rx="2.2" fill="#3a2a1c"/><rect x="3.6" y="8.6" width="9" height="6.8" rx="1.2" fill="#e8798a"/><rect x="12.6" y="8.6" width="7.8" height="6.8" rx="1.2" fill="#3f78c4"/><rect x="4.4" y="9.3" width="7.4" height="1.4" rx=".7" fill="#f6b3bd"/><rect x="13.3" y="9.3" width="6.4" height="1.4" rx=".7" fill="#8fb3e6"/></g><circle cx="5" cy="20.5" r="1.1" fill="#3a2a1c"/><circle cx="8.6" cy="21.4" r=".9" fill="#3a2a1c"/></svg>`;
 const frames = (p) => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 async function theme(p, name) {
-  await p.evaluate(() => document.querySelectorAll(".hw-theme").forEach((e) => e.remove()));
+  await p.evaluate(() => {
+    document.querySelectorAll(".hw-theme").forEach((e) => e.remove());
+    document.querySelectorAll("[data-hw-was]").forEach((e) => { e.innerHTML = e.dataset.hwWas; delete e.dataset.hwWas; });
+  });
   if (name === "today") return;
+  if (name === "toybox-plus") await p.evaluate((svg) => document.querySelectorAll(".tray-erase").forEach((b) => { b.dataset.hwWas = b.innerHTML; b.innerHTML = b.innerHTML.replace("🧽", svg); }), ERASER);
   if (FONTS[name]) await p.addStyleTag({ url: FONTS[name] }).then((h) => h.evaluate((e) => e.classList.add("hw-theme")));
   // The grain is one 256 px tile (grain.webp, 2.5 kB, from grain.py), inlined so the injected sheet can reach it.
   const grain = `url(data:image/webp;base64,${readFileSync(`${DIR}grain.webp`).toString("base64")})`;
-  const css = readFileSync(`${DIR}themes/${name}.css`, "utf8").replaceAll("url(grain.webp)", grain);
+  const css = (THEME_FILES[name] ?? [name]).map((f) => readFileSync(`${DIR}themes/${f}.css`, "utf8")).join("\n").replaceAll("url(grain.webp)", grain);
   await p.addStyleTag({ content: css }).then((h) => h.evaluate((e) => e.classList.add("hw-theme")));
   await p.evaluate(() => document.fonts.ready);
 }
@@ -86,11 +97,13 @@ const out = [];
 for (const t of THEMES) {
   for (const [screen, fn] of Object.entries(SCREENS)) {
     out.push({
-      name: `hud-wood-${t}-${screen}`,
+      name: `hud-wood-${t}-${SIZE}${screen}`,
       async run(p, s) {
         await theme(p, t);
         await fn(p, s);
-        if (screen !== "toast") await p.evaluate(() => document.querySelectorAll(".toast").forEach((t) => t.classList.remove("show")));
+        // The game's own toasts (a research learned, a train arriving) can come at any moment; hidden on the other
+        // screens so each shows only what it's for.
+        if (screen !== "toast") await p.addStyleTag({ content: ".toast { visibility: hidden !important; }" }).then((h) => h.evaluate((e) => e.classList.add("hw-theme")));
         await frames(p);
       },
     });

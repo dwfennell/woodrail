@@ -1,0 +1,79 @@
+/* A+ · Toy box lacquer with B's stamp and pencil. Loaded after toybox.css (scenes.mjs: THEME_FILES).
+   What it adds: counts and badges are rubber-stamped onto the wood; rules are pencil lines; the goal title gets the
+   room it needs (Show me is its icon alone on a phone); icons and words share one centre line wherever they sit
+   together; tabs lose their dots for a painted edge (no width). */
+:root {
+  /* The lacquer's sheen, quieter than A's: no hard light-over-dark band, a soft lift at the top that fades by halfway. */
+  --tb-gloss: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0) 55%);
+  --st-red: #b3301c;      /* stamp ink */
+  --st-brown: #5a3a1a;
+  --pencil: rgba(60, 46, 32, .5);
+  /* a stamp's ink is never quite even: a faint mottle over the box, one gradient */
+  --st-mottle: radial-gradient(circle at 30% 40%, rgba(255,255,255,.22) 0 1px, transparent 1.5px) 0 0 / 5px 6px;
+}
+
+/* ---- the goals bar: stamp, bell, title, then the controls, all on one centre line ---- */
+.goals-head { align-items: center; gap: 8px; }
+.goals-count { display: inline-flex; align-items: center; height: 24px; padding: 0 7px; font-size: 14px; line-height: 1;
+  color: var(--st-red); background: var(--st-mottle); border-radius: 3px; box-shadow: inset 0 0 0 2px var(--st-red); transform: rotate(-3deg); opacity: .92; text-shadow: none; }
+.goals-bell { display: inline-flex; align-items: center; gap: 2px; height: 24px; line-height: 1; }
+.goals-now { line-height: 1.15; padding-top: 1px; }
+/* a long goal takes a second line rather than an ellipsis */
+.goals.collapsed .goals-now { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; white-space: normal; text-wrap: balance; }
+.goals-fold { width: 30px; height: 30px; border-radius: 7px; }
+.goals.collapsed .goals-show-icon { display: inline-flex; align-items: center; justify-content: center; gap: 6px; line-height: 1; }
+@media (max-width: 640px) {
+  .goals.collapsed .goals-show-word { display: none; }
+  .goals.collapsed .goals-show-icon { width: 46px; padding: 0; }
+  .goals.collapsed .goals-show-icon::before { inset: 4px 2px 6px; }
+}
+
+/* ---- tray ---- */
+/* tabs: words centred in the tab; the colour is a painted strip along the bottom, not a dot beside the word */
+.tab { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; line-height: 1; padding: 4px 13px 8px;
+  box-shadow: inset 0 2px 3px rgba(80,45,10,.22), inset 0 -4px 0 var(--c); }
+.tab::after { display: none; }
+.tray .tab.active { min-height: 46px; padding-bottom: 10px; }
+/* Draw and Clear: one wooden tool block, icon and word on one line */
+.tray-draw, .tray-erase { display: inline-flex; align-items: center; justify-content: center; gap: 5px; line-height: 1; font-weight: 800; }
+.tray-erase .hw-eraser { width: 22px; height: 22px; display: block; }
+/* counts on tiles: stamped in brown ink, corner and star on one line */
+.tray-item .have, .tray-group .count { display: inline-flex; align-items: center; gap: 1px; height: 20px; padding: 0 5px; line-height: 1; border-radius: 3px;
+  color: var(--st-brown); background: var(--st-mottle); box-shadow: inset 0 0 0 1.5px var(--st-brown); transform: rotate(-2deg); }
+
+/* ---- menu: pencil-ruled lines between the groups ---- */
+.menu-sep { height: 0; margin: 6px 12px; background: none; border: 0; border-top: 1.5px dashed var(--pencil); }
+
+/* ---- card ---- */
+/* the name and its pencil sit on one line; the corners line up with the name */
+.engine-card .engine-name { display: inline-flex; align-items: center; gap: 4px; line-height: 1; }
+.engine-card .engine-name::after { margin-left: 0; font-size: 14px; }
+.engine-card .corner, .engine-card > .close { top: 8px; }
+/* Go/Stop: the mark and the word share a centre line */
+.chip.go { display: inline-flex; align-items: center; justify-content: center; gap: 10px; line-height: 1; }
+.chip.go .go-icon { margin: 0; font-size: 18px; line-height: 1; display: inline-flex; transform: translateY(-1px); }
+/* the line's panel: ruled round in pencil, not sunk */
+.engine-card .engine-extra.route { background: transparent; box-shadow: none; border-radius: 4px; outline: 1.5px dashed var(--pencil); outline-offset: -1px; }
+.route-head { min-height: 44px; }
+.route-head .engine-extra-label { line-height: 1; }
+.route-chip .route-num { display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: -3px; }
+.engine-actions .engine-actions-gap { width: 0; background: none; border-left: 1.5px dashed var(--pencil); }
+/* buttons whose words are a stamp: Remove is stamped in red, not painted */
+.engine-actions > .chip.remove { color: var(--st-red); background: var(--st-mottle); transform: rotate(-1.5deg);
+  box-shadow: inset 0 0 0 2.5px var(--st-red); font-family: var(--tb-display); font-weight: 400; font-size: 16px; letter-spacing: .03em; }
+
+/* ---- toast: the win block gets a stamp on it ---- */
+.toast { display: block; line-height: 1.2; }
+.toast.celebrate::before { content: "DONE"; display: inline-block; margin-right: 10px; padding: 3px 6px 2px; font: 400 14px/1 var(--tb-display); letter-spacing: .08em;
+  color: #fff8ec; box-shadow: inset 0 0 0 2px #fff8ec; border-radius: 3px; transform: rotate(-4deg); vertical-align: 2px; text-shadow: none; opacity: .95; }
+
+/* ---- top bar: the same blocks, a softer top edge to match the quieter sheen ---- */
+.hud .actions .chip { box-shadow: inset 0 1px 0 rgba(255,255,255,.28), inset 0 -4px 0 var(--d, var(--tb-red-dk)), var(--tb-drop); }
+
+/* ---- top bar colours by group, so the wide (desktop) bar reads as four kinds, not nine colours ---- */
+.hud .actions .chip[aria-label^="Add land"] { --c: var(--tb-green); --d: var(--tb-green-dk); color: #fff8ec; }
+.hud .actions .chip[aria-label^="Sound"], .hud .actions .chip[aria-label="Fullscreen"] { --c: #3a2a1c; --d: #1d140c; color: #fff8ec; }
+/* Icons sit on the painted face's centre, not the box's: lifted half the 4 px cut edge. Undo's arrow carries its
+   weight low (measured 2 px below its neighbours' ink), so it goes up 2 px more. */
+.hud .actions .chip svg { transform: translateY(-2px); }
+.hud .actions .chip[aria-label^="Undo"] svg, .hud .actions .chip[aria-label^="Redo"] svg { transform: translateY(-4px); }
