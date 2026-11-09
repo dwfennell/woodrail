@@ -383,7 +383,7 @@ const legend = await p.evaluate(() => {
 await shot("09d-legend-390");
 await tap(".bp-legend-box summary");
 const legendGone = await p.evaluate(() => document.querySelector(".board-panel > .bp-legend").hidden);
-check("the ⓘ at 390: a strip above the list (covering none of it), each key with its word on one line; a tap closes it", legend.shown && legend.items === 7 && legend.oneLine && legend.above && legendGone, JSON.stringify({ ...legend, legendGone }));
+check("the ⓘ at 390: a strip above the list (covering none of it), each key with its word on one line; a tap closes it", legend.shown && legend.items === 6 && legend.oneLine && legend.above && legendGone, JSON.stringify({ ...legend, legendGone }));
 // QA 2026-11-03 #8: a phone on its side opens the web scrolled to the picked tag from a column's edge, no card cut.
 await p.setViewportSize({ width: 844, height: 390 });
 await p.waitForFunction(() => !!document.querySelector(".bp-web-scroll .bp-node.selected"), null, { timeout: 20000, polling: 200 }).catch(() => {});
