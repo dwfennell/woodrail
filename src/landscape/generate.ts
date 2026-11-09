@@ -416,6 +416,12 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
 
   /** Kept free of hills (but not of trees): open ground between the starter map's first two towns. */
   const open = new Set<number>();
+  /**
+   * Kept free of hills only (rivers, towns and trees go where they would): on a Flat or Gentle starter map, the rest of
+   * the first lines' ground, about the sawmill's turn and on out to the forest yard, so the first timber line is laid on
+   * the felt. (Hilly and Mountainous keep their hills there: the player chose them, and an old save's land is Hilly.)
+   */
+  const level = new Set<number>();
   if (starter) {
     // The starter line: a clear strip along the first two towns' stations, from the turn to the sawmill to the forest
     // yard, and the turn itself (a quarter circle into the sawmill).
@@ -423,6 +429,8 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     const [, forest] = depots;
     const turn = starterTurn(a);
     const pivot = { x: turn.x, z: a.centre.z + turn.side * STARTER_TURN };
+    const levelStart = hills === "flat" || hills === "gentle";
+    const margin = STARTER_OPEN_ROWS * CELL;
     grid.forEachCell((i, col, row) => {
       const x = grid.centreX(col);
       const z = grid.centreZ(row);
@@ -434,6 +442,12 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
         grid.surface[i] = SURF_GRASS;
       }
       if (x > a.centre.x && x < b.centre.x && Math.abs(z - a.centre.z) <= STARTER_OPEN_ROWS * CELL) open.add(i);
+      if (!levelStart) return;
+      // (The sawmill stands across the line, its far end STARTER_TURN + a station's length to the turn's side.)
+      const across = (z - a.centre.z) * turn.side;
+      const nearSawmill = x >= turn.x - STARTER_TURN - margin && x <= a.centre.x && across >= -margin && across <= STARTER_TURN + STATION_LENGTH + margin;
+      const nearLine = x >= turn.x - STARTER_TURN - margin && x <= forest.centre.x + HALF_STATION + margin && Math.abs(z - a.centre.z) <= margin;
+      if (nearSawmill || nearLine) level.add(i);
     });
   }
 
@@ -449,7 +463,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
 
   // Hills: the noise's heights, flattened down to the felt by towns, depots and rivers (here and across the region's
   // edges) so no square is more than one block above a neighbour.
-  settleHeights(grid, seed, region, stubs.outside.filter((s) => s.kind === "river"), locked, coast, hills);
+  settleHeights(grid, seed, region, stubs.outside.filter((s) => s.kind === "river"), (i) => locked(i) || level.has(i), coast, hills);
 
   // Each town grown from its station a building at a time (see `growTown`), on its own flat ground: a hamlet to a
   // small town, by where it is.
