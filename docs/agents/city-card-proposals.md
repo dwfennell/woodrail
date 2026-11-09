@@ -78,29 +78,29 @@ A tap on a town gives a **short card**: the header, Next up, three doors (Grow "
 - **For:** the quickest look at a town while playing, and on desktop everything at once, using the width.
 - **Against:** two surfaces to build and keep in step, and one more tap to reach anything. It's the most work, and the phone board is B anyway.
 
-## 3. The Journal: say what Show me does, and land on it
+## 3. The Journal: the player picks the city, and lands on its Start
 
 `city-card-journal-phone-1-button.jpg`, `city-card-journal-phone-2-landed.jpg`, and the same for `desktop`
 
-The achievement's line and button name the town and the action:
+The Journal is about the project, so the player picks *where* to build it, not the game. (The first draft named one city for them, "Start it in Larkfield", which made a choice for the player out of maybe several.) An open achievement lists **Build it in**: a maple row for each town that is or is nearly a City ★, each with its level stamped and what it can do:
 
-| The map | Its line | Its button |
+| The town | Its row says | Its mark |
 |---|---|---|
-| A City ★ that can start it now | Larkfield is a City ★: it can build this now | **Start it in Larkfield · 400 🪙 ›** (blue, as Show me is) |
-| A City ★, not enough coins | Larkfield can build it with 400 🪙 (you have 250) | **Show me Larkfield ›** |
-| A City ★, busy with another project | Larkfield is building the Cathedral; one at a time | **Show me Larkfield ›** |
-| No City ★ yet | Grow a town into a City ★ first. Larkfield is a City: 29 of 82 goods to go | **Show me Larkfield ›** (lands on its Grow tab) |
-| Under way | Stage 2 of 4 in Larkfield: the iron hall | **Show me the site** (as now) |
+| A City ★ that can start it now | Ready: start it for 400 🪙 | a yellow peg (ready); listed first |
+| A City ★ short of coins | Needs 400 🪙 (you have 250) | a hole |
+| A City ★ building another project | Building the Cathedral: one at a time | a hole, flatter row |
+| A City, not yet ★ | 41 of 60 goods to City ★ | a hole, flatter row |
+| Where it's under way | Stage 2 of 4: the iron hall | a blue peg; the only row, with Show me the site |
 
-With two or more City ★s, the button picks one that can start it now: no project under way there, and the most coins' worth of room.
-
-The tap closes the Journal on a phone, flies to the city and opens its card on Projects with that project picked. Its **Start** button is ringed in blue (DESIGN.md: a ring marks the picked or the ready), gone at the next tap. It never starts the project by itself: the player sees the price and the stages, then taps Start.
+With no City ★ on the map, the list is the same towns nearest to it, so the line is never a dead end. A tap on a row closes the Journal on a phone, flies to that town and opens its card on **Projects** with this project picked: its **Start** ringed in blue (DESIGN.md: a ring marks the picked or the ready) if it can start, or the reason it can't. A town that isn't a City ★ yet opens on **Grow** instead. A tap never starts the project by itself: the player sees the price and the stages on the card, then taps Start.
 
 ## 4. Recommendation
 
 **B, tabs**, with Next up deciding which tab the card opens on, and the Journal fix in §3.
 
-- It answers the note directly: every feature is named at the top of the card (Grow, Build, Projects, Station), and the Journal's button lands on the Start it names.
+**Picked: B** (the user, 2026-11-09), with the Journal's city list in §3.
+
+- It answers the note directly: every feature is named at the top of the card (Grow, Build, Projects, Station), and the Journal's city rows land on the Start of the city picked.
 - It follows the house style: the groove switch, the research ticket, one painted block per panel.
 - It's one surface on both screens. The card's size and position stay as they are, so the e2e suites that open town cards need their selectors moved but not their flow. The town ledger's data (`game/town-ledger.ts`), places (`game/place-row.ts`) and grand row (`game/grand.ts`) stay as they are; only `ui/town-ledger.ts`, `ui/places-row.ts`, `ui/grand-row.ts` and the card's frame change.
 - It stays cheap: a tab redraws only when its key changes, as the rows do now, and nothing runs per frame.

@@ -117,3 +117,6 @@
 .mk-label { position: fixed; z-index: 60; padding: 5px 10px; border-radius: 6px; font: 800 13px/1.25 "Woodrail Icons", Nunito, sans-serif; color: #fff; background: rgba(28, 20, 12, 0.88); max-width: 320px; }
 .mk-callout { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 9px; border: 1.5px dashed var(--pencil); font-size: 13px; }
 .mk-callout .t { font-family: var(--display); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--wood-ink-soft); }
+.mk-city { min-height: 56px; }
+.mk-city .nm b { font-size: 16px; }
+.mk-city > i { flex: none; }

@@ -119,14 +119,19 @@ const C_BOARD = `<div class="mk-title"><b style="text-align:left;padding-left:0"
 const journalFix = (p) => p.evaluate(() => {
   const show = document.querySelector(".ach-item.open .ach-show");
   if (!show) return;
+  // (The other towns' names from the map; their states written for the mock: one busy, one not a City ★ yet.)
+  const [b, c] = window.woodrail.world.landscape.towns.slice(1, 3).map((t) => t.name);
   const line = document.querySelector(".ach-item.open .ach-line");
-  if (line) line.textContent = "Larkfield is a City ★: it can build this now";
+  if (line) line.textContent = "Pick a City ★ to build it in";
+  const row = (name, stamp, note, peg, cls = "") => `<div class="mk-proj mk-city ${cls}"><i class="${peg}"></i><span class="nm"><b>${name} <span class="mk-stamp green" style="font-size:11.5px;height:20px;vertical-align:2px">${stamp}</span></b><span>${note}</span></span><span class="chev">›</span></div>`;
   const box = document.createElement("div");
   box.className = "mk-inj";
-  box.style.cssText = "display:flex;flex-direction:column;gap:10px;margin-top:8px";
-  box.innerHTML = `<span class="mk-btn blue" style="align-self:flex-start">Start it in Larkfield · 400 🪙 ›</span>
-    <div class="mk-callout"><span class="t">With no City ★ yet, it says</span><span>Grow a town into a City ★ first. <b>Larkfield</b> is a City: 29 of 82 goods to go.</span><span class="mk-btn small" style="align-self:flex-start">Show me Larkfield ›</span></div>`;
-  show.classList.add("mk-hide");
+  box.style.cssText = "display:flex;flex-direction:column;gap:8px;margin-top:8px";
+  box.innerHTML = `<div class="mk-next-k" style="font-size:12px">Build it in</div>
+    ${row("Larkfield", "City ★", "Ready: start it for 400 🪙", "mk-peg")}
+    ${row(b, "City ★", "Building the Cathedral: one at a time", "mk-hole", "later")}
+    ${row(c, "City", "41 of 60 goods to City ★", "mk-hole", "later")}
+    <div class="mk-callout"><span class="t">With no City ★ yet</span><span>The same list, nearest first: each town's goods to City ★, a tap opening its card on Grow.</span></div>`;
   show.style.display = "none";
   show.after(box);
 });
