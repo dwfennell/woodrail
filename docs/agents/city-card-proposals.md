@@ -106,3 +106,16 @@ With no City ★ on the map, the list is the same towns nearest to it, so the li
 - It stays cheap: a tab redraws only when its key changes, as the rows do now, and nothing runs per frame.
 
 C's desktop board is a good later step if desktop players want everything at once. B's tabs would be its columns.
+
+## 5. As built (direction B)
+
+Pictures: `docs/agents/shots/city-card-built-*.jpg` (`SCENES=built.mjs node tools/shots/city-card-mocks/stage.mjs`).
+
+- **The card** (`src/ui/town-ledger.ts`, drawn by `showTownCard` in `main.ts`): the header (the level stamped, the goods toward the next, a bar), a groove of tabs, and a pane per tab. All four panes are drawn when the card's key changes, as the rows were before; a tab's tap only shows its pane (no redraw), and the card keeps its tab while it's drawn again. A yellow peg on Build or Projects when there's something to start there.
+- **Grow**: the goods with their wagons; a good nothing makes as a row with **Find a mill ›** (the tray's Industries, its tile ringed in blue till the next tap) or **Learn Mills ›** (the Research board there); what it always buys; the pay rule.
+- **Build**: Places and Treats as before, their buttons maple.
+- **Projects** (a City and up): the picked project's ticket (its reward, its stages as pegs in holes with their goods, the one under way with what's come, and **Start · 400 🪙** painted green, or Show the site), the others maple rows with their price stamped; a tap on a row picks it. It opens on the project under way, else the first it can start.
+- **Station**: the school, market, road, van, bus, post and station rows; the lines; New route from here; the station's upgrades; the Automatic switch (shown on this tab only).
+- **Next up** (`src/game/town-next.ts`, unit-tested): a project under way (Projects), no line calling once routes are learned (Station, **New route from here** painted), a project ready to start (Projects, the ticket's Start is the painted button), a good nothing makes (Grow, **Find a … on the tray ›** or **… in Research ›** in blue), a town hall ready (Build). The card opens on its tab.
+- **The Journal** (`achievements` in `src/game/grand.ts`, `cityList` in `src/ui/goals-panel.ts`): a project not started lists **Build it in**: each City ★ (ready first, its note saying why not otherwise), then the Cities nearly one; with no City ★ on the map, the towns nearest one. A row opens that town's card on Projects, the project picked and its Start ringed till the next tap (a town not yet a City ★: on Grow). "Show me a City ★" is gone.
+- Not done from the proposal: "Automatic" keeps its name (its tooltip says what it does), now on the Station tab.

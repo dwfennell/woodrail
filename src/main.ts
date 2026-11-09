@@ -3450,6 +3450,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     townView.want = { depot: station.id, tab: star ? "projects" : "grow", pick: id, ring: star };
     townView.depot = -1;
     interaction.openDepotCard(station.id);
+    // (Already open on this town: drawn again, on the project.)
+    interaction.redrawDepotCard();
     if (star) {
       // (The ring is for this look only: gone at the next tap anywhere.)
       const clear = () => {

@@ -258,14 +258,15 @@ for (const viewport of [{ width: 844, height: 390 }, { width: 740, height: 360 }
     const tabs = c.querySelector(".town-tabs").getBoundingClientRect();
     const pane = c.querySelector(".town-pane:not([hidden])");
     const goods = pane.querySelector(".ledger-goods").getBoundingClientRect();
-    const rest = [...pane.children].filter((e) => !e.classList.contains("ledger-goods") && !e.classList.contains("town-next")).map((e) => e.getBoundingClientRect());
+    const rest = [...pane.children].filter((e) => !e.classList.contains("ledger-goods") && !e.classList.contains("town-next")).map((e) => e.getBoundingClientRect()).filter((q) => q.width > 0);
     const tabH = Math.min(...[...c.querySelectorAll(".town-tab")].map((t) => t.getBoundingClientRect().height));
     return { w: Math.round(r.width), h: Math.round(r.height), left: r.left, scroll: c.scrollHeight - c.clientHeight, x: { top: x.top - r.top, right: r.right - x.right, w: x.width, h: x.height }, tabs: { w: tabs.width, tabH }, goods: { left: goods.left - r.left, right: goods.right - r.left }, rest: rest.map((q) => Math.round(q.left - r.left)), pane: pane.dataset.pane };
   });
   const tag = `${viewport.width}×${viewport.height}`;
   check(`${tag}: the town card's ✕ at its top right, 44 px`, card.x.top <= 4 && card.x.right <= 4 && card.x.w >= 44 && card.x.h >= 44, JSON.stringify(card.x));
   check(`${tag}: its tabs across the card, each 44 px tall`, card.tabs.w >= card.w - 40 && card.tabs.tabH >= 44, JSON.stringify(card.tabs));
-  check(`${tag}: Grow in two columns (the goods left, the rest right)`, card.pane === "grow" && card.goods.left < 30 && card.rest.length > 0 && card.rest.every((l) => l > card.w / 2 - 20), JSON.stringify(card));
+  // (A starter hamlet's Grow has only its goods; anything more, what holds it back or what it buys, goes at the right.)
+  check(`${tag}: Grow's goods in the left column, anything else at the right`, card.pane === "grow" && card.goods.left < 30 && card.goods.right < card.w * 0.6 && card.rest.every((l) => l > card.w / 2 - 20), JSON.stringify(card));
   check(`${tag}: the Grow tab shows whole, no scroll`, card.scroll <= 1, JSON.stringify(card));
   check(`${tag}: the card keeps right of 40% of the screen`, card.left >= viewport.width * 0.4 - 1, String(card.left));
   await shot(p, `4-town-card-${tag}`);

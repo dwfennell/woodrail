@@ -147,7 +147,7 @@ const row = () => p.evaluate(() => {
   return r ? { text: r.textContent, got: r.closest(".ach-item").classList.contains("got"), pips: r.querySelector(".ach-pips")?.textContent } : null;
 });
 const r1 = await row();
-check("1. it lists the Great Exhibition with its reward, to start from a City ★'s card", !!r1 && /Great Exhibition/.test(r1.text) && /Every town grows a step/.test(r1.text) && /City ★'s card/.test(r1.text), JSON.stringify(r1));
+check("1. it lists the Great Exhibition with its reward, and \"Pick a City ★ to build it in\"", !!r1 && /Great Exhibition/.test(r1.text) && /Every town grows a step/.test(r1.text) && /Pick a City ★ to build it in/.test(r1.text), JSON.stringify(r1));
 const tabsFit = await p.evaluate(() => {
   const tabs = document.querySelector(".goals-tabs").getBoundingClientRect();
   return [...document.querySelectorAll(".goals-tabs > *")].filter((e) => !e.hidden).every((e) => e.getBoundingClientRect().right <= tabs.right + 1 && e.getBoundingClientRect().height >= 40);
@@ -387,6 +387,8 @@ const cityStar = async (i) => {
  * ticket is open), then its Start.
  */
 const startOnCard = async (id) => {
+  // (The card's drawn on the next frame: its tabs waited for first.)
+  await p.waitForFunction(() => document.querySelector(".town-tab")?.getBoundingClientRect().width > 0, null, { timeout: 20000 }).catch(() => {});
   if (await p.evaluate(() => document.querySelector(".town-card")?.dataset.tab !== "projects")) await tap('.town-tab[data-tab="projects"]');
   if (await p.evaluate((id) => !document.querySelector(`.grand-ticket[data-grand="${id}"]`), id)) await tap(`.grand-row[data-grand="${id}"]`);
   await tap(`.grand-ticket[data-grand="${id}"] .grand-start`);

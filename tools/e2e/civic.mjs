@@ -113,8 +113,12 @@ const town = await p.evaluate(() => {
 // (Its places and treats are on the card's Build tab: opened by a tap, as a player would.)
 const openCard = async () => {
   await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
-  await p.waitForTimeout(800);
-  await tap('.town-tab[data-tab="build"]');
+  // (The card's drawn on the next frame: its tabs waited for, then Build tapped till it's the open one.)
+  for (let i = 0; i < 3; i++) {
+    await p.waitForFunction(() => document.querySelector('.town-tab[data-tab="build"]')?.getBoundingClientRect().width > 0, null, { timeout: 20000 }).catch(() => {});
+    await tap('.town-tab[data-tab="build"]');
+    if (await p.evaluate(() => document.querySelector(".town-card")?.dataset.tab === "build")) break;
+  }
 };
 await openCard();
 await p.waitForTimeout(800);
