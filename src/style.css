@@ -894,7 +894,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals-tabs { display: flex; gap: 4px; align-items: center; margin-bottom: 0; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); }
 /* The open Journal shows its count on the tab, not twice. */
 .goals:not(.collapsed) .goals-bell { display: none; }
-.goals-tab { flex: 1; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 7px; background: transparent; box-shadow: none; font: inherit; font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
+.goals-tab { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 7px; background: transparent; box-shadow: none; font: inherit; font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
 .goals-tab.on { background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); color: var(--wood-ink); }
 .goals-tab-badge { display: inline-flex; align-items: center; justify-content: center; height: 20px; min-width: 20px; padding: 0 6px; border-radius: 5px; font-size: 13px; line-height: 1; color: var(--wood-ink); background: var(--sheen), var(--yellow); box-shadow: inset 0 -2px 0 var(--yellow-cut); }
 .goals-close { display: none; flex: none; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 18px; font-weight: 900; color: var(--wood-ink-soft); cursor: pointer; }
@@ -1803,7 +1803,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-menu .chip { flex: 1 1 auto; }
 /* Stops / Trains: a groove with a maple block slid to the open side. */
 .ls-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); flex: 0 0 auto; }
-.ls-tab { flex: 1 1 0; min-height: 42px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
+.ls-tab { flex: 1 1 0; min-height: 44px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
 .ls-tab.on { background: var(--maple); color: var(--wood-ink); box-shadow: var(--tile-face), var(--tile-drop); }
 .ls-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding-bottom: 2px; }
 /* The stops: a spine in the line's colour down the numbers, a row a stop. */
