@@ -42,6 +42,8 @@ try {
   // Game mode: its industries' models are fetched only there, and their pictures drawn once they're in.
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game button.primary") !== null, null, { timeout: 240000 });
   await p.locator(".title-card.mode-game button", { hasText: "New game" }).click();
+  // New game opens its own page now: Start there, as it's set.
+  await p.locator(".new-game-sheet:not([hidden]) .new-game-start").click();
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 240000 });
   await p.evaluate(() => window.woodrail.trayThumbnailsSaved());
   // The rest asked for as a shelf asks when it's first shown (the HUD's `needThumbnails` handler).
