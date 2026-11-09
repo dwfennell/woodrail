@@ -8,9 +8,54 @@
   --paper: #f6efe3;
   --beech: #e7c89a;
   --accent: #c8442f;
-  /* A pale beech board with a faint grain, and its thickness showing along the bottom edge. */
-  --wood-panel: repeating-linear-gradient(91deg, transparent 0 13px, rgba(170, 120, 60, 0.035) 14px 15px, transparent 16px 37px, rgba(170, 120, 60, 0.05) 38px 39px, transparent 40px 52px), linear-gradient(170deg, #fbf3e4, #f1e0c2);
-  --wood-panel-edge: inset 0 1px 0 #fffaf0, inset 0 -5px 0 rgba(176, 122, 68, 0.35);
+  /* ---- The toy box (DESIGN.md): the HUD is the toy. Boards are natural beech with the grain showing and their
+     thickness cut square along the bottom; buttons that matter are lacquered blocks in the logo's colours; rows on a
+     board are maple tiles; state is a peg; counts and prices are stamped; rules are pencil. Shadows are short and
+     nearly hard, a block standing on a table, never a soft halo. ---- */
+  --display: "Lilita One", "Nunito", system-ui, sans-serif;
+  /* The grain: one 256 px tile of brown with alpha (scripts/grain.py), laid over a board's colour. */
+  --grain: url("./assets/grain.webp") 0 0 / 256px 256px;
+  --beech-hi: #f6e2bd;
+  --beech-lo: #ebc995;
+  --end-grain: #b98447;
+  --maple: #fbf1df;
+  --maple-cut: #dcbf94;
+  --wood-ink: #2a1a0e;
+  --wood-ink-soft: #4f3418;
+  --paint-ink: #fff8ec;
+  --red: #cf3a22; --red-cut: #8f2312;
+  --blue: #2563b0; --blue-cut: #143f78;
+  --yellow: #f4b61a; --yellow-cut: #a97a00;
+  --green: #2f8b3f; --green-cut: #1b5a26;
+  --dark: #3a2a1c; --dark-cut: #1d140c;
+  /* lacquer's sheen: a soft lift at the top, gone by halfway (no hard light-over-dark line) */
+  --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 55%);
+  /* A pale beech board with the grain showing, and its thickness cut square along the bottom. */
+  --wood-panel: var(--grain), linear-gradient(180deg, var(--beech-hi), var(--beech-lo));
+  --wood-panel-edge: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -6px 0 var(--end-grain);
+  --board-drop: 0 12px 12px -6px rgba(40, 22, 6, 0.5);
+  --block-drop: 0 4px 4px -2px rgba(40, 22, 6, 0.4);
+  --top-drop: 0 6px 6px -3px rgba(40, 22, 6, 0.45);
+  /* a maple tile on a board: its edge cut along the bottom */
+  --tile-face: inset 0 1px 0 #fff, inset 0 -3px 0 var(--maple-cut);
+  --tile-drop: 0 3px 3px -2px rgba(40, 22, 6, 0.35);
+  /* a groove routed into the board (a view switch's track, a sunk well) */
+  --groove: rgba(110, 66, 20, 0.16);
+  --groove-sh: inset 0 2px 3px rgba(80, 45, 10, 0.25);
+  /* state as a peg: painted domes, or a bare hole bored in the wood */
+  --peg-green: radial-gradient(circle at 40% 32%, #7fd08a 0 18%, #2f8b3f 55%, #1b5a26 100%);
+  --peg-yellow: radial-gradient(circle at 40% 32%, #ffe28a 0 18%, #f4b61a 55%, #a97a00 100%);
+  --peg-blue: radial-gradient(circle at 40% 32%, #8fb8ec 0 18%, #2563b0 55%, #143f78 100%);
+  --peg-drop: 0 2px 1px rgba(40, 22, 6, 0.4);
+  --hole: radial-gradient(circle at 50% 60%, #c9a46c 0 45%, #a77c45 100%);
+  --hole-sh: inset 0 2px 2px rgba(60, 30, 5, 0.45), 0 1px 0 rgba(255, 255, 255, 0.6);
+  /* stamps: ink in a ruled box, never quite even */
+  --stamp-red: #b3301c;
+  --stamp-brown: #5a3a1a;
+  --stamp-green: #2f7a38; --stamp-green-ink: #1f5a27;
+  --stamp-gold: #a97a00; --stamp-gold-ink: #6b4300;
+  --mottle: radial-gradient(circle at 30% 40%, rgba(255, 255, 255, 0.22) 0 1px, transparent 1.5px) 0 0 / 5px 6px;
+  --pencil: rgba(60, 46, 32, 0.5);
   /* DESIGN.md tokens the route card uses (audit F18: its colours were off the system). */
   --ink-soft: #5e4128;
   --ink-muted: #74522f;
@@ -50,7 +95,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .hud > * { pointer-events: auto; }
 .topbar { position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none; }
 .topbar > * { pointer-events: auto; }
-.brand { font-weight: 800; font-size: 20px; letter-spacing: 0.02em; color: #3a2a1c; background: rgba(250, 243, 230, 0.94); padding: 8px 14px 8px 10px; border-radius: 14px; box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); display: flex; align-items: center; gap: 8px; }
+.brand { font-weight: 800; font-size: 20px; letter-spacing: 0.02em; color: var(--wood-ink); background: var(--wood-panel); padding: 8px 14px 11px 10px; border-radius: 10px; box-shadow: var(--wood-panel-edge), var(--top-drop); display: flex; align-items: center; gap: 8px; }
+/* (stamped beside the name: "BETA"; before the phone rules that hide it in the top bar) */
+.mode-tag { display: inline-flex; align-items: center; height: 22px; font-family: "Nunito", sans-serif; font-size: 12px; font-weight: 900; letter-spacing: 0.04em; line-height: 1; padding: 0 7px; border-radius: 3px; background: var(--mottle); color: var(--stamp-red); box-shadow: inset 0 0 0 1.6px var(--stamp-red); transform: rotate(-3deg); margin-left: 2px; white-space: nowrap; }
 .brand-block { font-size: 26px; }
 /* The brand is the way home (back to my railway): a finger's height, and a ⌖ while it's pressed. */
 .brand { position: relative; min-height: 44px; min-width: 44px; cursor: pointer; transition: transform 0.12s; }
@@ -58,78 +105,112 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .brand::after { content: "⌖"; position: absolute; right: 2px; bottom: 2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; line-height: 1; background: #fbf3e4; color: #6a4a2c; box-shadow: 0 1px 4px rgba(60, 40, 20, 0.3); opacity: 0; transition: opacity 0.12s; pointer-events: none; }
 .brand:active::after, .kbd-nav .brand:focus-visible::after { opacity: 1; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.chip { min-width: 44px; height: 44px; padding: 0 12px; border: none; border-radius: 13px; font: inherit; font-weight: 800; font-size: 17px; color: #3a2a1c; cursor: pointer;
-  background: linear-gradient(180deg, #f3dcb6, #dcb682); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.25), 0 4px 14px rgba(60, 40, 20, 0.22); transition: transform 0.08s ease, filter 0.15s; }
+/* A button is a maple block: its face pale, its cut edge along the bottom, standing on the board. The one that matters
+   on a panel is painted (.primary, .go, .danger): lacquer over the same block. */
+.chip { min-width: 44px; height: 44px; padding: 0 12px; border: none; border-radius: 9px; font: inherit; font-weight: 800; font-size: 17px; color: var(--wood-ink); cursor: pointer;
+  background: var(--sheen), var(--maple); box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), var(--block-drop); transition: transform 0.08s ease, filter 0.15s; }
 .chip:hover { filter: brightness(1.04); }
-.chip:active { transform: translateY(1px) scale(0.98); }
+.chip:active { transform: translateY(2px); box-shadow: inset 0 1px 0 #fff, inset 0 -2px 0 var(--maple-cut), 0 2px 2px -1px rgba(40, 22, 6, 0.45); }
 .chip:disabled { opacity: 0.45; cursor: default; }
 /* In the top bar a disabled button (Undo with nothing to undo) stays solid wood, its picture faded: see-through, it
    was lost against the grass. */
-.actions .chip:disabled { opacity: 1; color: rgba(58, 42, 28, 0.3); background: linear-gradient(180deg, #efe0c6, #dcc29c); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.16), 0 3px 8px rgba(60, 40, 20, 0.14); }
+/* The top bar: lacquered blocks in the logo's colours, by kind, so a wide bar reads as four groups, not nine colours:
+   Research blue; Map and Add land green; Undo, Redo and the speed yellow; Pause red; Sound, Fullscreen and Menu dark. */
+.actions .chip { --c: var(--dark); --d: var(--dark-cut); width: 46px; min-width: 46px; height: 46px; padding: 0; border-radius: 9px; color: var(--paint-ink);
+  background: var(--sheen), var(--c); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--d), var(--top-drop); }
+.actions .chip.research-btn { --c: var(--blue); --d: var(--blue-cut); }
+.actions .chip[aria-label^="Map"], .actions .chip[aria-label^="Add land"] { --c: var(--green); --d: var(--green-cut); }
+.actions .chip[aria-label^="Undo"], .actions .chip[aria-label^="Redo"], .actions .chip.speed { --c: var(--yellow); --d: var(--yellow-cut); color: var(--wood-ink); }
+.actions .chip[aria-label^="Pause"], .actions .chip[aria-label^="Resume"] { --c: var(--red); --d: var(--red-cut); }
+.actions .chip.speed { width: auto; padding: 0 10px; font-family: var(--display); font-weight: 400; font-size: 17px; }
+/* Icons sit on the painted face's centre, not the box's: lifted half the 4 px cut edge. Undo's and Redo's arrows carry
+   their weight low (measured 2 px below their neighbours' ink), so 2 px more. */
+.actions .chip .ui-icon, .actions .chip svg { transform: translateY(-2px); }
+.actions .chip[aria-label^="Undo"] svg, .actions .chip[aria-label^="Redo"] svg { transform: translateY(-4px); }
+.actions .chip:active { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -2px 0 var(--d), 0 3px 3px -2px rgba(40, 22, 6, 0.5); }
+/* Its panel open (the map, the board): the block stays pressed in. */
+.actions .chip.active { color: var(--paint-ink); text-shadow: none; background: var(--sheen), var(--c); transform: translateY(2px); box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.3), inset 0 -2px 0 var(--d), 0 0 0 2px var(--beech-hi); }
+.actions .chip.active[aria-label^="Undo"], .actions .chip.active[aria-label^="Redo"], .actions .chip.active.speed { color: var(--wood-ink); }
+/* (Undo with nothing to undo: the block unpainted, its picture faded, still solid against the grass.) */
+.actions .chip:disabled { opacity: 1; color: rgba(58, 42, 28, 0.35); background: var(--sheen), var(--maple); box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 3px 3px -2px rgba(40, 22, 6, 0.3); }
 .chip.text { font-size: 15px; }
 /* A card's button that would only be refused now (Swap ends, Decouple, Empty while the train moves): the top bar's
    disabled look, solid wood with its words faded, not see-through; no hover or press. */
-.card .chip[aria-disabled="true"] { opacity: 1; cursor: default; filter: none; transform: none; color: rgba(58, 42, 28, 0.36); background: linear-gradient(180deg, #efe0c6, #dcc29c); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.16), 0 3px 8px rgba(60, 40, 20, 0.14); }
-.chip.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
+.card .chip[aria-disabled="true"] { opacity: 1; cursor: default; filter: none; transform: none; color: rgba(58, 42, 28, 0.42); background: transparent; box-shadow: inset 0 0 0 2px rgba(110, 66, 20, 0.25); }
+/* On, or the main action: painted green lacquer, cream words. */
+.chip.active, .chip.primary { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
+.chip.active:active, .chip.primary:active { box-shadow: inset 0 -2px 0 var(--green-cut), 0 2px 2px -1px rgba(40, 22, 6, 0.45); }
 /* A switch: label, then a pill with a knob. Off = outline and knob left; on = filled green and knob right. */
-.chip.toggle { display: inline-flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; background: transparent; box-shadow: inset 0 0 0 2px #b58f62; }
-.chip.toggle.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); box-shadow: inset 0 0 0 2px #3f7f3f; }
-.toggle-pill { position: relative; flex: none; width: 38px; height: 22px; border-radius: 11px; background: #d9c3a0; box-shadow: inset 0 1px 3px rgba(60, 40, 20, 0.4); transition: background-color 0.15s; }
-.toggle-pill::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fbf3e4; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.5); transition: transform 0.15s; }
-.chip.toggle.active .toggle-pill { background: #2f7a38; }
-.chip.toggle.active .toggle-pill::after { transform: translateX(16px); }
+/* A switch: a slot routed in the wood with a peg in it. Off: the peg at the left of a bare slot; on: the slot painted
+   green and the peg at the right. The chip around it is a maple block either way, so on reads by the slot, not a fill. */
+.chip.toggle { display: inline-flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; }
+.chip.toggle.active { color: var(--wood-ink); text-shadow: none; background: var(--sheen), var(--maple); box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), var(--block-drop); }
+.toggle-pill { position: relative; flex: none; width: 40px; height: 22px; border-radius: 11px; background: var(--groove); box-shadow: var(--groove-sh); transition: background-color 0.15s; }
+.toggle-pill::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 40% 32%, #fffaf0 0 25%, #e9cfa3 70%, #c9a46c 100%); box-shadow: 0 2px 1px rgba(40, 22, 6, 0.45); transition: transform 0.15s; }
+.chip.toggle.active .toggle-pill { background: var(--sheen), var(--green); box-shadow: inset 0 2px 2px rgba(0, 0, 0, 0.3); }
+.chip.toggle.active .toggle-pill::after { transform: translateX(18px); }
 .chip.toggle:disabled { opacity: 0.45; }
-.chip.danger { background: linear-gradient(180deg, #f2b3a3, #d9785f); }
-.chip.primary { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
-.chip.attention { background: linear-gradient(180deg, #ffd88a, #f0ae3c); animation: nudge 1.6s ease-in-out infinite; }
+/* A destructive ask, once asked ("Forget …?"): painted red. Before it's asked it's a red stamp (.stamp-danger below). */
+.chip.danger { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--red); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--red-cut), var(--block-drop); }
+.chip.attention { color: var(--wood-ink); background: var(--sheen), var(--yellow); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -4px 0 var(--yellow-cut), var(--block-drop); animation: nudge 1.6s ease-in-out infinite; }
+/* Lettering printed on the toy box: the words on painted blocks, titles and tabs. */
+.chip.primary, .chip.danger, .chip.go, .chip.attention { font-family: "Woodrail Icons", var(--display); font-weight: 400; letter-spacing: 0.02em; }
 /* Under the top bar, on the right (the goals panel is on the left); the toast, which is centred, sits above it. */
-.menu-update { color: #2d5a2a; background: #d9ead2; }
+.menu-update { color: var(--stamp-green-ink); background: transparent; box-shadow: inset 0 0 0 1.6px var(--stamp-green); }
 .chip .ui-icon { display: block; margin: 0 auto; }
 @keyframes nudge { 0%, 70%, 100% { transform: none; } 78% { transform: rotate(-4deg); } 86% { transform: rotate(4deg); } }
 
-.menu { z-index: 36; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: max(12px, env(safe-area-inset-right)); display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.97); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; max-height: calc(100vh - max(10px, env(safe-area-inset-top)) - 54px - max(12px, env(safe-area-inset-bottom))); max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 54px - max(12px, env(safe-area-inset-bottom))); overflow-y: auto; overscroll-behavior: contain; }
+.menu { z-index: 36; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: max(12px, env(safe-area-inset-right)); display: flex; flex-direction: column; gap: 2px; padding: 0 8px 14px; border-radius: 10px; background: var(--wood-panel); color: var(--wood-ink); box-shadow: inset 0 -6px 0 var(--end-grain), var(--board-drop); min-width: 210px; max-height: calc(100vh - max(10px, env(safe-area-inset-top)) - 54px - max(12px, env(safe-area-inset-bottom))); max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 54px - max(12px, env(safe-area-inset-bottom))); overflow-y: auto; overscroll-behavior: contain; }
 .menu > * { flex-shrink: 0; }
-.menu-item { min-height: 44px; text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 11px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
-.menu-item:hover { background: #ead7b8; }
-.menu-item:disabled { opacity: 0.45; cursor: default; }
-/* Between the menu's groups (playing, settings, help, leaving, the bug report): a faint saw line. */
-.menu-sep { flex: none; height: 2px; margin: 3px 10px; border: 0; border-radius: 1px; background: rgba(150, 100, 50, 0.16); }
+/* The menu's lid: red lacquer, its name printed on it. */
+.menu::before { content: "Menu"; display: block; margin: 0 -8px 4px; padding: 10px 16px 9px; font: 400 18px/1 var(--display); letter-spacing: 0.02em; color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--red); box-shadow: inset 0 -4px 0 var(--red-cut); }
+.menu-item { min-height: 44px; text-align: left; border: none; background: transparent; font: inherit; font-weight: 800; font-size: 16px; padding: 10px 12px; border-radius: 7px; color: var(--wood-ink); cursor: pointer; }
+.menu-item:hover { background: rgba(255, 255, 255, 0.4); }
+.menu-item:disabled { opacity: 1; color: rgba(42, 26, 14, 0.45); cursor: default; }
+/* Between the menu's groups (playing, settings, help, leaving, the bug report): a pencil line ruled across. */
+.menu-sep { flex: none; height: 0; margin: 3px 12px; border: 0; border-top: 1.5px dashed var(--pencil); background: none; }
 .narrow-only { display: none; }
 @media (max-width: 640px) { .menu .narrow-only { display: block; } }
 
 /* The tray: a shallow beech box the pieces sit in. */
-.tray { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(10px, env(safe-area-inset-bottom)); width: min(980px, calc(100% - 20px - env(safe-area-inset-left) - env(safe-area-inset-right))); border-radius: 20px; padding: 0 8px 9px;
-  background: repeating-linear-gradient(90deg, rgba(150, 100, 50, 0.05) 0 2px, transparent 2px 11px), linear-gradient(180deg, #f1dcb6, #e0bf8d);
-  box-shadow: inset 0 1px 0 #fff9, inset 0 -3px 0 rgba(120, 75, 35, 0.28), 0 12px 34px rgba(60, 40, 20, 0.32); }
+.tray { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(10px, env(safe-area-inset-bottom)); width: min(980px, calc(100% - 20px - env(safe-area-inset-left) - env(safe-area-inset-right))); border-radius: 12px; padding: 0 8px 14px;
+  background: var(--wood-panel); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -7px 0 var(--end-grain), var(--board-drop); }
 .tabs { display: flex; gap: 4px; padding: 0 6px; transform: translateY(-1px); overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
-.tab { flex: none; border: none; font: inherit; font-weight: 800; font-size: 13.5px; color: #5e4128; padding: 6px 14px 5px; border-radius: 0 0 10px 10px; cursor: pointer; background: rgba(120, 80, 40, 0.1); }
-.tab.active { background: #fbf2e2; color: #3a2a1c; box-shadow: 0 2px 6px rgba(80, 50, 20, 0.18); }
-.scroller { display: flex; gap: 7px; overflow-x: auto; scrollbar-width: none; padding: 7px 2px 2px; overscroll-behavior: none; touch-action: none; }
+/* Tabs hang from the tray's top edge: bare wood, each with its colour painted along its foot; the open one is painted
+   all over and hangs lower. The colour cycles red, blue, green, yellow (the logo's blocks). */
+.tab { flex: none; border: none; font: inherit; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 15px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); padding: 8px 13px 12px; border-radius: 0 0 8px 8px; cursor: pointer;
+  --c: var(--red); --d: var(--red-cut); background: var(--groove); box-shadow: inset 0 2px 3px rgba(80, 45, 10, 0.22), inset 0 -4px 0 var(--c); }
+.tab:nth-child(4n+2) { --c: var(--blue); --d: var(--blue-cut); }
+.tab:nth-child(4n+3) { --c: var(--green); --d: var(--green-cut); }
+.tab:nth-child(4n+4) { --c: var(--yellow); --d: var(--yellow-cut); }
+.tab.active { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); padding-bottom: 15px; background: var(--sheen), var(--c); box-shadow: inset 0 -4px 0 var(--d), 0 5px 4px -2px rgba(40, 22, 6, 0.45); }
+.tab.active:nth-child(4n+4) { color: var(--wood-ink); text-shadow: none; }
+.scroller { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 10px 2px 4px; overscroll-behavior: none; touch-action: none; }
 .scroller::-webkit-scrollbar { display: none; }
 .tray.more-right .scroller { mask-image: linear-gradient(90deg, #000 calc(100% - 46px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 46px), transparent); }
 .tray.more-left .scroller { mask-image: linear-gradient(90deg, transparent, #000 30px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 30px); }
 .tray.more-left.more-right .scroller { mask-image: linear-gradient(90deg, transparent, #000 30px, #000 calc(100% - 46px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 30px, #000 calc(100% - 46px), transparent); }
-.tray-item { -webkit-touch-callout: none; flex: 0 0 auto; width: 84px; height: 90px; border: none; border-radius: 14px; background: radial-gradient(circle at 50% 38%, #fffaf0, #f6e8d0); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 2px 5px rgba(80, 50, 20, 0.14); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: grab; touch-action: none; font: inherit; color: #3a2a1c; user-select: none; -webkit-user-select: none; }
-.tray-item:hover { background: radial-gradient(circle at 50% 38%, #fffdf6, #f9ecd6); }
+.tray-item { -webkit-touch-callout: none; flex: 0 0 auto; width: 84px; height: 90px; border: none; border-radius: 8px; background: var(--maple); box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), var(--tile-drop); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: grab; touch-action: none; font: inherit; color: #3a2a1c; user-select: none; -webkit-user-select: none; }
+.tray-item:hover { background: #fffaf0; }
 .tray-item:active { cursor: grabbing; }
 /* A tray item with none left that the workshop can make on the spot: its badge shows the cost. */
-.tray-item.craft .have { background: #f6e3c1; color: #7a5532; }
+.tray-item.craft .have { color: var(--stamp-gold-ink); box-shadow: inset 0 0 0 1.5px var(--stamp-gold); }
 /* A tray item the player should reach for now (the workshop, until one is placed). */
-.tray-item.attention { position: relative; box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 0 0 3px #f0ae3c, 0 3px 8px rgba(160, 100, 20, 0.3); }
+.tray-item.attention { position: relative; box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 0 0 3px var(--yellow), var(--tile-drop); }
 /* Ready to place with a tap on the floor: a green ring and a little "tap" tag. */
-.tray-item.armed { box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 0 0 3px #6cbf5c, 0 3px 8px rgba(60, 120, 40, 0.3); position: relative; }
-.tray-item.armed::after { content: "ready"; position: absolute; top: 4px; left: 50%; transform: translateX(-50%); background: #6cbf5c; color: #fff; font-size: 9.5px; font-weight: 800; padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+.tray-item.armed { box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 0 0 3px var(--green), var(--tile-drop); position: relative; }
+.tray-item.armed::after { content: "ready"; position: absolute; top: 4px; left: 50%; transform: translateX(-50%); background: var(--green); color: var(--paint-ink); font-size: 10px; font-weight: 800; line-height: 1; padding: 3px 6px; border-radius: 4px; white-space: nowrap; }
 /* With a count or a price in the corner, "ready" goes under it (on top, it hid what the next tap costs). */
 .tray-item.armed:has(.have)::after { top: 27px; left: auto; right: 6px; transform: none; }
 /* Carried (clicked, following the mouse over the map: click there to place it), marked apart from "ready" (QA). */
-.tray-item.armed.carried { box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 0 0 3px #3f86d6, 0 3px 8px rgba(40, 80, 140, 0.3); }
-.tray-item.armed.carried::after { content: "placing"; background: #3f86d6; }
+.tray-item.armed.carried { box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 0 0 3px var(--blue), var(--tile-drop); }
+.tray-item.armed.carried::after { content: "placing"; background: var(--blue); }
 .tray-item .icon { width: 74px; height: 60px; display: grid; place-items: center; }
 .tray-item .icon svg { width: 76%; height: 76%; }
 .tray-item .icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 3px 2px rgba(80, 50, 20, 0.22)); pointer-events: none; }
 /* Labels wrap to two lines at most within their item (long catalogue names), cut short with an ellipsis after that. */
-.tray-item .label { font-size: 11.5px; font-weight: 700; line-height: 1.12; max-width: calc(100% - 6px); text-align: center; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: normal; word-break: normal; hyphens: manual; }
+.tray-item .label { font-size: 12px; font-weight: 800; color: var(--wood-ink); line-height: 1.12; max-width: calc(100% - 6px); text-align: center; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: normal; word-break: normal; hyphens: manual; }
 /* Lines break between words only (no "Warehous/e", no "Grandparen/t"): a label too long for its tile (a long word, or
    more than two lines) is set smaller instead, with room for a third line (the HUD marks it when the tray is drawn).
    9.5 px is as small as it goes on a phone: a name too long even then has a shorter one for the tray (`trayLabel`). */
@@ -137,16 +218,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item .icon { flex: 1 1 auto; min-height: 0; }
 /* A group: a little tab in the corner says how many pieces are inside. */
 .tray-group { position: relative; }
-.tray-group .count { position: absolute; top: 5px; right: 6px; min-width: 18px; height: 18px; border-radius: 9px; background: #e3bf8c; color: #5a3d22; font-size: 11px; font-weight: 800; display: grid; place-items: center; padding: 0 4px; }
+/* (stamped in brown, as every count on a tile) */
+.tray-group .count { position: absolute; top: 5px; right: 6px; min-width: 20px; height: 20px; border-radius: 3px; background: var(--mottle); color: var(--stamp-brown); box-shadow: inset 0 0 0 1.5px var(--stamp-brown); transform: rotate(-2deg); font-size: 11.5px; font-weight: 800; line-height: 1; display: grid; place-items: center; padding: 0 4px; }
 /* Back: a narrow, plain button at the start of an open group. */
-.tray-item.tray-back { width: 56px; background: rgba(120, 80, 40, 0.1); box-shadow: none; }
+.tray-item.tray-back { width: 56px; background: var(--groove); box-shadow: var(--groove-sh); }
 .tray-item.tray-back .icon { font-size: 34px; font-weight: 800; color: #7a5a3a; height: 52px; width: auto; }
 
 /* A card sits just clear of the tray (138 px with its tabs): over it, it would cover the tabs. */
-.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); background: rgba(250, 243, 230, 0.97); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
-.card-title { font-weight: 800; font-size: 15px; color: #6a4a2c; }
+.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); background: var(--wood-panel); color: var(--wood-ink); border-radius: 12px; box-shadow: var(--wood-panel-edge), var(--board-drop); padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
+.card-title { font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; line-height: 1.15; color: var(--wood-ink); }
 .card-row, .lever-row { display: flex; gap: 8px; }
-.card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
+.card-hint { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); text-align: center; margin-top: -6px; max-width: 300px; }
 /* A landing's or yard's own rows (water-controls.ts): stacked with room, each line clear of the buttons around it. */
 .landing-boats { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .landing-boats .card-hint { margin-top: 0; }
@@ -177,7 +259,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-chain { display: flex; flex-direction: column; gap: 6px; align-self: stretch; max-width: 360px; margin: 0 auto; }
 .depot-chain[hidden] { display: none; }
 .chain-status { align-self: center; padding: 3px 12px; border-radius: 999px; font-size: 13.5px; font-weight: 800; color: #3a2a1c; background: #f3dcb6; box-shadow: inset 0 1px 0 #fff8, inset 0 -2px 0 rgba(120, 80, 40, 0.2); }
-.chain-status.working { background: #8fd08a; color: #13310f; }
+.chain-status.working { background: var(--sheen), var(--green); color: var(--paint-ink); }
 .chain-status.waiting { background: #f0ae3c; color: #2b2118; }
 .chain-status.full { background: #b9d3ee; color: #1d3f66; }
 .chain-row { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #5e4128; }
@@ -222,7 +304,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .secret-trips { font-size: 40px; font-weight: 900; color: #3a2a1c; line-height: 1; font-variant-numeric: tabular-nums; }
 .secret-trips-label { font-size: 16px; font-weight: 800; color: #6a4a2c; }
 .secret-year { font-size: 13px; font-weight: 700; color: #8a6a4a; margin-top: -4px; }
-.secret-tier { align-self: stretch; background: #fffaf1; border-radius: 14px; padding: 8px 12px; box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.1); display: flex; flex-direction: column; gap: 6px; }
+.secret-tier { align-self: stretch; background: var(--maple); border-radius: 8px; padding: 8px 12px 11px; box-shadow: var(--tile-face), var(--tile-drop); display: flex; flex-direction: column; gap: 6px; }
 .secret-tier-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 800; }
 .secret-tier-name { color: #4a3220; }
 .secret-tier-count { color: #a0661e; font-variant-numeric: tabular-nums; }
@@ -248,25 +330,26 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* On a phone the card scrolls when it's taller than the room above the tray (on its side, 667 × 375, always): Restore
    and Clear stay pinned at its foot, as a town's switches do under its ledger (QA: they sat under the tray). */
 @media (max-width: 640px), (max-height: 520px) {
-  .ruin-card > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 6px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
+  .ruin-card > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 6px 0 14px; background: var(--wood-panel); box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
 }
 .lever { width: 60px; height: 50px; font-size: 20px; }
 /* The engine card: what it's doing, a big Go/Stop and the way it goes, and Swap ends, Decouple and Remove; Follow and ✕ in
    the top corners. */
 .engine-card { padding-top: 14px; min-width: 290px; }
 /* The card's corner buttons are 44 px to tap (the icon's smaller). */
-.engine-card .corner, .engine-card > .close { position: absolute; top: 2px; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: #74522f; cursor: pointer; border-radius: 12px; line-height: 0; }
+.engine-card .corner, .engine-card > .close { position: absolute; top: 4px; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: var(--wood-ink-soft); cursor: pointer; border-radius: 8px; line-height: 0; }
 .engine-card .corner.follow { left: 2px; }
-.engine-card > .close { right: 2px; font-size: 18px; font-weight: 900; color: #6a4a2c; line-height: 1; }
+.engine-card > .close { right: 2px; font-size: 18px; font-weight: 900; color: var(--wood-ink-soft); line-height: 1; }
 /* (As every card's ✕: a faint wood hover; the Follow camera too, unless it's on.) */
 .engine-card > .close:hover, .engine-card .corner:not(.active):hover { background: rgba(150, 100, 50, 0.1); }
-.engine-card .corner.follow.active { background: #6cbf5c; color: #fff; }
+.engine-card .corner.follow.active { background: var(--sheen), var(--green); color: var(--paint-ink); box-shadow: inset 0 -3px 0 var(--green-cut); }
 /* Its title is the engine's name, painted on its cab too: a tap renames it (a little text box in its place, 14 letters). */
 /* (44 px to tap, but no taller in the card than a plain title: its margins give back what its height adds.) */
-.engine-card .engine-name { border: none; background: transparent; padding: 0 8px; margin: -12px auto; height: 44px; line-height: 20px; max-width: calc(100% - 96px); border-radius: 10px; cursor: text; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.engine-card .engine-name::after { content: "✎"; font-size: 12px; font-weight: 700; color: #a8865e; margin-left: 5px; }
+.engine-card .engine-name { border: none; background: transparent; padding: 0 8px; margin: -12px auto; height: 44px; line-height: 1; max-width: calc(100% - 96px); border-radius: 8px; cursor: text; font-family: "Woodrail Icons", var(--display); font-weight: 400; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* (the ✎ beside the name, on its centre line) */
+.engine-card .engine-name::after { content: "✎"; display: inline-block; font-family: "Nunito", sans-serif; font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); margin-left: 5px; vertical-align: 0.15em; }
 .engine-card .engine-name:hover, .engine-card .engine-name:focus-visible { background: rgba(150, 100, 50, 0.1); }
-.engine-card .engine-name-input { margin: -12px auto; width: 11em; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid #c9a274; border-radius: 10px; background: #fffaf0; text-align: center; font-family: inherit; font-size: 16px; }
+.engine-card .engine-name-input { margin: -12px auto; width: 11em; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid var(--end-grain); border-radius: 8px; background: var(--maple); text-align: center; font-family: inherit; font-size: 16px; }
 .engine-card .engine-name-input:focus { outline: none; border-color: #8a5a2c; }
 /* Top to bottom by purpose, one column (layout B, 2026-11-05): the load under the name; the status and its fix; Go or
    Stop, Leave now and the way; the line; the train's own tools. Groups 10 px apart, chips 8 px apart (DESIGN.md). */
@@ -281,7 +364,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-summary > .summary-load[hidden] { display: none; }
 .engine-load:has(> .empty-all:not([hidden])) { justify-content: space-between; }
 /* Delete cargo: the goods are gone (not unloaded anywhere), so it's in the warning ink and asks first. */
-.engine-load > .empty-all { flex: none; height: 44px; padding: 0 12px; font-size: 14px; background: transparent; color: var(--warn-ink); box-shadow: inset 0 0 0 2px rgba(176, 57, 31, 0.45); }
+/* A destructive ask before it's asked: stamped in red on the wood (not painted: it mustn't be the loudest thing). */
+.engine-load > .empty-all { flex: none; height: 44px; padding: 0 12px; font-size: 14px; background: var(--mottle); color: var(--stamp-red); box-shadow: inset 0 0 0 2.5px var(--stamp-red); }
 .engine-load > .empty-all.asking { background: var(--warn-ink); color: #fff; box-shadow: none; }
 .car-load { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; margin-top: -4px; }
 /* Empty beside a wagon's load (shown only while there are goods on board). */
@@ -309,18 +393,19 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-controls .chip.continue:not([hidden]) ~ .chip.leave-now { display: none; }
 /* The train's own tools: a quieter row of flat chips (Go and the line carry the weight), Remove last, apart. */
 .engine-actions { display: flex; gap: 6px; align-items: center; min-width: 0; }
-.engine-actions > .chip { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 8px; font-size: 14px; white-space: nowrap; background: transparent; box-shadow: inset 0 0 0 2px rgba(150, 100, 50, 0.32); }
+.engine-actions > .chip { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 8px; font-size: 14px; white-space: nowrap; }
 .engine-actions > .chip[hidden] { display: none; }
-.engine-actions > .chip.remove { flex: 0 0 auto; color: var(--warn-ink); box-shadow: inset 0 0 0 2px rgba(176, 57, 31, 0.5); }
-.engine-actions .engine-actions-gap { flex: 0 0 2px; height: 28px; margin: 0 2px; border-radius: 1px; background: rgba(120, 80, 40, 0.25); }
-.card .engine-actions > .chip[aria-disabled="true"] { background: transparent; box-shadow: inset 0 0 0 2px rgba(150, 100, 50, 0.18); }
+.engine-actions > .chip.remove { flex: 0 0 auto; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
+/* (a pencil line between the train's tools and Remove) */
+.engine-actions .engine-actions-gap { flex: 0 0 0; height: 28px; margin: 0 3px; border-left: 1.5px dashed var(--pencil); }
 /* Editing the line: the line alone (its load, status, Go and tools go). */
 .planning .engine-card :is(.engine-load, .engine-status-row, .engine-actions) { display: none; }
 /* A line with a train too many: Remove is the quick fix the status names ("…, or remove a train"), ringed. */
-.engine-actions > .chip.remove.suggested { box-shadow: 0 0 0 3px #faf3e6, 0 0 0 5px #d9634d, 0 3px 8px rgba(120, 40, 20, 0.25); }
-.chip.go { width: 150px; height: 58px; font-size: 20px; font-weight: 800; gap: 8px; background: linear-gradient(180deg, #8fd47f, #5fb24f); color: #163b10; box-shadow: inset 0 -3px 0 rgba(30, 80, 20, 0.35), 0 3px 8px rgba(40, 90, 30, 0.25); }
-.chip.go.stop { background: linear-gradient(180deg, #f3a08f, #d9634d); color: #3b130b; box-shadow: inset 0 -3px 0 rgba(110, 30, 15, 0.35), 0 3px 8px rgba(120, 40, 20, 0.25); }
-.chip.go .go-icon { font-size: 16px; margin-right: 8px; }
+.engine-actions > .chip.remove.suggested { box-shadow: inset 0 0 0 2.5px var(--stamp-red), 0 0 0 3px var(--beech-hi), 0 0 0 6px var(--yellow); }
+/* Go and Stop: the train's big painted block; the mark and the word share one centre line. */
+.chip.go { width: 150px; height: 58px; font-size: 24px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; line-height: 1; color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -5px 0 var(--green-cut), 0 5px 5px -2px rgba(40, 22, 6, 0.45); }
+.chip.go.stop { color: var(--paint-ink); background: var(--sheen), var(--red); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -5px 0 var(--red-cut), 0 5px 5px -2px rgba(40, 22, 6, 0.45); }
+.chip.go .go-icon { margin: 0; font-size: 18px; line-height: 1; display: inline-flex; transform: translateY(-1px); }
 /* Continue (waiting to turn back where the track ends): the width of Go and the arrow together, a thumb tall. */
 .chip.continue { width: 218px; height: 48px; font-size: 18px; font-weight: 800; }
 /* Leave now (waiting for a full load): Continue's row and size. */
@@ -339,9 +424,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
 /* (As wide as its words, up to the screen less a margin: from `left: 50%` it would otherwise shrink to half the screen
    and wrap a short message onto three lines.) */
-.toast { position: fixed; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); transform: translate(-50%, -14px) rotate(0deg); background: #fbf5e8; color: #3a2a1c; padding: 9px 18px; border-radius: 6px; font-weight: 800; opacity: 0;
-  box-shadow: 0 1px 0 #fff inset, 0 6px 16px rgba(60, 40, 20, 0.25); border-left: 4px solid #e0bf8d; transition: opacity 0.18s, transform 0.32s cubic-bezier(0.2, 1.4, 0.4, 1); pointer-events: none; width: max-content; max-width: calc(100% - 32px); text-align: center; }
-.toast.show { opacity: 1; transform: translate(-50%, 0) rotate(-0.8deg); pointer-events: auto; cursor: pointer; }
+.toast { position: fixed; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); transform: translate(-50%, -14px) rotate(0deg); color: var(--wood-ink); padding: 11px 18px 14px; border-radius: 9px; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 18px; letter-spacing: 0.01em; line-height: 1.2; opacity: 0;
+  /* a yellow lacquered block, clicked into place */
+  background: var(--sheen), var(--yellow); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -5px 0 var(--yellow-cut), 0 7px 6px -3px rgba(40, 22, 6, 0.5); transition: opacity 0.18s, transform 0.32s cubic-bezier(0.2, 1.4, 0.4, 1); pointer-events: none; width: max-content; max-width: calc(100% - 32px); text-align: center; }
+.toast.show { opacity: 1; transform: translate(-50%, 0) rotate(-1.5deg); pointer-events: auto; cursor: pointer; }
 /* While the map takes taps (picking pieces, drawing, clearing, picking stops): a tap goes through a toast to the map. */
 .toast.show.taps-through { pointer-events: none; cursor: auto; }
 /* Toasts sit above every panel and card (the Blueprints board too), so a message is never hidden. */
@@ -349,15 +435,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* With ☰ open, a toast that comes is under it, not over its top items taking their taps (the menu is in the HUD, a
    stacking context at z-index 10; the toast, after the HUD, at 35 was over all of it). */
 .hud:has(.menu:not([hidden])) ~ .toast { z-index: 9; }
-.toast.celebrate { background: #fff3c9; border-left-color: #e6b52c; }
+/* A win: a green block with a ✓ stamped on it. */
+.toast.celebrate { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -5px 0 var(--green-cut), 0 7px 6px -3px rgba(40, 22, 6, 0.5); }
+.toast.celebrate::before { content: "✓"; display: inline-grid; place-items: center; width: 24px; height: 22px; margin-right: 10px; font: 900 15px/1 "Nunito", sans-serif; color: var(--paint-ink); box-shadow: inset 0 0 0 2px var(--paint-ink); border-radius: 3px; transform: rotate(-4deg); vertical-align: 1px; text-shadow: none; opacity: 0.95; }
 
 .help { position: absolute; inset: 0; z-index: 32; background: rgba(40, 28, 16, 0.35); display: grid; place-items: center; padding: 16px; }
-.help-card { background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); border-radius: 22px; padding: 22px 24px; max-width: 520px; display: flex; flex-direction: column; gap: 6px; }
-.help-card h2 { margin: 0 0 4px; font-size: 24px; }
+.help-card { background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--board-drop); border-radius: 12px; padding: 22px 24px; max-width: 520px; display: flex; flex-direction: column; gap: 6px; }
+.help-card h2 { margin: 0 0 4px; font-family: var(--display); font-weight: 400; font-size: 27px; letter-spacing: 0.02em; }
 .help-card ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
 .tips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 4px 0 6px; }
 .help-goals { margin: 2px 4px 6px; font-size: 13.5px; line-height: 1.35; }
-.tip { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; background: #fff8ec; border-radius: 14px; padding: 10px 8px 12px; box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.12); font-size: 13.5px; line-height: 1.35; }
+.tip { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; background: var(--maple); border-radius: 8px; padding: 10px 8px 13px; box-shadow: var(--tile-face), var(--tile-drop); font-size: 13.5px; line-height: 1.35; }
 .tip b { font-size: 15px; }
 .tip-art { width: 88px; height: 66px; background: center / contain no-repeat; display: grid; place-items: center; }
 .more-help summary { cursor: pointer; font-weight: 800; color: #8a6a4a; padding: 12px 0; margin: -8px 0; }
@@ -381,7 +469,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tip { padding: 6px 8px 8px; font-size: 12.5px; gap: 2px; }
   .tip b { font-size: 14px; }
   .tip-art { width: 64px; height: 40px; }
-  .help-card .chip.primary { position: sticky; bottom: 0; margin-top: 4px; box-shadow: 0 -6px 14px rgba(250, 243, 230, 0.9), 0 3px 10px rgba(60, 40, 20, 0.22); }
+  .help-card .chip.primary { position: sticky; bottom: 0; margin-top: 4px; }
 }
 
 .perf { position: absolute; left: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 56px); font: 12px ui-monospace, monospace; background: rgba(20, 14, 8, 0.7); color: #e9ffe0; padding: 6px 9px; border-radius: 8px; pointer-events: none; }
@@ -419,12 +507,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* (The ledger's own limit is as specific, and later: lift it too, or its rows spill out under the switches.) The
      switches stay in view at the card's foot while the ledger scrolls by above them. */
   .card .depot-extra.ledger { max-height: none; }
-  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
+  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: var(--wood-panel); box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
   /* And its title and ✕ at the top (the ✕ first, laid over the title's right end); focus scrolls clear of both. */
   .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 72px; }
   /* (The ✕ comes first and takes no room: its margins cancel its height and the gap after it, so the title starts where
      it sticks, at the card's top edge. Pulled up further, the sticky title stayed put and the ledger ran up under it.) */
-  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: 0 -14px; padding: 12px 48px 6px; text-align: center; background: #faf3e6; box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
+  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: 0 -14px; padding: 12px 48px 6px; text-align: center; background: var(--wood-panel); box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
   .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -54px 0; }
 }
 @media (max-width: 400px) {
@@ -514,17 +602,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray.track-tab.in-group .tray-orient, .tray.track-tab.has-favourites .tray-orient { display: flex; }
 /* A card for a selected piece, car or depot has its own buttons there: the tray's Turn/Flip steps aside. */
 .card-open .tray.track-tab.in-group .tray-orient, .card-open .tray.track-tab.has-favourites .tray-orient { display: none; }
-.tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.tray-orient .chip { padding: 7px 12px; font-size: 13px; }
 /* Draw: above the tray, at the left, while the Track tab is open. */
 /* (A flex box, so its pencil and word are centred as a plain button's text is: Turn's and Flip's, beside it.) */
 /* Draw (Track tab only) and Clear (any tab): above the tray, at the left, side by side. */
 .tray-pens { position: absolute; left: 12px; top: -52px; display: flex; gap: 6px; }
-.tray-draw { display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.tray-draw { display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; line-height: 1; }
 .tray.draw-tab .tray-draw { display: inline-flex; }
 .card-open .tray.draw-tab .tray-draw { display: none; }
-.tray-erase { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.tray-erase { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; line-height: 1; }
 .card-open .tray .tray-erase { display: none; }
-.tray-erase.active { background: linear-gradient(180deg, #f6b19f, #dd6b52); color: #3a120a; }
+.tray-erase.active { color: var(--paint-ink); background: var(--sheen), var(--red); box-shadow: inset 0 -3px 0 var(--red-cut), var(--block-drop); }
 /* Clearing: Turn and Flip have nothing to turn. */
 .tray.erasing .tray-orient { display: none !important; }
 /* Turn and Flip do nothing for a drawn line: away while drawing. */
@@ -544,7 +632,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-tools .tray-orient { gap: 6px; }
   .tray-tools .tray-pens { display: contents; }
   .tray-tools .tray-draw, .tray-tools .tray-orient { position: static; top: auto; left: auto; right: auto; }
-  .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; height: 34px; min-width: 40px; padding: 0 9px; font-size: 12px; line-height: 1; box-shadow: 0 2px 6px rgba(60, 40, 20, 0.18); position: relative; }
+  .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 34px; min-width: 40px; padding: 0 9px 3px; font-size: 12.5px; line-height: 1; border-radius: 7px; box-shadow: inset 0 1px 0 #fff, inset 0 -3px 0 var(--maple-cut), 0 3px 3px -2px rgba(40, 22, 6, 0.4); position: relative; }
   /* Drawn small to fit the row, but a finger's 44 px to tap. */
   /* (Sideways, half the gap between chips, so neighbours' reach meets but doesn't overlap; more at the row's ends.) */
   .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -3px; }
@@ -603,8 +691,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }
 
 /* ---- title screen ---------------------------------------------------------------------------------------- */
-.mode-tag { font-size: 12px; font-weight: 800; letter-spacing: 0.02em; padding: 3px 9px; border-radius: 999px; background: #ead7b8; color: #5a3f24; margin-left: 2px; white-space: nowrap; }
-.mode-tag.mode-game { background: #d9ead2; color: #2d5a2a; }
+.mode-tag.mode-game { background: var(--mottle); color: var(--stamp-green-ink); box-shadow: inset 0 0 0 1.5px var(--stamp-green); }
 .beta { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 6px; border-radius: 999px; background: #c8442f; color: #fff; vertical-align: 2px; }
 .title-screen { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(16px, 4vh, 36px); padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: radial-gradient(ellipse at 50% 45%, rgba(40, 28, 16, 0) 30%, rgba(40, 28, 16, 0.45)); overflow-y: auto; }
 .title-screen[hidden] { display: none; }
@@ -615,23 +702,23 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-logo .wb { animation: wb-drop 0.55s cubic-bezier(0.3, 1.5, 0.5, 1) calc(0.45s + var(--i) * 0.07s) backwards; }
 @keyframes wb-drop { from { translate: 0 -1.4em; opacity: 0; } 40% { opacity: 1; } }
 .title-cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; width: min(720px, 100%); }
-.title-card { flex: 1 1 260px; max-width: 340px; border-radius: 20px; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 4px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 16px 50px rgba(30, 20, 10, 0.35); }
-.title-card h2 { margin: 0; font-size: 26px; display: flex; align-items: center; gap: 8px; }
+.title-card { flex: 1 1 260px; max-width: 340px; border-radius: 12px; padding: 18px 20px 24px; display: flex; flex-direction: column; gap: 4px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--board-drop); }
+.title-card h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 28px; letter-spacing: 0.02em; display: flex; align-items: center; gap: 8px; }
 .title-card p { margin: 0 0 10px; line-height: 1.45; color: #5c4632; }
-.title-art { width: 84px; height: 84px; border-radius: 16px; background: #efe0c6 center / 112% no-repeat; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.06); margin-bottom: 6px; }
+.title-art { width: 84px; height: 84px; border-radius: 8px; background: var(--maple) center / 112% no-repeat; box-shadow: var(--tile-face), var(--tile-drop); margin-bottom: 6px; }
 .title-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .title-buttons .chip { flex: 1; justify-content: center; }
 /* A quiet way in for a railway saved on another device (a build with a cloud): a small pill under the cards, not a
    third big button. Its card opens over the title, in the middle. */
 .title-foot { display: flex; justify-content: center; }
 .title-foot[hidden] { display: none; }
-.title-cloud { min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; background: rgba(250, 243, 230, 0.82); box-shadow: 0 4px 14px rgba(30, 20, 10, 0.25); font: inherit; font-weight: 800; font-size: 14px; color: #5c4632; cursor: pointer; }
-.title-cloud:hover { background: rgba(250, 243, 230, 0.95); }
+.title-cloud { min-height: 44px; padding: 0 18px 3px; border: 0; border-radius: 9px; background: var(--sheen), var(--maple); box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), var(--block-drop); font: inherit; font-weight: 800; font-size: 14px; color: var(--wood-ink); cursor: pointer; }
+.title-cloud:hover { filter: brightness(1.04); }
 /* A railway in the cloud for this mode (cloud-known.ts `titleOffers`): under the card's buttons, its own look (a
    sky-blue pill: not a third wood button), what it is and when it was saved on a line of its own. */
 .title-cloud-offer { margin-top: 8px; grid-column: 1 / -1; }
 .title-cloud-offer[hidden] { display: none; }
-.title-cloud-go { width: 100%; min-height: 48px; padding: 6px 14px; border: 0; border-radius: 14px; background: #dcebf3; box-shadow: inset 0 -2px 0 rgba(40, 80, 110, 0.18); font: inherit; font-weight: 800; font-size: 15px; color: #2e526a; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.title-cloud-go { width: 100%; min-height: 48px; padding: 6px 14px 9px; border: 0; border-radius: 9px; background: var(--sheen), var(--blue); box-shadow: inset 0 -4px 0 var(--blue-cut), var(--block-drop); font: inherit; font-weight: 800; font-size: 15px; color: var(--paint-ink); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .title-cloud-go:hover:not(:disabled) { background: #cfe3ee; }
 .title-cloud-go:disabled { cursor: default; opacity: 0.7; }
 .title-cloud-go.busy { opacity: 0.6; }
@@ -659,20 +746,20 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (The title centred on the page: an empty column the size of Back on its right.) */
 .new-game-head::after { content: ""; display: block; width: 104px; }
 .new-game-sheet .new-game-back { height: 48px; min-width: 104px; padding: 0 16px 0 12px; }
-.new-game-title { margin: 0; font-size: 26px; color: #4a3220; text-align: center; }
+.new-game-title { margin: 0; font-family: var(--display); font-weight: 400; font-size: 28px; letter-spacing: 0.02em; color: var(--wood-ink); text-align: center; }
 .new-game-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: min(560px, 100%); margin: 0 auto; padding: 24px 2px 16px; display: flex; flex-direction: column; justify-content: flex-start; gap: 16px; }
-.new-game-warn { margin: 0; padding: 9px 8px; border-radius: 12px; text-align: center; font-weight: 800; font-size: 14px; line-height: 1.35; white-space: pre-line; color: var(--warn-ink); background: rgba(176, 57, 31, 0.08); }
+.new-game-warn { margin: 0; padding: 9px 8px; border-radius: 4px; text-align: center; font-weight: 800; font-size: 14px; line-height: 1.35; white-space: pre-line; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2px var(--stamp-red); }
 .new-game-warn[hidden] { display: none; }
 .new-game-rows { display: flex; flex-direction: column; gap: 22px; }
 .new-game-row { display: flex; flex-direction: column; gap: 10px; }
-.new-game-label { font-weight: 800; font-size: 17px; color: #6a4a2c; }
+.new-game-label { font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; color: var(--wood-ink); }
 .new-game-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .chip.new-game-step { height: auto; min-height: 76px; padding: 10px 4px 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 15px; line-height: 1.1; }
 .new-game-pic { width: 36px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
 .new-game-blurb { margin: 0; min-height: 1.4em; font-size: 15px; color: #5c4632; text-align: center; }
 .new-game-seed-line { display: flex; gap: 10px; }
-.new-game-seed { flex: 1; min-width: 0; height: 52px; padding: 0 14px; border: none; border-radius: 13px; font: inherit; font-weight: 800; font-size: 20px; letter-spacing: 0.04em; color: #3a2a1c; background: #fffaf0; box-shadow: inset 0 2px 4px rgba(90, 60, 30, 0.22), inset 0 0 0 2px #d8bd96; -webkit-user-select: text; user-select: text; }
-.new-game-seed:focus { outline: none; box-shadow: inset 0 2px 4px rgba(90, 60, 30, 0.22), inset 0 0 0 3px #5aa35a; }
+.new-game-seed { flex: 1; min-width: 0; height: 52px; padding: 0 14px; border: none; border-radius: 8px; font: inherit; font-weight: 800; font-size: 20px; letter-spacing: 0.04em; color: var(--wood-ink); background: var(--maple); box-shadow: var(--groove-sh), inset 0 0 0 2px var(--maple-cut); -webkit-user-select: text; user-select: text; }
+.new-game-seed:focus { outline: none; box-shadow: var(--groove-sh), inset 0 0 0 3px var(--green); }
 .new-game-seed.bad { box-shadow: inset 0 2px 4px rgba(90, 60, 30, 0.22), inset 0 0 0 3px var(--warn-ink); }
 .new-game-sheet .new-game-dice { height: 52px; min-width: 96px; font-size: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .new-game-die { width: 22px; height: 22px; flex: none; }
@@ -723,131 +810,157 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 #loading.behind-title .load-bar, #loading.behind-title p { visibility: hidden; }
 
 /* ---- goals (Game mode) ----------------------------------------------------------------------------------- */
-.goals { position: absolute; left: max(12px, env(safe-area-inset-left)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(320px, calc(100% - 24px)); border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; overflow: hidden; }
+/* The Journal: a beech board. Each goal and tip on it is a maple tile, its buttons at its bottom right (the main one
+   rightmost); its box a hole bored in the board, a green peg in it when done; progress, counts and dates stamped. */
+.goals { position: absolute; left: max(12px, env(safe-area-inset-left)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(320px, calc(100% - 24px)); border-radius: 12px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--top-drop); color: var(--wood-ink); overflow: hidden; }
 /* Folded up: one line, as wide as the goal's title needs (up to a limit). */
 .goals.collapsed { width: auto; max-width: min(460px, calc(100% - 24px)); }
 .goals-top { display: flex; align-items: center; gap: 4px; padding-right: 8px; }
-.goals-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; font: inherit; color: inherit; padding: 10px 6px 6px 14px; min-height: 44px; cursor: pointer; text-align: left; }
-.goals-label { flex: none; font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #74522f; }
-.goals-count { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 12px; background: #d9ead2; color: #2d5a2a; border-radius: 999px; padding: 2px 8px; }
-.goals-now { display: none; font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-/* The fold chevron: points up (fold) when open, down (unfold) when folded. */
-.goals-fold { flex: none; margin-left: auto; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: #74522f; background: rgba(201, 165, 122, 0.22); transition: transform 0.2s ease-out; }
+.goals-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; font: inherit; color: inherit; padding: 10px 6px 12px 14px; min-height: 44px; cursor: pointer; text-align: left; }
+.goals-label { flex: none; font-family: var(--display); font-weight: 400; font-size: 15px; line-height: 1; letter-spacing: 0.06em; text-transform: uppercase; color: var(--wood-ink-soft); padding-top: 2px; }
+/* The count is stamped in red, a little crooked: a mark on the board, not a badge. */
+.goals-count { flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 6px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: var(--display); font-weight: 400; font-size: 13.5px; line-height: 1; color: var(--stamp-red); background: var(--mottle); border-radius: 3px; box-shadow: inset 0 0 0 2px var(--stamp-red); transform: rotate(-2deg); }
+.goals-now { display: none; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 18px; letter-spacing: 0.01em; line-height: 1.15; padding-top: 1px; min-width: 0; }
+/* The fold chevron: points up (fold) when open, down (unfold) when folded. A square cut in the board. */
+.goals-fold { flex: none; margin-left: auto; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 7px; color: var(--wood-ink-soft); background: var(--groove); box-shadow: var(--groove-sh); transition: transform 0.2s ease-out; }
 .goals.collapsed .goals-fold { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) { .goals-fold { transition: none; } }
 .goals.collapsed .goals-label { display: none; }
-.goals.collapsed .goals-now { display: block; }
+/* A long goal takes a second line rather than an ellipsis. */
+.goals.collapsed .goals-now { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; text-wrap: balance; }
 .goals.collapsed .goals-body { display: none; }
-.goals.collapsed .goals-head { padding: 9px 4px 9px 12px; min-height: 44px; }
-/* The round "show me" button: only while folded (unfolded, it's a chip under the hint). */
-.goals-show-icon { display: none; flex: none; width: 44px; height: 44px; margin: 0 -5px; border: 0; padding: 0; place-items: center; cursor: pointer; color: #5a3f24; background: transparent; isolation: isolate; }
-/* The drawn button (34 px) inside its 44 px hit area, which the panel's edge mustn't clip. */
-.goals-show-icon::before { content: ""; position: absolute; inset: 5px; z-index: -1; border-radius: 50%; background: linear-gradient(180deg, #f6e3c1, #e8c992); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.25); }
+.goals.collapsed .goals-head { padding: 9px 4px 12px 12px; min-height: 44px; }
+/* Open: "GOALS", the stamp and the fold on one centre line, inset 14 px both sides. */
+.goals:not(.collapsed) .goals-top { padding-right: 0; min-height: 56px; }
+.goals:not(.collapsed) .goals-head { min-height: 56px; padding: 0 0 0 14px; gap: 10px; }
+.goals:not(.collapsed) .goals-fold { margin-right: 14px; }
+/* Show me, while folded: a blue painted block (the ⌖, and its word where there's room). */
+.goals-show-icon { display: none; flex: none; width: 44px; height: 44px; margin: 0 -5px; border: 0; padding: 0; place-items: center; cursor: pointer; color: var(--paint-ink); background: transparent; isolation: isolate; }
+/* The drawn button inside its 44 px hit area, which the panel's edge mustn't clip. */
+.goals-show-icon::before { content: ""; position: absolute; inset: 4px 2px 6px; z-index: -1; border-radius: 8px; background: var(--sheen), var(--blue); box-shadow: inset 0 -3px 0 var(--blue-cut); }
 .goals-show-icon:hover::before { filter: brightness(1.05); }
 .goals.collapsed .goals-show-icon { display: grid; }
-/* Its word beside the ⌖ (QA: unlabelled): a pill, not a dot. */
-.goals.collapsed .goals-show-icon { display: inline-flex; align-items: center; gap: 4px; width: auto; padding: 0 13px 0 11px; font: inherit; font-weight: 800; font-size: 13px; white-space: nowrap; }
-.goals.collapsed .goals-show-icon::before { border-radius: 17px; }
-/* (Where the word would cut the goal's title short: the round ⌖ alone, as before.) */
-.goals.collapsed.show-tight .goals-show-icon { width: 44px; padding: 0; justify-content: center; }
+/* Its word beside the ⌖ (QA: unlabelled): on a wide screen. On a phone the ⌖ alone, so the goal keeps its words. */
+.goals.collapsed .goals-show-icon { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; padding: 0 13px 0 11px; font-family: var(--display); font-weight: 400; font-size: 15px; letter-spacing: 0.02em; line-height: 1; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); white-space: nowrap; }
+@media (max-width: 640px) {
+  .goals.collapsed .goals-show-icon { width: 46px; padding: 0; }
+  .goals.collapsed .goals-show-word { display: none; }
+}
+/* (Where the word would cut the goal's title short: the ⌖ alone.) */
+.goals.collapsed.show-tight .goals-show-icon { width: 46px; padding: 0; justify-content: center; }
 .goals.collapsed.show-tight .goals-show-word { display: none; }
-.goals.collapsed.title-small .goals-now { font-size: 13px; letter-spacing: -0.01em; }
-.goals-show { margin-top: 6px; height: 44px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.goals.collapsed.title-small .goals-now { font-size: 15px; letter-spacing: 0; }
 .goals-body { display: none; }
-.goals.collapsed .goals-head { padding-bottom: 10px; }
-.goals-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 6px; }
-.goal { display: flex; gap: 10px; align-items: flex-start; }
-.goal b { font-size: 16px; display: block; line-height: 1.25; }
-.goal p { margin: 3px 0 0; font-size: 13px; line-height: 1.4; color: #6a5340; }
-.goal-progress { display: inline-block; margin-top: 3px; font-size: 12px; font-weight: 800; color: #2d5a2a; background: #e5f0dd; border-radius: 6px; padding: 1px 7px; }
-.goal-box, .goal-tick { flex: none; width: 20px; height: 20px; border-radius: 5px; margin-top: 1px; background: #fffaf0; box-shadow: inset 0 0 0 2px #c9a57a; }
-.goal-tick { display: grid; place-items: center; background: linear-gradient(180deg, #8fd08a, #5aa35a); box-shadow: none; color: #fff; font-weight: 800; font-size: 14px; }
-.goal.upcoming { opacity: 0.72; font-size: 13px; font-weight: 700; align-items: center; }
-.goal.upcoming .goal-box { width: 16px; height: 16px; margin: 0 2px; }
+.goals-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+/* A goal: its box sits on its title's centre line (Lilita 19 px, a 22 px line). */
+.goal { display: flex; gap: 12px; align-items: flex-start; }
+.goal > div { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: stretch; }
+.goal b { font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.01em; display: block; line-height: 22px; color: var(--wood-ink); }
+.goal p { margin: 3px 0 0; font-size: 13.5px; font-weight: 700; line-height: 1.4; color: var(--wood-ink-soft); }
+/* Progress, stamped in green: "0 / 2 towns". */
+.goal-progress { align-self: flex-start; display: inline-flex; align-items: center; height: 22px; margin-top: 6px; padding: 0 7px; font-size: 12.5px; font-weight: 800; line-height: 1; color: var(--stamp-green-ink); background: var(--mottle); border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--stamp-green); transform: rotate(-1.5deg); }
+.goal-box, .goal-tick { flex: none; width: 22px; height: 22px; border-radius: 50%; margin-top: 0; background: var(--hole); box-shadow: var(--hole-sh); }
+.goal-tick { display: grid; place-items: center; background: var(--peg-green); box-shadow: var(--peg-drop); color: var(--paint-ink); font-weight: 900; font-size: 12px; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); }
+/* The current goal: a maple tile, Show me at its bottom right. */
+.goals-pane > .goal.current { padding: 12px 12px 12px 10px; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+.goal.current .goals-show { align-self: flex-end; margin-top: 10px; }
+/* The next goals, not started: a short list, their holes on the tiles' left edge. */
+.goal.upcoming { padding: 0 10px; min-height: 32px; font-size: 13.5px; font-weight: 700; align-items: center; color: var(--wood-ink-soft); }
+.goal.upcoming .goal-box { width: 16px; height: 16px; margin: 0 3px; }
 .goal.upcoming.locked .goal-box { background: none; box-shadow: none; font-size: 12px; line-height: 16px; text-align: center; }
-/* A tip for a system just learned (feature-tips.ts): a quieter card under the goals, its own Show me and Got it. */
-.goal.feature-tip { margin-top: 4px; padding: 8px 10px; border-radius: 10px; background: #fbf1dc; box-shadow: inset 0 0 0 1.5px #e3c896; }
-.goal.feature-tip b { font-size: 14px; }
-.goal.feature-tip .tip-box { background: none; box-shadow: none; font-size: 16px; line-height: 20px; text-align: center; }
-.tip-buttons { display: flex; gap: 6px; margin-top: 6px; }
-.tip-buttons .chip { height: 44px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
-.tip-done { opacity: 0.8; }
+/* A tip for a system just learned (feature-tips.ts): a maple tile too, Got it then Show me at its bottom right. */
+.goal.feature-tip { padding: 12px 12px 12px 10px; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+.goal.feature-tip b { font-size: 17px; }
+.goal.feature-tip .tip-box { width: 22px; height: 22px; display: grid; place-items: center; background: none; box-shadow: none; font-size: 16px; line-height: 1; }
+.tip-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.tip-buttons .tip-show { order: 2; }
+.tip-buttons .tip-done { order: 1; }
+/* The Journal's buttons: words printed on, Show me painted blue. */
+.goals-body .chip { height: 44px; padding: 0 14px; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; }
+.goals-show, .tip-show { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--blue) !important; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--blue-cut), var(--block-drop) !important; }
 .goal.arrive { animation: goal-arrive 0.5s cubic-bezier(0.3, 1.4, 0.5, 1); }
 @keyframes goal-arrive { from { opacity: 0; transform: translateY(14px); } }
 .goals.ticked .goals-count { animation: goal-pop 0.6s ease-out; }
-@keyframes goal-pop { 30% { transform: scale(1.35); background: #8fd08a; } }
+@keyframes goal-pop { 30% { scale: 1.35; } }
 .goals-stickers { align-self: flex-start; }
 @media (prefers-reduced-motion: reduce) { .goal.arrive, .goals.ticked .goals-count { animation: none; } }
 /* The Journal: Goals and News tabs, the unread bell on the chip, and the news list. */
-.goals-pane { display: flex; flex-direction: column; gap: 6px; }
+.goals-pane { display: flex; flex-direction: column; gap: 10px; }
 .goals-pane[hidden], .news-pane[hidden], .goals-bell[hidden], .goals-tab-badge[hidden] { display: none; }
-.goals-bell { flex: none; white-space: nowrap; font-weight: 800; font-size: 12px; color: #8a4a12; background: #ffe2a8; border-radius: 999px; padding: 2px 8px; }
-.goals-tabs { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+/* The bell: a little yellow block. */
+.goals-bell { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 24px; white-space: nowrap; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 14px; line-height: 1; color: var(--wood-ink); background: var(--sheen), var(--yellow); border-radius: 5px; padding: 0 7px; box-shadow: inset 0 -2px 0 var(--yellow-cut); }
+/* The view switch: a groove with a maple block slid to the open side. */
+.goals-tabs { display: flex; gap: 4px; align-items: center; margin-bottom: 0; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); }
 /* The open Journal shows its count on the tab, not twice. */
 .goals:not(.collapsed) .goals-bell { display: none; }
-.goals-tab { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 10px; background: rgba(255, 250, 240, 0.6); box-shadow: inset 0 0 0 2px #d8c6a6; font: inherit; font-weight: 800; font-size: 14px; color: #6a5340; cursor: pointer; }
-.goals-tab.on { background: #fffaf0; box-shadow: inset 0 0 0 2px #c9a57a; color: #3a2a1c; }
-.goals-tab-badge { font-size: 12px; font-weight: 800; background: #e2a12b; color: #fff; border-radius: 999px; min-width: 20px; padding: 1px 6px; text-align: center; }
-.goals-close { display: none; flex: none; width: 44px; height: 44px; border: 0; background: transparent; font: inherit; font-size: 18px; color: #8a6440; cursor: pointer; }
-.news-pane { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }
-/* flex: none: a capped, scrolling list keeps each row its own height (shrunk to 44 px, a long one ran into the next). */
-.news-item { flex: none; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 10px; background: #fffaf0; font: inherit; font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #3a2a1c; text-align: left; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); }
+.goals-tab { flex: 1; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 7px; background: transparent; box-shadow: none; font: inherit; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
+.goals-tab.on { background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); color: var(--wood-ink); }
+.goals-tab-badge { display: inline-flex; align-items: center; justify-content: center; height: 20px; min-width: 20px; padding: 0 6px; border-radius: 5px; font-size: 13px; line-height: 1; color: var(--wood-ink); background: var(--sheen), var(--yellow); box-shadow: inset 0 -2px 0 var(--yellow-cut); }
+.goals-close { display: none; flex: none; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 18px; font-weight: 900; color: var(--wood-ink-soft); cursor: pointer; }
+.news-pane { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 3px; }
+/* flex: none: a capped, scrolling list keeps each row its own height (shrunk to 44 px, a long one ran into the next).
+   Each item a maple strip, its date stamped small and brown. */
+.news-item { flex: none; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 10px; border: 0; border-radius: 7px; background: var(--maple); font: inherit; font-size: 13.5px; font-weight: 700; line-height: 1.3; color: var(--wood-ink); text-align: left; box-shadow: var(--tile-face), var(--tile-drop); }
 .news-item.go { cursor: pointer; }
-.news-item.milestone { background: #fff1cf; }
-.news-item i { font-style: normal; color: #d9a441; }
+.news-item.milestone { background: #fff4d6; }
+.news-item i { font-style: normal; color: var(--yellow-cut); }
 .news-text { flex: 1; min-width: 0; }
-.news-time { flex: none; font-size: 11.5px; font-weight: 700; color: #8a7660; white-space: nowrap; }
-.news-go { flex: none; font-size: 20px; line-height: 1; color: #b88a54; }
-.news-empty { margin: 8px 4px; font-size: 13px; color: #6a5340; }
+.news-time { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 5px; border-radius: 3px; font-size: 11.5px; font-weight: 800; line-height: 1; color: var(--stamp-brown); box-shadow: inset 0 0 0 1.2px rgba(90, 58, 26, 0.55); white-space: nowrap; }
+.news-go { flex: none; font-size: 20px; line-height: 1; color: var(--wood-ink-soft); }
+.news-empty { margin: 8px 4px; font-size: 13.5px; color: var(--wood-ink-soft); }
 /* Stickers (after the core goals): a dot on the chip for a new one, a tab of tiles, 4 across at 360 px. */
-.goals-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #e2a12b; box-shadow: 0 0 0 2px #fffaf0; }
+.goals-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--peg-yellow); box-shadow: var(--peg-drop); }
 .goals-dot[hidden], .stickers-pane[hidden], .goals-tab[hidden] { display: none; }
-.goals-tab.fresh::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #e2a12b; }
-.stickers-pane { display: flex; flex-direction: column; gap: 4px; }
-.stickers-count { margin: 2px 2px 0; font-size: 14px; font-weight: 800; color: #3a2a1c; }
-.stickers-theme { margin: 6px 2px 0; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #74522f; }
-.stickers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
-.sticker { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; min-height: 72px; padding: 6px 2px; border: 0; border-radius: 12px; background: rgba(255, 250, 240, 0.55); box-shadow: inset 0 0 0 2px #e2d3b8; font: inherit; font-size: 11.5px; font-weight: 800; line-height: 1.15; color: #8a7660; cursor: pointer; text-align: center; position: relative; }
+.goals-tab.fresh::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--peg-yellow); box-shadow: var(--peg-drop); }
+.stickers-pane { display: flex; flex-direction: column; gap: 6px; }
+.stickers-count { margin: 2px 2px 0; font-family: var(--display); font-weight: 400; font-size: 16px; color: var(--wood-ink); }
+.stickers-theme { margin: 6px 2px 0; font-family: var(--display); font-weight: 400; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--wood-ink-soft); }
+.stickers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
+/* Not earned: a pencil outline of where it goes; earned: a maple tile with the sticker on it. */
+.sticker { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; min-height: 72px; padding: 6px 2px; border: 0; border-radius: 8px; background: transparent; box-shadow: inset 0 0 0 1.5px var(--pencil); font: inherit; font-size: 11.5px; font-weight: 800; line-height: 1.15; color: var(--wood-ink-soft); cursor: pointer; text-align: center; position: relative; }
 .sticker-icon { font-size: 28px; line-height: 34px; filter: grayscale(1); opacity: 0.45; }
-.sticker.got { background: #fff1cf; box-shadow: inset 0 0 0 2px #e2b860, 0 1px 0 rgba(120, 80, 40, 0.2); color: #3a2a1c; }
+.sticker.got { background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); color: var(--wood-ink); }
 .sticker.got .sticker-icon { filter: none; opacity: 1; }
-.sticker.picked { box-shadow: inset 0 0 0 3px #c9862b; }
-.sticker.new::after { content: "New"; position: absolute; top: -4px; right: -2px; font-size: 10px; padding: 1px 5px; border-radius: 999px; background: #e2a12b; color: #fff; }
+.sticker.picked { box-shadow: var(--tile-face), 0 0 0 3px var(--wood-ink); }
+.sticker.new::after { content: "New"; position: absolute; top: -4px; right: -2px; font-size: 10px; line-height: 1; padding: 3px 5px; border-radius: 4px; background: var(--sheen), var(--yellow); color: var(--wood-ink); box-shadow: inset 0 -2px 0 var(--yellow-cut); }
 .sticker-name { overflow-wrap: anywhere; }
-.sticker-ticket { margin: 0 2px; min-height: 2.6em; font-size: 13px; line-height: 1.3; color: #6a5340; }
-.sticker-ticket b { color: #3a2a1c; }
+.sticker-ticket { margin: 0 2px; min-height: 2.6em; font-size: 13.5px; line-height: 1.3; color: var(--wood-ink-soft); }
+.sticker-ticket b { color: var(--wood-ink); }
 /* Achievements (the grand projects, src/game/grand.ts): a row each, its stage pips, reward and what's next. */
-.ach-pane { display: flex; flex-direction: column; gap: 6px; }
+.ach-pane { display: flex; flex-direction: column; gap: 8px; }
 .ach-pane[hidden] { display: none; }
-.ach-item { border-radius: 12px; background: rgba(255, 250, 240, 0.6); box-shadow: inset 0 0 0 2px #e2d3b8; }
-.ach-item.got { background: #fff1cf; box-shadow: inset 0 0 0 2px #e2b860; }
-.ach-row { display: flex; gap: 10px; align-items: flex-start; width: 100%; min-height: 44px; padding: 8px 10px; border: 0; background: none; font: inherit; text-align: left; color: #3a2a1c; cursor: pointer; }
+.ach-item { border-radius: 8px; background: transparent; box-shadow: inset 0 0 0 1.5px var(--pencil); }
+.ach-item.got { background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+.ach-row { display: flex; gap: 10px; align-items: flex-start; width: 100%; min-height: 44px; padding: 8px 10px; border: 0; background: none; font: inherit; text-align: left; color: var(--wood-ink); cursor: pointer; }
 .ach-icon { flex: none; font-size: 28px; line-height: 34px; }
 .ach-item:not(.got) .ach-icon { filter: grayscale(0.7); opacity: 0.75; }
 .ach-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.ach-name { font-size: 14.5px; font-weight: 800; }
-.ach-earned { font-size: 12px; font-weight: 800; color: #3f7a2c; white-space: nowrap; }
-.ach-pips { font-size: 13px; letter-spacing: 2px; color: #b07a2c; }
-.ach-reward { font-size: 12.5px; font-weight: 700; line-height: 1.3; color: #6b5038; }
-.ach-line { font-size: 12.5px; font-weight: 800; color: #7a5a3a; }
-.ach-stages { margin: 0 10px 6px 48px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: #6b5038; }
-.ach-stages li.done { color: #3f7a2c; }
-.ach-stages li.now { color: #7a3d10; }
+.ach-name { font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.01em; }
+.ach-earned { font-size: 12px; font-weight: 800; color: var(--stamp-green-ink); white-space: nowrap; }
+.ach-pips { font-size: 13px; letter-spacing: 2px; color: var(--yellow-cut); }
+.ach-reward { font-size: 12.5px; font-weight: 700; line-height: 1.3; color: var(--wood-ink-soft); }
+.ach-line { font-size: 12.5px; font-weight: 800; color: var(--wood-ink-soft); }
+.ach-stages { margin: 0 10px 6px 48px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--wood-ink-soft); }
+.ach-stages li.done { color: var(--stamp-green-ink); }
+.ach-stages li.now { color: var(--stamp-red); }
 .ach-show { margin: 0 10px 10px 48px; }
 /* Narrow phones: the tab is its trophy alone, so the four tabs and ✕ fit. */
 @media (max-width: 420px) { .goals-tab .tab-word { display: none; } }
 /* A city's Grand projects row (on its card). */
-.grand-pips { font-size: 13px; letter-spacing: 2px; color: #b07a2c; }
+.grand-pips { font-size: 13px; letter-spacing: 2px; color: var(--yellow-cut); }
 .grand-tile .grand-stage { padding: 6px 8px; font-size: 12.5px; }
-.grand-tile.earned { background: #fff1cf; border-color: #e2b860; }
-.grand-tile.building { background: #eef6e6; border-color: #9cc48a; }
+.grand-tile.earned { background: #fff4d6; border-color: var(--yellow); }
+.grand-tile.building { background: #eef6e6; border-color: var(--stamp-green); }
 .grand-show { margin-top: auto; }
 /* Phones: the open Journal is a bottom sheet, like the Blueprints ticket (the chip stays at the top). */
 @media (max-width: 560px), (max-height: 520px) {
-  .goals:not(.collapsed) .goals-body { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: min(62dvh, 520px); overflow-y: auto; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 -8px 26px rgba(60, 40, 20, 0.28); }
-  .goals-close { display: block; }
-  /* The tabs and ✕ stay put while the list scrolls. */
-  .goals-tabs { position: sticky; top: 0; z-index: 1; padding: 8px 0 4px; margin-bottom: 0; background: var(--wood-panel); }
+  .goals:not(.collapsed) .goals-body { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: min(62dvh, 520px); overflow-y: auto; padding: 0 12px calc(14px + env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; background: var(--wood-panel); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 -6px 8px -3px rgba(40, 22, 6, 0.4); }
+  .goals-close { display: grid; place-items: center; position: relative; margin-left: 12px; }
+  /* The tabs and ✕ stay put while the list scrolls: the groove holds only the tabs, ✕ stands outside it. */
+  .goals-tabs { position: sticky; top: 0; z-index: 1; padding: 10px 0 8px; margin-bottom: 0; background: var(--wood-panel); box-shadow: none; border-radius: 0; }
+  .goals-tabs::before { content: ""; position: absolute; left: 0; right: 52px; top: 10px; bottom: 8px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); }
+  .goals-tab { position: relative; margin: 4px 0; }
+  .goals-tab:first-child { margin-left: 4px; }
   .news-pane { max-height: none; overflow: visible; }
 }
 
@@ -862,24 +975,24 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 /* ---- land tools ------------------------------------------------------------------------------------------- */
 .tray-tool .icon svg { width: 54%; height: 54%; color: #5a3d22; }
-.tray-tool.active { background: radial-gradient(circle at 50% 38%, #f3ffe8, #d8efc6); box-shadow: inset 0 0 0 3px #5aa35a, 0 2px 5px rgba(80, 50, 20, 0.14); }
+.tray-tool.active { background: var(--maple); box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 0 0 3px var(--green), var(--tile-drop); }
 
 /* Send to Claude (debug report) */
 .report-card { z-index: 30; width: min(420px, calc(100% - 24px)); align-items: stretch; }
 .report-card .card-title { text-align: center; }
 .report-card .card-row { justify-content: flex-end; }
-.report-note { font: 500 15px/1.35 "Woodrail Icons", Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; resize: vertical; background: #fffaf2; color: #2b2118; }
+.report-note { font: 500 15px/1.35 "Woodrail Icons", Nunito, system-ui, sans-serif; border: 0; border-radius: 8px; padding: 8px 10px; resize: vertical; background: var(--maple); box-shadow: var(--groove-sh), inset 0 0 0 2px var(--maple-cut); color: var(--wood-ink); }
 .cloud-card { z-index: 30; width: min(400px, calc(100% - 24px)); align-items: stretch; gap: 8px; }
 .cloud-card .card-title { text-align: center; }
 .cloud-card .card-row { justify-content: flex-end; flex-wrap: wrap; }
-.cloud-card .chip.asking { background: linear-gradient(180deg, #f0b49a, #d9785a); }
+.cloud-card .chip.asking { color: var(--paint-ink); background: var(--sheen), var(--red); box-shadow: inset 0 -4px 0 var(--red-cut), var(--block-drop); }
 .cloud-text { margin: 0; font-size: 15px; line-height: 1.35; }
 .cloud-small { margin: 0; font-size: 13px; line-height: 1.35; color: #6a5340; }
 .cloud-load-row .cloud-load { flex: 1; justify-content: center; }
 .cloud-status { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; }
 .cloud-label { font-size: 13px; font-weight: 800; color: #6a4a2c; text-transform: uppercase; letter-spacing: 0.04em; }
 .cloud-code-row { display: flex; align-items: center; gap: 10px; }
-.cloud-code { flex: 1; font-size: 22px; font-weight: 800; letter-spacing: 0.02em; color: #2b2118; background: #fffaf2; border-radius: 10px; padding: 6px 10px; user-select: all; -webkit-user-select: all; }
+.cloud-code { flex: 1; font-size: 22px; font-weight: 800; letter-spacing: 0.02em; color: var(--wood-ink); background: var(--maple); box-shadow: var(--groove-sh), inset 0 0 0 2px var(--maple-cut); border-radius: 8px; padding: 6px 10px; user-select: all; -webkit-user-select: all; }
 .cloud-input { font: 700 18px/1.3 "Woodrail Icons", Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; background: #fffaf2; color: #2b2118; }
 .cloud-error { font-size: 14px; font-weight: 700; color: #a3361f; }
 .cloud-card .cloud-restore { align-self: flex-start; }
@@ -887,11 +1000,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .cloud-credit { margin: 0; font-size: 11px; color: #8a6c4c; text-align: center; }
 /* ☰ Credits: a list in the report card's place, scrolling on a short screen. */
 .credits-sheet { gap: 8px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 20px); overflow-y: auto; overscroll-behavior: contain; }
-.credits-intro { margin: 0; font-size: 13px; color: #6a5340; text-align: center; }
+.credits-intro { margin: 0; font-size: 13px; color: var(--wood-ink-soft); text-align: center; }
 .credits-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.credits-item { font-size: 13px; line-height: 1.35; color: #6a5340; }
+.credits-item { font-size: 13px; line-height: 1.35; color: var(--wood-ink-soft); }
 .credits-what { font-weight: 800; font-size: 14px; color: #3a2a1c; }
-.credits-link { color: #2f5f9a; text-decoration: underline; text-underline-offset: 2px; display: inline-block; min-height: 24px; }
+.credits-link { color: var(--blue-cut); text-decoration: underline; text-underline-offset: 2px; display: inline-block; min-height: 24px; }
 .credits-licence { font-weight: 700; }
 /* A phone on its side: docked under the top bar as the other cards are, but free to come down over the tray (it's in
    charge while it's open), so it all fits. */
@@ -911,7 +1024,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .feedback-sheet .card-row { flex-wrap: wrap; }
 .feedback-note { min-height: 72px; }
 .feedback-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; font-weight: 700; color: #3a2a1c; cursor: pointer; }
-.feedback-check input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: #5aa35a; }
+.feedback-check input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--green); }
 .feedback-check.locked { cursor: default; }
 .feedback-check.locked input { opacity: 0.7; }
 .feedback-thumb { height: 40px; width: auto; max-width: 72px; margin-left: auto; border-radius: 6px; box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25); object-fit: cover; }
@@ -930,7 +1043,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-view { position: absolute; inset: 0; pointer-events: none; }
 .map-view > * { pointer-events: auto; }
 .map-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.map-marker { position: absolute; left: 0; top: 0; pointer-events: auto; touch-action: none; display: flex; align-items: center; gap: 6px; margin: -14px 0 0 -14px; padding: 5px 10px 5px 6px; border: 0; border-radius: 12px; background: rgba(251, 243, 228, 0.94); box-shadow: 0 3px 12px rgba(40, 25, 10, 0.25); font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; max-width: 210px; }
+.map-marker { position: absolute; left: 0; top: 0; pointer-events: auto; touch-action: none; display: flex; align-items: center; gap: 6px; margin: -14px 0 0 -14px; padding: 5px 10px 7px 6px; border: 0; border-radius: 7px; background: var(--maple); box-shadow: inset 0 -3px 0 var(--maple-cut), 0 4px 4px -2px rgba(40, 22, 6, 0.45); font: inherit; color: var(--wood-ink); text-align: left; cursor: pointer; max-width: 210px; }
 .map-marker.off { visibility: hidden; pointer-events: none; }
 .map-marker:hover { filter: brightness(1.04); }
 .map-marker.flip { flex-direction: row-reverse; margin-left: 14px; padding: 5px 6px 5px 10px; text-align: right; }
@@ -960,13 +1073,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Compact labels (a short band between the bars, `COMPACT_BAND` in map-view.ts: a phone on its side): the name alone,
    one line, smaller, its dot kept (a depot's icon beside the name), no line under it or bar. 28 px tall, its dot's
    middle 14 px in from the box's corner as the full label's is (where the layout puts the place). */
-.map-view.compact .map-marker:not(.kind-ruin) { box-sizing: border-box; height: 28px; padding: 0 9px 0 8px; gap: 5px; border-radius: 14px; white-space: nowrap; max-width: none; }
+.map-view.compact .map-marker:not(.kind-ruin) { box-sizing: border-box; height: 28px; padding: 0 9px 2px 8px; gap: 5px; border-radius: 6px; white-space: nowrap; max-width: none; }
 .map-view.compact .map-marker.flip:not(.kind-ruin) { padding: 0 8px 0 9px; }
 .map-view.compact .map-dot { width: 12px; height: 12px; }
 .map-view.compact .map-text > span { display: none; }
 .map-view.compact .map-text b { font-size: 13px; line-height: 1; }
 .map-view.compact .map-glyph { display: inline; margin-left: 4px; font-size: 12px; }
-.map-bar { position: absolute; left: 50%; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 150px); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; white-space: nowrap; }
+.map-bar { position: absolute; left: 50%; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 150px); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 8px 12px 16px; border-radius: 10px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--top-drop); color: var(--wood-ink); white-space: nowrap; }
 .map-bar span { font-size: 13px; font-weight: 700; color: #6a5340; }
 .hud.map-open .goals, .hud.map-open .tray, .hud.board-open .goals, .hud.board-open .tray, .hud.board-open .tray-orient { visibility: hidden; }
 .hud.map-open .map-bar { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 16px); }
@@ -981,10 +1094,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item .fav { z-index: 2; }
 /* Game mode: a locked item says so in that corner; no ★ over it. */
 .tray-item.locked .fav { display: none; }
-.tray-item .fav.on { color: #e0a21c; text-shadow: 0 1px 0 rgba(120, 70, 10, 0.35); }
+.tray-item .fav.on { color: var(--yellow); text-shadow: 0 1px 0 rgba(120, 70, 10, 0.35); }
 /* Between the favourites and the shelves. */
-.tray-divider { flex: 0 0 auto; width: 2px; align-self: stretch; margin: 10px 4px; border-radius: 1px; background: rgba(120, 85, 45, 0.18); }
-.tray-item .have { position: absolute; top: 5px; right: 6px; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #3f8f4a; color: #fff; font-size: 12px; font-weight: 800; line-height: 1.4; text-align: center;
+/* (a pencil line) */
+.tray-divider { flex: 0 0 auto; width: 0; align-self: stretch; margin: 10px 4px; border-left: 1.5px dashed var(--pencil); }
+/* How many you have, stamped in brown on the tile (a price to make one: in gold, .craft). */
+.tray-item .have { position: absolute; top: 5px; right: 6px; min-width: 20px; padding: 2px 5px; border-radius: 3px; background: var(--mottle); color: var(--stamp-brown); box-shadow: inset 0 0 0 1.5px var(--stamp-brown); transform: rotate(-2deg); font-size: 12px; font-weight: 800; line-height: 1.3; text-align: center;
   /* One line, never wider than the item: it may cover the top of the picture, never more. */
   white-space: nowrap; max-width: calc(100% - 12px); overflow: hidden; box-sizing: border-box; }
 /* A long cost ("30\uE000 10🪨 100🪙") spans the item's top, its type as small as its length needs (`costTagSize`, 11 to
@@ -992,7 +1107,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item .have.long { left: 2px; right: 2px; max-width: none; padding: 1px 3px; letter-spacing: -0.01em; }
 /* A long cost spans the item's top: no ★ over it. */
 .tray-item:has(.have.long) .fav { display: none; }
-.tray-item.empty .have { background: #8a7458; }
+.tray-item.empty .have { color: rgba(90, 58, 26, 0.6); box-shadow: inset 0 0 0 1.5px rgba(90, 58, 26, 0.4); }
 .tray-item.empty .icon { opacity: 0.45; filter: grayscale(0.6); }
 
 /* Game mode: the workshop's card lists what it can make. */
@@ -1047,7 +1162,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (Its two groups are one column upright: see the phone on its side for the two.) */
 .ledger-main, .ledger-side { display: contents; }
 .ledger-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ledger-level { padding: 2px 9px; border-radius: 999px; background: #d9ead2; color: #2d5a2a; font-size: 12px; font-weight: 900; }
+.ledger-level { display: inline-flex; align-items: center; height: 22px; padding: 0 7px; border-radius: 3px; background: var(--mottle); color: var(--stamp-green-ink); box-shadow: inset 0 0 0 1.6px var(--stamp-green); font-size: 12px; font-weight: 900; line-height: 1; transform: rotate(-1.5deg); }
 .ledger-growing { font-size: 13px; font-weight: 700; color: #6b5440; }
 .ledger-bar { height: 10px; border-radius: 999px; background: #eadcc2; overflow: hidden; }
 .ledger-bar.total { height: 8px; }
@@ -1083,7 +1198,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .places-note { font-size: 12.5px; font-weight: 700; color: #7a5a3a; }
 .places-sub { margin: 0; font-size: 12.5px; line-height: 1.35; font-weight: 700; color: #6b5440; }
 .place-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.place-tile { display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border-radius: 12px; background: #fffaf0; border: 2px solid #e2cfae; font-size: 12.5px; line-height: 1.3; color: #5a3c1e; }
+.place-tile { display: flex; flex-direction: column; gap: 3px; padding: 8px 9px 11px; border-radius: 8px; background: var(--maple); border: 0; box-shadow: var(--tile-face), var(--tile-drop); font-size: 12.5px; line-height: 1.3; color: #5a3c1e; }
 .place-name { display: flex; gap: 6px; align-items: center; font-size: 14px; font-weight: 800; color: #3a2a1c; }
 .place-icon { font-size: 20px; }
 .place-blurb { color: #6b5038; font-weight: 600; }
@@ -1102,7 +1217,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .place-stop { align-self: flex-start; min-height: 40px; padding: 0 12px; border: none; border-radius: 999px; background: #f3e1b6; font: inherit; font-size: 12.5px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
 .make-now { font-size: 13px; font-weight: 700; color: #6a5340; text-align: center; }
 .make-now .bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: #e7d6b8; overflow: hidden; }
-.make-now .bar i { display: block; height: 100%; background: #5aa35a; }
+.make-now .bar i { display: block; height: 100%; background: var(--sheen), var(--green); }
 .make-row { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 8px; font-size: 14px; }
 .make-row b { font-weight: 800; }
 .make-row .cost { font-size: 12px; font-weight: 700; color: #7a5532; }
@@ -1116,21 +1231,21 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* ---- Blueprint board (Game mode) ---------------------------------------------------------------------------- */
 /* On the page itself (not under the HUD, which lets touches through), centred by its margins, not a transform, and with a definite height in iOS units: any of these stops an
    iPhone wouldn't scroll the body inside. */
-.board-panel { overflow: hidden; position: fixed; left: max(12px, calc(50% - 360px)); right: max(12px, calc(50% - 360px)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); height: auto; max-height: calc(100% - 100px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); max-height: calc(100dvh - 100px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); display: flex; flex-direction: column; border-radius: 20px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); color: #3a2a1c; z-index: 12; }
+.board-panel { overflow: hidden; position: fixed; left: max(12px, calc(50% - 360px)); right: max(12px, calc(50% - 360px)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); height: auto; max-height: calc(100% - 100px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); max-height: calc(100dvh - 100px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); display: flex; flex-direction: column; border-radius: 12px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--board-drop); color: var(--wood-ink); z-index: 12; }
 .board-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 6px; }
-.board-head h2 { margin: 0; font-size: 22px; font-weight: 900; }
+.board-head h2 { margin: 0; font-family: var(--display); font-size: 26px; font-weight: 400; letter-spacing: 0.02em; line-height: 1; }
 .board-head .close { position: static; }
 .board-body { overflow-y: auto; touch-action: pan-y; min-height: 0; flex: 1 1 auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
-.board-sub { flex: 1; margin-left: 12px; font-size: 13px; font-weight: 700; color: #74522f; }
+.board-sub { flex: 1; margin-left: 12px; font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); }
 /* The web: a band per branch, a tag per blueprint, arrows from each to what it opens in its branch. */
-.bp-web-scroll { flex: none; max-height: min(54vh, 480px); overflow: auto; overscroll-behavior: contain; border-radius: 16px; background: repeating-linear-gradient(0deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), #f7eedd; box-shadow: inset 0 0 0 1.5px rgba(167, 138, 102, 0.35); touch-action: pan-x pan-y; scrollbar-color: #c9a878 transparent; }
+.bp-web-scroll { flex: none; max-height: min(54vh, 480px); overflow: auto; overscroll-behavior: contain; border-radius: 0; background: transparent; box-shadow: none; touch-action: pan-x pan-y; scrollbar-color: #c9a878 transparent; }
 .bp-web { position: relative; }
 .bp-band { position: absolute; left: 0; right: 0; }
-.bp-band.alt { background: rgba(160, 106, 54, 0.06); }
-.bp-band + .bp-band { box-shadow: inset 0 1.5px 0 rgba(167, 138, 102, 0.22); }
+.bp-band.alt { background: rgba(110, 66, 20, 0.05); }
+.bp-band + .bp-band { box-shadow: none; border-top: 1.5px dashed var(--pencil); }
 /* A band's name: a painted tab in a strip of its own above its tags, kept in view as the web
    scrolls sideways (never over a tag: the board opens scrolled to the top of the picked tag's band). */
-.bp-band-label { position: sticky; left: 0; display: inline-flex; align-items: center; height: 24px; margin: 10px 0 0 8px; padding: 0 10px 0 8px; border-left: 4px solid var(--c, #b8a68c); border-radius: 0 8px 8px 0; background: #fff8ea; font-size: 12px; font-weight: 900; line-height: 1; color: #3a2a1c; white-space: nowrap; z-index: 3; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.18), 0 2px 6px rgba(60, 40, 20, 0.08); }
+.bp-band-label { position: sticky; left: 0; display: inline-flex; align-items: center; height: 26px; margin: 10px 0 0 8px; padding: 0 10px; border: 0; border-radius: 5px; background: var(--sheen), var(--c, #8a6a4a); font-family: var(--display); font-size: 15px; font-weight: 400; letter-spacing: 0.03em; line-height: 1; color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); white-space: nowrap; z-index: 3; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22), 0 3px 3px -2px rgba(40, 22, 6, 0.35); }
 .bp-links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
 /* Links, quiet to loud: future (dotted, no arrow), laid (learned to learned: solid, soft), open (learned into one you can
    research: solid, an arrow), lit (the selected tag's path: blue). */
@@ -1138,57 +1253,63 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-link.future { stroke-width: 1.75; stroke-dasharray: 0.5 5; opacity: 0.55; }
 .bp-link.laid { stroke-width: 3; opacity: 0.45; }
 .bp-link.open { stroke-width: 2.5; opacity: 0.9; }
-.bp-link.lit { stroke: #2f6db5 !important; stroke-dasharray: none; stroke-width: 3; opacity: 1; }
-.bp-node { position: absolute; z-index: 1; width: 148px; min-height: 48px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 7px; align-items: center; padding: 5px 8px 5px 6px; border: 1.5px solid #d8c6a6; border-left: 5px solid var(--c, #b8a68c); border-radius: 10px; background: #fffaf0; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); transition: transform 0.15s; }
+.bp-link.lit { stroke: var(--blue) !important; stroke-dasharray: none; stroke-width: 3; opacity: 1; }
+.bp-node { position: absolute; z-index: 1; width: 148px; min-height: 48px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 9px; align-items: center; padding: 6px 8px 8px 7px; border: 0; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); font: inherit; color: var(--wood-ink); text-align: left; cursor: pointer; overflow: hidden; transition: transform 0.15s; }
 .bp-node .bp-dot { grid-row: 1 / span 2; width: 20px; height: 20px; font-size: 12px; }
-.bp-node .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
+.bp-node .bp-name { font-size: 13px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
 .bp-node .bp-tag { justify-self: start; margin-top: 2px; }
 .bp-node:hover { transform: translateY(-1px); }
-.bp-node.selected { box-shadow: 0 0 0 3px #a8703a, 0 0 0 6px #fff1c2, 0 4px 10px rgba(80, 50, 20, 0.25); transform: translateY(-1px); z-index: 2; }
-.bp-node.soon { border-style: dashed; border-color: #a08a6c; border-left-style: solid; border-left-color: var(--c, #b8a68c); background: rgba(255, 250, 240, 0.6); box-shadow: none; }
-.bp-node.soon .bp-name { color: #5e4128; }
+/* Picked: lifted, ringed in ink. */
+.bp-node.selected { box-shadow: var(--tile-face), 0 0 0 3px var(--wood-ink), 0 5px 5px -2px rgba(40, 22, 6, 0.45); transform: translateY(-2px); z-index: 2; }
+/* Soon: a pencil outline of a tile not cut yet. */
+.bp-node.soon { border: 1.5px dashed var(--pencil); background: transparent; box-shadow: none; }
+.bp-node.soon .bp-name { color: var(--wood-ink-soft); }
 /* Not found yet: a small "?" token, not a tag. */
-.bp-node.hint { width: 44px; min-height: 44px; grid-template-columns: 1fr; place-items: center; padding: 0; border: 1.5px dashed #a08a6c; border-radius: 50%; background: rgba(255, 250, 240, 0.55); box-shadow: none; }
-.bp-node.hint .bp-name { font-size: 17px; font-weight: 900; color: #74522f; text-align: center; }
+.bp-node.hint { width: 44px; min-height: 44px; grid-template-columns: 1fr; place-items: center; padding: 0; border: 1.5px dashed var(--pencil); border-radius: 50%; background: transparent; box-shadow: none; }
+.bp-node.hint .bp-name { font-size: 17px; font-weight: 900; color: var(--wood-ink-soft); text-align: center; }
 .bp-node.hint .bp-dot { display: none; }
-.bp-tag.soon { color: #5e4128; background: transparent; border: 1.5px dashed #a08a6c; padding: 0 6px; }
+.bp-tag.soon { color: var(--wood-ink-soft); background: transparent; border: 1.5px dashed var(--pencil); box-shadow: none; padding: 0 6px; }
 /* Locked till you have a College or a University (tech tree 3): the Learning branch's purple, as Soon's dashed tag. */
 .bp-tag.school { color: #5b3a7a; background: #efe6f6; border: 1.5px dashed #7b4fa0; padding: 0 6px; }
 /* What a locked card waits for (a city, goods delivered), in place of its price: the school tag's shape, in the wood's colours. */
 .bp-tag.gate { color: #6b4316; background: #fbecd2; border: 1.5px dashed #b07a3c; padding: 0 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 15px; }
-.bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; }
+/* A tag's state is a peg: a bare hole till it's within reach. */
+.bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); background: var(--hole); box-shadow: var(--hole-sh); }
 .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
 /* The tag slot on a card: one height, one shape, whatever it says. */
-.bp-tag { display: inline-flex; align-items: center; height: 18px; font-size: 11px; font-weight: 800; line-height: 1; color: #5e4128; background: #f1e1c2; padding: 0 7px; border-radius: 9px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.bp-tag.price { color: #4a3018; background: #ffe7a8; box-shadow: inset 0 0 0 1px #d9a441; }
-.bp-tag.price.later { color: #5e4128; background: transparent; box-shadow: inset 0 0 0 1px #c9b28c; }
-.bp-tag.free { color: #5a3d06; background: #ffd88a; }
-.learned .bp-dot { background: linear-gradient(180deg, #5aa35a, #3f7d3c); color: #fff; box-shadow: 0 0 0 2px #2f6a2d; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
-.ready .bp-dot { background: #ffd88a; box-shadow: 0 0 0 2px #c8901f; }
-.bp-node.ready { background: #fffdf6; border-color: #e0c48c; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.2), 0 3px 8px rgba(60, 40, 20, 0.1); }
+/* Prices: stamped in brown (in gold for one you can pay now). */
+.bp-tag { display: inline-flex; align-items: center; height: 20px; font-size: 11.5px; font-weight: 800; line-height: 1; color: var(--stamp-brown); background: var(--mottle); box-shadow: inset 0 0 0 1.4px rgba(90, 58, 26, 0.7); padding: 0 6px; border-radius: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bp-tag.price { color: var(--stamp-gold-ink); box-shadow: inset 0 0 0 1.6px var(--stamp-gold); }
+.bp-tag.price.later { color: var(--stamp-brown); box-shadow: inset 0 0 0 1.4px rgba(90, 58, 26, 0.55); }
+.bp-tag.free { color: var(--wood-ink); background: var(--sheen), var(--yellow); box-shadow: inset 0 -2px 0 var(--yellow-cut); }
+.learned .bp-dot { background: var(--peg-green); box-shadow: var(--peg-drop); }
+.ready .bp-dot { background: var(--peg-yellow); box-shadow: var(--peg-drop); }
+.bp-node.ready { background: #fffaf0; }
 /* Under way: a blue tag, a blue ring round the card, and its progress along the bottom (as the top bar's pill). */
-.researching .bp-dot { background: #2f6db5; box-shadow: 0 0 0 2px #1f4f8a; }
-.bp-node.researching { background: #f1f6fd; border-color: #2f6db5; box-shadow: 0 0 0 1.5px #2f6db5, 0 3px 8px rgba(47, 109, 181, 0.18); }
-.bp-node-gauge { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: #d6e3f4; }
-.bp-node-gauge::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; transition: width 0.4s ease-out; }
-.next .bp-dot { background: #fffaf0; box-shadow: 0 0 0 2px #2f6db5; }
-.bp-node.next { border-color: #9dbbe0; }
-.locked .bp-dot, .soon .bp-dot { background: #f7eedd; box-shadow: 0 0 0 2px #b8a68c; }
-.bp-node.locked { background: #f8f0e1; box-shadow: none; }
-.locked .bp-name { color: #5e4128; }
-.bp-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12px; font-weight: 700; color: #5e4128; }
+.researching .bp-dot { background: var(--peg-blue); box-shadow: var(--peg-drop); }
+.bp-node.researching { background: #eef4fc; box-shadow: var(--tile-face), 0 0 0 2.5px var(--blue), var(--tile-drop); }
+.bp-node-gauge { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(37, 99, 176, 0.18); }
+.bp-node-gauge::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); background: var(--blue); border-radius: 0 2px 2px 0; transition: width 0.4s ease-out; }
+/* Next up: a hole ringed in blue (the peg's going in). */
+.next .bp-dot { background: var(--hole); box-shadow: var(--hole-sh), 0 0 0 2px var(--blue); }
+.bp-node.next { box-shadow: var(--tile-face), 0 0 0 2px rgba(37, 99, 176, 0.45), var(--tile-drop); }
+.locked .bp-dot, .soon .bp-dot { background: var(--hole); box-shadow: var(--hole-sh); opacity: 0.6; }
+/* Later: a tile not yet sanded, flatter and quieter. */
+.bp-node.locked { background: rgba(251, 241, 223, 0.6); box-shadow: inset 0 0 0 1.5px rgba(110, 66, 20, 0.25); }
+.locked .bp-name { color: var(--wood-ink-soft); }
+.bp-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12px; font-weight: 700; color: var(--wood-ink-soft); }
 /* The selected blueprint's ticket: under the web, always fully in view (only the web above it scrolls). */
 .board-sheet { flex: none; padding: 0 20px 16px; }
 .board-sheet:empty { display: none; }
 /* What the colours mean: behind an ⓘ (the tags mostly explain themselves). */
 .bp-legend-box { position: relative; }
-.bp-legend-box summary { list-style: none; width: 44px; height: 44px; display: grid; place-items: center; font-size: 20px; color: #74522f; cursor: pointer; }
+.bp-legend-box summary { list-style: none; width: 44px; height: 44px; display: grid; place-items: center; font-size: 20px; color: var(--wood-ink-soft); cursor: pointer; }
 .bp-legend-box summary::-webkit-details-marker { display: none; }
-.board-panel > .bp-legend { flex: none; gap: 6px 14px; margin: 0 20px 8px; padding: 8px 12px; border-radius: 12px; background: #fffaf0; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.14); }
+.board-panel > .bp-legend { flex: none; gap: 6px 14px; margin: 0 20px 8px; padding: 8px 12px; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
 .board-panel > .bp-legend[hidden] { display: none; }
 .bp-legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .bp-legend-item .bp-key { margin-left: 0; }
-.bp-legend-box[open] summary { color: #2f6db5; }
+.bp-legend-box[open] summary { color: var(--blue); }
 @media (max-width: 560px) { .board-panel > .bp-legend { margin: 0 12px 6px; } }
 /* Phones: each branch a list of tags in two columns (see BlueprintBoard.narrow); the panel is the one thing that scrolls. */
 .bp-list-band { display: flex; flex-direction: column; gap: 10px; }
@@ -1198,9 +1319,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .bp-list .bp-node { position: relative; width: auto; }
 /* A band's "?"s on a phone: one chip at its end. */
-.bp-hints { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 8px; border: 1.5px dashed #a08a6c; border-radius: 10px; background: rgba(255, 250, 240, 0.55); font: inherit; font-size: 12.5px; font-weight: 800; color: #5e4128; text-align: left; cursor: pointer; }
-.bp-hints .bp-dot { width: 22px; height: 22px; font-size: 13px; color: #74522f; background: transparent; box-shadow: 0 0 0 1.5px #a08a6c; }
-.bp-hints.selected { box-shadow: 0 0 0 3px #a8703a, 0 0 0 6px #fff1c2; }
+.bp-hints { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 8px; border: 1.5px dashed var(--pencil); border-radius: 8px; background: transparent; font: inherit; font-size: 12.5px; font-weight: 800; color: var(--wood-ink-soft); text-align: left; cursor: pointer; }
+.bp-hints .bp-dot { width: 22px; height: 22px; font-size: 13px; color: var(--wood-ink-soft); text-shadow: none; background: transparent; box-shadow: 0 0 0 1.5px var(--pencil); }
+.bp-hints.selected { box-shadow: 0 0 0 3px var(--wood-ink); }
 @media (max-width: 560px) {
   .board-sub { display: none; }
   .board-head { padding: 10px 8px 2px 16px; }
@@ -1213,9 +1334,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .board-sheet:has(.bp-more[open]) { max-height: 52dvh; overflow-y: auto; overscroll-behavior: contain; }
 }
 /* A phone's ticket: its facts folded under one line ("Unlocks 5 things  More"). */
-.bp-more > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; list-style: none; cursor: pointer; font-size: 13px; font-weight: 800; color: #5a3d22; }
+.bp-more > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; list-style: none; cursor: pointer; font-size: 13px; font-weight: 800; color: var(--wood-ink-soft); }
 .bp-more > summary::-webkit-details-marker { display: none; }
-.bp-more-hint { display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 10px; background: #f3e6cf; font-size: 12.5px; color: #74522f; }
+.bp-more-hint { display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 6px; background: var(--groove); box-shadow: var(--groove-sh); font-size: 12.5px; color: var(--wood-ink-soft); }
 .bp-more-hint::after { content: "More"; }
 .bp-more-hint::before { content: ""; width: 7px; height: 7px; margin-top: -3px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .bp-more[open] .bp-more-hint::after { content: "Less"; }
@@ -1223,64 +1344,58 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-more[open] > summary { margin-bottom: 6px; }
 .bp-key { width: 12px; height: 12px; border-radius: 50%; margin-left: 8px; }
 .bp-key:first-child { margin-left: 0; }
-.bp-key.learned { background: #3f7d3c; }
-.bp-key.ready { background: #ffd88a; box-shadow: 0 0 0 2px #c8901f; }
-.bp-key.researching { background: #2f6db5; box-shadow: 0 0 0 2px #1f4f8a; }
-.bp-key.next { background: #fffaf0; box-shadow: 0 0 0 2px #2f6db5; }
-.bp-key.locked { background: #f7eedd; box-shadow: 0 0 0 2px #b8a68c; }
-.bp-key.soon { border: 2px dashed #a08a6c; }
-.bp-key.hint { width: auto; height: auto; border-radius: 0; font-weight: 900; color: #74522f; }
+.bp-key.learned { background: var(--peg-green); box-shadow: var(--peg-drop); }
+.bp-key.ready { background: var(--peg-yellow); box-shadow: var(--peg-drop); }
+.bp-key.researching { background: var(--peg-blue); box-shadow: var(--peg-drop); }
+.bp-key.next { background: var(--hole); box-shadow: var(--hole-sh), 0 0 0 2px var(--blue); }
+.bp-key.locked { background: var(--hole); box-shadow: var(--hole-sh); opacity: 0.6; }
+.bp-key.soon { border: 1.5px dashed var(--pencil); }
+.bp-key.hint { width: auto; height: auto; border-radius: 0; font-weight: 900; color: var(--wood-ink-soft); }
 /* The ticket's facts: a label column (Unlocks, Needs, Opens, Costs) and what each says. */
 .bp-facts { display: flex; flex-direction: column; gap: 6px; }
-.bp-fact, .bp-full-cost { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 700; color: #5a3d22; line-height: 1.35; }
-.bp-fact > b, .bp-full-cost > b { flex: none; width: 60px; font-size: 12px; font-weight: 800; color: #74522f; }
+.bp-fact, .bp-full-cost { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 700; color: var(--wood-ink); line-height: 1.35; }
+.bp-fact > b, .bp-full-cost > b { flex: none; width: 60px; font-size: 12px; font-weight: 800; color: var(--wood-ink-soft); }
 .bp-fact-body { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .bp-fact.bp-makes { align-items: center; }
 .bp-req { padding: 1px 7px; border-radius: 8px; background: #e7eef8; color: #2a4f80; font-size: 12.5px; }
 .bp-req.met { background: #e1f0dd; color: #2f6a2d; }
-.bp-ticket { border-left-color: var(--c, #b8a68c) !important; }
-/* The ticket: a station's details, punched like a railway ticket. */
-.bp-ticket { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-radius: 12px; background: #fffaf0; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.18), 0 6px 18px rgba(60, 40, 20, 0.12); border-left: 6px solid #b8a68c; }
-.bp-ticket::before, .bp-ticket::after { content: ""; position: absolute; left: -9px; width: 12px; height: 12px; border-radius: 50%; background: #f5e8d0; }
-.bp-ticket::before { top: 10px; }
-.bp-ticket::after { bottom: 10px; }
-.bp-ticket.learned { border-left-color: #5aa35a; }
-.bp-ticket.ready { border-left-color: #d9a441; }
-.bp-ticket.researching, .bp-ticket.next { border-left-color: #2f6db5; }
-.bp-tag.now, .bp-tag.next { color: #1f4f8a; background: #dde9f8; }
-.bp-tag.now { color: #fff; background: #2f6db5; }
-.bp-tag.goal { align-self: center; color: #5a3d06; background: #ffd88a; }
+/* The ticket: a maple card, its foot torn off along a pencil line. */
+.bp-ticket { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 16px; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), 0 6px 6px -3px rgba(40, 22, 6, 0.4); }
+.bp-tag.now, .bp-tag.next { color: var(--blue-cut); background: var(--mottle); box-shadow: inset 0 0 0 1.5px var(--blue); }
+.bp-tag.now { color: var(--paint-ink); background: var(--sheen), var(--blue); box-shadow: inset 0 -2px 0 var(--blue-cut); }
+.bp-tag.goal { align-self: center; color: var(--wood-ink); background: var(--sheen), var(--yellow); box-shadow: inset 0 -2px 0 var(--yellow-cut); }
 /* A research card's cost: a chip a good ("\uE000 6/10"), the coins red while short, and its study time. */
 .bp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.bp-chip { padding: 2px 8px; border-radius: 9px; background: #f1e1c2; font-size: 13px; font-weight: 800; color: #5a3d22; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bp-chip { padding: 2px 8px; border-radius: 4px; background: var(--groove); font-size: 13px; font-weight: 800; color: var(--wood-ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bp-chip.short { background: #f8d9cc; color: #a33a1a; }
-.bp-chip.study { background: transparent; color: #5e4128; padding-inline: 2px; }
-.bp-now { font-size: 14px; font-weight: 800; color: #1f4f8a; }
-.bp-ticket.researching .bp-gauge-fill { background: linear-gradient(180deg, #6f9fd8, #2f6db5); }
+.bp-chip.study { background: transparent; color: var(--wood-ink-soft); padding-inline: 2px; }
+.bp-now { font-size: 14px; font-weight: 800; color: var(--blue-cut); }
+.bp-ticket.researching .bp-gauge-fill { background: var(--sheen), var(--blue); }
 .bp-ticket-foot .chip.text { min-width: 112px; }
 /* The goal's research: its button ringed (nothing is picked without a tap). */
-.chip.bp-goal { box-shadow: 0 0 0 3px #ffc21f; }
+.chip.bp-goal { box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 0 0 3px var(--yellow), var(--block-drop); }
 .bp-ticket-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
-.bp-ticket-head b { font-size: 18px; font-weight: 900; }
-.bp-ticket-head > span:last-child { flex-basis: 100%; font-size: 13.5px; font-weight: 700; color: #5e4128; }
+.bp-ticket-head b { font-family: "Woodrail Icons", var(--display); font-size: 22px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.1; }
+.bp-ticket-head > span:last-child { flex-basis: 100%; font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); }
 .bp-makes .bp-fact-body { gap: 6px; }
-.bp-make { display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 4px; border-radius: 10px; background: #f3e6cf; font-size: 12.5px; font-weight: 700; color: #5a3d22; }
+.bp-make { display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 4px; border-radius: 4px; background: var(--groove); font-size: 12.5px; font-weight: 700; color: var(--wood-ink); }
 .bp-make svg { width: 34px; height: 22px; }
 /* A thing's tray picture (its model, three-quarter view), and the blank that waits for one (a prop not drawn yet). */
 .bp-make img { width: 40px; height: 33px; margin: -4px 0; object-fit: contain; }
 .bp-make .bp-pending { display: block; width: 34px; height: 22px; border-radius: 6px; background: rgba(160, 110, 60, 0.12); }
 /* The foot, torn off along a perforation: how it stands and its one button. */
-.bp-ticket-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; padding-top: 10px; border-top: 2px dashed rgba(167, 138, 102, 0.45); }
+.bp-ticket-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; padding-top: 10px; border-top: 1.5px dashed var(--pencil); }
 .bp-ticket-foot .chip { height: 44px; font-size: 14.5px; }
+.bp-ticket-foot .chip.primary { font-size: 17px; }
 .bp-ticket-foot .chip.text.bp-remove { min-width: 0; margin-left: auto; }
 .bp-ticket-foot .chip:disabled { opacity: 0.5; cursor: default; }
 .bp-cost { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 150px; }
-.bp-gauge { height: 10px; border-radius: 5px; background: #ecdcbf; overflow: hidden; box-shadow: inset 0 1px 2px rgba(80, 50, 20, 0.2); }
-.bp-gauge-fill { display: block; height: 100%; border-radius: 5px; background: linear-gradient(180deg, #d8a35c, #a86e32); transition: width 0.4s ease-out; }
-.bp-gauge-text, .bp-waits, .bp-done { font-size: 12.5px; font-weight: 700; color: #5e4128; }
+.bp-gauge { height: 10px; border-radius: 3px; background: var(--groove); overflow: hidden; box-shadow: var(--groove-sh); }
+.bp-gauge-fill { display: block; height: 100%; border-radius: 3px; background: var(--sheen), var(--yellow); transition: width 0.4s ease-out; }
+.bp-gauge-text, .bp-waits, .bp-done { font-size: 12.5px; font-weight: 700; color: var(--wood-ink-soft); }
 .bp-why { font-size: 12.5px; font-weight: 800; color: #9a4a2a; }
 .chip[aria-disabled="true"] { opacity: 0.55; }
-.bp-done { color: #3f7d3c; }
+.bp-done { color: var(--stamp-green-ink); }
 @media (max-width: 520px) {
   .board-sub { display: none; }
   .board-panel { top: calc(max(10px, env(safe-area-inset-top)) + 56px); left: 8px; right: 8px; }
@@ -1328,7 +1443,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @keyframes alert-pulse { 50% { transform: scale(1.3); } }
 @media (prefers-reduced-motion: reduce) { .icon-btn-alert::after { animation: none; } }
 /* Game mode's coins, by the logo: a stack of toy coins and the count. */
-.coins { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 9px 2px 4px; border-radius: 999px; background: #f3e1b6; }
+.coins { display: inline-flex; align-items: center; gap: 5px; font-family: "Woodrail Icons", var(--display); font-size: 17px; font-weight: 400; line-height: 1; color: var(--wood-ink); font-variant-numeric: tabular-nums; padding: 2px 4px; }
 .coins i { width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 2px #c98a1c, 0 2px 0 #b07a1a; }
 .coins.pop { animation: goal-pop 0.6s ease-out; }
 /* The railway's date, beside the coins (Game mode). */
@@ -1355,7 +1470,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .game-date { font-size: 11px; padding: 0 4px; background: none; }
 }
 /* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10\uE000"); tap for the picker. */
-.research-pill { position: relative; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
+.research-pill { position: relative; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 8px 9px; border: none; border-radius: 10px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--top-drop); font: inherit; font-weight: 800; font-size: 14px; color: var(--wood-ink); cursor: pointer; text-align: left; }
 .research-pill[hidden] { display: none; }
 .research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .research-pill .rp-line { display: flex; flex: 0 100 auto; align-items: center; gap: 4px; min-width: 0; }
@@ -1375,7 +1490,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill.rp-goods .rp-line { display: none; }
 .research-pill.rp-goods .rp-text { display: flex; flex-direction: column; justify-content: center; }
 .research-pill.rp-goods .rp-count { white-space: normal; max-height: 2.4em; line-height: 1.15; }
-.research-pill.idle { background: #fff1c2; box-shadow: 0 0 0 2px #e2a12b, 0 4px 18px rgba(60, 40, 20, 0.18); }
+.research-pill.idle { box-shadow: var(--wood-panel-edge), 0 0 0 3px var(--yellow), var(--top-drop); }
 .research-pill.idle .rp-count { color: inherit; }
 /* Nothing to research (the school's idle): an amber dot. It pulses gently a few times (about 10 s) as the school goes
    idle, and again each time the picker closes with nothing picked, then rests: no layout, no paint of the canvas, no
@@ -1390,7 +1505,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (Out on the corner, a badge, not inside it: playthrough, it sat jammed in the corner over the count. Taking no room,
    so the pill fits a 360 px phone as before.) */
 .research-pill:not([data-more=""])[data-more]::before { content: attr(data-more); position: absolute; top: -6px; right: -5px; z-index: 1; font-size: 10px; line-height: 1; font-weight: 800; color: #fff; background: #2f6db5; border-radius: 8px; padding: 2px 4px; box-shadow: 0 0 0 2px #faf3e6; pointer-events: none; }
-.research-pill.active { box-shadow: 0 0 0 3px #3a2a1c, 0 4px 18px rgba(60, 40, 20, 0.18); }
+.research-pill.active { box-shadow: var(--wood-panel-edge), 0 0 0 3px var(--wood-ink), var(--top-drop); }
 .research-pill:active { transform: scale(0.96); }
 @media (max-width: 640px) {
   /* The pill on a phone: the name over the count, in the room between the coins and the buttons (it gives way first:
@@ -1432,9 +1547,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tooltip .tip-detail { font-weight: 600; }
 .tooltip .tip-lock { font-weight: 700; font-size: 12.5px; color: #f6d48a; margin-top: 3px; }
 /* A locked tray tile, tapped: a cream tag over it says how to unlock it, with a way into Research. */
-.lock-note { position: fixed; z-index: 34; max-width: min(300px, calc(100vw - 16px)); padding: 10px 12px 12px; border-radius: 14px; background: #faf3e6; color: #3a2a1c; box-shadow: inset 0 1px 0 #fff8, 0 10px 34px rgba(60, 40, 20, 0.3); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.lock-note { position: fixed; z-index: 34; max-width: min(300px, calc(100vw - 16px)); padding: 10px 12px 14px; border-radius: 10px; background: var(--wood-panel); color: var(--wood-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -4px 0 var(--end-grain), var(--board-drop); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .lock-note[hidden] { display: none; }
-.lock-note::after { content: ""; position: absolute; bottom: -7px; left: calc(var(--notch, 50%) - 8px); width: 16px; height: 16px; background: #faf3e6; transform: rotate(45deg); border-radius: 0 0 4px 0; }
+.lock-note::after { content: ""; position: absolute; bottom: -7px; left: calc(var(--notch, 50%) - 8px); width: 16px; height: 16px; background: var(--end-grain); transform: rotate(45deg); border-radius: 0 0 3px 0; }
 .lock-note.in { animation: card-in 0.24s cubic-bezier(0.3, 1.4, 0.5, 1); transform-origin: var(--notch, 50%) 100%; }
 .lock-note-name { font-size: 15px; font-weight: 800; }
 .lock-note-how { font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #5e4128; text-wrap: pretty; }
@@ -1449,10 +1564,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-none { font-size: 0.85em; color: var(--ink-muted); flex: 1; }
 .route-head .route-plan { margin-left: auto; }
 /* Done: the system's go-green, dark ink (audit F18: white on #3c9a5f was 3.5:1). */
-.route-plan.on { background: linear-gradient(180deg, var(--go-green-light), var(--go-green)); color: var(--go-green-ink); }
+.route-plan.on { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--green); box-shadow: inset 0 -4px 0 var(--green-cut), var(--block-drop); }
 .route-hint { font-size: 0.85em; color: var(--ink-soft); }
 /* The line on the card: a panel of its own (its name, Edit, its stops), so it reads as one thing. */
-.engine-card .engine-extra.route { background: rgba(120, 80, 40, 0.07); border-radius: 14px; padding: 4px 8px 8px; margin-top: 0; }
+/* (ruled round in pencil, not sunk: one thing on the card) */
+.engine-card .engine-extra.route { background: transparent; outline: 1.5px dashed var(--pencil); outline-offset: -1px; border-radius: 4px; padding: 4px 8px 8px; margin-top: 0; }
 .engine-card .route-head { min-height: 44px; }
 .engine-card .route-head .engine-extra-label { padding-left: 4px; }
 .engine-card .route-hint { padding-left: 4px; }
@@ -1464,15 +1580,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-foot .route-plan.on { margin-left: auto; min-width: 112px; }
 /* (A card taller than its room scrolls: Done and Take off line stay pinned at its foot, in reach, as a ruin's Restore
    does.) */
-.planning .engine-card .route-foot { position: sticky; bottom: -14px; z-index: 1; margin-bottom: -14px; padding: 6px 0 14px; background: #faf3e6; }
-.route-foot .route-leave:not(.asking) { background: transparent; color: var(--warn-ink); box-shadow: inset 0 0 0 2px rgba(176, 57, 31, 0.45); }
+.planning .engine-card .route-foot { position: sticky; bottom: -14px; z-index: 1; margin-bottom: -14px; padding: 6px 0 14px; background: var(--wood-panel); }
+.route-foot .route-leave:not(.asking) { background: var(--mottle); color: var(--stamp-red); box-shadow: inset 0 0 0 2.5px var(--stamp-red); }
 .route-stops { display: flex; flex-wrap: nowrap; gap: 4px; position: relative; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .route-stops::-webkit-scrollbar { display: none; }
 /* The line's colour is the stop number's lacquer ring (filled on the next stop), not a stripe down the side (audit F11). */
 .route-chip { padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
 /* The stop's number, in a ring of the line's colour; the stop the train's heading for has it filled (audit F7). */
-.route-num { display: inline-block; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 4px; margin-right: 5px; border-radius: 999px; font-size: 12px; font-weight: 900; line-height: 20px; text-align: center; vertical-align: 1px; box-shadow: inset 0 0 0 2px var(--line, #888); }
+.route-num { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 4px; margin-right: 5px; border-radius: 999px; font-size: 12px; font-weight: 900; line-height: 1; vertical-align: -4px; box-shadow: inset 0 0 0 2px var(--line, #888); }
 .route-chip.next .route-num { background: var(--line, #888); color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7), 0 0 1px rgba(0, 0, 0, 0.9); }
 /* The ▶ come to this stop while the card is open (the train heads here now): a short pop, so the move is seen. */
 .route-chip.next.moved { animation: next-moved 0.7s ease-out; }
@@ -1568,7 +1684,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .harbour-buy { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 /* The time control's clock (Game mode, Clockmaker): its speed in the HUD's own chip, lit when running fast. */
 .chip.speed { font-weight: 900; font-size: 15px; min-width: 44px; }
-.chip.speed.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
+.chip.speed.active { color: var(--wood-ink); }
 /* Game mode's power on a depot card: a power station's sparks, a yard's Power it. */
 .depot-power { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .depot-power .power-line { font-size: 13.5px; font-weight: 700; color: #5e4128; line-height: 1.3; text-align: center; }
@@ -1604,46 +1720,50 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* The Lines list: a sheet at the bottom (the tray's away), each line a row to tap, problems first. */
 .lines-open .tray, .lines-open .tray-draw, .lines-open .tray-orient { display: none; }
 .lines-view { width: min(calc(100vw - 24px), 460px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); gap: 8px; padding: 12px 12px 12px; }
-.lines-head { display: flex; align-items: center; gap: 8px; color: #3a2a1c; min-height: 44px; padding-right: 40px; }
-.lines-head b { font-size: 20px; font-weight: 900; }
-.lines-count { font-size: 13.5px; font-weight: 700; color: #74522f; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lines-head { display: flex; align-items: center; gap: 8px; color: var(--wood-ink); min-height: 44px; padding-right: 40px; }
+.lines-head b { font-family: var(--display); font-size: 24px; font-weight: 400; letter-spacing: 0.02em; line-height: 1; }
+.lines-count { font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lines-head .lines-new { flex: 0 0 auto; }
+/* + New line: the panel's one painted block. */
+.lines-view .chip.lines-new { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
 .lines-view > .lines-head .lines-close { top: 12px; right: 8px; }
 .lines-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
-.lines-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; padding: 10px 12px 10px; border: 0; border-radius: 14px; background: #fffaf0; box-shadow: inset 0 0 0 2px #ead8bb; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; }
+.lines-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; padding: 10px 12px 10px; border: 0; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); font: inherit; color: var(--wood-ink); text-align: left; cursor: pointer; }
+.lines-row { padding-bottom: 12px; }
 .lines-row:active { transform: translateY(1px); }
-.lines-row.stuck { box-shadow: inset 0 0 0 2px #e7a796; }
+.lines-row.stuck { box-shadow: var(--tile-face), 0 0 0 2.5px var(--stamp-red), var(--tile-drop); }
 .lines-top { display: flex; align-items: center; gap: 8px; min-height: 24px; }
-.lines-dot { width: 16px; height: 16px; flex: 0 0 16px; border-radius: 50%; background: var(--line); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.2); }
-.lines-name { flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lines-chev { font-size: 22px; font-weight: 900; color: #74522f; line-height: 1; }
+.lines-dot { width: 16px; height: 16px; flex: 0 0 16px; border-radius: 4px; background: var(--sheen), var(--line); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25); }
+.lines-name { flex: 1 1 auto; min-width: 0; font-family: var(--display); font-size: 19px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lines-chev { font-size: 22px; font-weight: 900; color: var(--wood-ink-soft); line-height: 1; }
 /* Its stops drawn small: a bar in the line's colour, a ring a stop, the ends named. */
 .lines-diag { position: relative; display: flex; justify-content: space-between; padding: 0 2px; height: 32px; }
-.lines-diag::before { content: ""; position: absolute; left: 8px; right: 8px; top: 5px; height: 6px; border-radius: 3px; background: var(--line); }
+.lines-diag::before { content: ""; position: absolute; left: 8px; right: 8px; top: 5px; height: 6px; border-radius: 2px; background: var(--line); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
 .lines-stop { position: relative; display: flex; flex-direction: column; align-items: center; width: 0; }
 .lines-stop::before { content: ""; width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 3px var(--line); }
 .lines-stop.more::before { background: var(--line); box-shadow: none; transform: scale(0.6); }
 .lines-stop:first-child { align-items: flex-start; }
 .lines-stop:last-child { align-items: flex-end; }
-.lines-stop-name { margin-top: 2px; font-size: 12px; font-weight: 800; color: #5e4128; white-space: nowrap; }
+.lines-stop-name { margin-top: 2px; font-size: 12px; font-weight: 800; color: var(--wood-ink-soft); white-space: nowrap; }
 .lines-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13.5px; font-weight: 800; }
-.lines-loads { color: #5e4128; font-weight: 700; }
-.lines-pill, .ls-pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12.5px; font-weight: 800; white-space: nowrap; }
-.lines-pill i, .ls-pill i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-.lines-pill.moving, .ls-pill.moving { background: #dcefd6; color: #1f4a1b; }
-.lines-pill.moving i, .ls-pill.moving i { background: #3f8f4a; }
-.lines-pill.waiting, .ls-pill.waiting { background: #fbe7c0; color: #6b4310; }
-.lines-pill.waiting i, .ls-pill.waiting i { background: #e2a12b; }
-.lines-pill.stuck, .ls-pill.stuck { background: #f6d3c9; color: #8a2a14; }
-.lines-pill.stuck i, .ls-pill.stuck i { background: #c8442f; }
-.lines-pill.none, .ls-pill.none { background: #efe3cf; color: #5e4128; }
-.lines-pill.none i, .ls-pill.none i { background: #b9a07e; }
+.lines-loads { color: var(--wood-ink-soft); font-weight: 700; }
+/* A line's state, stamped in its colour, upright (a reading, not a mark of approval). */
+.lines-pill, .ls-pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; border-radius: 3px; background: var(--mottle); font-size: 12.5px; font-weight: 800; line-height: 1; white-space: nowrap; }
+.lines-pill i, .ls-pill i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.lines-pill.moving, .ls-pill.moving { color: var(--stamp-green-ink); box-shadow: inset 0 0 0 1.6px var(--stamp-green); }
+.lines-pill.moving i, .ls-pill.moving i { background: var(--stamp-green); }
+.lines-pill.waiting, .ls-pill.waiting { color: var(--stamp-gold-ink); box-shadow: inset 0 0 0 1.6px var(--stamp-gold); }
+.lines-pill.waiting i, .ls-pill.waiting i { background: var(--stamp-gold); }
+.lines-pill.stuck, .ls-pill.stuck { color: var(--stamp-red); box-shadow: inset 0 0 0 1.6px var(--stamp-red); }
+.lines-pill.stuck i, .ls-pill.stuck i { background: var(--stamp-red); }
+.lines-pill.none, .ls-pill.none { color: var(--stamp-brown); box-shadow: inset 0 0 0 1.6px rgba(90, 58, 26, 0.6); }
+.lines-pill.none i, .ls-pill.none i { background: rgba(90, 58, 26, 0.6); }
 /* Reversed on a ring, trains that couldn't be turned round: why, in the warning ink, and Turn round to try again. */
 .lines-note { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--warn-ink); font-weight: 700; line-height: 1.3; }
 .lines-note span { flex: 1 1 auto; min-width: 0; }
 .lines-note button { flex: 0 0 auto; min-height: 44px; }
-.lines-none { font-size: 14px; font-weight: 700; color: #5e4128; padding: 12px; border-radius: 12px; border: 2px dashed #d7bf98; text-align: center; }
+.lines-none { font-size: 14px; font-weight: 700; color: var(--wood-ink-soft); padding: 12px; border-radius: 8px; border: 1.5px dashed var(--pencil); text-align: center; }
 /* A place's card: the lines that call there, and New route from here (audit F12). */
 .depot-routes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .depot-routes .route-join-line, .depot-routes .route-new-here { min-height: 44px; }
@@ -1651,97 +1771,106 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* The line sheet (routes UX option B): one line at the bottom, its stops as a line diagram, a stop opening in place.
    At most 45% of the screen high (it scrolls inside), so the map above stays there to tap places on. */
 .planning .engine-card { display: none !important; }
-.line-sheet { left: 0; right: 0; bottom: 0; transform: none; width: auto; min-width: 0; max-width: 560px; margin: 0 auto; box-sizing: border-box; border-radius: 20px 20px 0 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); gap: 8px; align-items: stretch; max-height: min(46vh, 420px); display: flex; flex-direction: column; color: #3a2a1c; }
+.line-sheet { left: 0; right: 0; bottom: 0; transform: none; width: auto; min-width: 0; max-width: 560px; margin: 0 auto; box-sizing: border-box; border-radius: 12px 12px 0 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); gap: 8px; align-items: stretch; max-height: min(46vh, 420px); display: flex; flex-direction: column; color: #3a2a1c; }
 .line-sheet[hidden] { display: none; }
 /* (It slides up from the bottom edge, its size as it will be: not the cards' scale-in.) */
 .line-sheet:not([hidden]) { animation: ls-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1); }
 @keyframes ls-up { from { opacity: 0; translate: 0 24px; } }
 @media (prefers-reduced-motion: reduce) { .line-sheet:not([hidden]) { animation: none; } }
-@media (orientation: landscape) and (max-height: 500px) { .line-sheet { left: auto; right: max(8px, env(safe-area-inset-right)); width: min(400px, 52vw); max-height: calc(100vh - 80px); border-radius: 18px; bottom: 8px; } }
+@media (orientation: landscape) and (max-height: 500px) { .line-sheet { left: auto; right: max(8px, env(safe-area-inset-right)); width: min(400px, 52vw); max-height: calc(100vh - 80px); border-radius: 12px; bottom: 8px; } }
 .ls-head { display: flex; align-items: center; gap: 6px; min-height: 44px; flex: 0 0 auto; }
-.ls-swatch { width: 44px; height: 44px; flex: 0 0 44px; padding: 0; border: 0; border-radius: 50%; background: var(--line); box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.15), 0 0 0 3px #fff; cursor: pointer; }
-.ls-name { flex: 1 1 auto; min-width: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; border: 0; border-radius: 10px; background: transparent; font: inherit; font-size: 19px; font-weight: 900; color: #3a2a1c; cursor: text; text-align: left; }
-.ls-name:disabled { cursor: default; color: #3a2a1c; }
+/* The line's colour: a painted disc, a peg seen from above. */
+.ls-swatch { width: 44px; height: 44px; flex: 0 0 44px; padding: 0; border: 0; border-radius: 50%; background: var(--sheen), var(--line); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.25), 0 3px 3px -1px rgba(40, 22, 6, 0.4); cursor: pointer; }
+.ls-name { flex: 1 1 auto; min-width: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-family: "Woodrail Icons", var(--display); font-size: 23px; font-weight: 400; letter-spacing: 0.01em; line-height: 1; color: var(--wood-ink); cursor: text; text-align: left; }
+.ls-name:disabled { cursor: default; color: var(--wood-ink); }
 .ls-name-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ls-name-edit { font-size: 15px; color: #74522f; flex: 0 0 auto; }
-.ls-name-input { flex: 1 1 auto; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid #c9a274; border-radius: 10px; background: #fffaf0; font: inherit; font-size: 17px; font-weight: 800; }
+.ls-name-edit { font-family: "Nunito", sans-serif; font-size: 14px; color: var(--wood-ink-soft); flex: 0 0 auto; }
+.ls-name-input { flex: 1 1 auto; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid var(--end-grain); border-radius: 8px; background: var(--maple); font: inherit; font-size: 17px; font-weight: 800; }
 .ls-more { width: 44px; padding: 0; font-size: 20px; flex: 0 0 auto; }
 .ls-done { flex: 0 0 auto; }
+/* Done: the sheet's one painted block. */
+.line-sheet .chip.ls-done { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
 .ls-palette, .ls-menu { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 0 0 auto; }
-.ls-colour { width: 44px; height: 44px; border: 3px solid #fff; border-radius: 50%; padding: 0; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; }
-.ls-colour[aria-pressed="true"] { outline: 3px solid #3a2a1c; outline-offset: 1px; }
+.ls-colour { width: 44px; height: 44px; border: 0; border-radius: 50%; padding: 0; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.25), 0 3px 3px -1px rgba(40, 22, 6, 0.4); cursor: pointer; }
+.ls-colour[aria-pressed="true"] { outline: 3px solid var(--wood-ink); outline-offset: 2px; }
 .ls-menu .chip { flex: 1 1 auto; }
-.ls-tabs { display: flex; gap: 3px; padding: 3px; border-radius: 14px; background: #ead8bb; flex: 0 0 auto; }
-.ls-tab { flex: 1 1 0; min-height: 44px; border: 0; border-radius: 11px; background: transparent; font: inherit; font-weight: 800; font-size: 15px; color: #5e4128; cursor: pointer; }
-.ls-tab.on { background: linear-gradient(180deg, #fffaf0, #f3dcb6); color: #3a2a1c; box-shadow: 0 2px 4px rgba(90, 60, 30, 0.25); }
+/* Stops / Trains: a groove with a maple block slid to the open side. */
+.ls-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); flex: 0 0 auto; }
+.ls-tab { flex: 1 1 0; min-height: 42px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
+.ls-tab.on { background: var(--maple); color: var(--wood-ink); box-shadow: var(--tile-face), var(--tile-drop); }
 .ls-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding-bottom: 2px; }
 /* The stops: a spine in the line's colour down the numbers, a row a stop. */
 .ls-stops { list-style: none; margin: 0; padding: 0; position: relative; }
 .ls-stop, .ls-via { position: relative; display: grid; grid-template-columns: 28px 30px 1fr; align-items: center; column-gap: 8px; min-height: 52px; }
-.ls-stop::before, .ls-via::before { content: ""; position: absolute; left: 47px; top: 0; bottom: 0; width: 8px; background: var(--line); }
+.ls-stop::before, .ls-via::before { content: ""; position: absolute; left: 47px; top: 0; bottom: 0; width: 8px; background: var(--line); box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.25), inset -2px 0 0 rgba(0, 0, 0, 0.2); }
 .ls-stops > :first-child::before { top: 26px; }
 .ls-stops > :last-child::before { bottom: calc(100% - 26px); }
 .ls-stops > :only-child::before { display: none; }
-.ls-handle { display: flex; align-items: center; justify-content: center; width: 28px; height: 44px; color: #74522f; font-size: 18px; cursor: grab; touch-action: none; user-select: none; }
+.ls-handle { display: flex; align-items: center; justify-content: center; width: 28px; height: 44px; color: rgba(79, 52, 24, 0.7); font-size: 18px; cursor: grab; touch-action: none; user-select: none; }
 .ls-handle.none { cursor: default; }
-.ls-num { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #fffaf0; color: #3a2a1c; font-size: 14px; font-weight: 900; box-shadow: inset 0 0 0 3px var(--line); }
-.ls-stop.next .ls-num { background: var(--line); color: var(--line-ink, #fff); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.2); }
+/* Stop numbers: maple pegs on the line (the next one painted in its colour). */
+.ls-num { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 15px; font-weight: 400; line-height: 1; box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); }
+.ls-stop.next .ls-num { background: var(--sheen), var(--line); color: var(--line-ink, #fff); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
 .ls-stop-main { min-width: 0; min-height: 52px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; padding: 4px 6px; border: 0; border-radius: 12px; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
-.ls-stop-name { font-size: 16px; font-weight: 900; line-height: 1.15; }
-.ls-place-num { font-weight: 700; color: #74522f; }
-.ls-tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: rgba(58, 42, 28, 0.1); font-size: 12px; font-weight: 800; color: #3a2a1c; vertical-align: 2px; }
-.ls-tag.pass { margin-left: 0; margin-right: 6px; background: #efe3cf; }
-.ls-goods { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 13.5px; font-weight: 700; color: #5e4128; }
-.ls-down { color: #1d4a85; }
-.ls-up { color: #1f5a1b; }
+.ls-stop-name { font-family: "Woodrail Icons", var(--display); font-size: 18px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.15; }
+.ls-place-num { font-family: "Nunito", sans-serif; font-weight: 700; color: var(--wood-ink-soft); }
+.ls-tag { display: inline-flex; align-items: center; height: 20px; margin-left: 6px; padding: 0 6px; border-radius: 3px; background: var(--mottle); box-shadow: inset 0 0 0 1.4px rgba(90, 58, 26, 0.6); font-family: "Nunito", sans-serif; font-size: 12px; font-weight: 800; line-height: 1; color: var(--stamp-brown); vertical-align: 2px; }
+.ls-tag.pass { margin-left: 0; margin-right: 6px; }
+.ls-goods { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); }
+.ls-down { color: var(--blue-cut); }
+.ls-up { color: var(--stamp-green-ink); }
 .ls-stop.lost .ls-stop-name { text-decoration: line-through; opacity: 0.75; }
-.ls-stop.open, .ls-via.open { grid-template-rows: auto auto; align-items: start; margin: 4px 0; padding: 4px 6px 10px 0; border-radius: 14px; background: #fffaf0; box-shadow: inset 0 0 0 2px #ead8bb; }
+/* An open stop: a maple tile, its options on it. */
+.ls-stop.open, .ls-via.open { grid-template-rows: auto auto; align-items: start; margin: 4px 0; padding: 4px 6px 12px 0; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
 .ls-stop.open > .ls-handle, .ls-stop.open > .ls-num { margin-top: 8px; }
 .ls-opts, .ls-via > .ls-acts { grid-column: 3; display: flex; flex-direction: column; gap: 8px; padding: 0 0 0 6px; }
 .ls-says { font-size: 14.5px; font-weight: 700; line-height: 1.35; }
 .ls-ticks, .ls-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .ls-tick { display: inline-flex; align-items: center; gap: 8px; padding: 0 12px 0 8px; font-size: 15px; }
-.ls-box { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px; background: #fffaf0; box-shadow: inset 0 0 0 2px #74522f; font-size: 15px; font-weight: 900; color: #fff; }
-.ls-tick.on .ls-box { background: #2f7a38; box-shadow: none; }
+/* A tick box: a square hole; ticked, painted green. */
+.ls-box { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; background: var(--hole); box-shadow: var(--hole-sh); font-size: 15px; font-weight: 900; line-height: 1; color: var(--paint-ink); }
+.ls-tick.on .ls-box { background: var(--sheen), var(--green); box-shadow: inset 0 -2px 0 var(--green-cut); }
 .ls-tick.on .ls-box::after { content: "✓"; }
-.ls-note { font-size: 13px; font-weight: 700; color: #5e4128; line-height: 1.3; }
+.ls-note { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); line-height: 1.3; }
 .ls-note.warn { color: var(--warn-ink, #b0391f); }
 .ls-acts .route-move { width: 44px; padding: 0; font-size: 18px; }
 .ls-acts .ls-remove, .ls-acts .ls-via-remove { margin-left: auto; }
+/* Take off: a destructive ask, stamped in red (as Remove on a train card). */
+.line-sheet .chip.ls-remove, .line-sheet .chip.ls-via-remove { color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: "Woodrail Icons", var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
 .ls-via { min-height: 40px; }
-.ls-via-dot { position: relative; z-index: 1; justify-self: center; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 3px var(--line); }
-.ls-via .ls-stop-main { flex-direction: row; align-items: center; min-height: 44px; font-size: 14px; font-weight: 700; color: #5e4128; }
-.ls-stop.lifted { z-index: 2; background: #fffaf0; border-radius: 14px; box-shadow: 0 8px 20px rgba(60, 40, 20, 0.3); }
-.ls-drop-bar { position: absolute; left: 30px; right: 0; height: 4px; border-radius: 2px; background: #3a2a1c; pointer-events: none; }
-.ls-hint { font-size: 13.5px; font-weight: 700; color: #5e4128; }
-.ls-hint.empty { padding: 12px; border-radius: 12px; border: 2px dashed #d7bf98; text-align: center; font-size: 14.5px; }
-.ls-foot { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding-top: 6px; border-top: 2px solid #ead8bb; }
+.ls-via-dot { position: relative; z-index: 1; justify-self: center; width: 14px; height: 14px; border-radius: 50%; background: var(--maple); box-shadow: inset 0 0 0 3px var(--line); }
+.ls-via .ls-stop-main { flex-direction: row; align-items: center; min-height: 44px; font-size: 14px; font-weight: 700; color: var(--wood-ink-soft); }
+.ls-stop.lifted { z-index: 2; background: var(--maple); border-radius: 8px; box-shadow: var(--tile-face), 0 8px 8px -3px rgba(40, 22, 6, 0.45); }
+.ls-drop-bar { position: absolute; left: 30px; right: 0; height: 4px; border-radius: 2px; background: var(--wood-ink); pointer-events: none; }
+.ls-hint { font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); }
+.ls-hint.empty { padding: 12px; border-radius: 8px; border: 1.5px dashed var(--pencil); text-align: center; font-size: 14.5px; }
+.ls-foot { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding-top: 8px; border-top: 1.5px dashed var(--pencil); }
 .ls-foot .ls-hint { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 1.25; }
 .ls-foot .ls-add-via { flex: 0 0 auto; }
-.ls-add-via.on { box-shadow: inset 0 0 0 3px #2f6fb5; }
+.ls-add-via.on { box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 0 0 3px var(--blue); }
 /* The trains on it, and free ones to add. */
 .ls-trains { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.ls-train { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; border-radius: 12px; background: #fffaf0; box-shadow: inset 0 0 0 2px #ead8bb; }
+.ls-train { display: flex; align-items: center; gap: 6px; padding: 4px 4px 7px 12px; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
 .ls-train-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; font-size: 15px; }
-.ls-train-status { font-size: 13px; font-weight: 700; color: #5e4128; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-train-status { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ls-train .chip { flex: 0 0 auto; font-size: 14px; padding-inline: 10px; }
-.ls-h { font-size: 12px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: #74522f; margin-top: 2px; }
-.ls-empty { padding: 10px; border-radius: 12px; border: 2px dashed #d7bf98; font-size: 14.5px; font-weight: 700; color: #5e4128; text-align: center; }
+.ls-h { font-family: var(--display); font-size: 13px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: var(--wood-ink-soft); margin-top: 2px; }
+.ls-empty { padding: 10px; border-radius: 8px; border: 1.5px dashed var(--pencil); font-size: 14.5px; font-weight: 700; color: var(--wood-ink-soft); text-align: center; }
 .ls-free { display: flex; flex-wrap: wrap; gap: 6px; }
 .ls-add-train { font-size: 14.5px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ls-add-train span { font-weight: 700; color: #5e4128; }
-.ls-carries { font-size: 13px; font-weight: 700; color: #5e4128; }
+.ls-add-train span { font-weight: 700; color: var(--wood-ink-soft); }
+.ls-carries { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); }
 
 /* The growth menu (Game mode): a bottom sheet "Larkfield grew! Pick one", three big cards, one tap takes one. */
 .growth-sheet { position: fixed; inset: 0; z-index: 33; display: flex; align-items: flex-end; justify-content: center; background: rgba(40, 28, 16, 0.28); }
 .growth-sheet[hidden] { display: none; }
-.gs-panel { position: relative; width: min(560px, 100%); padding: 6px max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border-radius: 20px 20px 0 0; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 -10px 30px rgba(30, 20, 10, 0.3); color: #3a2a1c; animation: gs-up 0.22s ease-out; }
+.gs-panel { position: relative; width: min(560px, 100%); padding: 6px max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border-radius: 12px 12px 0 0; background: var(--wood-panel); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 -6px 8px -3px rgba(40, 22, 6, 0.4); color: var(--wood-ink); animation: gs-up 0.22s ease-out; }
 @keyframes gs-up { from { transform: translateY(40px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .gs-panel { animation: none; } }
 .gs-head { position: relative; display: flex; align-items: center; min-height: 48px; padding-right: 44px; }
 .gs-head h2 { margin: 0; font-size: 19px; font-weight: 900; line-height: 1.2; }
 .gs-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 6px; }
-.gs-card { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; min-height: 148px; padding: 14px 8px 12px; border: 2px solid #d8c6a6; border-radius: 16px; background: #fffaf0; box-shadow: 0 3px 0 rgba(120, 80, 40, 0.25); font: inherit; color: inherit; text-align: center; cursor: pointer; touch-action: manipulation; }
+.gs-card { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; min-height: 148px; padding: 14px 8px 15px; border: 0; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); font: inherit; color: inherit; text-align: center; cursor: pointer; touch-action: manipulation; }
 .gs-card:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(120, 80, 40, 0.25); }
 .gs-card .gs-icon { font-size: 38px; line-height: 1.1; }
 /* A wagon card's car, drawn as the tray draws it (an SVG side view), the height of the other cards' icons. */
@@ -1756,7 +1885,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .gs-more { margin: 10px 0 0; font-size: 13px; font-weight: 800; text-align: center; color: #6a4f34; }
 /* Rewards waiting, the sheet closed: a small badge at the right, just above the tray (clear of the goals and the toasts
    at the top); a tap opens the sheet. */
-.reward-badge { position: fixed; z-index: 11; bottom: calc(max(10px, env(safe-area-inset-bottom)) + 164px); right: max(14px, env(safe-area-inset-right)); display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: none; border-radius: 50%; background: #fff3c9; box-shadow: 0 0 0 3px #e6b52c, 0 4px 14px rgba(60, 40, 20, 0.25); font-size: 24px; line-height: 1; cursor: pointer; animation: reward-bob 1.6s ease-in-out 3; }
+.reward-badge { position: fixed; z-index: 11; bottom: calc(max(10px, env(safe-area-inset-bottom)) + 164px); right: max(14px, env(safe-area-inset-right)); display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: none; border-radius: 50%; background: var(--peg-yellow); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2), var(--block-drop); font-size: 24px; line-height: 1; cursor: pointer; animation: reward-bob 1.6s ease-in-out 3; }
 .reward-badge[hidden] { display: none; }
 .reward-badge .rb-count { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #c8442f; color: #fff; font-size: 12px; font-weight: 900; line-height: 20px; }
 @keyframes reward-bob { 50% { transform: translateY(-3px); } }
@@ -1793,7 +1922,7 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 /* The first-run camera tutorial (ui/controls-tutorial.ts): a small coach card, off the middle of the map. Top right
    (the goals are top left; toasts wait while it's up); on a phone held upright, just above the tray and its chips
    (--coach-bottom, set by the HUD: the goals have the top). */
-.coach { position: absolute; z-index: 31; right: max(12px, env(safe-area-inset-right)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(340px, calc(100% - 24px)); box-sizing: border-box; padding: 10px 12px 10px; border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; pointer-events: auto; }
+.coach { position: absolute; z-index: 31; right: max(12px, env(safe-area-inset-right)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(340px, calc(100% - 24px)); box-sizing: border-box; padding: 10px 12px 14px; border-radius: 10px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--top-drop); color: var(--wood-ink); pointer-events: auto; }
 .coach[hidden] { display: none; }
 /* (A phone on its side: narrower, to keep clear of the middle of the map.) */
 @media (max-height: 520px) { .coach { width: min(300px, calc(50% - 30px)); } }
@@ -1884,7 +2013,7 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 
 /* The place card (hud.ts showPlaceCard): a tray item's name, what it does and what sets it apart, above the tray over
    the item while it's ready to place. Never takes a pointer: the map under it still takes the drop. */
-.place-card { position: fixed; z-index: 34; max-width: min(280px, calc(100vw - 16px)); padding: 9px 12px 10px; border-radius: 14px; background: #faf3e6; color: #3a2a1c; box-shadow: inset 0 1px 0 #fff8, 0 10px 30px rgba(60, 40, 20, 0.28); pointer-events: none; display: flex; flex-direction: column; gap: 2px; animation: card-in 0.2s cubic-bezier(0.3, 1.4, 0.5, 1); transform-origin: 50% 100%; }
+.place-card { position: fixed; z-index: 34; max-width: min(280px, calc(100vw - 16px)); padding: 9px 12px 13px; border-radius: 10px; background: var(--wood-panel); color: var(--wood-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -4px 0 var(--end-grain), var(--board-drop); pointer-events: none; display: flex; flex-direction: column; gap: 2px; animation: card-in 0.2s cubic-bezier(0.3, 1.4, 0.5, 1); transform-origin: 50% 100%; }
 .place-card[hidden] { display: none; }
 .place-card .pc-name { font-size: 15px; font-weight: 800; }
 .place-card .pc-what { font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #5e4128; text-wrap: pretty; }
@@ -1906,20 +2035,20 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 /* The "Learn more" sheet: a card in the middle of the screen, scrolling on a short one. */
 .explainer-scrim { position: fixed; inset: 0; z-index: 40; background: rgba(40, 28, 16, 0.32); animation: scrim-in 0.2s ease-out; }
 @keyframes scrim-in { from { opacity: 0; } }
-.explainer-sheet { top: 50%; bottom: auto; background: #faf3e6; transform: translate(-50%, -50%); width: min(400px, calc(100% - 24px)); max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)) - 12px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; align-items: stretch; gap: 8px; padding: 12px 16px 14px; animation: explainer-in 0.2s cubic-bezier(0.3, 1.3, 0.5, 1); }
+.explainer-sheet { top: 50%; bottom: auto; background: var(--wood-panel); transform: translate(-50%, -50%); width: min(400px, calc(100% - 24px)); max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)) - 12px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; align-items: stretch; gap: 8px; padding: 12px 16px 14px; animation: explainer-in 0.2s cubic-bezier(0.3, 1.3, 0.5, 1); }
 .explainer-sheet[hidden] { display: none; }
 @keyframes explainer-in { from { opacity: 0; transform: translate(-50%, -48%) scale(0.97); } }
 .explainer-sheet > .card-title { font-size: 18px; text-align: center; padding: 6px 40px 0; color: #5e4128; }
 .explainer-sheet > .explainer-x { position: absolute; top: 2px; right: 2px; }
 .explainer-body { display: flex; flex-direction: column; gap: 12px; }
-.explainer-intro { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.35; color: #74522f; text-align: center; text-wrap: pretty; }
+.explainer-intro { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--wood-ink-soft); text-align: center; text-wrap: pretty; }
 .explainer-section { display: flex; flex-direction: column; gap: 4px; }
-.explainer-picture { line-height: 0; border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(106, 74, 44, 0.12); }
+.explainer-picture { line-height: 0; border-radius: 8px; overflow: hidden; box-shadow: var(--tile-face), var(--tile-drop); }
 .explainer-picture svg { width: 100%; height: auto; display: block; }
-.explainer-heading { margin: 4px 0 0; font-size: 15px; font-weight: 800; color: #3a2a1c; }
+.explainer-heading { margin: 6px 0 0; font-family: var(--display); font-weight: 400; font-size: 18px; letter-spacing: 0.01em; color: var(--wood-ink); }
 .explainer-text { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.4; color: #5e4128; text-wrap: pretty; }
 .explainer-more { display: flex; justify-content: center; }
-.explainer-row { justify-content: center; position: sticky; bottom: -14px; margin: 0 -16px -14px; padding: 8px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
+.explainer-row { justify-content: center; position: sticky; bottom: -14px; margin: 0 -16px -14px; padding: 8px 0 14px; background: var(--wood-panel); box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
 .explainer-back { min-width: 140px; }
 @media (prefers-reduced-motion: reduce) { .explainer-sheet, .explainer-scrim { animation: none; } }
 /* The line's way changed under a track edit (audit F14): said for a few seconds, as its ribbon flashes. */
@@ -1930,8 +2059,8 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 /* The paint shop's sheet (ui/paint-sheet.ts): a swatch per livery, body and trim on one round chip. */
 .paint-sub { margin: 0 0 6px; font-size: 13px; font-weight: 700; color: #6a4f34; }
 .paint-swatches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
-.paint-swatch { display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 92px; padding: 8px 4px; border: 2px solid #d8c6a6; border-radius: 14px; background: #fffaf0; font: inherit; font-size: 13px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
-.paint-swatch i { display: block; width: 44px; height: 44px; border-radius: 50%; box-shadow: 0 0 0 3px #fff, 0 0 0 4.5px #d8c6a6; }
+.paint-swatch { display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 92px; padding: 8px 4px 11px; border: 0; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); font: inherit; font-size: 13px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
+.paint-swatch i { display: block; width: 44px; height: 44px; border-radius: 50%; box-shadow: 0 0 0 3px var(--maple), 0 0 0 4.5px var(--maple-cut); }
 .paint-swatch small { font-size: 11.5px; font-weight: 700; color: #6a4f34; }
 .paint-swatch.chosen { border-color: #3f7d3a; background: #eef6e6; }
 .paint-swatch.locked { opacity: 0.55; cursor: default; }
@@ -1941,12 +2070,12 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 /* Your own colours (Paint your trains): Body and Trim, a grid of lacquers, the wagons too, Paint for pots of paint. */
 .paint-title { margin: 4px 0 8px; font-size: 14px; font-weight: 900; color: #5a3f26; }
 .paint-own-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.paint-own-look { flex: none; width: 44px; height: 44px; border-radius: 50%; box-shadow: 0 0 0 3px #fff, 0 0 0 4.5px #d8c6a6; }
+.paint-own-look { flex: none; width: 44px; height: 44px; border-radius: 50%; box-shadow: 0 0 0 3px var(--maple), 0 0 0 4.5px var(--maple-cut); }
 .paint-part { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
-.paint-part i { width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 1.5px #d8c6a6; }
+.paint-part i { width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--maple-cut); }
 .paint-part.on { border-color: #3f7d3a; background: #eef6e6; }
 .paint-colours { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
-.paint-colour { aspect-ratio: 1; min-height: 34px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1.5px #d8c6a6; cursor: pointer; padding: 0; }
+.paint-colour { aspect-ratio: 1; min-height: 34px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--maple-cut); cursor: pointer; padding: 0; }
 .paint-colour.chosen { box-shadow: 0 0 0 3px #3f7d3a; }
 .paint-own-foot { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .paint-wagons, .paint-own-go { width: 100%; min-height: 44px; }
@@ -1958,7 +2087,7 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 /* The drawing lost and not back (ui/context-lost.ts): over everything, a card to reload. */
 .gl-lost { position: fixed; inset: 0; z-index: 60; background: rgba(40, 28, 16, 0.45); display: grid; place-items: center; padding: 16px; }
 .gl-lost[hidden] { display: none; }
-.gl-lost-card { background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); border-radius: 22px; padding: 22px 24px; max-width: 360px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+.gl-lost-card { background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--board-drop); border-radius: 12px; padding: 22px 24px; max-width: 360px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
 .gl-lost-card h2 { margin: 0; font-size: 22px; }
 .gl-lost-card p { margin: 0; line-height: 1.4; color: var(--ink-soft); }
 .gl-lost-card .chip { align-self: center; font-size: 17px; padding: 12px 22px; }
