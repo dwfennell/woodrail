@@ -57,6 +57,8 @@ export const ROAD_MARGIN = 2 * STAND_SHORT;
 const ASK_LOOK = 24;
 /** A train waiting this long (s) at its slot's end keeps what it waits for from later askers (`firstCome`). */
 export const FIRST_COME_S = 10;
+/** How long (sim ticks, 2 s) `convoy` keeps a probe's "no slot that way" for the same train, signal, stop and points. */
+const PROBE_KEEP = 240;
 /** How often (sim ticks) a waiting train asks again. */
 export const CHECK_TICKS = 12;
 /** How long (s) a line's train waits for a line-mate going its way before a signal is suggested (signals spec §7). */
@@ -1183,7 +1185,8 @@ export class Sections {
       if (slot !== undefined) {
         const s = topo.slots[slot];
         if (s.kind === "signal") {
-          const u = this.slotUser(info, slot, st.engine);
+          // (Who's there matters only for its own way, not a probe's (`convoy`): not looked for then.)
+          const u = depth === 0 ? this.slotUser(info, slot, st.engine) : -1;
           // Going a signal's way, and it fits there clear of points: it waits there, if the way on past the signal can
           // take it after the train ahead (`convoy`). (Probing the way on for `convoy`: on through it, whoever's there.)
           const inBy = connectorRef(at.pieceId, at.entry);
@@ -1336,12 +1339,24 @@ export class Sections {
    * it or on the way there. Else it would stand there in the way of a train coming back from that line end, each
    * waiting on the other. −1: yes; else the train it waits for (or `heldOf`'s).
    */
+  private readonly probedNone = new Map<string, { topo: Topology; tick: number }>();
+
   private convoy(st: TrainState, info: LineInfo, sig: SignalWay): number {
     const topo = info.topo;
     if (sig.out < 0) return this.heldOf(info, st.engine);
     const start = { pieceId: pieceOfRef(sig.out), entry: indexOfRef(sig.out) };
+    // (A probe that came to no slot (a ring of waiting points, its stop on it) walks its whole `SEARCH`: the answer
+    // kept a while for the same train, signal, stop, track and points. With every signal a waiting point it's asked
+    // far more often: on #32's map 3 ms a probe, 230 of them in 300 s, a quarter of the sim's time uncached.)
+    const key = `${st.engine}:${sig.mark}:${this.host.target(st.engine)}:${this.layout.switchesVersion}`;
+    const none = this.probedNone.get(key);
+    if (none && none.topo === topo && this.sim.ticks - none.tick < PROBE_KEEP) return this.heldOf(info, st.engine);
     // (Probed: on through any waiting points, to the next loop or line end.)
     const way = this.wayOn(st, info, start, -1, null, 1);
+    if (!way) {
+      if (this.probedNone.size > 256) this.probedNone.clear();
+      this.probedNone.set(key, { topo, tick: this.sim.ticks });
+    }
     if (!way || way.dest === DEAD_END) return way && way.blockedBy !== -1 ? way.blockedBy : this.heldOf(info, st.engine);
     // (The slot the way comes to, taken or not.)
     let reached = topo.slotOf.get(start.pieceId);
