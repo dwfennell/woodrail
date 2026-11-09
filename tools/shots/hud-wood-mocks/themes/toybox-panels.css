@@ -143,3 +143,48 @@
 /* Take off: a destructive ask, stamped in red as Remove is on a train card */
 .line-sheet .chip.ls-remove { color: var(--st-red); background: var(--st-mottle); box-shadow: inset 0 0 0 2.5px var(--st-red); transform: rotate(-1.5deg);
   font-family: var(--tb-display); font-weight: 400; font-size: 16px; letter-spacing: .03em; }
+
+/* ===== round 3b: the Journal's alignment ===== */
+/* The header: "GOALS", its stamp and the fold button on one centre line, inset 14 px both sides. The stamp is sized to
+   the label's capitals (24 px box for ~11 px caps), not a block beside a word. */
+.goals:not(.collapsed) .goals-top { padding: 0 10px 0 0; min-height: 56px; align-items: center; }
+.goals:not(.collapsed) .goals-head { min-height: 56px; padding: 0 0 0 14px; gap: 10px; align-items: center; }
+.goals:not(.collapsed) .goals-label { font-size: 15px; line-height: 1; letter-spacing: .06em; padding-top: 2px; }
+.goals:not(.collapsed) .goals-count { height: 24px; font-size: 13px; padding: 0 6px; transform: rotate(-2deg); }
+.goals-fold { flex: none; width: 36px; height: 36px; margin-left: auto; border-radius: 8px; display: grid; place-items: center; background: var(--groove); box-shadow: var(--groove-sh); }
+
+/* Each goal and each tip is a tile; its buttons sit at the tile's bottom right, the main one rightmost. */
+.goals-pane > .goal.current { padding: 12px 12px 12px 10px; border-radius: 8px; background: var(--tile); box-shadow: var(--tile-face), var(--tile-sh); }
+.goal.current > div, .goal.feature-tip > div { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: stretch; }
+.goal.current .goals-show { align-self: flex-end; margin-top: 10px; }
+.tip-buttons { justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.tip-buttons .tip-show { order: 2; }
+.tip-buttons .tip-done { order: 1; opacity: 1; }
+.goal.feature-tip .tip-box { width: 22px; height: 22px; display: grid; place-items: center; }
+.goal.feature-tip { padding: 12px 12px 12px 10px; }
+/* the box (a hole, or the tip's 💡) sits on the title's centre line: Lilita 19 px at line-height 1.15 is a 22 px line */
+.goal-box, .goal-tick, .goal.feature-tip .tip-box { margin-top: 0; }
+.goal.feature-tip b { line-height: 22px; }
+.goal b { line-height: 22px; }
+/* the next goals, not yet started: a short list, holes on the same left edge as the tiles' */
+.goal.upcoming { padding: 0 10px; min-height: 32px; align-items: center; }
+.goal.upcoming .goal-box { margin: 0 3px; }
+.goals-pane { gap: 10px; }
+
+/* Phone: the tabs row is a sticky bar with ✕ at its end; the groove holds only the tabs, ✕ stands outside it. */
+@media (max-width: 560px), (max-height: 520px) {
+  .goals:not(.collapsed) .goals-body { background: var(--tb-board); background-blend-mode: multiply; }
+  .goals-tabs { position: sticky; background: var(--tb-board); background-blend-mode: multiply; box-shadow: none; padding: 10px 0 8px; gap: 4px; margin: 0; }
+  .goals-tabs::before { content: ""; position: absolute; left: 0; right: 52px; top: 10px; bottom: 8px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); }
+  .goals-tab { position: relative; margin: 4px 0; }
+  .goals-tab:first-child { margin-left: 4px; }
+  .goals-tabs > .goals-tab:nth-last-child(2), .goals-tabs > .goals-tab:has(+ .goals-close) { margin-right: 4px; }
+  .goals-close { position: relative; margin-left: 8px; display: grid; place-items: center; border-radius: 8px; color: #4f3418; }
+}
+/* the fold's right inset matches the label's left (14 px), whatever padding the row had */
+.goals:not(.collapsed) .goals-top { padding-right: 0; }
+.goals:not(.collapsed) .goals-head { padding-right: 0; }
+/* (the header row runs 6 px past the panel's edge, clipped: 20 px here measures 14 px from the edge) */
+.goals:not(.collapsed) .goals-fold { margin-right: 14px; }
+/* (the tile's column stretches its children: the stamp keeps its own width) */
+.goal .goal-progress { align-self: flex-start; }

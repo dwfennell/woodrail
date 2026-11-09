@@ -226,3 +226,8 @@ The same few parts everywhere, so the panels read as one family with the tray an
 
 Not done: the research board's legend (ⓘ), the Trains tab of the line sheet, Stickers, and the town and industry
 cards. Same parts would cover them.
+
+**Round 3b (alignment, after review):** the Journal's header ("GOALS", its stamp, the fold button) on one centre line
+(measured: within 1.4 px) and inset 14 px on both sides; each goal and tip a tile with its buttons at the tile's
+bottom right, the main one rightmost (Got it, then Show me), every action row ending 12 px inside its tile; on a
+phone the ✕ stands outside the Goals/News groove. The journal screen prints these measurements as it's taken.

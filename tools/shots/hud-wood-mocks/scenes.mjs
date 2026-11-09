@@ -110,6 +110,26 @@ Object.assign(SCREENS, {
     await p.waitForTimeout(300);
     await p.evaluate(() => [...document.querySelectorAll(".goals-tab")].find((t) => t.textContent.trim().startsWith("Goals"))?.click());
     await p.waitForTimeout(500);
+    // Alignment, by numbers: each header piece's vertical centre against the row's, and each action row's right edge
+    // against its tile's (inside padding).
+    console.log("journal", JSON.stringify(await p.evaluate(() => {
+      const r = (e) => e && e.getBoundingClientRect();
+      const mid = (b) => b && Math.round((b.top + b.bottom) / 2 * 10) / 10;
+      const head = r(document.querySelector(".goals:not(.collapsed) .goals-top"));
+      const out = { row: mid(head) };
+      for (const k of ["goals-label", "goals-count", "goals-fold"]) out[k] = mid(r(document.querySelector(`.goals .${k}`)));
+      const g = document.querySelector(".goals"), gb = r(g);
+      out.leftInset = Math.round(r(document.querySelector(".goals-label")).left - gb.left);
+      out.rightInset = Math.round(gb.right - r(document.querySelector(".goals-fold")).right);
+      out.tiles = [...document.querySelectorAll(".goal.current, .goal.feature-tip")].map((t) => {
+        const tb = r(t), btns = [...t.querySelectorAll("button.chip")].filter((b) => b.offsetParent).map(r);
+        return { tileRight: Math.round(tb.right), buttonsRight: Math.round(Math.max(...btns.map((b) => b.right))), buttonTops: btns.map((b) => Math.round(b.top)) };
+      });
+      out.kids = [...document.querySelector(".goals-top").children].map((c) => `${c.className}:${Math.round(r(c).left - gb.left)}-${Math.round(r(c).right - gb.left)}:${getComputedStyle(c).display}`);
+      out.headKids = [...document.querySelector(".goals-head").children].map((c) => `${c.className}:${Math.round(r(c).left - gb.left)}-${Math.round(r(c).right - gb.left)}`);
+      out.width = Math.round(gb.width);
+      return out;
+    })));
   },
   async news(p) {
     await reset(p);
