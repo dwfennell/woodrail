@@ -1,0 +1,119 @@
+/* City card mocks: the Toy box materials (DESIGN.md) over the game. Mock only: nothing here ships. */
+.mk-hide { visibility: hidden !important; }
+.mk-card { position: fixed; z-index: 50; display: flex; flex-direction: column; gap: 10px; overflow: hidden; padding: 12px 14px 20px; border-radius: 12px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--board-drop); color: var(--wood-ink); font-family: "Woodrail Icons", Nunito, system-ui, sans-serif; font-size: 13.5px; font-weight: 700; line-height: 1.3; }
+.mk-card * { box-sizing: border-box; }
+.mk-title { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.mk-title b { flex: 1; font-family: var(--display); font-weight: 400; font-size: 22px; letter-spacing: 0.02em; text-align: center; padding-left: 44px; }
+.mk-x { width: 44px; height: 44px; display: grid; place-items: center; margin: -8px -8px -8px 0; font-size: 18px; font-weight: 900; color: var(--wood-ink-soft); }
+.mk-stamp { display: inline-flex; align-items: center; height: 24px; padding: 0 7px; border-radius: 3px; font-size: 13px; font-weight: 900; line-height: 1; white-space: nowrap; background: var(--mottle); }
+.mk-stamp.green { color: var(--stamp-green-ink, #1f5a27); box-shadow: inset 0 0 0 1.6px #2f7a38; transform: rotate(-2deg); }
+.mk-stamp.gold { color: #6b4300; box-shadow: inset 0 0 0 1.4px #a97a00; transform: rotate(1.5deg); }
+.mk-stamp.brown { color: #5a3a1a; box-shadow: inset 0 0 0 1.3px rgba(90, 58, 26, 0.6); }
+.mk-stamp.red { color: #b3301c; box-shadow: inset 0 0 0 1.5px #b3301c; transform: rotate(-1.5deg); }
+.mk-level { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px 10px; }
+.mk-level .bar { grid-column: 1 / -1; }
+.mk-level .to { font-size: 13px; color: var(--wood-ink-soft); }
+.mk-level .stars { font-family: var(--display); font-size: 15px; color: #6b4300; white-space: nowrap; }
+.mk-bar { height: 10px; border-radius: 5px; background: var(--groove); box-shadow: var(--groove-sh); overflow: hidden; }
+.mk-bar i { display: block; height: 100%; border-radius: 5px; background: var(--sheen), var(--blue); }
+.mk-bar.green i { background: var(--sheen), var(--green); }
+.mk-bar.thin { height: 7px; }
+/* Next up: a maple tile with a yellow peg, what the city needs said plainly, and the one painted button. */
+.mk-next { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border-radius: 9px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+.mk-next-k { display: flex; align-items: center; gap: 7px; font-family: var(--display); font-size: 13px; letter-spacing: 0.06em; color: var(--wood-ink-soft); text-transform: uppercase; }
+.mk-peg { flex: none; width: 13px; height: 13px; border-radius: 50%; background: var(--peg-yellow); box-shadow: var(--peg-drop); }
+.mk-peg.green { background: var(--peg-green); }
+.mk-peg.blue { background: var(--peg-blue); }
+.mk-hole { flex: none; width: 13px; height: 13px; border-radius: 50%; background: var(--hole); box-shadow: var(--hole-sh); }
+.mk-next-t { font-size: 14.5px; font-weight: 800; }
+.mk-next-t small { display: block; font-size: 12.5px; font-weight: 700; color: var(--wood-ink-soft); margin-top: 2px; }
+.mk-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 9px; font-size: 15px; font-weight: 800; color: var(--wood-ink); background: var(--sheen), var(--maple); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -4px 0 var(--maple-cut), var(--block-drop); white-space: nowrap; }
+.mk-btn.go { font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
+.mk-btn.blue { font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; color: var(--paint-ink); background: var(--sheen), var(--blue); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--blue-cut), var(--block-drop); }
+.mk-btn.small { min-height: 44px; font-size: 14px; padding: 0 11px; }
+.mk-btn.wide { width: 100%; }
+/* The landing: a blue ring that says "here", as Show me rings a tray tile. */
+.mk-ring { outline: 3px solid var(--blue); outline-offset: 3px; }
+.mk-here { position: absolute; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 5px; font-family: var(--display); font-size: 13px; color: var(--paint-ink); background: var(--sheen), var(--blue); box-shadow: inset 0 -2px 0 var(--blue-cut), var(--block-drop); transform: rotate(-2deg); }
+/* The view switch (as Goals/News, Stops/Trains): a groove with a maple block slid to the open tab. */
+.mk-tabs { display: flex; gap: 3px; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); }
+.mk-tabs span { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 5px; border-radius: 7px; font-family: var(--display); font-size: 15px; letter-spacing: 0.02em; color: var(--wood-ink-soft); white-space: nowrap; }
+.mk-tabs span.on { background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); color: var(--wood-ink); }
+.mk-tabs .mk-peg { width: 10px; height: 10px; }
+/* The jump strip (direction A): maple chips that scroll the card to a section. */
+.mk-jump { display: flex; gap: 6px; padding-bottom: 8px; border-bottom: 1.5px dashed var(--pencil); }
+.mk-jump span { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 5px; border-radius: 8px; font-size: 13.5px; font-weight: 800; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); white-space: nowrap; }
+.mk-jump .mk-peg { width: 10px; height: 10px; }
+.mk-sec { display: flex; flex-direction: column; gap: 8px; }
+.mk-sec + .mk-sec { padding-top: 10px; border-top: 1.5px dashed var(--pencil); }
+.mk-h { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-size: 17px; letter-spacing: 0.02em; }
+.mk-h .sp { flex: 1; }
+.mk-h small { font-family: "Woodrail Icons", Nunito, sans-serif; font-size: 12.5px; font-weight: 800; color: var(--wood-ink-soft); letter-spacing: 0; }
+.mk-goods { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.mk-goods.one { grid-template-columns: 1fr; }
+.mk-good { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 2px 6px; font-size: 13px; }
+.mk-good .mk-bar { grid-column: 1 / -1; }
+.mk-good .n { font-weight: 900; }
+.mk-good.done .n { color: #1f5a27; }
+.mk-good.warn .n { color: #b3301c; }
+/* "Needs flour: no mill yet" as a row with its action, not a note. */
+.mk-need { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; border-radius: 9px; background: #fff1d6; box-shadow: var(--tile-face), var(--tile-drop); }
+.mk-need p { flex: 1; margin: 0; font-size: 13px; }
+.mk-need p b { color: #8f2312; }
+.mk-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 2px; border-bottom: 1.5px dashed var(--pencil); }
+.mk-row:last-child { border-bottom: 0; }
+.mk-row .k { font-weight: 900; min-width: 64px; }
+.mk-row .v { flex: 1; font-size: 13px; color: var(--wood-ink-soft); }
+.mk-row .go { font-size: 18px; color: var(--wood-ink-soft); }
+/* Grand projects, compact: one maple row each, the picked one opened as a ticket. */
+.mk-proj { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 10px; border-radius: 9px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+.mk-proj .ic { font-size: 24px; line-height: 1; }
+.mk-proj .nm { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.mk-proj .nm b { font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; }
+.mk-proj .nm span { font-size: 12px; color: var(--wood-ink-soft); }
+.mk-proj.later { background: #f3e6cf; box-shadow: inset 0 -2px 0 #d7bf98; }
+.mk-proj .chev { font-size: 18px; color: var(--wood-ink-soft); }
+.mk-ticket { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop), 0 0 0 3px var(--wood-ink); }
+.mk-ticket .top { display: flex; align-items: center; gap: 10px; }
+.mk-ticket .top .ic { font-size: 30px; line-height: 1; }
+.mk-ticket .top b { flex: 1; font-family: var(--display); font-weight: 400; font-size: 20px; letter-spacing: 0.02em; }
+.mk-ticket .gift { font-size: 13px; }
+.mk-stages { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.mk-stages li { display: flex; align-items: center; gap: 8px; min-height: 30px; font-size: 13px; border-top: 1.5px dashed var(--pencil); }
+.mk-stages li:first-child { border-top: 0; }
+.mk-stages li .g { margin-left: auto; font-weight: 800; color: var(--wood-ink-soft); white-space: nowrap; }
+.mk-stages li.now { font-weight: 900; }
+.mk-tfoot { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1.5px dashed var(--pencil); }
+.mk-tfoot .sp { flex: 1; font-size: 12.5px; color: var(--wood-ink-soft); }
+.mk-pips { display: inline-flex; gap: 4px; }
+.mk-pips i { width: 11px; height: 11px; border-radius: 50%; background: var(--hole); box-shadow: var(--hole-sh); }
+.mk-pips i.on { background: var(--peg-green); box-shadow: var(--peg-drop); }
+.mk-pips i.now { background: var(--peg-blue); box-shadow: var(--peg-drop); }
+.mk-lines { display: flex; flex-wrap: wrap; gap: 6px; }
+.mk-line { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 12px; border-radius: 8px; font-weight: 800; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+.mk-line i { width: 14px; height: 14px; border-radius: 3px; }
+.mk-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; }
+.mk-toggle i { position: relative; width: 40px; height: 22px; border-radius: 11px; background: var(--sheen), var(--green); box-shadow: inset 0 2px 2px rgba(0, 0, 0, 0.3); }
+.mk-toggle i::after { content: ""; position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 40% 32%, #fffaf0 0 25%, #e9cfa3 70%, #c9a46c 100%); }
+.mk-places { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mk-place { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 9px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); font-size: 12.5px; }
+.mk-place b { font-size: 14px; }
+.mk-place .mk-stamp { align-self: flex-start; }
+.mk-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background: linear-gradient(transparent, rgba(235, 201, 149, 0.95)); pointer-events: none; }
+/* Direction C: the quick card's three doors. */
+.mk-doors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mk-door { display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 84px; padding: 8px 4px; border-radius: 9px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); text-align: center; }
+.mk-door .ic { font-size: 22px; line-height: 1; }
+.mk-door b { font-family: var(--display); font-weight: 400; font-size: 15px; }
+.mk-door span { font-size: 11.5px; font-weight: 800; color: var(--wood-ink-soft); }
+.mk-board { position: fixed; z-index: 50; display: grid; gap: 14px; padding: 14px 16px 22px; border-radius: 12px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--board-drop); color: var(--wood-ink); font-family: "Woodrail Icons", Nunito, system-ui, sans-serif; font-size: 13.5px; font-weight: 700; line-height: 1.3; }
+.mk-board * { box-sizing: border-box; }
+.mk-cols { display: grid; grid-template-columns: 1.05fr 1.2fr 1fr; gap: 0; }
+.mk-cols > div { display: flex; flex-direction: column; gap: 8px; padding: 0 14px; }
+.mk-cols > div + div { border-left: 1.5px dashed var(--pencil); }
+.mk-cols > div:first-child { padding-left: 0; }
+.mk-cols > div:last-child { padding-right: 0; }
+/* Notes on the mock (labels for the reader of the proposal, not the game). */
+.mk-label { position: fixed; z-index: 60; padding: 5px 10px; border-radius: 6px; font: 800 13px/1.25 "Woodrail Icons", Nunito, sans-serif; color: #fff; background: rgba(28, 20, 12, 0.88); max-width: 320px; }
+.mk-callout { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 9px; border: 1.5px dashed var(--pencil); font-size: 13px; }
+.mk-callout .t { font-family: var(--display); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--wood-ink-soft); }
