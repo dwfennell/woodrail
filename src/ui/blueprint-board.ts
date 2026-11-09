@@ -513,7 +513,10 @@ export class BlueprintBoard {
         const from = byId.get(n);
         if (!from || !web.at.has(n)) continue;
         const cross = from.branch !== s.branch;
-        const lit = path.has(s.id) && path.has(n);
+        // Lit: the selected tag's path, between tags you know. A link into a "?" says nothing the "?" doesn't, and lit
+        // into each of a tag's six "?"s it was six long blue lines bundled across the web (user review): it follows the
+        // quiet rules instead, unless that "?" is the one picked.
+        const lit = path.has(s.id) && path.has(n) && (!hintOf(s) || s.id === this.selected) && (!hintOf(from) || from.id === this.selected);
         // Within a branch, always drawn; across branches, only on the selected path (the ticket names the rest). One
         // "?" to another says nothing: not drawn.
         if ((cross && !lit) || (hintOf(from) && hintOf(s) && !lit)) continue;

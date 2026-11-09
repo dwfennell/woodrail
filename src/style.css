@@ -117,7 +117,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    was lost against the grass. */
 /* The top bar: lacquered blocks in the logo's colours, by kind, so a wide bar reads as four groups, not nine colours:
    Research blue; Map and Add land green; Undo, Redo and the speed yellow; Pause red; Sound, Fullscreen and Menu dark. */
-.actions .chip { --c: var(--dark); --d: var(--dark-cut); width: 46px; min-width: 46px; height: 46px; padding: 0; border-radius: 9px; color: var(--paint-ink);
+.actions .chip { --c: var(--dark); --d: var(--dark-cut); width: 44px; min-width: 44px; height: 44px; padding: 0; border-radius: 9px; color: var(--paint-ink);
   background: var(--sheen), var(--c); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--d), var(--top-drop); }
 .actions .chip.research-btn { --c: var(--blue); --d: var(--blue-cut); }
 .actions .chip[aria-label^="Map"], .actions .chip[aria-label^="Add land"] { --c: var(--green); --d: var(--green-cut); }
@@ -633,7 +633,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-tools .tray-orient { gap: 6px; }
   .tray-tools .tray-pens { display: contents; }
   .tray-tools .tray-draw, .tray-tools .tray-orient { position: static; top: auto; left: auto; right: auto; }
-  .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 34px; min-width: 40px; padding: 0 9px 3px; font-size: 12.5px; line-height: 1; border-radius: 7px; box-shadow: inset 0 1px 0 #fff, inset 0 -3px 0 var(--maple-cut), 0 3px 3px -2px rgba(40, 22, 6, 0.4); position: relative; }
+  .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; height: 34px; min-width: 40px; padding: 0 9px 3px; font-size: 12px; line-height: 1; border-radius: 7px; box-shadow: inset 0 1px 0 #fff, inset 0 -3px 0 var(--maple-cut), 0 3px 3px -2px rgba(40, 22, 6, 0.4); position: relative; }
   /* Drawn small to fit the row, but a finger's 44 px to tap. */
   /* (Sideways, half the gap between chips, so neighbours' reach meets but doesn't overlap; more at the row's ends.) */
   .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -3px; }
@@ -1254,20 +1254,25 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-link.future { stroke-width: 1.75; stroke-dasharray: 0.5 5; opacity: 0.55; }
 .bp-link.laid { stroke-width: 3; opacity: 0.45; }
 .bp-link.open { stroke-width: 2.5; opacity: 0.9; }
-.bp-link.lit { stroke: var(--blue) !important; stroke-dasharray: none; stroke-width: 3; opacity: 1; }
+/* (a painted rail standing on the board: a short, hard shadow under it) */
+.bp-link.lit { stroke: var(--blue) !important; stroke-dasharray: none; stroke-width: 3; opacity: 1; filter: drop-shadow(0 1.5px 0 rgba(40, 22, 6, 0.3)); }
 .bp-node { position: absolute; z-index: 1; width: 148px; min-height: 48px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 9px; align-items: center; padding: 6px 8px 8px 7px; border: 0; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); font: inherit; color: var(--wood-ink); text-align: left; cursor: pointer; overflow: hidden; transition: transform 0.15s; }
 .bp-node .bp-dot { grid-row: 1 / span 2; width: 20px; height: 20px; font-size: 12px; }
 .bp-node .bp-name { font-size: 13px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
 .bp-node .bp-tag { justify-self: start; margin-top: 2px; }
 .bp-node:hover { transform: translateY(-1px); }
 /* Picked: lifted, ringed in ink. */
-.bp-node.selected { box-shadow: var(--tile-face), 0 0 0 3px var(--wood-ink), 0 5px 5px -2px rgba(40, 22, 6, 0.45); transform: translateY(-2px); z-index: 2; }
+/* Picked: lifted off the board and set in a painted blue frame (the colour of its lit path), a hair of maple between
+   tile and frame and the frame's own cut edge outside it. */
+.bp-node.selected { box-shadow: var(--tile-face), 0 0 0 2px var(--maple), 0 0 0 5px var(--blue), 0 0 0 6.5px var(--blue-cut), 0 9px 7px -3px rgba(40, 22, 6, 0.45); transform: translateY(-3px); z-index: 2; }
 /* Soon: a pencil outline of a tile not cut yet. */
 .bp-node.soon { border: 1.5px dashed var(--pencil); background: transparent; box-shadow: none; }
 .bp-node.soon .bp-name { color: var(--wood-ink-soft); }
 /* Not found yet: a small "?" token, not a tag. */
 .bp-node.hint { width: 44px; min-height: 44px; grid-template-columns: 1fr; place-items: center; padding: 0; border: 1.5px dashed var(--pencil); border-radius: 50%; background: transparent; box-shadow: none; }
-.bp-node.hint .bp-name { font-size: 17px; font-weight: 900; color: var(--wood-ink-soft); text-align: center; }
+/* (one cell, the "?" in its middle: a tag's two rows, name and price, left it in the top one) */
+.bp-node.hint { grid-template-rows: 1fr; align-content: center; justify-content: center; }
+.bp-node.hint .bp-name { font-size: 17px; font-weight: 900; line-height: 1; color: var(--wood-ink-soft); text-align: center; }
 .bp-node.hint .bp-dot { display: none; }
 .bp-tag.soon { color: var(--wood-ink-soft); background: transparent; border: 1.5px dashed var(--pencil); box-shadow: none; padding: 0 6px; }
 /* Locked till you have a College or a University (tech tree 3): the Learning branch's purple, as Soon's dashed tag. */
@@ -1322,7 +1327,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A band's "?"s on a phone: one chip at its end. */
 .bp-hints { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 8px; border: 1.5px dashed var(--pencil); border-radius: 8px; background: transparent; font: inherit; font-size: 12.5px; font-weight: 800; color: var(--wood-ink-soft); text-align: left; cursor: pointer; }
 .bp-hints .bp-dot { width: 22px; height: 22px; font-size: 13px; color: var(--wood-ink-soft); text-shadow: none; background: transparent; box-shadow: 0 0 0 1.5px var(--pencil); }
-.bp-hints.selected { box-shadow: 0 0 0 3px var(--wood-ink); }
+.bp-hints.selected { box-shadow: 0 0 0 2px var(--maple), 0 0 0 5px var(--blue), 0 0 0 6.5px var(--blue-cut); }
 @media (max-width: 560px) {
   .board-sub { display: none; }
   .board-head { padding: 10px 8px 2px 16px; }
@@ -1491,14 +1496,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill.rp-goods .rp-line { display: none; }
 .research-pill.rp-goods .rp-text { display: flex; flex-direction: column; justify-content: center; }
 .research-pill.rp-goods .rp-count { white-space: normal; max-height: 2.4em; line-height: 1.15; }
-.research-pill.idle { box-shadow: var(--wood-panel-edge), 0 0 0 3px var(--yellow), var(--top-drop); }
+/* Nothing up next: "Pick research" is a yellow lacquered block (attention), its dot red. */
+.research-pill.idle { background-color: var(--yellow); background-image: var(--sheen); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -4px 0 var(--yellow-cut), var(--top-drop); }
 .research-pill.idle .rp-count { color: inherit; }
 /* Nothing to research (the school's idle): an amber dot. It pulses gently a few times (about 10 s) as the school goes
    idle, and again each time the picker closes with nothing picked, then rests: no layout, no paint of the canvas, no
    WebGL frame (the pill is DOM over it), and nothing at all once it rests (a pulse that never stopped cost ~30 ms/s of
    main thread in headless Chrome). Transform and opacity only, for the compositor. */
 .research-pill.idle { padding-right: 18px; }
-.research-pill.idle::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #e07a00; box-shadow: 0 0 0 2px #fff1c2; }
+.research-pill.idle::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--paint-ink); }
 .research-pill.idle:not(.active)::after { animation: idle-pulse 1.6s ease-in-out 6; }
 @keyframes idle-pulse { 50% { transform: scale(1.35); opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) { .research-pill.idle:not(.active)::after { animation: none; } }

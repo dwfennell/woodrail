@@ -70,6 +70,9 @@ const S = {
     await click(p, '.actions .chip[aria-label^="Research"]');
     await p.waitForTimeout(1000);
     await p.evaluate(() => [...document.querySelectorAll(".bp-node")].find((x) => x.classList.contains("ready"))?.click());
+    await p.waitForTimeout(600);
+    // For the alignment check: each "?" card's box (its glyph should sit on the box's centre).
+    console.log("hints", JSON.stringify(await p.evaluate(() => [...document.querySelectorAll(".bp-node.hint, .bp-hints .bp-dot")].filter((e) => e.offsetParent).slice(0, 6).map((e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round); }))));
   },
   async lines(p) { await look(p); await menuItem(p, "Lines"); },
   async linesheet(p) {
