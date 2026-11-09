@@ -1855,8 +1855,8 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 @keyframes coach-lift { 0%, 100% { transform: translateY(10px); } 50% { transform: translateY(-10px); } }
 /* (Each a few times, as the step's card comes up, then still: QA, they ran on for ever, redrawing the page.) */
 @media (prefers-reduced-motion: reduce) { .coach-art, .coach-art * { animation: none !important; } }
-/* After the tutorial, Show me lights up a moment: where the goals start. */
-.goals-show-icon.nudge { animation: coach-nudge 0.9s ease-in-out 4; }
+/* After the tutorial, Show me lights up a moment: where the goals start. A goal's Show me does the same for Draw. */
+.goals-show-icon.nudge, .tray-draw.nudge { animation: coach-nudge 0.9s ease-in-out 4; }
 @keyframes coach-nudge { 50% { box-shadow: 0 0 0 4px #ffc21f, 0 0 14px 4px rgba(255, 170, 0, 0.55); transform: scale(1.08); } }
 
 /* ---- delight: small moments, each a one-off CSS animation (no loop, nothing per frame or on a pointer move) ---- */
@@ -1879,7 +1879,7 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .coins.pop i, .goals.ticked .goals-head, .toast.celebrate.show, .sticker.got.new { animation: none; }
   /* (Loops shown for a while: the Re-rail nudge and Show me's ring stand still, coloured as they are.) */
-  .chip.attention, .goals-show-icon.nudge { animation: none; }
+  .chip.attention, .goals-show-icon.nudge, .tray-draw.nudge { animation: none; }
 }
 
 /* The place card (hud.ts showPlaceCard): a tray item's name, what it does and what sets it apart, above the tray over
