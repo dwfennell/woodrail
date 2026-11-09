@@ -485,7 +485,7 @@ class Player {
         const raised = [...this.progress.landmarks].filter((id) => !before.has(id));
         this.note(`${t.name} grew into a ${status.name.toLowerCase()} (+${built.length} buildings${raised.length ? `; new ${raised.join(", ")}` : ""}; ${townLandmarks(t).size} landmarks)`);
         if (built.length === 0) this.findings.push(`${t.name} grew to ${status.name} with no room to build (minute ${this.minute.toFixed(1)}).`);
-        const gift = firstTimeGift(this.progress, status.level);
+        const gift = firstTimeGift(this.progress, status.level, t.id);
         if (gift.length > 0) this.note(`  present: ${gift.map(([id, n]) => `${n} ${ruleOf(id)!.label}`).join(", ")}`);
         const offer = offerOnGrowth(this.progress, this.w, t.name, status.level, this.random);
         this.note(`  offers ${offer ? offer.cards.map((c) => cardView(this.progress, this.w, c).amount).join(" or ") : "nothing"}`);

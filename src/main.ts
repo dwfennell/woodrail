@@ -1932,7 +1932,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const level = aOrAn(status.name.toLowerCase());
       // The first village, town and city each bring a present; a town that grows offers three cards to pick one from
       // (planks, coins, a crate, a wagon, a research boost, rare cargo: never a blueprint).
-      const gift = firstTimeGift(progress, status.level);
+      const gift = firstTimeGift(progress, status.level, town.id);
       if (gift.length > 0) hud.refreshTrayBadges();
       const offer = offerOnGrowth(progress, game.world, town.name, status.level, Math.random);
       const extras = [landmarks, schoolNews, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", offer ? "Pick a reward" : ""].filter(Boolean);
@@ -2721,7 +2721,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     function stationOf(t: (typeof TECHS)[number]): Station {
       // (Its `makes` put on after, when it's asked for: see `withMakes`.)
       const makes: Station["makes"] = [];
-      const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
+      const sofar = (n: Need) => (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : n.kind === "level" && (n.towns ?? 1) > 1 ? ` (${progress.townsAt(n.level)} so far)` : "");
+      const requires = t.requires.map((n) => ({ text: describeNeed(n) + sofar(n), met: needMet(progress, n) }));
       // Its price is its research: every good brought to a school, and from tier 2 coins (left out once paid: one
       // started and set aside keeps them).
       const cost = costOfResearch(t.id, progress.learned);
@@ -6629,7 +6630,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // (Squares dug under towns before digging was paid for (an older save's tunnels): counted as paid.)
       progress.dug = Math.max(progress.dug, squaresDugUnder(game.world));
       // (A save from before first-time gifts: its towns' levels were reached already.)
-      for (const t of game.landscape.towns) progress.bestLevel = Math.max(progress.bestLevel, townLife.status(t.id).level);
+      // (And each town's, for needs of several towns at a level: a save from before them, or one merged from another device.)
+      for (const t of game.landscape.towns) {
+        const level = townLife.status(t.id).level;
+        progress.bestLevel = Math.max(progress.bestLevel, level);
+        progress.townReached(t.id, level);
+      }
       // (A save from before the first-flour bonus whose towns have had flour: it's had its first.)
       flourBefore(progress, game.world);
       syncLandmarks();

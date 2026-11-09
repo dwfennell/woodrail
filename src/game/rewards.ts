@@ -83,8 +83,10 @@ function plural(label: string): string {
  * industry building for your first town, an engine (once Signals and routes are learned; before, two switches or wagons in its
  * place) and the grandest industry you know for your first city. Returns what was given (into the toy box), or empty if that level was reached before. (No second
  * engine before Signals and routes: on one line two trains only turn each other back. It comes with them: see `learnGift`.)
+ * `town` is the town that grew (its id): its level is kept for needs of several towns at a level (`Progress.townLevels`).
  */
-export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
+export function firstTimeGift(p: Progress, level: number, town?: number): [ThingId, number][] {
+  if (town !== undefined) p.townReached(town, level);
   if (level <= p.bestLevel) return [];
   const gifts: [ThingId, number][] = [];
   for (let l = p.bestLevel + 1; l <= Math.min(level, 3); l++) gifts.push(...giftFor(p, l));

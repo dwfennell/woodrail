@@ -1,14 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { Economy } from "../economy";
 import { Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from "../track";
-import { BLUEPRINTS } from "./blueprints";
+import { BLUEPRINTS, COLLEGE_SCHOOL_ID } from "./blueprints";
 import { bigTopSpot, CIRCUS_FARE, CIRCUS_RIDERS, CIRCUS_SECONDS, circusFare, circusStop, circusTick } from "./circus";
-import { crateFor, learnGift } from "./rewards";
+import { loadFootprints } from "../props/footprints-testing";
+import type { Footprint } from "../props/placement";
+import { crateFor, firstTimeGift, learnGift } from "./rewards";
+import { pickerKey, unlockHow } from "./research-text";
+import { needMet, ready, techOf } from "./tech";
+import { TownLife, type TownLifeHost } from "./town-life";
+import { townLevel } from "./towns";
 import { attachPassengers, fareFor, peopleArrive, RIDER_SECONDS } from "./passengers";
 import { Progress } from "./progress";
 import { isGift, THING_RULES } from "./things";
 import { buildStarterWorld, STATION_CRANE_AT, type World } from "./world";
+
+/** The game's own prop footprints (`Game.footprintOf`), so towns grow around their props as in the game. */
+let footprintOf: (asset: string) => Footprint | undefined = () => {
+  throw new Error("footprints not loaded yet (see beforeAll)");
+};
+beforeAll(async () => {
+  footprintOf = await loadFootprints(["bldg"]);
+}, 60_000);
 
 function lay(layout: Layout, ref: number, type: PieceTypeId): number {
   const end = layout.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
@@ -134,5 +148,68 @@ describe("the show's payoff", () => {
     p.circusTowns.add(1).add(2);
     const back = Progress.fromJSON(JSON.parse(JSON.stringify(p.toJSON())));
     expect([back.circus, back.circusLast, [...back.circusTowns]]).toEqual([{ town: 2, left: 100, prop: 7 }, 1, [1, 2]]);
+  });
+});
+
+describe("researching the circus (it requires 2 towns)", () => {
+  it("is locked with one town at town level, saying how many so far, and researchable once a second town grows to one", () => {
+    const w = buildStarterWorld();
+    const p = Progress.fresh();
+    // Setup shortcuts: the blueprints it needs first and its College in a city (not the thing under test: its "2 towns").
+    for (const id of techOf("circus")!.needs) p.learned.add(id);
+    p.landmarks.add(COLLEGE_SCHOOL_ID);
+    const twoTowns = techOf("circus")!.requires.find((n) => n.kind === "level")!;
+    expect(twoTowns).toEqual({ kind: "level", level: 2, towns: 2 });
+    // Towns grow as in the game: TownLife on the goods delivered to them, and its `grew` hands the town to
+    // `firstTimeGift` as main.ts's does.
+    const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
+    const life = new TownLife(host, { grew: (t, s) => void firstTimeGift(p, s.level, t.id), received: () => {} });
+    life.reset();
+    /** All a town has been brought by the time it reaches `level`, through the levels' wants (the economy's tally of a train's unloading). */
+    const growTo = (townIndex: number, level: number) => {
+      const t = w.landscape.towns[townIndex];
+      const bag: Record<string, number> = {};
+      for (let i = 0; i < level; i++) for (const [g, n] of Object.entries(townLevel(i).wants)) bag[g] = (bag[g] ?? 0) + n!;
+      w.economy.delivered.set(t.id, bag.planks ?? 0);
+      w.economy.deliveredGoods.set(t.id, { ...bag });
+      life.update();
+    };
+    expect(w.landscape.towns.length).toBeGreaterThanOrEqual(2);
+
+    growTo(0, 2);
+    expect(p.bestLevel).toBe(2);
+    expect(p.townsAt(2)).toBe(1);
+    expect(needMet(p, twoTowns)).toBe(false);
+    expect(ready(p, "circus")).toBe(false);
+    expect(unlockHow(p, "circus").text).toBe("Grow 2 towns (1 so far), then research Circus");
+    // A second town only a village: still one town.
+    growTo(1, 1);
+    expect(ready(p, "circus")).toBe(false);
+
+    growTo(1, 2);
+    expect(p.townsAt(2)).toBe(2);
+    expect(needMet(p, twoTowns)).toBe(true);
+    expect(ready(p, "circus")).toBe(true);
+    expect(unlockHow(p, "circus").text).toBe("Research Circus to unlock");
+    // Kept with the game's progress.
+    const back = Progress.fromJSON(JSON.parse(JSON.stringify(p.toJSON())));
+    expect(back.townsAt(2)).toBe(2);
+    expect(needMet(back, twoTowns)).toBe(true);
+  });
+
+  it("counts each town once, at the biggest it has grown: one city is not two towns", () => {
+    const p = Progress.fresh();
+    p.townReached(7, 3);
+    p.townReached(7, 2);
+    expect(p.townsAt(2)).toBe(1);
+    expect(p.townsAt(3)).toBe(1);
+  });
+
+  it("the research picker is rebuilt when the count on a card changes (\"3 cities ★ (1 so far)\"), though the need's still unmet", () => {
+    const p = Progress.fresh();
+    p.bestLevel = 4;
+    const before = pickerKey(p, null, "");
+    p.townReached(1, 4);
+    expect(pickerKey(p, null, "")).not.toBe(before);
   });
 });

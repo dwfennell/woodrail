@@ -53,7 +53,8 @@ export function needMet(p: Progress, n: Need): boolean {
     case "delivered":
       return statOf(p, `delivered:${n.good}`) >= n.n;
     case "level":
-      return (n.towns ?? 1) <= 1 && p.bestLevel >= n.level;
+      // (One town: the biggest any has grown. Several: each town counted once, at the biggest it has grown.)
+      return (n.towns ?? 1) <= 1 ? p.bestLevel >= n.level : p.townsAt(n.level) >= n.towns!;
     case "landmark":
       return p.landmarks.has(n.id);
     case "place":

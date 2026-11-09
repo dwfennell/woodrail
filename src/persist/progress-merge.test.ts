@@ -39,6 +39,12 @@ describe("merging two devices' Game progress (cloud saves)", () => {
     expect(new Set(m.learned)).toEqual(new Set(["switches", "bridges"]));
   });
 
+  it("each town's level: the bigger of the two, per town (for needs of several towns, as Circus's 2 towns)", () => {
+    const m = mergeProgress(undefined, p({ townLevels: [[1, 2], [2, 1]] }), p({ townLevels: [[2, 2], [3, 1]] }), "local");
+    expect(new Map(m.townLevels)).toEqual(new Map([[1, 2], [2, 2], [3, 1]]));
+    expect(mergeProgress(undefined, p({}), p({}), "local").townLevels).toBeUndefined();
+  });
+
   it("goals done on either", () => {
     expect(new Set(mergeGoals(["join-towns", "first-delivery"], ["join-towns", "second-train"]))).toEqual(new Set(["join-towns", "first-delivery", "second-train"]));
   });

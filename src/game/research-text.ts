@@ -84,7 +84,8 @@ function needToDo(p: Progress, n: Need): string {
       return `deliver ${n.n} ${n.good}`;
     case "level": {
       const names = n.towns && n.towns > 1 ? ["", "villages", "towns", "cities", "cities ★"] : ["", "a village", "a town", "a city", "a city ★"];
-      return `reach ${n.towns && n.towns > 1 ? `${n.towns} ${names[n.level]}` : names[n.level]}`;
+      // ("grow 2 towns (1 so far)": each town counted once, at the biggest it has grown.)
+      return n.towns && n.towns > 1 ? `grow ${n.towns} ${names[n.level]} (${p.townsAt(n.level)} so far)` : `reach ${names[n.level]}`;
     }
     case "landmark":
       return `get ${n.label}`;
@@ -405,14 +406,17 @@ export function pickerKey(p: Progress, school: string | null, goal: string): str
   while (reached < coinPrices.length && coinPrices[reached] <= p.coins) reached++;
   let met = "";
   let riders = false;
+  // (Towns at a level, for a need of several: its card counts them, "2 towns (1 so far)".)
+  let towns = "";
   for (const t of TECHS) {
     if (p.learned.has(t.id)) continue;
     for (const n of t.requires) {
       met += needMet(p, n) ? "1" : "0";
       riders ||= n.kind === "count" && n.stat === "riders";
+      if (n.kind === "level" && (n.towns ?? 1) > 1) towns += `${p.townsAt(n.level)},`;
     }
   }
-  return `${p.research.version}|${reached}|${coinsShort(p)}|${p.learned.size}|${met}|${riders ? p.riders : ""}|${school ?? ""}|${goal}`;
+  return `${p.research.version}|${reached}|${coinsShort(p)}|${p.learned.size}|${met}|${riders ? p.riders : ""}|${towns}|${school ?? ""}|${goal}`;
 }
 
 /**

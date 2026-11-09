@@ -94,7 +94,7 @@ class Playthrough {
     school: (kind, d) => researchWants(this.progress, kind, (id) => schoolTakesFor(this.w, d, this.progress.learned, id)) > 0,
       grew: (t, status, built) => {
         this.note(`${t.name} grew into a ${status.name.toLowerCase()} (+${built.length} buildings)`);
-        const gift = firstTimeGift(this.progress, status.level);
+        const gift = firstTimeGift(this.progress, status.level, t.id);
         if (gift.length > 0) this.note(`  present: ${gift.map(([id, n]) => `${n} ${ruleOf(id)!.label}`).join(", ")}`);
         const offer = offerOnGrowth(this.progress, this.w, t.name, status.level, this.random);
         if (offer) this.note(`  ${t.name} offers: ${offer.cards.map((c) => c.kind).join(" or ")}`);

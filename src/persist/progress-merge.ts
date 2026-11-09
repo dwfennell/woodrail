@@ -8,7 +8,7 @@ import type { Merger } from "./cloud";
  * winner's, but the progress is still merged, so a session's earnings aren't rolled back by one piece of track.
  *
  * - coins, counters (riders, `counts`), the toy box (`owned`): the base plus what each side earned or spent since;
- * - the furthest reached: `bestLevel` (max), `firstFlour` (either), blueprints learned (both), goals done (both);
+ * - the furthest reached: `bestLevel` (max), each town's level (`townLevels`, max per town), `firstFlour` (either), blueprints learned (both), goals done (both);
  * - research: what either learned is done; one being studied on both: the base plus the goods each brought (no more
  *   than it needs), and the most study; two different ones, the one further along stays current and the other waits
  *   next (or keeps its goods aside);
@@ -38,6 +38,7 @@ export function mergeProgress(base: ProgressData | undefined, local: ProgressDat
     ...(latest.roads ? { roads: latest.roads } : {}),
     riders: sum(b.riders, local.riders, remote.riders),
     bestLevel: Math.max(local.bestLevel ?? 0, remote.bestLevel ?? 0),
+    ...mergeTownLevels(local.townLevels, remote.townLevels),
     firstFlour: !!local.firstFlour || !!remote.firstFlour,
     counts: sumMaps(b.counts ?? [], local.counts ?? [], remote.counts ?? []),
     research: mergeResearch(local.research, remote.research, new Set(learned), base?.research),
@@ -247,4 +248,11 @@ export function gameMerger(keys: { progress: string; goals: string; stickers?: s
       return { [keys.progress]: progress, [keys.goals]: JSON.stringify(mergeGoals(list(local[keys.goals]), list(remote[keys.goals]))), ...stickers };
     },
   };
+}
+
+/** Each town's biggest level on either side (absent on both: left out). */
+function mergeTownLevels(local: [number, number][] | undefined, remote: [number, number][] | undefined): { townLevels?: [number, number][] } {
+  const m = new Map<number, number>();
+  for (const [id, l] of [...(local ?? []), ...(remote ?? [])]) m.set(id, Math.max(m.get(id) ?? 0, l));
+  return m.size > 0 ? { townLevels: [...m] } : {};
 }

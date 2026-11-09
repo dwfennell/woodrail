@@ -80,7 +80,7 @@ class Tour {
         const marks = built.length > 0 ? [...townLandmarks(t)].join(", ") : "";
         this.note(`${t.name} grew into a ${status.name.toLowerCase()} (+${built.length} buildings)${marks ? `; landmarks: ${marks}` : ""}`);
         this.syncLandmarks();
-        const gift = firstTimeGift(this.progress, status.level);
+        const gift = firstTimeGift(this.progress, status.level, t.id);
         if (gift.length > 0) this.note(`  first ${status.name.toLowerCase()}: a present of ${describeThings(gift)}`);
         const offer = offerOnGrowth(this.progress, this.w, t.name, status.level, this.random);
         if (offer) this.note(`  ${t.name} offers ${offer.cards.map((c) => cardView(this.progress, this.w, c).amount).join(" or ")}`);

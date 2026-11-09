@@ -28,6 +28,11 @@ export class Progress {
   readonly counts = new Map<string, number>();
   /** The biggest any of your towns has grown (a level: 1 a village…), for the first-time gifts. */
   bestLevel = 0;
+  /**
+   * The biggest each of your towns has grown (town id → level), so a need for several towns at a level ("2 towns":
+   * Circus) can be checked. Like `bestLevel`, a level once reached stays reached.
+   */
+  readonly townLevels = new Map<number, number>();
   /** The first flour a town received has paid its bonus (see `payDelivery`): once a game. */
   firstFlour = false;
   /** Fields planted with coins (each dearer than the last: see `fieldPrice`). */
@@ -112,8 +117,20 @@ export class Progress {
     if (onMap > this.roads) this.roads = onMap;
   }
 
+  /** Town `id` has grown to `level` (kept if it's the biggest it's been). */
+  townReached(id: number, level: number): void {
+    if (level > (this.townLevels.get(id) ?? 0)) this.townLevels.set(id, level);
+  }
+
+  /** How many of your towns have grown to `level` or beyond. */
+  townsAt(level: number): number {
+    let n = 0;
+    for (const l of this.townLevels.values()) if (l >= level) n++;
+    return n;
+  }
+
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), ...(this.dug > 0 ? { dug: this.dug } : {}), riders: this.riders, bestLevel: this.bestLevel, firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), regates: REGATES, ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}), ...(this.circus ? { circus: { ...this.circus } } : {}), ...(this.circusLast >= 0 ? { circusLast: this.circusLast } : {}), ...(this.circusTowns.size > 0 ? { circusTowns: [...this.circusTowns] } : {}) };
+    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, ...(this.roads > 0 ? { roads: this.roads } : {}), ...(this.dug > 0 ? { dug: this.dug } : {}), riders: this.riders, bestLevel: this.bestLevel, ...(this.townLevels.size > 0 ? { townLevels: [...this.townLevels] } : {}), firstFlour: this.firstFlour, counts: [...this.counts], research: researchToJSON(this.research), regates: REGATES, ...(this.taken.length > 0 ? { taken: this.taken.map((t) => ({ ...t })) } : {}), ...(this.circus ? { circus: { ...this.circus } } : {}), ...(this.circusLast >= 0 ? { circusLast: this.circusLast } : {}), ...(this.circusTowns.size > 0 ? { circusTowns: [...this.circusTowns] } : {}) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -151,6 +168,8 @@ export class Progress {
     p.dug = Number.isInteger(d?.dug) && d!.dug! > 0 ? d!.dug! : 0;
     p.riders = Number.isInteger(d?.riders) && d!.riders! > 0 ? d!.riders! : 0;
     p.bestLevel = Number.isInteger(d?.bestLevel) && d!.bestLevel! > 0 ? d!.bestLevel! : 0;
+    // (A save from before per-town levels has none: Game mode's load fills them from the towns as they stand.)
+    if (d && Array.isArray(d.townLevels)) for (const e of d.townLevels) if (Array.isArray(e) && Number.isInteger(e[0]) && Number.isInteger(e[1]) && e[1] > 0) p.townReached(e[0], e[1]);
     if (d && Array.isArray(d.counts)) for (const e of d.counts) if (Array.isArray(e) && typeof e[0] === "string" && Number.isFinite(e[1]) && e[1] > 0) p.counts.set(e[0], e[1]);
     // (A save from before the first-flour bonus: due only if no flour was delivered yet.)
     p.firstFlour = typeof d?.firstFlour === "boolean" ? d.firstFlour : (p.counts.get("delivered:flour") ?? 0) > 0;
@@ -180,6 +199,8 @@ export interface ProgressData {
   dug?: number;
   riders?: number;
   bestLevel?: number;
+  /** Each town's biggest level, [town id, level] (absent: none yet, or a save from before them). */
+  townLevels?: [number, number][];
   firstFlour?: boolean;
   counts?: [string, number][];
   orders?: string[];
