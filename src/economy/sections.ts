@@ -1368,7 +1368,14 @@ export class Sections {
     }
     if (reached === undefined || topo.slots[reached].kind === "signal") return way.blockedBy !== -1 ? way.blockedBy : this.heldOf(info, st.engine);
     const r = topo.slots[reached];
-    if (r.kind === "road") return info.blocked.has(r.loop) ? (way.blockedBy !== -1 ? way.blockedBy : this.heldOf(info, st.engine)) : -1;
+    if (r.kind === "road") {
+      if (info.blocked.has(r.loop)) return way.blockedBy !== -1 ? way.blockedBy : this.heldOf(info, st.engine);
+      // (A train on the way there coming the other way, or standing in a waiting point on it facing this one: between
+      // two loops neither could pass the other, and with a pair of signals mid-line both would wait nose to nose for
+      // good. One going the same way ahead is only followed. 2026-11-09: one pair mid-line, two trains of one line
+      // starting toward each other: 0 stops in 900 s without this, 20 each with it, as before pairs were waiting points.)
+      return this.comingAt(st.engine, info, this.alongOf(way.steps, topo, false));
+    }
     // (A line end: nobody there, nor on the way there, nor in the waiting points between, either way.)
     for (const x of way.sections) {
       const u = this.sectionUser(info, x, st.engine);
@@ -1700,11 +1707,11 @@ export class Sections {
    * A way's steps, and on through the slot it comes to (the one road the points send it onto), as piece → the end each
    * is come onto by.
    */
-  private alongOf(steps: readonly Step[], topo: Topology): Map<number, number> {
+  private alongOf(steps: readonly Step[], topo: Topology, intoSlot = true): Map<number, number> {
     const out = new Map<number, number>();
     for (const s of steps) if (!out.has(s.pieceId)) out.set(s.pieceId, s.entry);
     const last = steps[steps.length - 1];
-    if (!last) return out;
+    if (!last || !intoSlot) return out;
     let at = next(this.layout, last.pieceId, this.exitOf(last));
     const slot = at ? topo.slotOf.get(at.pieceId) : undefined;
     for (let k = 0; at && slot !== undefined && k < SEARCH && topo.slotOf.get(at.pieceId) === slot && !out.has(at.pieceId); k++) {
@@ -1714,6 +1721,23 @@ export class Sections {
       at = next(this.layout, at.pieceId, ways[0].exit);
     }
     return out;
+  }
+
+  /**
+   * The first other train on a way (`along`: piece → the end it's come onto by), or holding a move over it, that isn't
+   * going the same way ahead (`sameWayAhead`): one coming at a train taking that way head on. −1: none.
+   */
+  private comingAt(engine: number, info: LineInfo, along: ReadonlyMap<number, number>): number {
+    if (along.size === 0) return -1;
+    for (const u of info.users) {
+      if (u === engine) continue;
+      const t = this.sim.findCar(u)?.train;
+      const m = this.states.get(u)?.move;
+      const on = !!t && t.bogies.some((b) => along.has(b.pieceId));
+      if ((on || !!m?.steps.some((x) => along.has(x.pieceId))) && !this.sameWayAhead(u, along)) return u;
+    }
+    for (const t of info.foreign) if (t.bogies.some((b) => along.has(b.pieceId)) && !this.sameWayAhead(nameOf(t), along)) return nameOf(t);
+    return -1;
   }
 
   /** Is train `u` under way (moving, or holding a move)? */
