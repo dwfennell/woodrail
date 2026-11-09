@@ -1938,6 +1938,9 @@ export class Interaction {
     if (m.kind !== "drag-piece" && m.kind !== "drag-prop") return false;
     // (A town's house goes about its town on its own squares: it isn't twisted.)
     if (m.kind === "drag-prop" && m.town) return false;
+    // A second finger that came down before a hold had picked the piece up (a busy phone runs the hold's timer before
+    // it hands over the finger) cancels it, as a second finger during a hold always has: two fingers move the view.
+    if (this.holdFrom !== null && e.timeStamp < this.holdFrom + HOLD_MS) return false;
     const start = this.twistAngle(e.clientX, e.clientY);
     if (start === null) return false;
     // (The camera keeps still under the second finger: a drag out of the tray leaves it free, the finger being off the map.)
@@ -2372,7 +2375,11 @@ export class Interaction {
     if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
     if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };
+    this.holdFrom = t;
   }
+
+  /** When (event time) the last press that may become a hold came down, till the gesture ends: see `beginTwist`. */
+  private holdFrom: number | null = null;
 
   /**
    * A press on a switch's lever (or its semaphore), with a finger or a mouse: if it rests `PIN_HOLD_MS`, the switch is
@@ -2680,6 +2687,7 @@ export class Interaction {
     const m = this.mode;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     this.twist = null;
+    this.holdFrom = null;
     this.game.controls.enabled = true;
     const still = this.heldStill;
     const unsure = this.heldUnsure;
@@ -2789,6 +2797,7 @@ export class Interaction {
 
   private cancel(): void {
     this.twist = null;
+    this.holdFrom = null;
     this.game.director.setEdgePointer(null);
     this.hud.setRefusal(null);
     const m = this.mode;

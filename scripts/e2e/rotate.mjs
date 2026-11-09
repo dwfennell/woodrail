@@ -63,13 +63,26 @@ async function openSandbox(phone) {
   await p.goto(`${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-24`);
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
   await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-  await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 120000 });
-  await p.evaluate(() => {
-    const help = document.querySelector(".help");
-    if (help && !help.hidden) help.querySelector("button.primary, .help-card button:last-of-type")?.click();
-    document.querySelector(".coach:not([hidden]) .coach-skip")?.click();
-  });
-  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  // (Choosing a mode may reload the page into it: each step tried again after a reload, as the page comes back.)
+  const steady = async (step) => {
+    for (let k = 0; ; k++) {
+      try {
+        return await step();
+      } catch (e) {
+        if (k >= 3 || !/context was destroyed|navigation/i.test(String(e))) throw e;
+        await p.waitForLoadState("load").catch(() => {});
+      }
+    }
+  };
+  await steady(() => p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 120000 }));
+  await steady(() =>
+    p.evaluate(() => {
+      const help = document.querySelector(".help");
+      if (help && !help.hidden) help.querySelector("button.primary, .help-card button:last-of-type")?.click();
+      document.querySelector(".coach:not([hidden]) .coach-skip")?.click();
+    }),
+  );
+  await steady(() => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))])));
   await frames();
 }
 
