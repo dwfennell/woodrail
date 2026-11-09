@@ -24,7 +24,7 @@ const mapFor = (seed: number) => {
 describe("generated maps", () => {
   it("have no country lanes (the only roads are towns' streets till the player lays one)", () => {
     for (const seed of SEEDS) expect(mapFor(seed).grid.surface.indexOf(SURF_LANE), `seed ${seed}`).toBe(-1);
-  });
+  }, 60_000); // (200 maps made: about 4 s alone, more on a busy machine)
 });
 
 describe("findCrossings", () => {
