@@ -240,7 +240,11 @@ Ideas tried or weighed that don't help these seeds:
   - the only failing check is the known list's "take them off" guard.
 - **Plain fuzz, exp1 + exp2:** 41 stalled, none new. The same 10 `heldFree` seeds, nothing else.
 - **Full `npm run fuzz:long`, exp1 + exp2:** RESULT_FULL12
-- **Plain fuzz, exp3 alone:** RESULT_EXP3
+- **Plain fuzz, exp3 alone:**
+  - all 15 checks pass; 52 stalled (base 53); 161 off the fuzz's stall lines, none new;
+  - `heldFree`'s 18 seeds the same as main's.
+  - The dump test (run in 1 s steps) still sees 161's second head-on at 1482 s. So "off the list" means it ran nearly
+    the whole half hour, not that it's fixed for good.
 
 ## What I'd tell the user
 
