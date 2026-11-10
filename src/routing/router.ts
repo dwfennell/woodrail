@@ -14,7 +14,7 @@
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
 import { connectorRef, getPieceDef, junction, leverPoints, masksFoul, overlaps, pairLeverState, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, CoverIndex, engineOf, flipCursor, trainKey, trainOn, UnderCache, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, CAR_SPECS, CoverIndex, engineOf, flipCursor, stopDistance, trainKey, trainOn, UnderCache, type Cursor, type Sim, type Train } from "../sim";
 import { BookingTable } from "./bookings";
 import { STAND_SHORT } from "../economy/sections";
 import { next, walkOn, waysFrom, type PinnedTest } from "./graph";
@@ -872,7 +872,7 @@ export class Router {
     let at = c.pieceId;
     const v = train.speed;
     const lead = forward ? train.cars[0] : train.cars[train.cars.length - 1];
-    const reach = (v * v) / (2 * ACCELERATION) + HAND_LOOK + CAR_SPECS[lead.kind].bogieInset;
+    const reach = stopDistance(v) + HAND_LOOK + CAR_SPECS[lead.kind].bogieInset;
     let d = pathLength(path.geom) - c.s;
     this.alongIds.push(c.pieceId);
     this.alongAt.push(d);
@@ -1195,7 +1195,7 @@ export class Router {
     let at = c.pieceId;
     const v = train.speed;
     const sim = this.host.sim;
-    let set = (v * v) / (2 * ACCELERATION) + SET_LOOK;
+    let set = stopDistance(v) + SET_LOOK;
     // (How far the next piece is from the front; and the plain track run since the last points asked for.)
     let d = pathLength(path.geom) - c.s;
     this.alongIds.push(c.pieceId);
