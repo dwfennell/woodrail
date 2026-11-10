@@ -360,7 +360,7 @@ export class CameraDirector {
     this.zoomGoal = -1;
     // (In the room: the target in the middle of what the map shows, above a card, not behind it.)
     const goal = opts.inRoom ? this.aimed(target, to, new Vector3()) : target.clone();
-    this.shot = { fromTarget: c.target.clone(), toTarget: this.onMat(goal), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track, inRoom: opts.inRoom, fresh: true };
+    this.shot = { fromTarget: c.target.clone(), toTarget: this.onMat(goal, this.seenBounds(goal, to)), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track, inRoom: opts.inRoom, fresh: true };
   }
 
   /** Frame a point of interest of the given radius, keeping the viewing direction. Never zooms out. */
@@ -393,11 +393,35 @@ export class CameraDirector {
     this.onMat(this.zoomAnchor.copy(anchor ?? c.target));
   }
 
-  /** Move a point onto the area the camera may look at (in place). */
-  private onMat(p: Vector3): Vector3 {
-    p.x = Math.min(this.bounds.x1, Math.max(this.bounds.x0, p.x));
-    p.z = Math.min(this.bounds.z1, Math.max(this.bounds.z0, p.z));
+  /** Move a point onto the area the camera may look at (in place); `b` for the bounds as seen from a view (`seenBounds`). */
+  private onMat(p: Vector3, b: ViewBounds = this.bounds): Vector3 {
+    p.x = Math.min(b.x1, Math.max(b.x0, p.x));
+    p.z = Math.min(b.z1, Math.max(b.z0, p.z));
     return p;
+  }
+
+  private readonly seen: ViewBounds = { x0: 0, z0: 0, x1: 0, z1: 0 };
+  private readonly seenSph = new Spherical();
+  private readonly seenAim = new Vector3();
+  /**
+   * The bounds for the point looked at from `s` about `target`, widened (never narrowed) so the ground in the room's
+   * middle (the map above an open card) may be anywhere the bounds allow, not only the point behind the card the camera
+   * looks at. QA (e2e route-ux F5): at 360x740 a train's full card leaves a 99 px room at the top; a route near the
+   * land's edge needed the look-at point 600 mm past the bound, it was clamped, and the route stayed under the card.
+   * With no room, or a room centred on the screen, they're the bounds. A few microseconds: no allocation.
+   */
+  private seenBounds(target: Vector3, s: Spherical): ViewBounds {
+    const b = this.bounds;
+    const a = this.currentRoom() ? this.aimed(target, s, this.seenAim) : this.seenAim.copy(target);
+    // (Looking at `a` shows `target` in the room's middle: the bounds go as far the same way.)
+    const dx = a.x - target.x;
+    const dz = a.z - target.z;
+    const o = this.seen;
+    o.x0 = Math.min(b.x0, b.x0 + dx);
+    o.x1 = Math.max(b.x1, b.x1 + dx);
+    o.z0 = Math.min(b.z0, b.z0 + dz);
+    o.z1 = Math.max(b.z1, b.z1 + dz);
+    return o;
   }
 
   /**
@@ -436,7 +460,7 @@ export class CameraDirector {
     if (this.shot) {
       const s = this.shot;
       if (s.track && !s.track(s.toTarget)) s.track = undefined;
-      this.onMat(s.toTarget);
+      this.onMat(s.toTarget, this.seenBounds(s.toTarget, s.to));
       // (By the time that's passed, not the frame's step capped at a tenth of a second: on a device that draws a frame
       // every few seconds a 0.9 s glide took a frame a tenth, crawling on for half a minute, QA. A long frame lands it.)
       // Its first step is capped all the same: the time before it is the frame that started it (a slow tap's handler,
@@ -477,7 +501,10 @@ export class CameraDirector {
     } else if (this.followed && this.shot) {
       // Keep the glide's destination on the moving train.
       const p = this.followed();
-      if (p) this.onMat(this.shot.inRoom ? this.aimed(p, this.shot.to, this.shot.toTarget) : this.shot.toTarget.copy(p));
+      if (p) {
+        const t = this.shot.inRoom ? this.aimed(p, this.shot.to, this.shot.toTarget) : this.shot.toTarget.copy(p);
+        this.onMat(t, this.seenBounds(t, this.shot.to));
+      }
     }
 
     if (this.edgePointer) {
@@ -514,7 +541,7 @@ export class CameraDirector {
   /** Pull the view back within bounds: target over the mat, distance and tilt within limits. */
   constrain(): void {
     const c = this.controls;
-    clampTarget(c.target, this.camera.position, this.bounds);
+    clampTarget(c.target, this.camera.position, this.seenBounds(c.target, this.seenSph.setFromVector3(this.tmp.subVectors(this.camera.position, c.target))));
     clampView(c.target, this.camera.position, c.minDistance, c.maxDistance, c.maxPolarAngle);
   }
 }

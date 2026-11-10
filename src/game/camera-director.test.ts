@@ -380,3 +380,53 @@ describe("fitToRect with a lone point (QA: Show me's one marker sat at the scree
     expect(((1 - v.y) / 2) * H).toBeCloseTo((room.top + room.bottom) / 2, 0);
   });
 });
+
+describe("the bounds keep what's seen in the room over the mat (QA, e2e route-ux F5: a route near the edge under a tall card)", () => {
+  // A 360x740 phone, a train's full card up to y 153: the room is the 99 px under the top bar.
+  const W = 360;
+  const H = 740;
+  const room = { left: 0, top: 54, right: W, bottom: 153 };
+  const setup = (withRoom: boolean) => {
+    const camera = new PerspectiveCamera(30, W / H, 5, 40000);
+    const controls = { target: new Vector3(), minDistance: 100, maxDistance: 14000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
+    camera.position.setFromSpherical(new Spherical(6400, 0.9, -1.17));
+    camera.lookAt(controls.target);
+    const d = new CameraDirector(camera, controls);
+    d.bounds = { x0: -3060, z0: -2484, x1: 3060, z1: 2484 };
+    if (withRoom) d.roomOf = () => room;
+    return { camera, controls, d };
+  };
+  const roomMiddleY = (camera: PerspectiveCamera, p: Vector3) => {
+    camera.updateMatrixWorld();
+    return ((1 - p.clone().project(camera).y) / 2) * H;
+  };
+
+  it("a glide that shows a point by the land's edge in the room goes there, past the bound behind the card", () => {
+    const { camera, controls, d } = setup(true);
+    d.update(1 / 60, W, H);
+    const edge = new Vector3(-2900, 0, 0);
+    const look = aimInRoom(edge, 6400, 0.9, -1.17, camera, W, H, room);
+    expect(look.x).toBeLessThan(-3060);
+    d.glideTo(look, 6400, { phi: 0.9, theta: -1.17, duration: 0.2 });
+    for (let i = 0; i < 30; i++) d.update(1 / 60, W, H);
+    expect(controls.target.x).toBeCloseTo(look.x, 0);
+    expect(roomMiddleY(camera, edge)).toBeCloseTo((room.top + room.bottom) / 2, 0);
+  });
+
+  it("the room's middle still stops at the bound: a glide past it is held there", () => {
+    const { camera, controls, d } = setup(true);
+    d.update(1 / 60, W, H);
+    const far = aimInRoom(new Vector3(-6000, 0, 0), 6400, 0.9, -1.17, camera, W, H, room);
+    d.glideTo(far, 6400, { phi: 0.9, theta: -1.17, duration: 0.2 });
+    for (let i = 0; i < 30; i++) d.update(1 / 60, W, H);
+    const atBound = aimInRoom(new Vector3(-3060, 0, controls.target.z), 6400, 0.9, -1.17, camera, W, H, room);
+    expect(controls.target.x).toBeCloseTo(atBound.x, 0);
+  });
+
+  it("with no room known, the bounds are the bounds", () => {
+    const { controls, d } = setup(false);
+    d.glideTo(new Vector3(-6000, 0, 0), 6400, { phi: 0.9, theta: -1.17, duration: 0.2 });
+    for (let i = 0; i < 30; i++) d.update(1 / 60, W, H);
+    expect(controls.target.x).toBeCloseTo(-3060, 0);
+  });
+});

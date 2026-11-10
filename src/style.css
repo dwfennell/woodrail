@@ -1722,6 +1722,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops > .route-chip { position: relative; display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; row-gap: 3px;
   min-width: 88px; max-width: 168px; height: auto; min-height: 64px; padding: 4px 8px 6px; border-radius: 8px; white-space: nowrap; text-align: center; line-height: 1.15;
   background: transparent; box-shadow: none; font-family: var(--display); font-weight: 400; font-size: 15px; letter-spacing: 0.01em; color: var(--wood-ink); }
+/* A column 88 px or its words' width, whichever is more, and no wider: three stops fit a phone's card before the rail
+   scrolls (QA: at 390 px the third, sized to its content at 122 px for a 74 px name, was cut to "War…" under the fade
+   while the card said to tap it). */
+.route-stops > .route-chip { flex: 0 1 88px; min-width: min-content; }
 .route-stops > .route-chip:hover { background: rgba(255, 255, 255, 0.3); }
 .route-stops > .route-chip:active { transform: none; box-shadow: none; }
 /* the rail, behind the pegs */
