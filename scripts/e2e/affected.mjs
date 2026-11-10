@@ -254,7 +254,8 @@ export const RULES = [
   ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
   ["src/ui/store-rows.ts", ["warehouse"]],
-  ["src/ui/town-ledger.ts", [...TOWNS]],
+  // A town's card (its tabs, Next up, the Projects pane): the suites that open one and tap on it.
+  [["src/ui/town-ledger.ts", "src/game/town-next.ts"], [...TOWNS, "civic", "post", "grand", "locked", "station-touches"]],
   // The town name board (its good and count): drawn as towns grow, beside their cards.
   ["src/render/town-sign.ts", ["growth", "civic", "locked"]],
   ["src/ui/piece-info.ts", ["names", "feature-tips"]],

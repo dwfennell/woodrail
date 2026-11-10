@@ -223,6 +223,8 @@ check(`a tap on the station: its card offers "${label}"`, button.includes(label)
 await shot("1b-card");
 
 // 4. Tap it: upgraded in place.
+// (The upgrades are on the town card's Station tab.)
+await tap(".town-tab", "Station");
 await tap(".station-upgrade-btn", "⬆ Two-platform station");
 await p.waitForTimeout(1500);
 const after = await stateOf();
@@ -351,7 +353,9 @@ if (mover) {
   const want = `⬆ Two-platform station · 10\uE000 (moves ${mover.moves} house${mover.moves === 1 ? "" : "s"})`;
   const offered = await p.evaluate(() => [...document.querySelectorAll(".station-upgrade-btn")].map((x) => x.textContent.trim()));
   check(`${mover.name}'s card offers "${want}"`, offered.includes(want), JSON.stringify(offered));
-  await tap(".station-upgrade-btn", "⬆ Two-platform station");
+  // (The upgrades are on the town card's Station tab.)
+await tap(".town-tab", "Station");
+await tap(".station-upgrade-btn", "⬆ Two-platform station");
   await p.waitForTimeout(1500);
   const homesAfter = await homes();
   const moved = Object.keys(homesBefore).filter((id) => homesBefore[id] !== homesAfter[id]);

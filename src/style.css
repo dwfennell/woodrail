@@ -558,30 +558,28 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(.depot-extra.ledger) > .close { position: sticky; bottom: -11px; z-index: 2; order: 3; align-self: flex-start; margin: -57px 0 -11px -10px; }
   /* Scrolling comes to rest with a row's top at the top (gently: a long fling isn't held back). */
   .depot-card:has(.depot-extra.ledger) { scroll-snap-type: y proximity; }
-  .depot-extra.ledger > *, .ledger-main > *, .ledger-side > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
+  .depot-extra.ledger > *, .town-pane > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
   /* (The card's top is a resting place too, its title's: with none there, a card opened at its top could be snapped
      down to the first row, its name half cut off. QA at 740x360: opened at 25 px.) */
   .depot-card:has(.depot-extra.ledger) > .card-title { scroll-snap-align: start; scroll-margin-top: 12px; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
-  /* A town's card on its side: two columns, so its ledger shows whole on a 390 px tall phone (it was one 146 px column
-     that scrolled, its ✕ in the footer). How it grows (level, goods, what holds it back) at the left; what it has
-     (school, market, station, lines), then Automatic and the station's upgrades at the right. The ✕ at the top right,
-     as on every card. It keeps to the right 60% of the screen (the map's room is beside it), and comes down over the
-     tray as the engine card does: it's in charge while it's open. Taller still (a long upgrade list) it scrolls. */
-  .depot-card:has(.depot-extra.ledger) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr; column-gap: 16px; row-gap: 6px; align-items: start; width: min(540px, calc(60vw - 12px - env(safe-area-inset-right))); box-sizing: border-box; padding-top: 10px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); scroll-snap-type: none; }
-  .depot-card:has(.depot-extra.ledger) > * { grid-column: 1 / -1; }
-  .depot-card:has(.depot-extra.ledger) > .card-title { grid-row: 1; scroll-snap-align: none; padding: 2px 40px 0 0; text-align: left; }
-  /* (Placed by the card's edges, not a grid area's: a grid area would hold it inside the card's padding.) */
-  .depot-card:has(.depot-extra.ledger) > .close { grid-column: auto; grid-row: auto; position: absolute; top: 0; right: 0; bottom: auto; margin: 0; order: 0; }
-  .depot-card .depot-extra.ledger { display: contents; }
-  .depot-extra.ledger .ledger-main { grid-column: 1; grid-row: 2 / 6; display: flex; flex-direction: column; gap: 7px; }
-  .depot-extra.ledger .ledger-side { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; gap: 6px; }
-  .depot-extra.ledger .ledger-side:not(:has(> :not(.ledger-pay))) { display: none; }
-  .depot-card:has(.depot-extra.ledger) > .card-row { grid-column: 2; grid-row: 3; position: static; margin: 0; padding: 0; background: none; box-shadow: none; justify-content: flex-start; }
-  .depot-extra.ledger .station-upgrade { grid-column: 2; grid-row: 4; }
-  /* (A town's Places and Treats: the card's whole width, under both columns.) */
-  .depot-extra.ledger .places-sec { grid-column: 1 / -1; }
+  /* A town's card on its side: on the right 60% of the screen (the map's room is beside it), coming down over the tray
+     as the engine card does. The header and tabs across the top, the ✕ at the top right as on every card; each pane in
+     two columns where it has two parts (Grow: the goods, then what holds it back and what it buys; Station: its rows,
+     then its lines, New route and the upgrades), so a pane shows whole on a 390 px tall phone. Taller, it scrolls. */
+  .depot-card:has(.depot-extra.ledger) { width: min(560px, calc(60vw - 12px - env(safe-area-inset-right))); box-sizing: border-box; padding-top: 10px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); scroll-snap-type: none; }
+  .depot-card:has(.depot-extra.ledger) > .card-title { order: -2; scroll-snap-align: none; padding: 2px 40px 0 0; text-align: left; align-self: stretch; }
+  .depot-card:has(.depot-extra.ledger) > .close { position: absolute; top: 0; right: 0; bottom: auto; margin: 0; order: 0; }
+  .depot-card:has(.depot-extra.ledger) > .card-row { position: static; margin: 0; padding: 0; background: none; box-shadow: none; justify-content: flex-start; align-self: stretch; }
+  .card .depot-extra.ledger { width: auto; gap: 8px; }
+  .depot-extra.ledger .town-pane-grow, .depot-extra.ledger .town-pane-station { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); column-gap: 16px; row-gap: 8px; align-items: start; }
+  .depot-extra.ledger .town-pane[hidden] { display: none; }
+  .depot-extra.ledger .town-pane > * { grid-column: 2; }
+  .depot-extra.ledger .town-pane > .town-next { grid-column: 1 / -1; }
+  .depot-extra.ledger .town-pane-grow > .ledger-goods, .depot-extra.ledger .town-pane-station > .ledger-rows { grid-column: 1; grid-row: span 4; }
   .depot-extra.ledger .place-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* (In the narrow right column, what holds it back has its button under its words.) */
+  .depot-extra.ledger .ledger-holding { flex-direction: column; align-items: stretch; }
   /* (Narrower columns: the good's name, its bar and its count fit in half a 667 px phone's card.) */
   .depot-extra.ledger .ledger-good { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 8px; font-size: 13.5px; }
   .depot-extra.ledger .ledger-row { font-size: 13.5px; }
@@ -947,12 +945,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ach-show { margin: 0 10px 10px 48px; }
 /* Narrow phones: the tab is its trophy alone, so the four tabs and ✕ fit. */
 @media (max-width: 420px) { .goals-tab .tab-word { display: none; } }
-/* A city's Grand projects row (on its card). */
-.grand-pips { font-size: 13px; letter-spacing: 2px; color: var(--yellow-cut); }
-.grand-tile .grand-stage { padding: 6px 8px; font-size: 12.5px; }
-.grand-tile.earned { background: #fff4d6; border-color: var(--yellow); }
-.grand-tile.building { background: #eef6e6; border-color: var(--stamp-green); }
-.grand-show { margin-top: auto; }
+/* (A city's Projects pane: see "A town's card", below the ledger.) */
 /* Phones: the open Journal is a bottom sheet, like the Blueprints ticket (the chip stays at the top). */
 @media (max-width: 560px), (max-height: 520px) {
   .goals:not(.collapsed) .goals-body { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: min(62dvh, 520px); overflow-y: auto; padding: 0 12px calc(14px + env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; background: var(--wood-panel); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 -6px 8px -3px rgba(40, 22, 6, 0.4); }
@@ -1160,8 +1153,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-card:has(.depot-extra.ledger) > .card-title { font-size: 20px; font-weight: 900; color: #3a2a1c; }
 .depot-card:has(.depot-extra.ledger) > .card-row { order: 2; }
 .depot-extra.ledger { order: 1; align-self: stretch; gap: 8px; width: min(340px, 84vw); max-height: min(62vh, 560px); text-align: left; color: #3a2a1c; }
-/* (Its two groups are one column upright: see the phone on its side for the two.) */
-.ledger-main, .ledger-side { display: contents; }
 .ledger-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ledger-level { display: inline-flex; align-items: center; height: 22px; padding: 0 7px; border-radius: 3px; background: var(--mottle); color: var(--stamp-green-ink); box-shadow: inset 0 0 0 1.6px var(--stamp-green); font-size: 12px; font-weight: 900; line-height: 1; transform: rotate(-1.5deg); }
 .ledger-growing { font-size: 13px; font-weight: 700; color: #6b5440; }
@@ -1176,7 +1167,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ledger-good-wagon { font-size: 11px; line-height: 12px; font-weight: 700; color: #94704c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ledger-good.done .ledger-fill { background: #6aa84f; }
 .ledger-good.done .ledger-good-count { color: #3f7a2c; }
-.ledger-holding { margin: 0; padding: 8px 10px; border-radius: 10px; background: #fbe7cf; font-size: 13px; line-height: 1.4; font-weight: 800; color: #7a3d10; }
+.ledger-holding { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 8px 8px 12px; border-radius: 9px; background: #fff1d6; box-shadow: var(--tile-face), var(--tile-drop); font-size: 13px; line-height: 1.35; font-weight: 800; color: #7a3d10; }
+.ledger-holding-t { flex: 1; margin: 0; }
+.ledger-holding-btn { flex: none; }
 /* What a town always buys (everyday food): a plain line, a quiet green. */
 .ledger-buys { margin: 0; font-size: 13px; line-height: 1.4; font-weight: 800; color: #3f7a2c; }
 .ledger-rows { display: flex; flex-direction: column; border-top: 1.5px solid #eadcc2; }
@@ -1188,9 +1181,85 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ledger-row.go:active { background: #f3e9d6; }
 .ledger-row-note { font-weight: 700; color: #6b5440; text-align: right; }
 .ledger-lines { display: flex; flex-wrap: wrap; gap: 6px; }
-.ledger-line { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: none; border-radius: 999px; background: #f3e1b6; font: inherit; font-size: 13px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
-.ledger-line-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(58, 42, 28, 0.45); }
+.ledger-line { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border: none; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); font: inherit; font-size: 13.5px; font-weight: 800; color: var(--wood-ink); cursor: pointer; }
+.ledger-line-dot { width: 14px; height: 14px; border-radius: 3px; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25); }
 .ledger-pay { margin: 0; font-size: 12px; line-height: 1.4; color: #6b5440; }
+/* ---- A town's card (Game mode): a header, tabs (Grow, Build, Projects, Station) and a pane each ------------------ */
+/* docs/agents/city-card-proposals.md, direction B. The header and tabs stay put; each pane is about a phone's screen. */
+.depot-extra.town-card { gap: 10px; }
+.town-head { justify-content: space-between; }
+.town-tabs { display: flex; gap: 3px; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); }
+.town-tab { flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 0 4px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-family: var(--display); font-weight: 400; font-size: 15px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; white-space: nowrap; }
+.town-tab.on { background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); color: var(--wood-ink); }
+/* Ready here (a project to start, a place to build): a yellow peg on its tab. Not yet: a hole. */
+.town-peg, .town-hole { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 50%; }
+.town-peg { background: var(--peg-yellow); box-shadow: var(--peg-drop); }
+.town-hole { background: var(--hole); box-shadow: var(--hole-sh); }
+.town-pane { display: flex; flex-direction: column; gap: 8px; }
+.town-pane[hidden] { display: none; }
+/* The Automatic switch is the station's: on its tab only. */
+.depot-card:has(.town-card:not([data-tab="station"])) > .card-row { display: none; }
+.town-pane-station .route-new-here { align-self: flex-start; }
+/* Next up: a maple tile, what the town needs most said plainly, and the card's one painted button. */
+.town-next { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border-radius: 9px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+.town-next-k { display: flex; align-items: center; gap: 7px; font-family: var(--display); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--wood-ink-soft); }
+.town-next-t { font-size: 14.5px; font-weight: 800; line-height: 1.3; color: var(--wood-ink); }
+.town-next-sub { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 700; color: var(--wood-ink-soft); }
+.town-next-btn { width: 100%; min-height: 48px; font-size: 16px; white-space: normal; line-height: 1.1; }
+.chip.paint-blue { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; background: var(--sheen), var(--blue); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--blue-cut), var(--block-drop); }
+/* Projects: the picked project a ticket (as a research ticket), the others maple rows with their price stamped. */
+.places-sec.grand-sec { margin-top: 0; padding-top: 0; border-top: 0; }
+.place-tile.grand-ticket { gap: 8px; padding: 12px; border-radius: 10px; box-shadow: var(--tile-face), var(--tile-drop), 0 0 0 2.5px var(--wood-ink); }
+.grand-ticket-head { display: flex; align-items: center; gap: 10px; }
+.grand-icon { flex: none; font-size: 26px; line-height: 1; }
+.grand-ticket .grand-name { flex: 1; font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; color: var(--wood-ink); }
+.grand-pips { flex: none; display: inline-flex; gap: 4px; }
+.grand-pips i { width: 11px; height: 11px; border-radius: 50%; background: var(--hole); box-shadow: var(--hole-sh); }
+.grand-pips i.done { background: var(--peg-green); box-shadow: var(--peg-drop); }
+.grand-pips i.now { background: var(--peg-blue); box-shadow: var(--peg-drop); }
+.grand-reward { margin: 0; font-size: 13px; font-weight: 800; color: var(--wood-ink); }
+.grand-stages { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.grand-stages li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-height: 30px; padding: 3px 0; border-top: 1.5px dashed var(--pencil); font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); }
+.grand-stages li:first-child { border-top: 0; }
+.grand-stages li .place-goods { margin-left: auto; font-weight: 800; }
+.grand-stages li.done { color: var(--stamp-green-ink); }
+.grand-stages li.now { color: var(--wood-ink); font-weight: 900; }
+.grand-stages li.now .place-goods { flex-basis: 100%; margin-left: 19px; }
+.grand-stage-mark { flex: none; width: 11px; height: 11px; border-radius: 50%; background: var(--hole); box-shadow: var(--hole-sh); }
+.grand-stages li.done .grand-stage-mark { background: var(--peg-green); box-shadow: var(--peg-drop); }
+.grand-stages li.now .grand-stage-mark { background: var(--peg-blue); box-shadow: var(--peg-drop); }
+.grand-foot { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1.5px dashed var(--pencil); }
+.grand-foot-note { flex: 1; font-size: 12.5px; font-weight: 700; color: var(--wood-ink-soft); }
+.grand-foot .place-note { flex: 1; margin: 0; }
+.place-btn.grand-start { flex: none; margin: 0; padding: 0 16px; min-height: 48px; font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
+.grand-show { flex: none; }
+/* Brought here by the Journal: a blue ring round the Start (or the reason it can't), till the next tap. */
+.ringed { outline: 3px solid var(--blue); outline-offset: 3px; }
+.grand-rows { display: flex; flex-direction: column; gap: 6px; }
+.place-tile.grand-row { flex-direction: row; align-items: center; gap: 10px; min-height: 52px; padding: 6px 10px; border: 0; font: inherit; text-align: left; cursor: pointer; }
+.grand-row-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.grand-row .grand-name { font-family: var(--display); font-weight: 400; font-size: 15.5px; letter-spacing: 0.02em; color: var(--wood-ink); }
+.grand-short { font-size: 12px; font-weight: 700; color: var(--wood-ink-soft); }
+.place-tile.grand-row.elsewhere, .place-tile.grand-row.level, .place-tile.grand-row.busy, .place-tile.grand-row.saving { background: #f3e6cf; box-shadow: inset 0 -2px 0 #d7bf98; }
+.grand-price, .grand-mark { flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 7px; border-radius: 3px; background: var(--mottle); font-size: 12.5px; font-weight: 900; line-height: 1; white-space: nowrap; }
+.grand-price { color: var(--stamp-gold-ink, #6b4300); box-shadow: inset 0 0 0 1.4px var(--stamp-gold); transform: rotate(1.5deg); }
+.grand-price.short { color: var(--stamp-brown); box-shadow: inset 0 0 0 1.3px rgba(90, 58, 26, 0.6); }
+.grand-mark { max-width: 46%; overflow: hidden; text-overflow: ellipsis; color: var(--stamp-brown); box-shadow: inset 0 0 0 1.3px rgba(90, 58, 26, 0.6); }
+.grand-mark.earned, .grand-mark.building { color: var(--stamp-green-ink); box-shadow: inset 0 0 0 1.5px var(--stamp-green); }
+/* The Journal's "Build it in": a maple row per town (ready ones with a peg, first); a tap opens its card there. */
+.ach-cities { display: flex; flex-direction: column; gap: 6px; margin: 2px 10px 10px 48px; }
+.ach-cities-k { margin: 0; font-family: var(--display); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--wood-ink-soft); }
+.ach-city { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 10px; border: 0; border-radius: 9px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); font: inherit; text-align: left; color: var(--wood-ink); cursor: pointer; }
+.ach-city.later { background: #f3e6cf; box-shadow: inset 0 -2px 0 #d7bf98; }
+.ach-city-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ach-city-words b { font-family: var(--display); font-weight: 400; font-size: 15.5px; letter-spacing: 0.02em; }
+.ach-city-level { display: inline-flex; align-items: center; height: 19px; margin-left: 4px; padding: 0 5px; border-radius: 3px; vertical-align: 2px; background: var(--mottle); font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 11.5px; font-weight: 900; color: var(--stamp-green-ink); box-shadow: inset 0 0 0 1.4px var(--stamp-green); }
+.ach-city-note { font-size: 12.5px; font-weight: 700; color: var(--wood-ink-soft); }
+.ach-city-go { flex: none; font-size: 20px; color: var(--wood-ink-soft); }
+@media (max-width: 420px) { .ach-cities { margin-left: 10px; } }
+/* A tray tile pointed at (a town card's Find a mill ›): ringed in blue till the next tap. */
+.tray-item.pointed { outline: 3px solid var(--blue); outline-offset: -3px; }
+
 /* A town's Places and Treats (game/place-row.ts): a tile per place, a big green Build button, a dashed tile for one to research. */
 .places-sec { margin-top: 6px; padding-top: 10px; border-top: 1.5px dashed #e2cfae; display: flex; flex-direction: column; gap: 6px; }
 .places-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -1203,8 +1272,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .place-name { display: flex; gap: 6px; align-items: center; font-size: 14px; font-weight: 800; color: #3a2a1c; }
 .place-icon { font-size: 20px; }
 .place-blurb { color: #6b5038; font-weight: 600; }
-.place-btn { margin-top: auto; min-height: 44px; padding: 6px 6px; border: none; border-radius: 10px; background: #3f7d3a; color: #fff; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
-.place-btn:active { background: #346a30; }
+.place-btn { margin-top: auto; min-height: 44px; padding: 6px 6px; border: none; border-radius: 9px; background: var(--sheen), var(--maple); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -4px 0 var(--maple-cut), var(--block-drop); color: var(--wood-ink); font: inherit; font-size: 13.5px; font-weight: 800; cursor: pointer; }
+.place-btn:active { transform: translateY(2px); box-shadow: inset 0 -2px 0 var(--maple-cut), 0 2px 2px -1px rgba(40, 22, 6, 0.45); }
 .place-note { margin-top: auto; padding: 4px 2px; text-align: center; font-weight: 800; color: #7a5a3a; }
 .place-tile.built, .place-tile.building, .place-tile.waiting-room { background: #eef6e6; border-color: #9cc48a; }
 .place-tile.built .place-note, .place-tile.building .place-note { color: #3f7a2c; }
@@ -1215,7 +1284,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .place-good { white-space: nowrap; }
 .place-plan { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 12px; background: #fbe7cf; font-size: 13px; font-weight: 800; color: #7a3d10; }
 .place-plan .place-good.done { color: #3f7a2c; }
-.place-stop { align-self: flex-start; min-height: 40px; padding: 0 12px; border: none; border-radius: 999px; background: #f3e1b6; font: inherit; font-size: 12.5px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
+.place-stop { align-self: flex-start; min-height: 44px; padding: 0 12px; border: none; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); font: inherit; font-size: 13px; font-weight: 800; color: var(--wood-ink); cursor: pointer; }
 .make-now { font-size: 13px; font-weight: 700; color: #6a5340; text-align: center; }
 .make-now .bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: #e7d6b8; overflow: hidden; }
 .make-now .bar i { display: block; height: 100%; background: var(--sheen), var(--green); }
