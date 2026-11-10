@@ -9,7 +9,7 @@ import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
 import { shot } from "./lib/shot.mjs";
 import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
-import { doubleThreeWayGroup, slipsGroup, turntableGroup } from "./track-pieces.mjs";
+import { doubleThreeWayGroup, slipsGroup, splitGroup, turntableGroup } from "./track-pieces.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -1227,7 +1227,7 @@ async function wyeLevers(ctx, p, tapOn) {
 // game-shelves (a touch tap on each shelf and Back, in each mode), and Sandbox's checks by name: map-taps, select-drag, redrawn,
 // flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
-// wait (a train waiting at points set for another), wye (a wye's three levers, #15), slips, double-three-way and turntable-taps (the tech tree's track pieces, track-pieces.mjs), stuck (two trains of a line head
+// wait (a train waiting at points set for another), wye (a wye's three levers, #15), slips, double-three-way, split and turntable-taps (the tech tree's track pieces, track-pieces.mjs), stuck (two trains of a line head
 // on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
 // rather than into a dead-end spur, routing step 6), hand-wait (a hand-run train waits at points set for a routed one,
 // routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
@@ -4366,6 +4366,12 @@ async function routeUx(ctx, p) {
   await frames(p);
   await p.waitForTimeout(300);
   await still();
+  // (Done looks again every 300 ms for 3 s while the card settles at its full height (main.ts donePlanning), and glides
+  // again if the route's slipped under it: the check is of where that leaves the view, so it waits out those 3 s and
+  // the last glide. QA: the card grew 9 px a second after Done, the game's look at 1.2 s glided to it, and the check,
+  // made at 1 s, caught the view mid-glide 9 px short.)
+  await p.waitForFunction((t) => performance.now() > t + 3200, doneAt, { timeout: 10000 });
+  await still();
   const glides = await p.evaluate(() => { const d = window.woodrail.director; d.glideTo = d.__glide; delete d.__glide; return window.__glides; });
   // (Upright at 360×740 the full card covers two thirds of the screen: where the route can't fit above it however far
   // out, the view is as far out as it goes, with the route's middle above the card.)
@@ -5362,6 +5368,7 @@ const SANDBOX = {
   // The tech tree's track pieces (track-pieces.mjs): slips, the double three-way, a turntable turned by a tap on a road.
   slips: (f) => slipsGroup(f, check),
   "double-three-way": (f) => doubleThreeWayGroup(f, check),
+  split: (f) => splitGroup(f, check),
   "turntable-taps": (f) => turntableGroup(f, check),
 };
 let fixture = null;

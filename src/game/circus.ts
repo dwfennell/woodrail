@@ -97,9 +97,3 @@ export function bigTopSpot(world: Pick<World, "landscape" | "layout" | "props">,
     }
   return null;
 }
-
-/** "Months" left of a show, for its card: "2 months", "1 month", "a few days". */
-export function monthsLeft(seconds: number): string {
-  const m = Math.ceil(seconds / MONTH_S);
-  return seconds < MONTH_S / 3 ? "a few days" : `${m} month${m === 1 ? "" : "s"}`;
-}

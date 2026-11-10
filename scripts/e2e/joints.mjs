@@ -1,5 +1,6 @@
 // End-to-end: a drawn line's joints hold through a reload (`npm run e2e:joints [-- <out dir>]`). QA's repro: seed 7, a
-// fresh Game on a 360×740 touch screen, Draw on, the camera on (-1062, 18) at 1900 mm (tilt 0.95; in the browser,
+// fresh Game on a 360×740 touch screen, Draw on, the camera on (-1062, 18) at 1900 mm (tilt 0.95; moved 120 mm west so
+// the stroke's start is clear of the tray (see `qaLine`); in the browser,
 // theta −1.4 lays QA's line: the unit replay in joint-hold.test.ts reads the moves its own way and lays it at −2); one
 // stroke from the sawmill's end to Larkfield station's west end. Every joint of the line must be within the joint
 // tolerance, and after a reload and Continue the same joints must hold: the track unbroken from the sawmill to
@@ -103,11 +104,11 @@ async function qaLine() {
    * QA's stroke: its world points seen on the ground with QA's camera (on (-1062, 18) at 1900 mm, tilted 0.95, from
    * `theta`), touch moves every `step` px between them. What it laid.
    */
-  const stroke = async (theta, step) => {
-    const screen = await p.evaluate((theta) => {
+  const stroke = async (theta, step, dx) => {
+    const screen = await p.evaluate(([theta, dx]) => {
       const w = window.woodrail;
       const V = w.camera.position.constructor;
-      w.lookAt(new V(-1062, 0, 18), 1900, 0.95, theta);
+      w.lookAt(new V(-1062 + dx, 0, 18), 1900, 0.95, theta);
       // (Projected before a frame is drawn: the camera's matrices brought up to date here.)
       w.camera.updateMatrixWorld();
       const r = w.canvas.getBoundingClientRect();
@@ -115,7 +116,11 @@ async function qaLine() {
         const v = new V(x, 0, z).project(w.camera);
         return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
       });
-    }, theta);
+    }, [theta, dx]);
+    // Every point clear of the HUD by a fingertip (24 px each way): a finger that close to a button is the button's
+    // (the browser's touch adjustment), as on a phone. (On QA's own view, the stroke's start is 8 px above the tray.)
+    const under = await p.evaluate((pts) => pts.flatMap(([x, y]) => [[0, 0], [24, 0], [-24, 0], [0, 24], [0, -24]].map(([ox, oy]) => document.elementFromPoint(x + ox, y + oy)).filter((e) => e !== window.woodrail.canvas).map((e) => `${Math.round(x)},${Math.round(y)} ${e?.className || e?.tagName}`)), screen);
+    if (under.length > 0) return { under };
     await touch("touchStart", screen[0][0], screen[0][1]);
     for (let i = 1; i < screen.length; i++) {
       const [ax, ay] = screen[i - 1];
@@ -132,10 +137,18 @@ async function qaLine() {
   let line = [];
   let tried = [];
   // (θ −1.4 lays it: on de7fd9c at 10 px, QA's joints exactly, 8.149° at the sawmill and 6.338°; since the draw
-  // junction changes, at 7 px.)
-  for (const [theta, step] of [[-1.4, 7], [-1.4, 10], [-2, 10]]) {
-    line = await stroke(theta, step);
-    tried.push(`θ ${theta}, ${step} px: ${line.map((x) => x.type).join(" ")}`);
+  // junction changes, at 7 px.) The view is QA's moved 120 mm west (`dx`): on QA's own, the stroke starts 8 px above
+  // the tray (taller since the toy box HUD), and the finger lands on its Track tab. 120 mm west, the start is 77 px
+  // above it; there θ −1.4 lays the line at 7 and 10 px, and 90 mm west θ −2 at 7 px.
+  for (const [theta, step, dx] of [[-1.4, 7, -120], [-1.4, 10, -120], [-2, 7, -90]]) {
+    const got = await stroke(theta, step, dx);
+    if (got.under) {
+      line = [];
+      tried.push(`θ ${theta}, ${step} px, ${dx} mm: under the HUD (${got.under.slice(0, 3).join("; ")})`);
+      continue;
+    }
+    line = got;
+    tried.push(`θ ${theta}, ${step} px, ${dx} mm: ${line.map((x) => x.type).join(" ")}`);
     if (line.length >= 4 && line.every((x) => x.joined) && !line.some((x) => /^(join|fit)-/.test(x.type))) break;
     await p.evaluate(() => window.woodrail.interaction.undo());
     await settled();
@@ -146,7 +159,7 @@ async function qaLine() {
   const before = await joints();
   const lineIds = new Set(line.map((x) => x.id));
   const touching = (js) => js.filter((j) => j.pieces.split("-").some((id) => lineIds.has(Number(id))));
-  check("the stroke lays QA's line from the sawmill to Larkfield, joined at every end by the joints' play (no joiner)", line.length >= 4 && line.every((x) => x.joined) && !line.some((x) => /^(join|fit)-/.test(x.type)), line.map((x) => `${x.id} ${x.type}${x.joined ? "" : " (open)"}`).join(", "));
+  check("the stroke lays QA's line from the sawmill to Larkfield, joined at every end by the joints' play (no joiner)", line.length >= 4 && line.every((x) => x.joined) && !line.some((x) => /^(join|fit)-/.test(x.type)), line.map((x) => `${x.id} ${x.type}${x.joined ? "" : " (open)"}`).join(", ") || tried.join(" | "));
   check("every joint is within the joint tolerance", before.every((j) => !j.over), say(touching(before)));
 
   // Leave (the autosave on pagehide), come back, Continue.

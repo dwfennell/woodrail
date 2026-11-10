@@ -764,7 +764,7 @@ export class Sections {
    * engine it's named by; null if it's on none.
    */
   private workingFor(train: Train): { engine: number; info: LineInfo } | null {
-    const engine = nameOf(train);
+    const engine = engineOf(train);
     for (const l of this.netLines()) {
       const info = this.line(l);
       if (info.managed && info.loose.includes(engine)) return { engine, info };
@@ -880,7 +880,7 @@ export class Sections {
     for (const t of info.foreign) {
       if (t.speed >= 1 || !t.bogies.some((b) => st.ahead.has(b.pieceId) && !train.bogies.some((x) => x.pieceId === b.pieceId && x.s === b.s))) continue;
       st.faceHold = true;
-      this.hold(st, why({ kind: "slot", engine: nameOf(t) }));
+      this.hold(st, why({ kind: "slot", engine: engineOf(t) }));
       return true;
     }
     // (Any train standing just past its slot's end, its own move not granted on through it: it waits short of it, not
@@ -888,7 +888,7 @@ export class Sections {
     if (st.exitPiece !== -1 && !this.ownsAhead(st))
       for (const t of this.sim.trains()) {
         if (t === train || t.speed >= 1 || !t.bogies.some((b) => b.pieceId === st.exitPiece)) continue;
-        const u = nameOf(t);
+        const u = engineOf(t);
         st.faceHold = true;
         this.hold(st, why({ kind: "slot", engine: u }));
         return true;
@@ -1089,7 +1089,7 @@ export class Sections {
     const pieces = ends.mouths[r].pieces;
     for (const t of this.sim.trains()) {
       if (t === own || t.derailed) continue;
-      if (t.bogies.some((b) => pieces.has(b.pieceId))) return nameOf(t);
+      if (t.bogies.some((b) => pieces.has(b.pieceId))) return engineOf(t);
     }
     const now = this.sim.ticks;
     for (const [u, st] of this.states) {
@@ -1486,7 +1486,7 @@ export class Sections {
       if (t && t.bogies.some((b) => pieces.has(b.pieceId))) return u;
     }
     // (Any other train standing or running there, on the line or not: its first car stands for it.)
-    for (const t of info.foreign) if (t.bogies.some((b) => pieces.has(b.pieceId))) return nameOf(t);
+    for (const t of info.foreign) if (t.bogies.some((b) => pieces.has(b.pieceId))) return engineOf(t);
     return info.zone.slots.get(slot) ?? -1;
   }
 
@@ -1736,7 +1736,7 @@ export class Sections {
       const on = !!t && t.bogies.some((b) => along.has(b.pieceId));
       if ((on || !!m?.steps.some((x) => along.has(x.pieceId))) && !this.sameWayAhead(u, along)) return u;
     }
-    for (const t of info.foreign) if (t.bogies.some((b) => along.has(b.pieceId)) && !this.sameWayAhead(nameOf(t), along)) return nameOf(t);
+    for (const t of info.foreign) if (t.bogies.some((b) => along.has(b.pieceId)) && !this.sameWayAhead(engineOf(t), along)) return engineOf(t);
     return -1;
   }
 
@@ -1787,7 +1787,7 @@ export class Sections {
     }
     // (A train not working the track (standing, on no line or another's): in the way only on its way, once that's
     // known (`along`). A section can be most of the map: #29, "blocked by a train all the way on the other side".)
-    for (const t of info.foreign) if (t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section && (!along || along.has(b.pieceId)))) return nameOf(t);
+    for (const t of info.foreign) if (t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section && (!along || along.has(b.pieceId)))) return engineOf(t);
     return info.zone.sections.get(section) ?? -1;
   }
 
@@ -1971,7 +1971,7 @@ export class Sections {
       if (m && m.sections.some((x) => way.sections.includes(x)) && m.steps.some((s) => mine.has(s.pieceId) && way.steps.some((w) => w.pieceId === s.pieceId && (exact ? this.exitOf(s) === w.entry : w.entry !== s.entry)))) return this.recoverWait(st, u, info);
     }
     // (A train not on the line running on its way ahead: wait for it, as for one of the line's.)
-    for (const t of info.foreign) if (t.speed >= 1 && t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) return this.recoverWait(st, nameOf(t), info);
+    for (const t of info.foreign) if (t.speed >= 1 && t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) return this.recoverWait(st, engineOf(t), info);
     if (way.dest === -1) {
       // (Held at a dead end's mouth: its way up to there is clear (nothing above stopped it); it comes up to the points
       // outside the mouth and stands short of them.)
@@ -1990,7 +1990,7 @@ export class Sections {
     const pieces = new Set(way.steps.map((x) => x.pieceId));
     for (const r of [...way.through, way.dest]) if (r >= 0) for (const p of info.topo.slots[r]?.pieces ?? []) pieces.add(p);
     const t = trainOn(this.sim, pieces, { except: own });
-    return t ? nameOf(t) : -1;
+    return t ? engineOf(t) : -1;
   }
 
   /**
@@ -2007,7 +2007,7 @@ export class Sections {
   /** The first train standing (not running) with an axle on `pieces`, other than `own`, by its name; −1: none. */
   private standingOn(pieces: ReadonlySet<number>, own: Train | undefined): number {
     const t = trainOn(this.sim, pieces, { except: own, standing: true });
-    return t ? nameOf(t) : -1;
+    return t ? engineOf(t) : -1;
   }
 
   /** The first train of the line it has no room for (other than `engine`), standing on the track; −1: none. */
@@ -2230,8 +2230,8 @@ export class Sections {
         return sl !== undefined && topo.slots[sl].kind === "road" && set.has(topo.slots[sl].loop);
       });
       if (!onRoad) continue;
-      if (this.host.drive(t) === 0) return nameOf(t);
-      if (found === -1) found = nameOf(t);
+      if (this.host.drive(t) === 0) return engineOf(t);
+      if (found === -1) found = engineOf(t);
     }
     return found;
   }
@@ -2323,7 +2323,7 @@ export class Sections {
         if (t.derailed || this.host.drive(t) === 0 || !t.cars.some((c) => c.kind === "engine")) continue;
         if (t.cars.some((c) => c.kind === "engine" && this.host.lineOf(c.id) >= 0)) continue;
         if (!t.bogies.some((b) => regions.has(regionOf(topo, b.pieceId) ?? NaN))) continue;
-        loose.push(nameOf(t));
+        loose.push(engineOf(t));
         looseTrains.push(t);
       }
     }
@@ -2713,7 +2713,7 @@ export class Sections {
    */
   private zoneOf(t: Train, topo: Topology, zone: { slots: Map<number, number>; sections: Map<number, number> }): void {
     const { layout } = this;
-    const id = nameOf(t);
+    const id = engineOf(t);
     const mark = (pieceId: number): string => {
       const sl = topo.slotOf.get(pieceId);
       if (sl !== undefined) {
@@ -3016,12 +3016,6 @@ export class Sections {
 
 const EMPTY: ReadonlySet<number> = new Set();
 const NO_NETWORK: ReadonlyMap<number, { topo: Topology; lines: readonly number[] }> = new Map();
-
-/**
- * The id a train not on the line is named by in waits: its (first) engine's, so it can be looked up (its line, its
- * card), whichever way round it runs: its first car is a wagon once it's reversed. Its first car when it has none.
- */
-const nameOf = engineOf;
 
 /** The same numbers in the same order? */
 function sameNumbers(a: readonly number[], b: readonly number[]): boolean {

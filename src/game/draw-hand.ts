@@ -74,9 +74,6 @@ const afterNextFrame = (f: () => void): void => {
 /** At most this many of them click as they go down (a long line would be a drum roll). */
 const CLICKS = 12;
 
-/** Why a drawn piece can't go somewhere: the reason a held piece would give (for the toast), or "self" (the line crosses itself). */
-export type DrawBlock = string;
-
 export interface DrawHooks {
   /** Can a piece go here (a held piece's checks, the pieces in `ignore` left out)? Null and the risers it'd need, or why not. */
   placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore?: ReadonlySet<number>): { reason: string | null; risers: unknown[] };

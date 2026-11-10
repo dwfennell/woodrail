@@ -16,7 +16,7 @@ import {
 import { nearestCursor } from "./nearest";
 import { cleanEngineName, pickEngineName } from "./engine-names";
 import { ACCELERATION, brakeTo, ENGINE_SPEED, stopDistance } from "./brakes";
-import { driveOf, trainLength } from "./train-cars";
+import { driveOf, hasEngine, trainLength } from "./train-cars";
 
 export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
@@ -43,7 +43,6 @@ const CONTACT_FOLLOW = 4;
 const LIFT_GRACE = 2 * SIM_HZ;
 /** Slower than this (mm/s) a train is standing: it doesn't move (or ask for frames) at all. */
 const MIN_SPEED = 0.01;
-const hasEngine = (t: Train): boolean => t.cars.some((c) => c.kind === "engine");
 
 /** How far along the track (mm) a train put back (or loaded) may be moved to find room: a few train lengths. */
 const PUT_BACK_REACH = 1200;
@@ -1329,7 +1328,7 @@ export class Sim {
     const t = this.byId.get(trainId);
     if (!t || t.derailed || !this.lifts || this.lifts.length === 0) return null;
     for (const [id, r] of this.rides) if (r.trainIds.includes(t.id) && this.liftDef(id)) return "riding";
-    return t.speed < 1 && drive(t) !== 0 && this.liftCap(t, false) === 0 ? "waiting" : null;
+    return t.speed < 1 && driveOf(t) !== 0 && this.liftCap(t, false) === 0 ? "waiting" : null;
   }
 
   /**
@@ -1414,7 +1413,7 @@ export class Sim {
   /** A train held at a raised lift bridge, for its engine's card. */
   bridgeWait(trainId: number): boolean {
     const t = this.byId.get(trainId);
-    return !!t && !t.derailed && t.speed < 1 && drive(t) !== 0 && this.bridgeCap(t) === 0;
+    return !!t && !t.derailed && t.speed < 1 && driveOf(t) !== 0 && this.bridgeCap(t) === 0;
   }
 
   /** A lift piece's def, or undefined. */
@@ -1638,7 +1637,7 @@ export class Sim {
   private approaching(pieceId: number): boolean {
     for (const t of this.byId.values()) {
       if (t.derailed || t.bogies.length === 0 || t.bogies.some((b) => b.pieceId === pieceId)) continue;
-      const net = drive(t);
+      const net = driveOf(t);
       if (t.speed === 0 && net === 0) continue;
       // Standing, held at a lift's end (waiting behind the train it's carrying) or at a red signal: it isn't coming.
       if (t.speed === 0 && (this.liftCap(t, false) === 0 || this.signalCap(t) === 0 || this.bridgeCap(t) === 0)) continue;
@@ -1684,7 +1683,7 @@ export class Sim {
         riders++;
         if (t.speed !== 0 || t.turnback >= 0) ridersReady = false;
         const lead = t.bogies[0];
-        if (drive(t) !== 0 && !lead.reversed && lead.pathIndex === at && this.liftCap(t, false) === 0) halted = true;
+        if (driveOf(t) !== 0 && !lead.reversed && lead.pathIndex === at && this.liftCap(t, false) === 0) halted = true;
       }
       const ready = !partly && (riders > 0 ? ridersReady && halted : this.liftCalls.has(id));
       if (!ready) {
@@ -2895,8 +2894,6 @@ export const BRIDGE_UP_S = 5;
 
 
 
-/** Which way a train's engines drive it: + toward its front, − its back, 0 not at all (levers off). */
-const drive = driveOf;
 
 /** A signal's key: its piece and which of the piece's paths (roads) it guards (as many as it has connectors, at most). */
 export const signalKey = (pieceId: number, road: number): number => pieceId * MAX_CONNECTORS + road;
