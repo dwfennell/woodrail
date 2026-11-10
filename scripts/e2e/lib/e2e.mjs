@@ -207,7 +207,29 @@ export async function settled(page, { ticks = 3, cap = 20_000, trains = true, mo
     console.log(`(not still after ${cap / 1000} s, ${m.framesDrawn - f0} frames: ${known})`);
     return false;
   }
-  throw new Error(`settled: not still after ${cap / 1000} s (${m.framesDrawn - f0} frames drawn meanwhile): ${JSON.stringify(m)}`);
+  throw new Error(`settled: not still after ${cap / 1000} s (${m.framesDrawn - f0} frames drawn meanwhile): ${JSON.stringify(m)}; asking for frames: ${JSON.stringify(await askers(page))}`);
+}
+
+/** What calls `invalidate` or `redraw` over 2 s, by caller, for a failure's detail. */
+async function askers(page) {
+  return page
+    .evaluate(async () => {
+      const w = window.woodrail;
+      const seen = {};
+      const real = {};
+      for (const k of ["invalidate", "redraw"]) {
+        real[k] = w[k];
+        w[k] = function (...a) {
+          const at = `${k}: ${new Error().stack.split("\n").slice(2, 4).map((l) => l.trim().replace(/\(?https?:\/\/[^/]+\//, "(")).join(" < ")}`;
+          seen[at] = (seen[at] ?? 0) + 1;
+          return real[k].apply(this, a);
+        };
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+      for (const k of Object.keys(real)) w[k] = real[k];
+      return seen;
+    })
+    .catch((e) => String(e));
 }
 
 /** Game time on by `seconds` (`woodrail.simSeconds`). Throws if it hasn't in max(120, 4 × seconds) s of wall time. */
