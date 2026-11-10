@@ -1785,9 +1785,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    name under it ("only ⬇" stamped beside it), then what's loaded and dropped there. The whole column is the stop's
    button (44 px and more); the rail runs from the first stop's peg to the last's. */
 .route-stops { gap: 0; align-items: stretch; padding: 2px 0 4px; }
-.route-stops > .route-chip { position: relative; display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; row-gap: 3px;
-  min-width: 88px; max-width: 168px; height: auto; min-height: 64px; padding: 4px 8px 6px; border-radius: 8px; white-space: nowrap; text-align: center; line-height: 1.15;
+.route-stops > .route-chip { position: relative; display: block; flex: 0 1 88px;
+  min-width: min-content; max-width: 168px; height: auto; min-height: 64px; padding: 4px 8px 6px; border-radius: 8px; white-space: nowrap; text-align: center; line-height: 1.15;
   background: transparent; box-shadow: none; font-family: var(--display); font-weight: 400; font-size: 15px; letter-spacing: 0.01em; color: var(--wood-ink); }
+/* (A column is 88 px or its widest line, whichever is more, and gives up the rest before the rail scrolls: three stops
+   fit a phone's card. QA: laid out as a wrapping row, a column was as wide as its peg, name and goods side by side, 122
+   px for a 74 px name, and the third was cut to "War…" under the fade while the card said to tap it. As lines, its
+   narrowest is its widest line: the name, its number and "only ⬇" never break apart, which made the card 20 px taller
+   and left the map at 360x740 less room than a framing can use.) */
 .route-stops > .route-chip:hover { background: rgba(255, 255, 255, 0.3); }
 .route-stops > .route-chip:active { transform: none; box-shadow: none; }
 /* the rail, behind the pegs */
@@ -1796,22 +1801,22 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops > .route-chip:last-child::after, .route-stops > .route-chip:has(+ :not(.route-chip))::after { right: 50%; }
 .route-stops > .route-chip:only-child::after { display: none; }
 /* the number: a maple peg on its own line, centred on the rail */
-.route-stops > .route-chip .route-num { position: relative; z-index: 1; flex: 0 0 26px; width: 26px; height: 26px; min-width: 0; padding: 0; margin: 0 calc((100% - 26px) / 2) 2px;
+.route-stops > .route-chip .route-num { position: relative; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; min-width: 0; padding: 0; margin: 0 auto 5px;
   border-radius: 50%; font-family: var(--display); font-size: 14px; font-weight: 400; line-height: 1; vertical-align: 0; color: var(--wood-ink); background: var(--maple); box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); text-shadow: none; }
 .route-stops > .route-chip.next .route-num { color: #fff; background: var(--sheen), var(--line, #888); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6); }
 .route-stops > .route-chip.next { font-weight: 400; }
 .route-stops > .route-chip .route-place-num { margin-left: 4px; font-family: var(--display); font-weight: 400; color: var(--wood-ink-soft); }
 /* "only ⬇": stamped beside the name */
-.route-stops > .route-chip .route-intent { align-self: center; display: inline-flex; align-items: center; height: 17px; margin-left: 5px; padding: 0 4px; border-radius: 3px; background: var(--mottle); box-shadow: inset 0 0 0 1.2px rgba(90, 58, 26, 0.6); font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 11px; font-weight: 800; line-height: 1; color: var(--stamp-brown); }
+.route-stops > .route-chip .route-intent { vertical-align: 1px; display: inline-flex; align-items: center; height: 17px; margin-left: 5px; padding: 0 4px; border-radius: 3px; background: var(--mottle); box-shadow: inset 0 0 0 1.2px rgba(90, 58, 26, 0.6); font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 11px; font-weight: 800; line-height: 1; color: var(--stamp-brown); }
 /* what's loaded and dropped: its own line, centred */
-.route-stops > .route-chip .route-goods { flex: 0 0 100%; font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 13px; font-weight: 700; line-height: 1.2; opacity: 1; color: var(--wood-ink-soft); }
+.route-stops > .route-chip .route-goods { display: block; margin-top: 3px; font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 13px; font-weight: 700; line-height: 1.2; opacity: 1; color: var(--wood-ink-soft); }
 /* waiting to fill: an hourglass on the peg, not before the column */
 .route-stops > .route-chip[data-wait]::before { content: none; }
 .route-stops > .route-chip[data-wait] .route-num::after { content: "⏳"; position: absolute; right: -15px; top: -5px; font-family: "Woodrail Icons", sans-serif; font-size: 13px; line-height: 1; }
 .route-stops > .route-chip.picked { outline: none; background: var(--maple); box-shadow: var(--tile-face), 0 0 0 2.5px var(--wood-ink); }
 .route-stops > .route-chip.lifted { background: var(--maple); box-shadow: var(--tile-face), 0 8px 8px -3px rgba(40, 22, 6, 0.45); outline: none; }
 /* a via point: a small ring on the rail, its words under it */
-.route-stops > .route-chip.route-via { min-width: 52px; flex-direction: column; flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: 6px; padding-top: 10px; font-family: "Woodrail Icons", "Nunito", sans-serif; font-weight: 700; font-size: 12px; color: var(--wood-ink-soft); }
+.route-stops > .route-chip.route-via { display: flex; flex: 0 0 auto; min-width: 52px; flex-direction: column; flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: 6px; padding-top: 10px; font-family: "Woodrail Icons", "Nunito", sans-serif; font-weight: 700; font-size: 12px; color: var(--wood-ink-soft); }
 .route-stops > .route-chip.route-via .route-via-dot { order: -1; position: relative; z-index: 1; width: 14px; height: 14px; background: var(--maple); box-shadow: inset 0 0 0 3px var(--line, #888); }
 /* A boat's route in the same pencil frame as a train's line on its card. */
 /* (as the train's card: never wider than the screen, the route scrolling inside it) */
