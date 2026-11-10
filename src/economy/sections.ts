@@ -950,8 +950,9 @@ export class Sections {
   private ownsAhead(st: TrainState): boolean {
     const m = st.move;
     if (!m || st.exitPiece === -1) return false;
-    // (Or, out of a waiting point straight into the next slot, no section between: that slot is its move's.)
-    return m.steps.some((x) => x.pieceId === st.exitPiece) || (m.steps.length === 0 && m.dest >= 0 && !!st.topo.slots[m.dest]?.pieces.has(st.exitPiece));
+    // (Or the slot it's going to is next: out of a waiting point straight into it, no section between, or out of one it
+    // runs through, too short for it, into the one it stands in across both.)
+    return m.steps.some((x) => x.pieceId === st.exitPiece) || (m.dest >= 0 && !!st.topo.slots[m.dest]?.pieces.has(st.exitPiece));
   }
 
   /** The cursor at a train's front, pointing the way it goes. */
@@ -1191,7 +1192,7 @@ export class Sections {
           // take it after the train ahead (`convoy`). (Probing the way on for `convoy`: on through it, whoever's there.)
           const inBy = connectorRef(at.pieceId, at.entry);
           const way = depth === 0 ? s.ways?.find((w) => w.back === inBy) : undefined;
-          if (way && (!own || s.length >= trainLength(own) + ROAD_MARGIN)) {
+          if (way && (!own || s.length + this.plainBehind(steps, through, topo) >= trainLength(own) + ROAD_MARGIN)) {
             if (u !== -1) return { steps, sections, through, dest: -1, outBy: -1, blockedBy: u };
             const c = this.convoy(st, info, way);
             return { steps, sections, through, dest: c === -1 ? slot : -1, outBy: -1, blockedBy: c };
@@ -1330,6 +1331,22 @@ export class Sections {
       at = next(layout, at.pieceId, w.exit);
     }
     return null;
+  }
+
+  /**
+   * The plain track just behind a waiting point on a way (mm): its last steps, back to where they leave a section, in
+   * waiting points it runs through (signal stretches, joined at signal joints, no points in them). A train too long
+   * for the waiting point alone may stand there across them, its front at the signal (the user's forgiving placement:
+   * "don't be too particular about where trains stand"; points are never under it). Its move holds them already.
+   */
+  private plainBehind(steps: readonly Step[], through: readonly number[], topo: Topology): number {
+    let room = 0;
+    for (let k = steps.length - 1; k >= 0; k--) {
+      const sl = topo.slotOf.get(steps[k].pieceId);
+      if (sl === undefined || topo.slots[sl].kind !== "signal" || !through.includes(sl)) break;
+      room += lengthOfPath(this.layout, steps[k].pieceId, steps[k].path);
+    }
+    return room;
   }
 
   /**

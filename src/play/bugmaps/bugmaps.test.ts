@@ -188,6 +188,27 @@ describe("bug maps: copied maps replayed with the invariants on", () => {
     expect(leg && leg.some((r) => r.pieceId === 109)).toBe(false);
   });
 
+  it("signal-added-still-stuck.txt: the longest train (engine 34, 526 mm) waits at the sawmill's signal across both stretches its pair of signals splits it into, as before the pair made two waiting points", async () => {
+    // (Booking to the next signal (2026-11-09) made each stretch between signals a waiting point: the signal pair at the
+    // sawmill (pieces 6 | 43) split its 717 mm into 216 and 501, neither long enough for engine 34, so its moves out of
+    // the loop ran on through both and the workshop's stretch to the next it fitted, all of it free at once, behind the
+    // shorter trains now stopping in each: 26 stops in 600 s before, 17 after. Now a train too long for a stretch stands
+    // across the plain stretches behind it (`plainBehind`), its front at the signal: 27, and the map 91 → 101.)
+    const { world } = await loadBugMap(FILES["signal-added-still-stuck.txt"] ?? "");
+    let across = false;
+    const r = replayBugMap(world, {
+      seconds: 600,
+      stopAtFirst: false,
+      onTick: (w) => {
+        const t = w.sim.findCar(34)?.train;
+        if (t && t.speed === 0 && t.bogies[0].pieceId === 40 && t.bogies.some((b) => b.pieceId === 6)) across = true;
+      },
+    });
+    expect(r.arrivals.get(34) ?? 0).toBeGreaterThanOrEqual(24);
+    expect([...r.arrivals.values()].reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(98);
+    expect(across, "engine 34 stood at the workshop's signal with its tail on the sawmill").toBe(true);
+  }, 120_000);
+
   it("the hand-made map is its builder's (BUGMAP_WRITE=1 writes it again)", async () => {
     const text = await bugMapText(shuttle().world, "game");
     if (ENV.BUGMAP_WRITE) (await fs()).writeFileSync(new URL("./hand-made-shuttle.txt", import.meta.url).pathname, text + "\n");
