@@ -127,32 +127,37 @@ export function fitToRect(
   };
   const goalW = Math.max(1, rect.right - rect.left - 2 * margin);
   const goalH = Math.max(1, rect.bottom - rect.top - 2 * margin);
-  for (let round = 0; round < 6; round++) {
+  const box = { x0: 0, x1: 0, y0: 0, y1: 0 };
+  const measure = () => {
     place();
-    let x0 = Infinity;
-    let x1 = -Infinity;
-    let y0 = Infinity;
-    let y1 = -Infinity;
+    box.x0 = box.y0 = Infinity;
+    box.x1 = box.y1 = -Infinity;
     for (const p of points) {
       v.copy(p).project(cam);
       const x = ((v.x + 1) / 2) * width;
       const y = ((1 - v.y) / 2) * height;
-      x0 = Math.min(x0, x);
-      x1 = Math.max(x1, x);
-      y0 = Math.min(y0, y);
-      y1 = Math.max(y1, y);
+      box.x0 = Math.min(box.x0, x);
+      box.x1 = Math.max(box.x1, x);
+      box.y0 = Math.min(box.y0, y);
+      box.y1 = Math.max(box.y1, y);
     }
+  };
+  const ground = (sx: number, sy: number): Vector3 | null => {
+    v.set((sx / width) * 2 - 1, 1 - (sy / height) * 2, 0.5).unproject(cam).sub(cam.position);
+    if (v.y >= -1e-9) return null;
+    return cam.position.clone().addScaledVector(v, -cam.position.y / v.y);
+  };
+  for (let round = 0; round < 6; round++) {
     // Zoom so the spread fills the room (on screen, size goes as one over distance)...
     // (Within the distances it may be glided to: the move into the room is worked out at the distance it ends at. A
     // lone point has no spread, so its fit closes right in, and a shift made there was lost when moved back: QA.)
-    distance = Math.min(maxDistance, Math.max(minDistance, distance * Math.max((x1 - x0) / goalW, (y1 - y0) / goalH, 0.05)));
-    // ...and move so its middle is the room's: by the ground under the two, as seen from here.
-    const ground = (sx: number, sy: number): Vector3 | null => {
-      v.set((sx / width) * 2 - 1, 1 - (sy / height) * 2, 0.5).unproject(cam).sub(cam.position);
-      if (v.y >= -1e-9) return null;
-      return cam.position.clone().addScaledVector(v, -cam.position.y / v.y);
-    };
-    const from = ground((x0 + x1) / 2, (y0 + y1) / 2);
+    measure();
+    distance = Math.min(maxDistance, Math.max(minDistance, distance * Math.max((box.x1 - box.x0) / goalW, (box.y1 - box.y0) / goalH, 0.05)));
+    // ...and move so its middle is the room's: by the ground under the two, as seen from there. (Measured again at the
+    // new distance: a move worked out at the old one was off by as much as the zoom changed, which in a thin room far
+    // from the screen's middle, a phone's band above a tall card, left the route 13-70 px under it: QA, route-ux F5.)
+    measure();
+    const from = ground((box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2);
     const to = ground((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
     if (from && to) target.add(from.sub(to)).setY(0);
   }

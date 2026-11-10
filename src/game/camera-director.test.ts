@@ -328,6 +328,25 @@ describe("fitToRect: the whole railway in the room the HUD leaves (QA: back to m
     const loop = Array.from({ length: 16 }, (_, i) => new Vector3(Math.cos((i / 16) * 2 * Math.PI) * 600, 0, Math.sin((i / 16) * 2 * Math.PI) * 400));
     check(loop, 1.1, 0.3);
   });
+
+  it("a thin room far from the screen's middle (a 99 px band above a train's full card): framed in it, not under it", () => {
+    // (QA, e2e route-ux F5: the move was worked out at the distance before each zoom, and the route was left 13-70 px
+    // under the card.)
+    const w = 360;
+    const h = 740;
+    const band = { left: 0, top: 54, right: w, bottom: 153 };
+    const route = [new Vector3(-2900, 0, -300), new Vector3(-2900, 70, -300), new Vector3(-2500, 0, 200), new Vector3(-2500, 70, 200), new Vector3(-2700, 0, 500), new Vector3(-2700, 70, 500), new Vector3(-2600, 0, 0)];
+    for (const [phi, theta] of [[0.9, -1.17], [1.0, -1.2], [0.7, -1.1], [1.1, 0.5]]) {
+      const fit = fitToRect(route, new PerspectiveCamera(30, w / h, 5, 40000), phi, theta, band, w, h, 32, 900, 14000);
+      const cam = new PerspectiveCamera(30, w / h, 5, 40000);
+      cam.position.setFromSpherical(new Spherical(fit.distance, phi, theta)).add(fit.target);
+      cam.lookAt(fit.target);
+      cam.updateMatrixWorld();
+      const ys = route.map((p) => ((1 - p.clone().project(cam).y) / 2) * h);
+      expect(Math.min(...ys)).toBeGreaterThanOrEqual(band.top + 31);
+      expect(Math.max(...ys)).toBeLessThanOrEqual(band.bottom - 31);
+    }
+  });
 });
 
 describe("aimInRoom: the game's glides show their target in the middle of what the map shows, not behind a card", () => {
