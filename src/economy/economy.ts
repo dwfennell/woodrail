@@ -1576,11 +1576,6 @@ export class Economy {
     }
   }
 
-  /** How many of each good wait in station `depotId`'s van yard (or ride its van), as a bag (empty: none). */
-  vanGoods(depotId: number): Bag {
-    return this.vanYard.get(depotId) ?? {};
-  }
-
   /** Unload one unit from a car onto a depot's input pile (crane work). */
   protected unloadOne(d: DepotState, carId: number): void {
     const kind = this.cargoOf(carId).kind!;
@@ -2873,9 +2868,6 @@ export class Economy {
    * `LIFT_LOADS` times as many a crane move: two wagons' worth while the one crane works. Not saved: set again as the
    * game's research is (`applyCranes`).
    */
-  get warehouseLift(): boolean {
-    return this.liftLoad;
-  }
   setWarehouseLift(on: boolean): void {
     if (on === this.liftLoad) return;
     this.liftLoad = on;

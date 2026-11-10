@@ -6,8 +6,6 @@ export type GameMode = "sandbox" | "game";
 
 export const MODES: readonly GameMode[] = ["sandbox", "game"];
 
-export const MODE_NAMES: Record<GameMode, string> = { sandbox: "Sandbox", game: "Game" };
-
 const LAST_MODE_KEY = "woodrail.lastMode";
 
 /** The mode played last (its map is the title screen's backdrop). Sandbox when unknown. */

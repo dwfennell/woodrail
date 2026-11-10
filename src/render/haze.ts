@@ -91,11 +91,6 @@ export function setHazeReach(fog: Fog, reach: number): void {
 /** Everything fades into the haze from this fraction of the view's reach to the reach itself. */
 export const REACH_FADE = 0.75;
 
-/** How hazed a point this far from the camera is, by the view's reach alone (as the shader has it). */
-export function reachHaze(distance: number, reach: number): number {
-  return smoothstep(REACH_FADE * reach, reach, distance);
-}
-
 const f = (v: number) => v.toFixed(4);
 
 /**

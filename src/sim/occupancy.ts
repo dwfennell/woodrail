@@ -33,13 +33,6 @@ export interface OnOptions {
   onRails?: boolean;
 }
 
-/** Is train `t` on this piece, by `by`? */
-export function isOn(sim: OccupancySim, t: Train, pieceId: number, by: OnBy = "axles"): boolean {
-  if (by === "cars") return sim.piecesUnder(t.id).has(pieceId);
-  for (const b of t.bogies) if (b.pieceId === pieceId) return true;
-  return false;
-}
-
 /**
  * The first train (in the sim's order) on any of `pieces` (a set, or a test), with `opts`; undefined: none. Off-the-rails
  * trains don't count by cars (they're under nothing); by axles they do unless `opts` say otherwise, as before.

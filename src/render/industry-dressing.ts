@@ -209,6 +209,3 @@ function warehouse(add: PlaceFn, mats: Materials): void {
   add(mats.lacquer("#c8442f"), new BoxGeometry(1.4, 18, 8), 154, 40, PAD_H + 9);
   add(mats.lacquer("#2f2f33"), new CylinderGeometry(2.4, 2.4, 10, 10).rotateX(Math.PI / 2), 154, 40, PAD_H + 2.4);
 }
-
-/** The ground of a yard is drawn by `dressIndustry` for these (the plain pad is skipped). */
-export const hasOwnGround = (role: DepotRole): boolean => role === "farm" || role === "mill" || role === "quarry" || role === "warehouse";
