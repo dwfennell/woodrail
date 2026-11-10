@@ -382,6 +382,10 @@ try {
   await tap(p, ".line-sheet .route-plan.on");
   const stops = await p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, engine);
   check("…its route planned by taps: forest, sawmill, town", JSON.stringify(stops) === JSON.stringify([forestId, millId, setup.town]), JSON.stringify(stops));
+  // (From here the flatbed train runs its route: standing at a stop with its lever on, it shows a path signal ahead its
+  // way on some ticks and the signal's rest on others, a frame each flip: a sim matter, not this suite's. Only pictures
+  // wait on settled after it, as the old copied helper did, giving up at 20 s without a word.)
+  const ROUTED = "the routed flatbed train flips a path signal's aspect while it stands at a stop (sim showPathSignals vs pathRest)";
   await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), engine);
   const got = { loaded: {}, unloaded: {} };
   const town0 = await p.evaluate((t) => window.woodrail.economy.delivered.get(window.woodrail.economy.depot(t).townId) ?? 0, setup.town);
@@ -398,7 +402,7 @@ try {
   await tap(p, { depot: millId }, { ...cardOpen, dist: 1100 });
   const working = await p.evaluate(() => document.querySelector(".depot-card .chain-status")?.textContent ?? "");
   check("…the sawmill's card now says how it's doing (working, or full of planks for a train)", /^(Working|Full of planks: a train can take them|Waiting for logs)$/.test(working), working);
-  await settled(p);
+  await settled(p, { moving: ROUTED });
   await pic("6-running");
   await p.evaluate(() => window.woodrail.hud.hideCards());
 
@@ -417,7 +421,7 @@ try {
     await tap(p, { depot: bakeryId }, { ...cardOpen, dist: 1100 });
     const rows = await p.evaluate(() => [...document.querySelectorAll(".depot-card .chain-text")].map((e) => e.textContent));
     check("…its card: flour and milk, none made yet; place a Mill and a Dairy farm", rows.some((r) => /Flour: none made on the map yet\. Place a Mill/.test(r)) && rows.some((r) => /Milk: none made on the map yet\. Place a Dairy farm/.test(r)), JSON.stringify(rows));
-    await settled(p);
+    await settled(p, { moving: ROUTED });
     await pic("7-bakery-card");
   }
 
