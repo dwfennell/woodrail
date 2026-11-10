@@ -15,108 +15,16 @@
 // second (`__run`); the planes keep the game's clock (`simSeconds`), moved on with it.
 //
 // Usage: npm run e2e:airport [-- <out dir>]   (default out: e2e-out/airport)
-import { existsSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
-import { createServer } from "vite";
-import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { boot, openMode, planRoute, reporter, settled, shot, showing, tap } from "../../scripts/e2e/lib/e2e.mjs";
 
-const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const OUT = process.argv[2] ?? "e2e-out/airport";
-mkdirSync(OUT, { recursive: true });
-const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5398, strictPort: false }, logLevel: "error" });
-await server.listen();
-await server.warmupRequest("/src/main.ts");
-const PAGE = server.resolvedUrls.local[0];
-const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-pinClocksIn(b);
-stillIndustriesIn(b);
-const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
-await ctx.addInitScript(() => {
-  localStorage.setItem("woodrail.helpSeen", "1");
-  window.__allClicks = 0;
-  window.addEventListener("click", () => window.__allClicks++, { capture: true });
-});
-const p = await ctx.newPage();
-const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-p.on("console", (m) => {
-  if (m.type() === "error") errors.push(`console: ${m.text()}`);
-});
-let failures = 0;
-const check = (what, ok, detail = "") => {
-  if (!ok) failures++;
-  console.log(ok ? "PASS" : "FAIL", what, detail);
-};
-const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
-const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
-const tapped = async (act) => {
-  const before = await p.evaluate(() => window.__allClicks);
-  await act();
-  await p.waitForFunction((n) => window.__allClicks > n, before, { timeout: 60000 }).catch(() => {});
-  await frames();
-};
-const worldAt = (what) =>
-  p.evaluate((what) => {
-    const w = window.woodrail;
-    if (what.engine !== undefined) {
-      const t = w.sim.findCar(what.engine).train;
-      const [a, c] = [t.world[0], t.world[1]];
-      return { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2, z: (a.z + c.z) / 2 };
-    }
-    const piece = w.layout.getPiece(w.economy.depot(what.depot).pieceId);
-    const q = piece.pose;
-    return { x: q.x + Math.cos(q.heading) * 108, y: piece.y, z: q.z + Math.sin(q.heading) * 108 };
-  }, what);
-const onScreen = async (what) => {
-  const v = await worldAt(what);
-  return p.evaluate((v) => {
-    const w = window.woodrail;
-    const c = new w.camera.position.constructor(v.x, v.y, v.z).project(w.camera);
-    return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
-  }, v);
-};
-const showing = async (what, dist = 1300) => {
-  const v = await worldAt(what);
-  await p.evaluate(([v, dist]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), dist, { duration: 0.2 }), [v, dist]);
-  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
-const tapOn = async (what) => {
-  await showing(what);
-  const [x, y] = await onScreen(what);
-  await tapped(() => p.touchscreen.tap(x, y));
-};
-const tapButton = async (sel) => {
-  await p.waitForFunction((sel) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0), sel, { timeout: 30000 });
-  await frames();
-  await p.waitForTimeout(400);
-  const [x, y] = await p.evaluate((sel) => {
-    const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0).getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, sel);
-  await tapped(() => p.touchscreen.tap(x, y));
-};
+const { page: p, url, out: OUT, errors, close } = await boot({ name: "airport", port: 5398, pinClocks: true, stillIndustries: true });
+const { check, finish } = reporter("airport", { errors, close });
+const pic = (n) => shot(p, `${OUT}/${n}.png`);
 const routeStops = (e) => p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, e);
-const planRoute = async (engine, places) => {
-  await tapOn({ engine });
-  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
-  if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine });
-  await tapButton(".engine-extra .route-plan");
-  for (const d of places) await tapOn({ depot: d });
-  await tapButton(".line-sheet .route-plan.on");
-};
 
 // A new game.
-await p.goto(PAGE);
-await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-await settle();
-await p.keyboard.press("Escape");
-await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
+await p.goto(url);
+await openMode(p, "game");
 
 // 1. Learned (setup), the airport is on the Industries tab, unlocked.
 await p.evaluate(() => {
@@ -185,18 +93,17 @@ check("2. setup: the station's line, an airport on it, a coach train by it", !se
 if (!setup.error && setup.engine !== -1) {
   const { airport, town, engine } = setup;
   // 3. The route by taps.
-  await planRoute(engine, [airport, town]);
+  await planRoute(p, engine, [airport, town]);
   const stops = await routeStops(engine);
   check("3. its route by taps: the airport, then the town", JSON.stringify(stops) === JSON.stringify([airport, town]), JSON.stringify(stops));
   await p.keyboard.press("Escape");
 
   // 4. The airport's card.
-  await tapOn({ depot: airport });
-  await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 20000 }).catch(() => {});
+  await tap(p, { depot: airport }, { expect: () => window.woodrail.hud.depotCardOpen, why: "the airport's card open" });
   await p.waitForTimeout(800);
   const lines = await p.evaluate(() => [...document.querySelectorAll(".depot-extra .station-waiting")].map((e) => e.textContent));
   check("4. the airport's card: the next plane, the lounge, what each pays", lines.some((l) => /Next plane in \d+:\d\d/.test(l)) && lines.some((l) => /Waiting to fly: 0 of 12 · each pays 12 coins/.test(l)), JSON.stringify(lines));
-  await shot("1-airport-card");
+  await pic("1-airport-card");
   await p.keyboard.press("Escape");
 
   // 5. A plane lands (its clock set to land in 3 s: setup), leaves visitors; the train takes them to town at 1.5×.
@@ -209,7 +116,7 @@ if (!setup.error && setup.engine !== -1) {
     landed = await p.waitForFunction((id) => window.woodrail.economy.depot(id).waiting > 0, airport, { timeout: 2000 }).then(() => true, () => false);
   }
   check("5. a plane lands: visitors wait on the airport's platform", landed, JSON.stringify(await p.evaluate((id) => window.woodrail.economy.depot(id).waiting, airport)));
-  await showing({ depot: airport }, 900);
+  await showing(p, { depot: airport }, 900);
   await p.waitForTimeout(1500);
   const plane = await p.evaluate(() => window.woodrail.planesView.count);
   check("…its plane stands on the apron", plane === 1, String(plane));
@@ -226,10 +133,10 @@ if (!setup.error && setup.engine !== -1) {
       }
     });
     if (found) w.lookAt(new V(at.x, 0, at.z), 800, 0.85);
-    await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 20000))]);
   });
+  await settled(p);
   await p.waitForTimeout(1500);
-  await shot("2-plane-landed");
+  await pic("2-plane-landed");
   const before = await p.evaluate(async ({ airport, town, engine }) => {
     const w = window.woodrail;
     const { fareFor } = await import("/src/game/passengers.ts");
@@ -274,13 +181,9 @@ if (!setup.error && setup.engine !== -1) {
   }
   const c1 = await p.evaluate(() => window.woodrail.progress().coins);
   check("…the next plane takes them, each paying 12 coins", c1 - c0 === Math.min(8, flyers) * 12, JSON.stringify({ flyers, paid: c1 - c0 }));
-  await tapOn({ depot: airport });
+  await tap(p, { depot: airport });
   await p.waitForTimeout(800);
-  await shot("3-airport-after");
+  await pic("3-airport-after");
 }
 
-check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(`\n${failures === 0 ? "e2e:airport: all passed" : `e2e:airport: ${failures} failed`}`);
-await b.close();
-await server.close();
-process.exit(failures === 0 ? 0 : 1);
+await finish();

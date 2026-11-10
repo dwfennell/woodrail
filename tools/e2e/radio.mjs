@@ -10,110 +10,18 @@
 //   4. The power station's coal gone (setup): no spark, the card says the town doesn't hear it.
 //
 // Usage: npm run e2e:radio [-- <out dir>]   (default out: e2e-out/radio)
-import { existsSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
-import { createServer } from "vite";
-import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { boot, frames, glideTo, openMode, reporter, screenOf, shot } from "../../scripts/e2e/lib/e2e.mjs";
 
-const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const OUT = process.argv[2] ?? "e2e-out/radio";
-mkdirSync(OUT, { recursive: true });
-const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5402, strictPort: false }, logLevel: "error" });
-await server.listen();
-await server.warmupRequest("/src/main.ts");
-const PAGE = server.resolvedUrls.local[0];
-const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-// (Clocks held still: this counts idle frames. The turbine's rotor is what's tested, so industries aren't held still.)
-pinClocksIn(b);
-stillIndustriesIn(b);
-const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
-await ctx.addInitScript(() => {
-  localStorage.setItem("woodrail.helpSeen", "1");
-  window.__allClicks = 0;
-  window.addEventListener("click", () => window.__allClicks++, { capture: true });
-});
-const p = await ctx.newPage();
-const cdp = await ctx.newCDPSession(p);
-const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-p.on("console", (m) => {
-  if (m.type() === "error") errors.push(`console: ${m.text()}`);
-});
-let failures = 0;
-const check = (what, ok, detail = "") => {
-  if (!ok) failures++;
-  console.log(ok ? "PASS" : "FAIL", what, detail);
-};
-const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
-const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
-const tapped = async (act) => {
-  const before = await p.evaluate(() => window.__allClicks);
-  await act();
-  await p.waitForFunction((n) => window.__allClicks > n, before, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
+// (Clocks held still: this counts idle frames.)
+const { page: p, url, out: OUT, errors, close, cdp: cdpOf } = await boot({ name: "radio", port: 5402, pinClocks: true, stillIndustries: true });
+const { check, finish } = reporter("radio", { errors, close });
+const cdp = await cdpOf();
+const pic = (n) => shot(p, `${OUT}/${n}.png`);
 const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
-const screenOf = (v) =>
-  p.evaluate((v) => {
-    const w = window.woodrail;
-    const c = new w.camera.position.constructor(v.x, v.y, v.z).project(w.camera);
-    const r = w.canvas.getBoundingClientRect();
-    return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
-  }, v);
-const glideTo = async (v, dist = 900) => {
-  await p.evaluate(([v, dist]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y ?? 0, v.z), dist, { duration: 0.2 }), [v, dist]);
-  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
-/** A button by selector, once it's drawn and has stood still past the card tap guard. */
-const tapButton = async (sel) => {
-  const ok = await p.waitForFunction((sel) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0), sel, { timeout: 20000 }).then(() => true, () => false);
-  if (!ok) return false;
-  await frames();
-  await p.waitForTimeout(400);
-  const [x, y] = await p.evaluate((sel) => {
-    const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0).getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, sel);
-  await tapped(() => p.touchscreen.tap(x, y));
-  return true;
-};
-/** A depot's middle (its yard's track), in the world. */
-const depotAt = (depotId) =>
-  p.evaluate((id) => {
-    const w = window.woodrail;
-    const piece = w.layout.getPiece(w.economy.depot(id).pieceId);
-    return { x: piece.pose.x + Math.cos(piece.pose.heading) * 108, y: piece.y, z: piece.pose.z + Math.sin(piece.pose.heading) * 108 };
-  }, depotId);
-/** Tap a depot to open its card. */
-const openDepot = async (depotId) => {
-  for (let tries = 0; tries < 3; tries++) {
-    const at = await depotAt(depotId);
-    await glideTo(at, 900);
-    const [x, y] = await screenOf(at);
-    await tapped(() => p.touchscreen.tap(x, y));
-    await p.waitForTimeout(300);
-    if (await p.evaluate((id) => window.woodrail.hud.depotCardOpen && window.woodrail.interaction.openDepotId === id, depotId)) return true;
-  }
-  return false;
-};
-const powerLines = () => p.evaluate(() => [...document.querySelectorAll(".depot-power .power-line")].map((e) => e.textContent));
-const closeCards = () => p.evaluate(() => window.woodrail.hud.hideCards?.());
-const enterGame = async () => {
-  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-  await settle();
-  await p.keyboard.press("Escape");
-  await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
-};
 /** Drag the turbine from the tray to a world point by touch (the finger under where it's held: the prop rides above it). */
 const dragTurbine = async (at) => {
   await p.evaluate(() => document.querySelector(".tray-item[data-key='prop:mech-radio-mast']")?.scrollIntoView({ inline: "center" }));
-  await frames();
+  await frames(p);
   const from = await p.evaluate(() => {
     const e = document.querySelector(".tray-item[data-key='prop:mech-radio-mast']");
     if (!e) return null;
@@ -137,26 +45,26 @@ const dragTurbine = async (at) => {
     }
     return { x: (lo[0] + hi[0]) / 2, y: (lo[1] + hi[1]) / 2, z: (lo[2] + hi[2]) / 2 };
   });
-  const [tx, ty] = await screenOf({ x: at.x + mid.x, y: (at.y ?? 0) + 6 + mid.y, z: at.z + mid.z });
+  const [tx, ty] = await screenOf(p, { x: at.x + mid.x, y: (at.y ?? 0) + 6 + mid.y, z: at.z + mid.z });
   let t = Date.now() / 1000;
   await touch("touchStart", from[0], from[1], t);
   for (let k = 1; k <= 16; k++) await touch("touchMove", from[0] + ((tx - from[0]) * k) / 16, from[1] + ((ty + 56 - from[1]) * k) / 16, (t += 0.04));
   await p.waitForTimeout(400);
-  await frames();
+  await frames(p);
   if (process.env.E2E_DEBUG) {
-    await shot(`held-${Math.round(at.x)}`);
+    await pic(`held-${Math.round(at.x)}`);
     console.log("held:", JSON.stringify(await p.evaluate(() => ({ drag: window.woodrail.interaction.dragKind ?? null, toast: [...document.querySelectorAll(".toast")].map((e) => e.textContent) }))));
   }
   await touch("touchEnd", 0, 0, (t += 0.05));
   await p.waitForTimeout(600);
-  await frames();
+  await frames(p);
   return true;
 };
 const turbines = () => p.evaluate(() => [...window.woodrail.world.props.all()].filter((x) => x.asset === "mech-radio-mast").map((x) => ({ x: x.x, z: x.z, y: x.y })));
 const inBox = () => p.evaluate(() => document.querySelector(".tray-item[data-key='prop:mech-radio-mast'] .have")?.textContent ?? null);
 
-await p.goto(PAGE);
-await enterGame();
+await p.goto(url);
+await openMode(p, "game");
 
 // 1. Setup.
 const setup = await p.evaluate(async () => {
@@ -210,7 +118,7 @@ const spot = await p.evaluate(async () => {
 });
 check("found clear ground in the first town", !!spot, JSON.stringify(spot));
 if (spot && setup.power !== undefined) {
-  await glideTo(spot, 900);
+  await glideTo(p, spot, 900);
   await dragTurbine(spot);
   const masts = await p.evaluate(() => [...window.woodrail.world.props.all()].filter((x) => x.asset === "mech-radio-mast").length);
   check("2. the mast, dragged from the tray, stands in the town", masts === 1, String(masts));
@@ -227,7 +135,7 @@ if (spot && setup.power !== undefined) {
   };
   const said = await card();
   check("…its card: the town hears about the trains, 1.5× the riders", /hears about the trains: 1.5× the riders/.test(said), said);
-  await shot("1-radio-mast");
+  await pic("1-radio-mast");
 
   // 3. The payoff: people come 1.5× as often as to a town of the same size without one.
   const counts = await p.evaluate(async () => {
@@ -266,8 +174,4 @@ if (spot && setup.power !== undefined) {
   check("4. no spark of power: its card says the town doesn't hear it", /No spark of power/.test(quiet), quiet);
 }
 
-check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(`\n${failures === 0 ? "e2e:radio: all passed" : `e2e:radio: ${failures} failed`}`);
-await b.close();
-await server.close();
-process.exit(failures === 0 ? 0 : 1);
+await finish();

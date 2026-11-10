@@ -16,109 +16,27 @@
 //   6. Reloaded: the turbine still stands, the sawmill is still asked for.
 //
 // Usage: npm run e2e:power [-- <out dir>]   (default out: e2e-out/power)
-import { existsSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
-import { createServer } from "vite";
-import { pinClocksIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { boot, frames, glideTo, openMode, reporter, screenOf, settled, shot, tap, tryTap, tryUntil } from "../../scripts/e2e/lib/e2e.mjs";
 
-const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const OUT = process.argv[2] ?? "e2e-out/power";
-mkdirSync(OUT, { recursive: true });
-const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5397, strictPort: false }, logLevel: "error" });
-await server.listen();
-await server.warmupRequest("/src/main.ts");
-const PAGE = server.resolvedUrls.local[0];
-const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 // (Clocks held still: this counts idle frames. The turbine's rotor is what's tested, so industries aren't held still.)
-pinClocksIn(b);
-const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
-await ctx.addInitScript(() => {
-  localStorage.setItem("woodrail.helpSeen", "1");
-  window.__allClicks = 0;
-  window.addEventListener("click", () => window.__allClicks++, { capture: true });
-});
-const p = await ctx.newPage();
-const cdp = await ctx.newCDPSession(p);
-const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-p.on("console", (m) => {
-  if (m.type() === "error") errors.push(`console: ${m.text()}`);
-});
-let failures = 0;
-const check = (what, ok, detail = "") => {
-  if (!ok) failures++;
-  console.log(ok ? "PASS" : "FAIL", what, detail);
-};
-const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
-const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
-const tapped = async (act) => {
-  const before = await p.evaluate(() => window.__allClicks);
-  await act();
-  await p.waitForFunction((n) => window.__allClicks > n, before, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
+const { page: p, url, out: OUT, errors, close, cdp: cdpOf } = await boot({ name: "power", port: 5397, pinClocks: true });
+const { check, finish } = reporter("power", { errors, close });
+const cdp = await cdpOf();
+const pic = (n) => shot(p, `${OUT}/${n}.png`);
 const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
-const screenOf = (v) =>
-  p.evaluate((v) => {
-    const w = window.woodrail;
-    const c = new w.camera.position.constructor(v.x, v.y, v.z).project(w.camera);
-    const r = w.canvas.getBoundingClientRect();
-    return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
-  }, v);
-const glideTo = async (v, dist = 900) => {
-  await p.evaluate(([v, dist]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y ?? 0, v.z), dist, { duration: 0.2 }), [v, dist]);
-  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
-/** A button by selector, once it's drawn and has stood still past the card tap guard. */
-const tapButton = async (sel) => {
-  const ok = await p.waitForFunction((sel) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0), sel, { timeout: 20000 }).then(() => true, () => false);
-  if (!ok) return false;
-  await frames();
-  await p.waitForTimeout(400);
-  const [x, y] = await p.evaluate((sel) => {
-    const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0).getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, sel);
-  await tapped(() => p.touchscreen.tap(x, y));
-  return true;
-};
-/** A depot's middle (its yard's track), in the world. */
-const depotAt = (depotId) =>
-  p.evaluate((id) => {
-    const w = window.woodrail;
-    const piece = w.layout.getPiece(w.economy.depot(id).pieceId);
-    return { x: piece.pose.x + Math.cos(piece.pose.heading) * 108, y: piece.y, z: piece.pose.z + Math.sin(piece.pose.heading) * 108 };
-  }, depotId);
-/** Tap a depot to open its card. */
+/** Tap a depot to open its card (twice more if a tap doesn't open it; the third miss throws). */
 const openDepot = async (depotId) => {
-  for (let tries = 0; tries < 3; tries++) {
-    const at = await depotAt(depotId);
-    await glideTo(at, 900);
-    const [x, y] = await screenOf(at);
-    await tapped(() => p.touchscreen.tap(x, y));
-    await p.waitForTimeout(300);
-    if (await p.evaluate((id) => window.woodrail.hud.depotCardOpen && window.woodrail.interaction.openDepotId === id, depotId)) return true;
-  }
-  return false;
+  const open = { expect: (id) => window.woodrail.hud.depotCardOpen && window.woodrail.interaction.openDepotId === id, arg: depotId, dist: 900, why: `depot ${depotId}'s card open` };
+  for (let tries = 0; tries < 2; tries++) if (await tryTap(p, { depot: depotId }, open)) return true;
+  await tap(p, { depot: depotId }, open);
+  return true;
 };
 const powerLines = () => p.evaluate(() => [...document.querySelectorAll(".depot-power .power-line")].map((e) => e.textContent));
 const closeCards = () => p.evaluate(() => window.woodrail.hud.hideCards?.());
-const enterGame = async () => {
-  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-  await settle();
-  await p.keyboard.press("Escape");
-  await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
-};
 /** Drag the turbine from the tray to a world point by touch (the finger under where it's held: the prop rides above it). */
 const dragTurbine = async (at) => {
   await p.evaluate(() => document.querySelector(".tray-item[data-key='prop:mech-wind-turbine']")?.scrollIntoView({ inline: "center" }));
-  await frames();
+  await frames(p);
   const from = await p.evaluate(() => {
     const e = document.querySelector(".tray-item[data-key='prop:mech-wind-turbine']");
     if (!e) return null;
@@ -142,26 +60,26 @@ const dragTurbine = async (at) => {
     }
     return { x: (lo[0] + hi[0]) / 2, y: (lo[1] + hi[1]) / 2, z: (lo[2] + hi[2]) / 2 };
   });
-  const [tx, ty] = await screenOf({ x: at.x + mid.x, y: (at.y ?? 0) + 6 + mid.y, z: at.z + mid.z });
+  const [tx, ty] = await screenOf(p, { x: at.x + mid.x, y: (at.y ?? 0) + 6 + mid.y, z: at.z + mid.z });
   let t = Date.now() / 1000;
   await touch("touchStart", from[0], from[1], t);
   for (let k = 1; k <= 16; k++) await touch("touchMove", from[0] + ((tx - from[0]) * k) / 16, from[1] + ((ty + 56 - from[1]) * k) / 16, (t += 0.04));
   await p.waitForTimeout(400);
-  await frames();
+  await frames(p);
   if (process.env.E2E_DEBUG) {
-    await shot(`held-${Math.round(at.x)}`);
+    await pic(`held-${Math.round(at.x)}`);
     console.log("held:", JSON.stringify(await p.evaluate(() => ({ drag: window.woodrail.interaction.dragKind ?? null, toast: [...document.querySelectorAll(".toast")].map((e) => e.textContent) }))));
   }
   await touch("touchEnd", 0, 0, (t += 0.05));
   await p.waitForTimeout(600);
-  await frames();
+  await frames(p);
   return true;
 };
 const turbines = () => p.evaluate(() => [...window.woodrail.world.props.all()].filter((x) => x.asset === "mech-wind-turbine").map((x) => ({ x: x.x, z: x.z, y: x.y })));
 const inBox = () => p.evaluate(() => document.querySelector(".tray-item[data-key='prop:mech-wind-turbine'] .have")?.textContent ?? null);
 
-await p.goto(PAGE);
-await enterGame();
+await p.goto(url);
+await openMode(p, "game");
 
 // 1. Setup (not what's tested): Electricity and Wind farm learned, two turbines made (in the toy box).
 await p.evaluate(() => {
@@ -213,7 +131,7 @@ check("found a flat square and a hilltop to try", !!spots.flat && !!spots.hill, 
 
 // 2. On flat ground: refused, and told why.
 if (spots.flat) {
-  await glideTo(spots.flat, 900);
+  await glideTo(p, spots.flat, 900);
   // (What the player is told: every toast asked for, whether or not one was showing then.)
   await p.evaluate(() => {
     const hud = window.woodrail.hud;
@@ -225,13 +143,13 @@ if (spots.flat) {
     };
   });
   await dragTurbine(spots.flat);
-  await p.waitForFunction(() => window.__toasts.some((m) => /hilltop/.test(m)), null, { timeout: 8000 }).catch(() => {});
+  await tryUntil(p, () => window.__toasts.some((m) => /hilltop/.test(m)), null, { timeout: 8000 });
   const toast = await p.evaluate(() => window.__toasts.join(" | "));
   check("2. dragged onto flat ground: refused, with why", (await turbines()).length === 0 && /hilltop/.test(toast), JSON.stringify({ turbines: await turbines(), toast }));
-  await shot("1-refused-flat");
+  await pic("1-refused-flat");
 }
 if (spots.hill) {
-  await glideTo(spots.hill, 900);
+  await glideTo(p, spots.hill, 900);
   await dragTurbine(spots.hill);
   const now = await turbines();
   check("…dragged onto a hilltop: it stands there, on the hill", now.length === 1 && now[0].y > 0, JSON.stringify(now));
@@ -239,25 +157,25 @@ if (spots.hill) {
   const card = await p.evaluate(() => [...document.querySelectorAll(".piece-card")].filter((e) => !e.hidden).map((e) => e.textContent).join(" "));
   check("…its card says it makes a spark of power, counted as it stands (1 in all)", /A spark of power\. 1 in all/.test(card), card);
   // Its rotor turns while in view, near enough to see.
-  await glideTo(now[0] ?? spots.hill, 700);
+  await glideTo(p, now[0] ?? spots.hill, 700);
   const r0 = await p.evaluate(() => ({ a: window.woodrail.turbinesView.turned, f: window.woodrail.framesDrawn, n: window.woodrail.turbinesView.count }));
   // (Under software GL a frame of a turbine close up can take a second or more: wait for a few.)
-  await p.waitForFunction((f) => window.woodrail.framesDrawn >= f + 3, r0.f, { timeout: 30000 }).catch(() => {});
+  await tryUntil(p, (f) => window.woodrail.framesDrawn >= f + 3, r0.f, { timeout: 30000 });
   const r1 = await p.evaluate(() => ({ a: window.woodrail.turbinesView.turned, f: window.woodrail.framesDrawn }));
   check("…its rotor turns in view, frames drawn while it does", r0.n === 1 && r1.a !== r0.a && r1.f > r0.f, JSON.stringify({ r0, r1 }));
-  await glideTo(now[0] ?? spots.hill, 1300);
+  await glideTo(p, now[0] ?? spots.hill, 1300);
   await p.waitForTimeout(1500);
-  await shot("2-turbine-on-hill");
+  await pic("2-turbine-on-hill");
   // Paused: still, nothing drawn.
   await p.evaluate(() => [...document.querySelectorAll("button")].find((e) => /^Pause/.test(e.title))?.click());
-  await p.waitForFunction(() => window.woodrail.paused, null, { timeout: 10000 }).catch(() => {});
-  await settle();
+  await tryUntil(p, () => window.woodrail.paused, null, { timeout: 10000 });
+  await settled(p);
   const s0 = await p.evaluate(() => ({ a: window.woodrail.turbinesView.turned, f: window.woodrail.framesDrawn }));
   await p.waitForTimeout(6000);
   const s1 = await p.evaluate(() => ({ a: window.woodrail.turbinesView.turned, f: window.woodrail.framesDrawn }));
   check("…paused: the rotor stands still and no frames are drawn", s1.a === s0.a && s1.f === s0.f, JSON.stringify({ s0, s1 }));
   await p.evaluate(() => [...document.querySelectorAll("button")].find((e) => /^(Play|Resume|Pause)/.test(e.title) && window.woodrail.paused)?.click());
-  await p.waitForFunction(() => !window.woodrail.paused, null, { timeout: 10000 }).catch(() => {});
+  await tryUntil(p, () => !window.woodrail.paused, null, { timeout: 10000 });
 }
 
 // 3. A power station with coal (setup: put down by the editor on clear ground, coal on its pile).
@@ -288,7 +206,7 @@ if (station.depot !== undefined) {
   await p.waitForTimeout(500);
   const lines = await powerLines();
   check("…its card, by a tap: 5 sparks, 4 from coal and 1 from the wind, 5 spare", open && lines.some((l) => /5 sparks: 4 from coal, 1 from the wind/.test(l)) && lines.some((l) => /^5 spare/.test(l)), JSON.stringify({ open, lines }));
-  await shot("3-power-card");
+  await pic("3-power-card");
   await closeCards();
 }
 
@@ -318,16 +236,16 @@ const plankRate = (ms) =>
   );
 if (sawmill !== null) {
   // (The view away from the sawmill's saw: the game's own clock runs at its pace with nothing to draw.)
-  await glideTo({ x: 0, z: -4000 }, 3000);
+  await glideTo(p, { x: 0, z: -4000 }, 3000);
   const before = await plankRate(30000);
   const opened = await openDepot(sawmill);
-  const asked = opened && (await tapButton(".depot-power button[data-power='on']"));
+  const asked = opened && (await tap(p, ".depot-power button[data-power='on']"), true);
   await p.waitForTimeout(1500);
   const lines = await powerLines();
   check("…its card's ⚡ Power this yard, tapped: it says it's powered, 1.5× as fast", asked && lines.some((l) => /Powered: works 1.5× as fast/.test(l)), JSON.stringify({ opened, asked, lines }));
-  await shot("4-sawmill-powered");
+  await pic("4-sawmill-powered");
   await closeCards();
-  await glideTo({ x: 0, z: -4000 }, 3000);
+  await glideTo(p, { x: 0, z: -4000 }, 3000);
   const after = await plankRate(30000);
   const per = (r) => r.made / Math.max(1, r.seconds);
   check("…and it makes planks 1.5× as fast (per second of game time)", after.rate / before.rate > 1.45 && per(after) > per(before) * 1.25, JSON.stringify({ before, after }));
@@ -399,7 +317,7 @@ if (engines.trains) {
     await p.waitForTimeout(500);
     const lines = await powerLines();
     check("…the power station's card: 6 electric engines, 1 at steam speed", lines.some((l) => /Electric engines: 6, 1 at steam speed/.test(l)), JSON.stringify(lines));
-    await shot("5-power-short");
+    await pic("5-power-short");
     await closeCards();
   }
 }
@@ -407,15 +325,11 @@ if (engines.trains) {
 // 6. Reloaded: the turbine and the ask are kept.
 await p.waitForTimeout(3000);
 await p.reload();
-await enterGame();
+await openMode(p, "game", { moving: "the wind turbine stands in view, its rotor turning: what this tests, so industries aren't held still" });
 const back = await p.evaluate((id) => {
   const w = window.woodrail;
   return { turbines: [...w.world.props.all()].filter((x) => x.asset === "mech-wind-turbine").length, asked: id === null ? null : w.economy.depot(id).powerAsk };
 }, sawmill);
 check("6. reloaded: the turbine still stands, the sawmill is still asked for", back.turbines === 1 && back.asked > 0, JSON.stringify(back));
 
-check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(`\n${failures === 0 ? "e2e:power: all passed" : `e2e:power: ${failures} failed`}`);
-await b.close();
-await server.close();
-process.exit(failures === 0 ? 0 : 1);
+await finish();

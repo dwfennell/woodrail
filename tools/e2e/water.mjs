@@ -14,114 +14,32 @@
 //     aboard (its planks sold at full price, the train hidden, the ferry sailing), and comes back with goods from abroad.
 //
 // Usage: npm run e2e:water [-- <out dir>]   (default out: e2e-out/water). Pictures of each moment in the out dir.
-import { existsSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
-import { createServer } from "vite";
-import { testClockIn } from "../../scripts/e2e/lib/fast.mjs";
+import { boot, frames, glideTo, openMode, reporter, screenOf, settled, shot, tap, tryUntil } from "../../scripts/e2e/lib/e2e.mjs";
 
-const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const OUT = process.argv[2] ?? "e2e-out/water";
-mkdirSync(OUT, { recursive: true });
-const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5398, strictPort: false }, logLevel: "error" });
-await server.listen();
-await server.warmupRequest("/src/main.ts");
-const PAGE = server.resolvedUrls.local[0];
-const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 // (The test clock: the boats' runs wait on game time, and at a frame or two a second under SwiftShader a frame's 0.1 s
 // step made 240 game seconds an hour of real time: a CI shard killed it at 20 min, mid-voyage. See lib/fast.mjs.)
-testClockIn(b);
-const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
-await ctx.addInitScript(() => {
-  localStorage.setItem("woodrail.helpSeen", "1");
-  window.__allClicks = 0;
-  window.addEventListener("click", () => window.__allClicks++, { capture: true });
-});
-const p = await ctx.newPage();
-const cdp = await ctx.newCDPSession(p);
-const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-p.on("console", (m) => {
-  if (m.type() === "error") errors.push(`console: ${m.text()}`);
-});
-let failures = 0;
-let passes = 0;
-const check = (what, ok, detail = "") => {
-  if (ok) passes++;
-  else failures++;
-  console.log(ok ? "PASS" : "FAIL", what, detail);
-};
-const shot = (n) => p.screenshot({ path: `${OUT}/${n}.jpg`, quality: 85, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
-const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
-const tapped = async (act) => {
-  const before = await p.evaluate(() => window.__allClicks);
-  await act();
-  await p.waitForFunction((n) => window.__allClicks > n, before, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
+const { page: p, url, out: OUT, errors, close, cdp: cdpOf } = await boot({ name: "water", port: 5398 });
+const { check, finish } = reporter("water", { errors, close });
+const cdp = await cdpOf();
+const pic = (n) => shot(p, `${OUT}/${n}.jpg`, { quality: 85 });
 const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
-/** A world point's place on screen (CSS px). */
-const screenOf = (v) =>
-  p.evaluate((v) => {
-    const w = window.woodrail;
-    const c = new w.camera.position.constructor(v.x, v.y ?? 0, v.z).project(w.camera);
-    const r = w.canvas.getBoundingClientRect();
-    return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
-  }, v);
 /** The camera on a point, from overhead-ish (in the room above any card: `inRoom`). */
-const look = async (v, dist = 1300) => {
-  await p.evaluate(([v, dist]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, 0, v.z), dist, { duration: 0.2, inRoom: true }), [v, dist]);
-  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
-const tapWorld = async (v) => {
-  const [x, y] = await screenOf(v);
-  await tapped(() => p.touchscreen.tap(x, y));
-};
-/** A card button, once it's drawn and has stood still past the card tap guard. */
-const tapButton = async (sel) => {
-  await p.waitForFunction((sel) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0), sel, { timeout: 30000 });
-  await frames();
-  await p.waitForTimeout(400);
-  const [x, y] = await p.evaluate((sel) => {
-    const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0).getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, sel);
-  await tapped(() => p.touchscreen.tap(x, y));
-};
-/** A tray tab, then a shelf on it, by their words. */
+const look = (v, dist = 1300) => glideTo(p, { x: v.x, y: 0, z: v.z }, dist, { inRoom: true });
+/** A tap on a world point where it is on screen now. */
+const tapWorld = async (v) => tap(p, await screenOf(p, v));
+/** A tray tab, then a shelf on it, by their words (false if there's no such shelf). */
 const openShelf = async (tab, shelf) => {
   await p.evaluate(() => window.woodrail.hud.hideCards());
-  const t = await p.evaluate((tab) => {
-    const e = [...document.querySelectorAll(".tabs button")].find((b) => b.textContent.includes(tab));
-    const r = e.getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, tab);
-  await tapped(() => p.touchscreen.tap(...t));
-  const back = await p.evaluate(() => {
-    const e = [...document.querySelectorAll(".scroller .tray-item")].find((b) => b.querySelector(".label")?.textContent === "Back");
-    if (!e) return null;
-    const r = e.getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  });
-  if (back) await tapped(() => p.touchscreen.tap(...back));
-  const s = await p.evaluate((shelf) => {
-    const e = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === shelf);
-    if (!e) return null;
-    e.scrollIntoView({ inline: "center" });
-    const r = e.getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, shelf);
-  if (!s) return false;
-  await tapped(() => p.touchscreen.tap(...s));
+  await tap(p, { sel: ".tabs button", text: tab });
+  if (await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-item .label")].some((l) => l.textContent === "Back"))) await tap(p, { sel: ".scroller .tray-item .label", text: "Back", exact: true });
+  if (!(await p.evaluate((shelf) => [...document.querySelectorAll(".scroller .tray-group .label")].some((l) => l.textContent === shelf), shelf))) return false;
+  await tap(p, { sel: ".scroller .tray-group .label", text: shelf, exact: true });
   return true;
 };
 /** A tray item dragged out by a finger and let go over a world point (the piece's middle there). */
 const dragOut = async (key, v, want = null) => {
   await p.evaluate((key) => document.querySelector(`.scroller .tray-item[data-key="${key}"]`)?.scrollIntoView({ inline: "center" }), key);
-  await frames();
+  await frames(p);
   const from = await p.evaluate((key) => {
     const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`);
     if (!e) return null;
@@ -129,13 +47,13 @@ const dragOut = async (key, v, want = null) => {
     return [r.x + r.width / 2, r.y + r.height / 2];
   }, key);
   if (!from) return false;
-  let [tx, ty] = await screenOf(v);
+  let [tx, ty] = await screenOf(p, v);
   let t = Date.now() / 1000;
   await touch("touchStart", from[0], from[1], t);
   for (let k = 1; k <= 16; k++) await touch("touchMove", from[0] + ((tx - from[0]) * k) / 16, from[1] + ((ty - from[1]) * k) / 16, (t += 0.04));
   // (A moment held still over the spot: the ghost settles there.)
   for (let k = 0; k < 4; k++) await touch("touchMove", tx, ty, (t += 0.05));
-  await frames();
+  await frames(p);
   // (Held, the ghost sits off the finger: nudged, as a player does, until it stands where it's wanted.)
   for (let n = 0; want && n < 3; n++) {
     const at = await p.evaluate(() => window.woodrail.interaction.mode?.pose ?? null);
@@ -144,16 +62,16 @@ const dragOut = async (key, v, want = null) => {
     const dz = want.z - at.z;
     if (Math.hypot(dx, dz) < 6) break;
     v = { x: v.x + dx, z: v.z + dz };
-    const [nx, ny] = await screenOf(v);
+    const [nx, ny] = await screenOf(p, v);
     for (let k = 1; k <= 6; k++) await touch("touchMove", tx + ((nx - tx) * k) / 6, ty + ((ny - ty) * k) / 6, (t += 0.04));
     for (let k = 0; k < 3; k++) await touch("touchMove", nx, ny, (t += 0.05));
     [tx, ty] = [nx, ny];
-    await frames();
+    await frames(p);
   }
-  if (process.env.WATER_DEBUG) await shot(`debug-drag-${key.replace(/[:]/g, "_")}-${Date.now() % 100000}`);
+  if (process.env.WATER_DEBUG) await pic(`debug-drag-${key.replace(/[:]/g, "_")}-${Date.now() % 100000}`);
   if (process.env.WATER_DEBUG) console.log("drop", key, v, await p.evaluate(() => { const m = window.woodrail.interaction.mode; return JSON.stringify({ kind: m.kind, pose: m.pose, snap: m.snap?.kind, blocked: m.blocked ?? null, hint: m.hint ?? null }); }));
   await touch("touchEnd", 0, 0, (t += 0.05));
-  await settle();
+  await settled(p);
   return true;
 };
 const pieceIds = (type) => p.evaluate((type) => [...window.woodrail.layout.pieceIds()].filter((id) => window.woodrail.layout.getPiece(id).type === type), type);
@@ -163,44 +81,19 @@ let trayTurns = 0;
 const turnTray = async (n) => {
   for (let k = 0; k < n; k++) {
     trayTurns = (trayTurns + 1) % 8;
-    const at = await p.evaluate(() => {
-      const e = [...document.querySelectorAll(".tray button.chip")].find((b) => b.textContent.includes("↻"));
-      if (!e) return null;
-      const r = e.getBoundingClientRect();
-      return [r.left + r.width / 2, r.top + r.height / 2];
-    });
-    if (at) await tapped(() => p.touchscreen.tap(...at));
+    await tap(p, { sel: ".tray button.chip", text: "↻" });
   }
 };
 const toast = () => p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "));
 /**
- * Game time passing (the page's own clock), up to `seconds` of it, till `done` is true in the page. Bounded in real time
- * too (four times the game time, at least 2 min): game time that stops or crawls fails the check, not the run.
+ * Game time passing (the page's own clock), up to `seconds` of it, till `done` is true in the page (null if not).
+ * Bounded in real time too (lib/e2e.mjs `tryUntil`): game time that stops or crawls fails the check, not the run.
  */
-const playUntil = async (fn, arg, seconds) => {
-  const t0 = await p.evaluate(() => window.woodrail.simSeconds);
-  const until = Date.now() + Math.max(120, seconds * 4) * 1000;
-  for (;;) {
-    const r = await p.evaluate(fn, arg);
-    if (r) return r;
-    const t = await p.evaluate(() => window.woodrail.simSeconds);
-    if (t - t0 > seconds) return null;
-    if (Date.now() > until) {
-      console.log(`(game time crawled: ${(t - t0).toFixed(1)} of ${seconds} s in ${Math.max(120, seconds * 4)} s)`);
-      return null;
-    }
-    await p.waitForTimeout(1000);
-  }
-};
+const playUntil = async (fn, arg, seconds) => (await tryUntil(p, fn, arg, { game: seconds, polling: 1000 })) || null;
 
 // A new game.
-await p.goto(PAGE);
-await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-await settle();
-await p.keyboard.press("Escape");
-await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
+await p.goto(url);
+await openMode(p, "game");
 
 // ——— 1. River ———
 // Setup (not what's tested): Train routes, Cranes 1 and River barges learned (a shortcut to the state), 400 coins, and
@@ -274,7 +167,7 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
   check("the Industries tab has a Water shelf once River barges is learned", shelfOk);
   const keys = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-item[data-key]")].map((e) => e.dataset.key));
   check("…with the river landing on it", keys.includes("piece:kit-landing"), JSON.stringify(keys));
-  await shot("1-water-shelf");
+  await pic("1-water-shelf");
   // Dropped on dry land, far from the water: refused, saying why.
   await look(a.mid, 1500);
   await dragOut("piece:kit-landing", { x: a.mid.x, z: a.mid.z - 500 });
@@ -307,11 +200,11 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     const quay = (L) => ({ x: L.x + Math.cos(L.heading) * 108 - Math.sin(L.heading) * 45, z: L.z + Math.sin(L.heading) * 108 + Math.cos(L.heading) * 45 });
     await look(quay(A), 1100);
     await tapWorld(quay(A));
-    if (process.env.WATER_DEBUG) await shot("debug-landing-tap");
+    if (process.env.WATER_DEBUG) await pic("debug-landing-tap");
     const card = await p.evaluate(() => document.querySelector(".depot-card:not(.boat-card):not([hidden]) .card-title")?.textContent ?? null);
     if (process.env.WATER_DEBUG) console.log("cards", await p.evaluate(() => [...document.querySelectorAll(".card:not([hidden])")].map((c) => c.className + ":" + c.textContent.slice(0, 60)).join(" || ")));
     check("a tap on the landing opens its card", card === "River landing", String(card));
-    await shot("2-landing-card");
+    await pic("2-landing-card");
     // A boatyard from the Water shelf onto the bank (the tray still turned to face the water).
     // (Refused, a player moves it a little nearer the water and tries again: the yard's grab point is its model's
     // middle, out from its line.)
@@ -336,7 +229,7 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     await look(quay(C), 1100);
     await tapWorld(quay(C));
     await p.waitForSelector(".yard-build[data-build=tug]", { timeout: 20000 }).catch(() => {});
-    await tapButton(".yard-build[data-build=tug]");
+    await tap(p, ".yard-build[data-build=tug]");
     const ordered = await p.evaluate((id) => window.woodrail.economy.yardOrders.get(id)?.build ?? null, C.depot);
     check("its card: Build a tug and a barge, ordered", ordered === "tug", String(ordered));
     // Half the goods, as trains bring them (setup: on its piles, as a train's crane would leave them): half built.
@@ -363,31 +256,31 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     );
     check("…half the goods in: half built, the card saying what's still to come by train", !!half && /Still to come by train: 10.*planks.*2.*iron/.test(half.needs), JSON.stringify(half));
     await p.waitForTimeout(1500);
-    await shot("3-yard-building");
+    await pic("3-yard-building");
     await bringTo(C.depot, { planks: 10, iron: 2 });
     const launched = await playUntil(() => (window.woodrail.economy.boats.size > 0 ? [...window.woodrail.economy.boats.values()][0] : null), null, 10);
     check("…the rest in: the tug and its barge slide into the river at the yard (the payoff)", !!launched && launched.home === C.depot && launched.barges === 1, JSON.stringify(launched));
     await p.waitForTimeout(1200);
-    await shot("4-launched");
+    await pic("4-launched");
     // Its route: from the boat's chip on the yard's card, ✎ Route, the two landings, Done; the first landing set to
     // drop and pick up (a tap on its chip).
-    await tapButton(".landing-boat-chips .chip");
+    await tap(p, ".landing-boat-chips .chip");
     // (A boat with no route yet opens planning: ✎ Route only if it didn't.)
     await p.waitForSelector(".boat-card:not([hidden]) .route-plan", { timeout: 20000 });
-    if (!(await p.evaluate(() => !!document.querySelector(".boat-card .route-plan.on")))) await tapButton(".boat-card .route-plan");
+    if (!(await p.evaluate(() => !!document.querySelector(".boat-card .route-plan.on")))) await tap(p, ".boat-card .route-plan");
     await look(quay(A), 1300);
     await tapWorld(quay(A));
     await look(quay(B), 1300);
     await tapWorld(quay(B));
-    await shot("5-planning");
-    await tapButton(".boat-card .route-plan.on");
+    await pic("5-planning");
+    await tap(p, ".boat-card .route-plan.on");
     const chip2 = await p.evaluate(() => {
       const e = document.querySelectorAll(".boat-card .route-chip")[1];
       if (!e) return null;
       const r = e.getBoundingClientRect();
       return [r.left + r.width / 2, r.top + r.height / 2];
     });
-    if (chip2) await tapped(() => p.touchscreen.tap(...chip2));
+    if (chip2) await tap(p, chip2);
     const route = await p.evaluate(() => [...window.woodrail.economy.boats.values()][0].stops);
     check("the route planned by taps: the yard, the first landing (drop and pick up), the second (only drop)", route.length === 3 && route[0].depotId === C.depot && route[1].depotId === A.depot && route[2].depotId === B.depot && route[1].action === "both" && route[2].action === "drop", JSON.stringify(route));
     // It sails, by game time, and drops the logs at the second landing.
@@ -402,7 +295,7 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
       return o ? { x: o.position.x, z: o.position.z } : null;
     });
     if (tow) await look(tow, 1100);
-    await shot("6-sailing");
+    await pic("6-sailing");
     const delivered = await playUntil(
       async (B) => {
         const { CARGO } = await import("/src/economy/cargo.ts");
@@ -417,7 +310,7 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     const goal = await playUntil(() => window.woodrail.goals().isDone("float-goods"), null, 10);
     check("…and Float goods down the river is ticked", !!goal);
     await look(quay(B), 1000);
-    await shot("7-delivered");
+    await pic("7-delivered");
     // A tap on the boat: its card.
     const tug = await p.evaluate(() => {
       const o = window.woodrail.riverBoats.tugOf([...window.woodrail.economy.boats.keys()][0]);
@@ -429,12 +322,12 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     }
     const boatCard = await p.evaluate(() => (document.querySelector(".boat-card")?.hidden === false ? document.querySelector(".boat-card .boat-name")?.textContent : null));
     check("a tap on the boat opens its card", !!boatCard, String(boatCard));
-    await shot("8-boat-card");
+    await pic("8-boat-card");
     // Another barge, built at the boatyard from 8 planks.
     await look(quay(C), 1100);
     await tapWorld(quay(C));
     await p.waitForSelector(".yard-build[data-build=barge]", { timeout: 20000 }).catch(() => {});
-    await tapButton(".yard-build[data-build=barge]");
+    await tap(p, ".yard-build[data-build=barge]");
     await bringTo(C.depot, { planks: 8 });
     const barges = await playUntil(() => ([...window.woodrail.economy.boats.values()][0].barges === 2 ? 2 : null), null, 10);
     check("a barge built at the boatyard from 8 planks joins the tug", barges === 2, String(barges));
@@ -450,7 +343,7 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
       for (const bt of window.woodrail.economy.boats.values()) bt.going = false;
       window.woodrail.hud.hideCards();
     });
-    await settle();
+    await settled(p);
     const drawn = await p.evaluate(async () => {
       const w = window.woodrail;
       const before = w.framesDrawn;
@@ -573,7 +466,7 @@ if (sea) {
       await look(yq, 1400);
       await tapWorld({ ...yq, y: 12 });
       await p.waitForSelector(`.yard-build[data-build=${what}]`, { timeout: 20000 }).catch(() => {});
-      await tapButton(`.yard-build[data-build=${what}]`);
+      await tap(p, `.yard-build[data-build=${what}]`);
       await p.evaluate(
         async ([id, goods]) => {
           const { CARGO } = await import("/src/economy/cargo.ts");
@@ -586,7 +479,7 @@ if (sea) {
     // (Setup: the goods put on its piles, as trains' cranes would leave them; first half the iron, for its picture.)
     await build("ship", { iron: 15, planks: 20, tools: 6 });
     await p.waitForTimeout(2500);
-    await shot("9-shipyard-building");
+    await pic("9-shipyard-building");
     await p.evaluate(async (id) => {
       const { CARGO } = await import("/src/economy/cargo.ts");
       window.woodrail.economy.depot(id).piles[CARGO.iron.index] += 15;
@@ -617,7 +510,7 @@ if (sea) {
   check("…and Send a ship abroad is ticked", !!goal);
   await p.evaluate(() => window.woodrail.hud.hideCards());
   await p.waitForTimeout(1500);
-  await shot("10-cargo-ship");
+  await pic("10-cargo-ship");
 
   // ——— 3. Ferry ———
   // A ferry slip from the Water shelf onto the shore, turned to face the sea.
@@ -688,17 +581,17 @@ if (sea) {
         }, train.engine);
         await look(engineAt, 1000);
         await tapWorld(engineAt);
-        await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
-        if (process.env.WATER_DEBUG) await shot("debug-engine-tap");
-        await tapButton(".engine-extra .route-plan");
+        await tryUntil(p, () => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 });
+        if (process.env.WATER_DEBUG) await pic("debug-engine-tap");
+        await tap(p, ".engine-extra .route-plan");
         // (Its coins before: it goes aboard as soon as its route has the slip, at the next second of play.)
         const coins1 = await p.evaluate(() => window.woodrail.progress().coins);
         // (Where the slip stands: the drop snapped it to the lattice.)
         const slipMid = { x: slip.pose.x + Math.cos(slip.pose.heading) * 60, y: 12, z: slip.pose.z + Math.sin(slip.pose.heading) * 60 };
         await look(slipMid, 1300);
         await tapWorld(slipMid);
-        if (process.env.WATER_DEBUG) await shot("debug-slip-tap");
-        await tapButton(".line-sheet .route-plan.on");
+        if (process.env.WATER_DEBUG) await pic("debug-slip-tap");
+        await tap(p, ".line-sheet .route-plan.on");
         const routed = await p.evaluate((id) => window.woodrail.economy.routeOf(id)?.stops.map((s) => s.depotId) ?? null, train.engine);
         check("its route planned by taps: the ferry slip", !!routed && routed.includes(slip.depot), JSON.stringify(routed));
         await p.evaluate(() => window.woodrail.hud.hideCards());
@@ -709,7 +602,7 @@ if (sea) {
         const plankPrice = await p.evaluate(async () => (await import("/src/game/towns.ts")).PRICES.planks);
         check("aboard the ferry: its planks sold abroad at a town's full price, the train off the line", !!aboard && aboard.coins - coins1 === 6 * plankPrice && aboard2, JSON.stringify({ aboard, aboard2, coins1 }));
         await p.waitForTimeout(6000);
-        await shot("11-ferry-out");
+        await pic("11-ferry-out");
         const back = await playUntil(
           (cars) => {
             const w = window.woodrail;
@@ -721,15 +614,10 @@ if (sea) {
         );
         check("back from abroad with its wagons full of goods from abroad, on the line again", !!aboard && !!back && back.loads[1].count > 0 && back.loads[1].kind !== "planks" && back.loads[2].count > 0 && back.visible === true, JSON.stringify(back));
         await look(slipAt.mid, 1200);
-        await shot("12-ferry-back");
+        await pic("12-ferry-back");
       }
     }
   }
 }
 
-console.log(errors.length ? `page errors: ${errors.join(" / ")}` : "no page errors");
-if (errors.length) failures++;
-console.log(`${passes}/${passes + failures} passed`);
-await b.close();
-await server.close();
-process.exit(failures ? 1 : 0);
+await finish();

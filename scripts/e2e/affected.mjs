@@ -113,6 +113,15 @@ export function estimate(want) {
  * lib, game.ts): a few quick groups across the game, about 6 minutes, not touch and click whole (an hour and a half). A
  * full touch and click run is a nightly job (docs/agents/e2e.md, "What to run"), not one for every landing.
  */
+/** The suites whose own script imports the shared helpers, lib/e2e.mjs (read from package.json and the scripts). */
+function sharedLibUsers() {
+  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  return Object.keys(SUITES).filter((suite) => {
+    const file = (pkg.scripts[SUITES[suite].script] ?? "").match(/(\S+\.mjs)\s*$/)?.[1];
+    return !!file && existsSync(join(ROOT, file)) && readFileSync(join(ROOT, file), "utf8").includes("lib/e2e.mjs");
+  });
+}
+
 export const SMOKE = ["touch:sandbox-shelves,map-taps,toast-through,trap,train-card,game-shelves", "click:desktop"];
 
 /** Paths that can't change what an e2e sees. */
@@ -154,6 +163,8 @@ export const RULES = [
   ],
   // The suites themselves, and what they share.
   ["scripts/e2e/lib/**", SMOKE],
+  // The shared helpers (lib/e2e.mjs, and the aim and still it builds on): every suite that imports them.
+  [["scripts/e2e/lib/e2e.mjs", "scripts/e2e/lib/aim.mjs", "scripts/e2e/lib/still.mjs", "scripts/e2e/lib/shot.mjs", "scripts/e2e/lib/fast.mjs"], sharedLibUsers()],
   ["scripts/e2e/feedback-flow.mjs", ["touch:feedback", "click:feedback"]],
   ["scripts/e2e/pin-clocks.mjs", [...SMOKE, "station-clock", "signals", "life", "gl-lost"]],
   ["scripts/e2e/affected.mjs", []],

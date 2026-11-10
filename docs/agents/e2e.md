@@ -145,6 +145,32 @@ The estimate it prints is from each group's measured time (`GROUP_SECONDS`; else
 `SUITES` and give it rules for the code it's there to cover; when you add a module, a rule saves every later branch the
 core set's hour.
 
+## The shared helpers: `scripts/e2e/lib/e2e.mjs`
+
+One module for what every suite needs, so a suite says only what it tests (audit 2026-11-09, item 1). New suites use
+it; older ones move onto it a few at a time (`claude/e2e-lib-N` branches).
+
+- **boot:** `boot({ name, port, context, dpr, clock, pinClocks, stillIndustries, init })` → `{ page, url, out, errors,
+  browser, ctx, cdp(), close() }`: the dev server, SwiftShader Chromium, a 390×844 touch phone by default, **the test
+  clock on** (`clock: false` to opt out, saying why), help seen, `__allClicks` counted, page and console errors
+  gathered. `openMode(page, "game" | "sandbox")`: into play from the title, as a player, settled.
+- **report:** `reporter(name, { errors, close })` → `{ check, finish }`. `finish()` adds "no page errors", prints the
+  gate's `N/N passed`, closes and exits; a throw anywhere prints `FAIL (<name> threw)` with its stack and exits 1.
+  `shot` and `quiet` are lib/shot.mjs's.
+- **waits, that throw with a reason:** `frames(page, n)`; `settled(page, { ticks, cap })` (past its cap a running
+  train is a reason for frames and it goes on; anything else throws with what was moving); `waitGame(page, s)` (game
+  seconds, `simSeconds`); `until(page, fn, arg, { timeout | game, why })`. `tryUntil` is the one that returns false
+  instead, for a wait with its own fall-back or a check right after it.
+- **taps, that throw on a miss:** `tap(page, target, { expect, why, dist, cars, glide })`. A DOM target (a selector,
+  or `{ sel, text, exact | starts }`) is scrolled into view, waited for till it stands still (lib/still.mjs) and is
+  the element under its middle; a world target (`{ depot }`, `{ engine }`) is framed and aimed where the game's own
+  hit test finds it (lib/aim.mjs), once more from closer, then it throws saying what was under the finger; `{ at }`
+  (a world point) and `[x, y]` (a page point) are tapped where they are. Every tap waits for its click; `expect` (a
+  page function) is waited for after it. `tryTap` returns false instead; `tap.last` is where the last one went.
+  `planRoute(page, engine, depots)`: a route by taps, as a player plans one.
+- **world to screen:** `screenOf(page, v)`, `worldOf(page, target)`, `glideTo(page, v, dist, opts)`,
+  `showing(page, target, dist)`.
+
 ## Pictures: `scripts/e2e/lib/shot.mjs`
 
 A screenshot is never a check, so it must never hang or fail a suite. `shot(page, path, opts)` takes one with a

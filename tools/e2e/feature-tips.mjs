@@ -21,117 +21,12 @@
 //
 // Pictures (390×844, at 2×) go to the out dir; `docs/agents/shots/onboarding-*.jpg` are copies.
 // Usage: npm run e2e:feature-tips [-- <out dir>]   (default out: e2e-out/feature-tips)
-import { existsSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
-import { createServer } from "vite";
-import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { boot, openMode, reporter, settled, shot, tap } from "../../scripts/e2e/lib/e2e.mjs";
 
-const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const OUT = process.argv[2] ?? "e2e-out/feature-tips";
-mkdirSync(OUT, { recursive: true });
-const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5397, strictPort: false }, logLevel: "error" });
-await server.listen();
-await server.warmupRequest("/src/main.ts");
-const PAGE = server.resolvedUrls.local[0];
-const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 // (Clocks and industries' motions held still: this counts idle frames.)
-pinClocksIn(b);
-stillIndustriesIn(b);
-const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
-await ctx.addInitScript(() => {
-  localStorage.setItem("woodrail.helpSeen", "1");
-  window.__allClicks = 0;
-  window.addEventListener("click", () => window.__allClicks++, { capture: true });
-});
-const p = await ctx.newPage();
-const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-p.on("console", (m) => {
-  if (m.type() === "error") errors.push(`console: ${m.text()}`);
-});
-let failures = 0;
-const check = (what, ok, detail = "") => {
-  if (!ok) failures++;
-  console.log(ok ? "PASS" : "FAIL", what, detail);
-};
-const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
-const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
-const tapped = async (act) => {
-  const before = await p.evaluate(() => window.__allClicks);
-  await act();
-  await p.waitForFunction((n) => window.__allClicks > n, before, { timeout: 60000 }).catch(() => {});
-  await frames();
-};
-const worldAt = (what) =>
-  p.evaluate((what) => {
-    const w = window.woodrail;
-    if (what.engine !== undefined) {
-      const t = w.sim.findCar(what.engine).train;
-      const [a, c] = [t.world[0], t.world[1]];
-      return { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2, z: (a.z + c.z) / 2 };
-    }
-    const piece = w.layout.getPiece(w.economy.depot(what.depot).pieceId);
-    const q = piece.pose;
-    // (A depot's yard, beside its track: what a player taps.)
-    return { x: q.x + Math.cos(q.heading) * 108 - Math.sin(q.heading) * 60, y: piece.y, z: q.z + Math.sin(q.heading) * 108 + Math.cos(q.heading) * 60 };
-  }, what);
-const onScreen = async (what) => {
-  const v = await worldAt(what);
-  return p.evaluate((v) => {
-    const w = window.woodrail;
-    const c = new w.camera.position.constructor(v.x, v.y, v.z).project(w.camera);
-    return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
-  }, v);
-};
-const showing = async (what, dist = 1300) => {
-  const v = await worldAt(what);
-  await p.evaluate(([v, dist]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), dist, { duration: 0.2 }), [v, dist]);
-  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
-const tapOn = async (what) => {
-  await showing(what);
-  const [x, y] = await onScreen(what);
-  await tapped(() => p.touchscreen.tap(x, y));
-};
-const visible = (sel) => p.evaluate((sel) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0), sel);
-const tapButton = async (sel, text) => {
-  await p.waitForFunction(([sel, text]) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text))), [sel, text], { timeout: 30000 });
-  // (Scrolled into view first, as a finger would: the Goals sheet scrolls, and the tip's row may be below its fold.)
-  await p.evaluate(([sel, text]) => [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text))).scrollIntoView({ block: "nearest" }), [sel, text]);
-  await frames();
-  await p.waitForTimeout(400);
-  const at = () =>
-    p.evaluate(([sel, text]) => {
-      const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text)))?.getBoundingClientRect();
-      return r ? [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)] : null;
-    }, [sel, text]);
-  // (Where it stays: the same on two looks a frame apart (a card opened just now may still be laid out round it, or the
-  // tray under it redrawn), up to ~10 s. Tapped where it was a moment before, a finger misses it.)
-  let [x, y] = (await at()) ?? [0, 0];
-  for (let k = 0; k < 20; k++) {
-    await frames();
-    const now = await at();
-    if (!now) break;
-    if (now[0] === x && now[1] === y) break;
-    [x, y] = now;
-    await p.waitForTimeout(300);
-  }
-  tapButton.last = { sel, x, y, under: await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? `${e.tagName.toLowerCase()}.${[...e.classList].join(".")}` : null; }, [x, y]) };
-  await tapped(() => p.touchscreen.tap(x, y));
-};
-const enterGame = async () => {
-  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  // (The primary button: a new game, or, with a save, Continue.)
-  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-  await settle();
-  await p.keyboard.press("Escape");
-  await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
-};
+const { page: p, url, out: OUT, errors, close } = await boot({ name: "feature-tips", port: 5397, pinClocks: true, stillIndustries: true });
+const { check, finish } = reporter("feature-tips", { errors, close });
+const pic = (n) => shot(p, `${OUT}/${n}.png`);
 /** The toast showing now (its text), waited for till it has `text` (null if it never came). */
 const toastWith = (text, timeout = 15000) =>
   p
@@ -141,7 +36,7 @@ const clearToasts = () => p.evaluate(() => document.querySelectorAll(".toast").f
 /** The Goals card unfolded (a tap on its head), and the tip's row there for `id` (waited for the goals' check). */
 const tipRow = async (id) => {
   const shown = await p.waitForFunction((id) => window.woodrail.tips().current()?.id === id, id, { timeout: 15000 }).then(() => true, () => false);
-  if (await p.evaluate(() => document.querySelector(".goals").classList.contains("collapsed"))) await tapButton(".goals-head");
+  if (await p.evaluate(() => document.querySelector(".goals").classList.contains("collapsed"))) await tap(p, ".goals-head");
   const row = await p.evaluate((id) => document.querySelector(`.goal.feature-tip[data-feature-tip="${id}"]`)?.innerText ?? null, id);
   return { shown, row };
 };
@@ -169,13 +64,13 @@ const cardSeen = () =>
 const learn = (...ids) => p.evaluate((ids) => ids.forEach((id) => window.woodrail.learn(id)), ids);
 const gotIt = async (id) => {
   await tipRow(id);
-  await tapButton(`.goal.feature-tip[data-feature-tip="${id}"] .tip-done`);
+  await tap(p, `.goal.feature-tip[data-feature-tip="${id}"] .tip-done`);
   return tipGone(id);
 };
 
 // 1. A new game.
-await p.goto(PAGE);
-await enterGame();
+await p.goto(url);
+await openMode(p, "game");
 const fresh = await p.evaluate(() => ({ row: !!document.querySelector(".goal.feature-tip"), tip: window.woodrail.tips().current()?.id ?? null, count: document.querySelector(".goals-count")?.textContent }));
 // (The count is the core goals' only: tips add none. Read from the page, not a number fixed here: new systems add goals.)
 const goalsTotal = await p.evaluate(async () => (await import("/src/game/goals.ts")).GOALS.length);
@@ -252,20 +147,20 @@ if (!setup.error) {
   await learn("sidings");
   const sidingsToast = await toastWith("Learned Sidings");
   check("Sidings learned: its toast says how to start ('Tap an industry, then Second track')", !!sidingsToast?.includes("Tap an industry, then Second track"), sidingsToast ?? "no toast");
-  await shot("onboarding-sidings-toast");
+  await pic("onboarding-sidings-toast");
   await clearToasts();
   const sid = await tipRow("sidings");
   check("the Goals card has the tip's row: 💡 New: Sidings, what to do, Show me and Got it", sid.shown && !!sid.row?.includes("New: Sidings") && sid.row.includes("Second track") && sid.row.includes("Show me") && sid.row.includes("Got it"), JSON.stringify(sid));
-  await shot("onboarding-sidings-tip");
-  await tapButton(`.goal.feature-tip[data-feature-tip="sidings"] .tip-show`);
+  await pic("onboarding-sidings-tip");
+  await tap(p, `.goal.feature-tip[data-feature-tip="sidings"] .tip-show`);
   const card = await p
     .waitForFunction(() => window.woodrail.interaction.openDepotId !== -1 && !!document.querySelector(".depot-tracks-btn"), null, { timeout: 20000 })
     .then(() => p.evaluate(() => ({ role: window.woodrail.economy.depot(window.woodrail.interaction.openDepotId)?.role, button: document.querySelector(".depot-tracks-btn")?.textContent, folded: document.querySelector(".goals").classList.contains("collapsed") })), () => null);
   check("its Show me opens an industry's card (folding the goals), Second track on it", !!card && !!card.button?.includes("Second track") && card.folded, JSON.stringify(card));
-  await shot("onboarding-sidings-showme");
+  await pic("onboarding-sidings-showme");
   await p.keyboard.press("Escape");
-  await tapOn({ depot: setup.mill });
-  await tapButton(".depot-tracks-btn");
+  await tap(p, { depot: setup.mill }, { expect: () => window.woodrail.hud.depotCardOpen, why: "the mill's card open" });
+  await tap(p, ".depot-tracks-btn");
   const two = await p.waitForFunction((m) => window.woodrail.economy.trackCount(m) === 2, setup.mill, { timeout: 20000 }).then(() => true, () => false);
   check("a tap on the mill, then Second track: two tracks there", two);
   check("…and the tip goes (it was used)", await tipGone("sidings"));
@@ -275,15 +170,15 @@ if (!setup.error) {
   await learn("tunnels");
   const tunToast = await toastWith("Learned Tunnels");
   check("Tunnels learned: the toast adds the tip ('💡 Lay a Long straight up to a hill's side')", !!tunToast?.includes("💡 Lay a Long straight up to a hill's side"), tunToast ?? "no toast");
-  await shot("onboarding-tunnels-toast");
+  await pic("onboarding-tunnels-toast");
   await clearToasts();
   const tun = await tipRow("tunnels");
   check("the Tunnels tip shows under the goals", tun.shown && !!tun.row?.includes("New: Tunnels"), JSON.stringify(tun));
-  await tapButton(`.goal.feature-tip[data-feature-tip="tunnels"] .tip-show`);
-  await settle();
+  await tap(p, `.goal.feature-tip[data-feature-tip="tunnels"] .tip-show`);
+  await settled(p);
   const tray = await p.evaluate(() => ({ tab: document.querySelector(".tab.active[data-tab]")?.dataset.tab ?? null, spots: window.woodrail.interaction.guideSpots.length, straight: [...document.querySelectorAll(".tray-item")].some((e) => e.getBoundingClientRect().width > 0 && /Long/.test(e.textContent + (e.dataset.tipName ?? ""))) }));
   check("its Show me opens the Track tab on its straights and marks a hill by the line", tray.tab === "track" && tray.spots === 1 && tray.straight, JSON.stringify(tray));
-  await shot("onboarding-tunnels-showme");
+  await pic("onboarding-tunnels-showme");
   check("Got it: the row goes, for good", await gotIt("tunnels"));
 
   // 4. Jam kitchen.
@@ -292,13 +187,13 @@ if (!setup.error) {
   await clearToasts();
   const jam = await tipRow("jam");
   check("the Jam kitchen's tip shows under the goals", jam.shown && !!jam.row?.includes("fruit and sugar"), JSON.stringify(jam));
-  await shot("onboarding-jam-tip");
-  await tapButton(`.goal.feature-tip[data-feature-tip="jam"] .tip-show`);
+  await pic("onboarding-jam-tip");
+  await tap(p, `.goal.feature-tip[data-feature-tip="jam"] .tip-show`);
   await watchCard("Makes jam");
-  await tapButton(`.tray-item[data-tip-name="Jam kitchen"]`);
+  await tap(p, `.tray-item[data-tip-name="Jam kitchen"]`);
   const jamCard = await cardSeen();
   check("its Show me opens Industries; a tap on the Jam kitchen's tile says what it makes, from what", !!jamCard?.includes("Makes jam from fruit and sugar"), jamCard ?? "no card");
-  await shot("onboarding-jam-tray");
+  await pic("onboarding-jam-tray");
   check("Got it: the jam tip goes", await gotIt("jam"));
 
   // 5. Telegraph.
@@ -306,12 +201,12 @@ if (!setup.error) {
   await clearToasts();
   const tel = await tipRow("telegraph");
   check("the Telegraph's tip shows under the goals", tel.shown && !!tel.row?.includes("telegraph poles"), JSON.stringify(tel));
-  await tapButton(`.goal.feature-tip[data-feature-tip="telegraph"] .tip-show`);
+  await tap(p, `.goal.feature-tip[data-feature-tip="telegraph"] .tip-show`);
   await watchCard("signal box");
-  await tapButton(`.tray-item[data-tip-name="Telegraph pole"]`);
+  await tap(p, `.tray-item[data-tip-name="Telegraph pole"]`);
   const telCard = await cardSeen();
   check("its Show me opens Lineside; the Telegraph pole's tile says what it's for", !!telCard?.includes("A chain of poles carries a signal box's reach"), telCard ?? "no card");
-  await shot("onboarding-telegraph-tray");
+  await pic("onboarding-telegraph-tray");
   check("Got it: the telegraph tip goes", await gotIt("telegraph"));
   await p.keyboard.press("Escape");
 
@@ -333,17 +228,17 @@ if (!setup.error) {
   check("setup: a hand-run train stands under the forest's crane, waiting for a full load", waiting.at === setup.forest, JSON.stringify(waiting));
   const leaveToast = await toastWith("💡 A train is waiting for a full load");
   check("the first wait: a one-time toast says Leave now", !!leaveToast, leaveToast ?? "no toast");
-  await shot("onboarding-leave-now-toast");
+  await pic("onboarding-leave-now-toast");
   await clearToasts();
   const lv = await tipRow("leave-now");
   check("…and the tip shows under the goals", lv.shown && !!lv.row?.includes("Leave now"), JSON.stringify(lv));
-  await tapButton(`.goal.feature-tip[data-feature-tip="leave-now"] .tip-show`);
+  await tap(p, `.goal.feature-tip[data-feature-tip="leave-now"] .tip-show`);
   const engineCard = await p.waitForFunction(() => { const b = document.querySelector(".engine-card .leave-now"); return !!b && !b.hidden && b.offsetParent !== null; }, null, { timeout: 20000 }).then(() => true, () => false);
   check("its Show me opens the waiting train's engine card, Leave now on it", engineCard && (await p.evaluate(() => window.woodrail.interaction.openEngineCarId)) === waiting.engine);
-  await shot("onboarding-leave-now-showme");
-  await tapButton(".engine-card .leave-now");
+  await pic("onboarding-leave-now-showme");
+  await tap(p, ".engine-card .leave-now");
   const left = await p.waitForFunction((t) => !window.woodrail.economy.waitingToFill(t), waiting.train, { timeout: 15000 }).then(() => true, () => false);
-  check("Leave now sends it on with what it has, and the tip goes", left && (await tipGone("leave-now")), left ? "" : JSON.stringify(tapButton.last));
+  check("Leave now sends it on with what it has, and the tip goes", left && (await tipGone("leave-now")), left ? "" : JSON.stringify(tap.last));
   await p.keyboard.press("Escape");
 
   // 7. A ring line: Train routes learned, the train given a line round the oval (forest, sawmill) in code.
@@ -363,12 +258,12 @@ if (!setup.error) {
   await clearToasts();
   const kp = await tipRow("keeps");
   check("…and the keeps tip shows under the goals", kp.shown && !!kp.row?.includes("keeps"), JSON.stringify(kp));
-  await shot("onboarding-keeps-tip");
-  await tapButton(`.goal.feature-tip[data-feature-tip="keeps"] .tip-show`);
+  await pic("onboarding-keeps-tip");
+  await tap(p, `.goal.feature-tip[data-feature-tip="keeps"] .tip-show`);
   const keepCard = await p.waitForFunction((s) => window.woodrail.interaction.openDepotId === s && !!document.querySelector('.keep-row [data-step="1"]'), setup.shop, { timeout: 20000 }).then(() => true, () => false);
   check("its Show me opens the workshop's card, its keep stepper there", keepCard);
-  await shot("onboarding-keeps-showme");
-  await tapButton('.keep-row [data-step="1"]');
+  await pic("onboarding-keeps-showme");
+  await tap(p, '.keep-row [data-step="1"]');
   check("a tap on + sets what it keeps, and the tip goes (it was used)", await tipGone("keeps"));
   await p.keyboard.press("Escape");
   const ringToast = await toastWith("💡 A ring line");
@@ -376,8 +271,8 @@ if (!setup.error) {
   await clearToasts();
   const rg = await tipRow("ring-reverse");
   check("…and the tip shows under the goals", rg.shown && !!rg.row?.includes("Reverse"), JSON.stringify(rg));
-  await shot("onboarding-ring-tip");
-  await tapButton(`.goal.feature-tip[data-feature-tip="ring-reverse"] .tip-show`);
+  await pic("onboarding-ring-tip");
+  await tap(p, `.goal.feature-tip[data-feature-tip="ring-reverse"] .tip-show`);
   // (Reverse is in the line sheet's ⋯ menu: Show me opens the ring line's sheet with that menu open, Reverse one tap away.)
   const lines = await p
     .waitForFunction(
@@ -391,9 +286,9 @@ if (!setup.error) {
     )
     .then(() => true, () => false);
   check("its Show me opens the ring line's sheet, its ⋯ menu open, Reverse there (44 px, in view)", lines);
-  await shot("onboarding-ring-showme");
+  await pic("onboarding-ring-showme");
   const beforeDir = await p.evaluate((e) => window.woodrail.sim.findCar(e).train.cars[0].id === e && window.woodrail.economy.routeOf(e)?.next, waiting.engine);
-  await tapButton(".line-sheet .ls-reverse");
+  await tap(p, ".line-sheet .ls-reverse");
   const turned = await toastWith("runs the other way round now");
   check("Reverse turns the train round on the ring (the payoff), and the tip goes", !!turned && (await tipGone("ring-reverse")), JSON.stringify({ turned, beforeDir }));
   await p.keyboard.press("Escape");
@@ -402,7 +297,7 @@ if (!setup.error) {
   await p.evaluate(() => window.woodrail.save?.());
   await p.waitForTimeout(1500);
   await p.reload();
-  await enterGame();
+  await openMode(p, "game");
   await p.waitForTimeout(2500);
   const after = await p.evaluate(() => ({ row: document.querySelector(".goal.feature-tip")?.dataset.featureTip ?? null, current: window.woodrail.tips().current()?.id ?? null, done: window.woodrail.tips().toJSON().done }));
   check("after a reload no tip used or tapped away comes back", after.row === null && after.current === null && ["sidings", "tunnels", "jam", "telegraph", "leave-now", "keeps", "ring-reverse"].every((id) => after.done.includes(id)), JSON.stringify(after));
@@ -412,9 +307,9 @@ if (!setup.error) {
     const w = window.woodrail;
     for (const id of w.sim.trainIds()) for (const c of w.sim.getTrain(id).cars) if (c.kind === "engine") w.sim.setLever(c.id, 0);
   });
-  await settle();
+  await settled(p);
   await p.waitForTimeout(1500);
-  await settle();
+  await settled(p);
   // (What asks for a frame meanwhile, for a failure's detail.)
   await p.evaluate(() => {
     const w = window.woodrail;
@@ -433,8 +328,4 @@ if (!setup.error) {
   check("idle: no frames drawn over 2 s", idle === 0, `${idle} frames ${JSON.stringify(await p.evaluate(() => window.woodrail.__asked))}`);
 }
 
-check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);
-await b.close();
-await server.close();
-process.exit(failures === 0 ? 0 : 1);
+await finish();

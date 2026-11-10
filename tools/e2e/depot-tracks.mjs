@@ -14,112 +14,13 @@
 //   6. Idle: nothing moving draws no frames.
 //
 // Usage: npm run e2e:depot-tracks [-- <out dir>]   (default out: e2e-out/depot-tracks)
-import { existsSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
-import { createServer } from "vite";
-import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { boot, openMode, planRoute, reporter, settled, shot, showing, tap, tryUntil } from "../../scripts/e2e/lib/e2e.mjs";
 
-const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const OUT = process.argv[2] ?? "e2e-out/depot-tracks";
-mkdirSync(OUT, { recursive: true });
-const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5397, strictPort: false }, logLevel: "error" });
-await server.listen();
-await server.warmupRequest("/src/main.ts");
-const PAGE = server.resolvedUrls.local[0];
-const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 // (Clocks and industries' motions held still: this counts idle frames.)
-pinClocksIn(b);
-stillIndustriesIn(b);
-const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
-await ctx.addInitScript(() => {
-  localStorage.setItem("woodrail.helpSeen", "1");
-  window.__allClicks = 0;
-  window.addEventListener("click", () => window.__allClicks++, { capture: true });
-});
-const p = await ctx.newPage();
-const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-p.on("console", (m) => {
-  if (m.type() === "error") errors.push(`console: ${m.text()}`);
-});
-let failures = 0;
-const check = (what, ok, detail = "") => {
-  if (!ok) failures++;
-  console.log(ok ? "PASS" : "FAIL", what, detail);
-};
-const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
-const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
-const tapped = async (act) => {
-  const before = await p.evaluate(() => window.__allClicks);
-  await act();
-  await p.waitForFunction((n) => window.__allClicks > n, before, { timeout: 60000 }).catch(() => {});
-  await frames();
-};
-const worldAt = (what) =>
-  p.evaluate((what) => {
-    const w = window.woodrail;
-    if (what.engine !== undefined) {
-      const t = w.sim.findCar(what.engine).train;
-      const [a, c] = [t.world[0], t.world[1]];
-      return { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2, z: (a.z + c.z) / 2 };
-    }
-    const piece = w.layout.getPiece(w.economy.depot(what.depot).pieceId);
-    const q = piece.pose;
-    // (A depot's yard, beside its track: what a player taps.)
-    const along = what.along ?? 108;
-    const across = what.across ?? 60;
-    return { x: q.x + Math.cos(q.heading) * along - Math.sin(q.heading) * across, y: piece.y, z: q.z + Math.sin(q.heading) * along + Math.cos(q.heading) * across };
-  }, what);
-const onScreen = async (what) => {
-  const v = await worldAt(what);
-  return p.evaluate((v) => {
-    const w = window.woodrail;
-    const c = new w.camera.position.constructor(v.x, v.y, v.z).project(w.camera);
-    return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
-  }, v);
-};
-const showing = async (what, dist = 1300, opts = {}) => {
-  const v = await worldAt(what);
-  await p.evaluate(([v, dist, opts]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, v.y, v.z), dist, { duration: 0.2, ...opts }), [v, dist, opts]);
-  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
-const tapOn = async (what) => {
-  await showing(what);
-  const [x, y] = await onScreen(what);
-  await tapped(() => p.touchscreen.tap(x, y));
-};
-const tapButton = async (sel) => {
-  await p.waitForFunction((sel) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0), sel, { timeout: 30000 });
-  await frames();
-  await p.waitForTimeout(400);
-  const [x, y] = await p.evaluate((sel) => {
-    const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0).getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, sel);
-  await tapped(() => p.touchscreen.tap(x, y));
-};
-const planRoute = async (engine, places) => {
-  await tapOn({ engine });
-  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
-  if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine });
-  await tapButton(".engine-extra .route-plan");
-  for (const d of places) await tapOn({ depot: d });
-  await tapButton(".line-sheet .route-plan.on");
-  await p.keyboard.press("Escape");
-};
-const enterGame = async () => {
-  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  // (The primary button: a new game, or, with a save, Continue.)
-  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-  await settle();
-  await p.keyboard.press("Escape");
-  await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
-};
+const { page: p, url, out: OUT, errors, close } = await boot({ name: "depot-tracks", port: 5397, pinClocks: true, stillIndustries: true });
+const { check, finish } = reporter("depot-tracks", { errors, close });
+const pic = (n) => shot(p, `${OUT}/${n}.png`);
+const cardOpen = { expect: () => window.woodrail.hud.depotCardOpen, why: "the mill's card open" };
 const state = () =>
   p.evaluate(async () => {
     const w = window.woodrail;
@@ -138,8 +39,8 @@ const state = () =>
   });
 
 // 1. A new game.
-await p.goto(PAGE);
-await enterGame();
+await p.goto(url);
+await openMode(p, "game");
 
 // Setup (shortcuts, not what's tested): Sidings and Routes learned; a straight line on open ground, its pieces asked
 // of the game's drop rule: eight straights, the mill, three straights, the workshop, a straight; the workshop's
@@ -212,18 +113,17 @@ if (!setup.error) {
   const mill = setup.mill;
 
   // 1. The mill's card: one track, and the button with its price.
-  await tapOn({ depot: mill });
-  await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 20000 }).catch(() => {});
-  await p.waitForFunction(() => !!document.querySelector(".depot-tracks-btn"), null, { timeout: 20000 }).catch(() => {});
+  await tap(p, { depot: mill }, cardOpen);
+  await tryUntil(p, () => !!document.querySelector(".depot-tracks-btn"), null, { timeout: 20000 });
   let s = await state();
   check("a tap on the mill opens its card: one track", s.tracks === 1 && /One track/.test(s.row ?? ""), JSON.stringify(s));
   check("…and offers a second track for 10 planks", /Second track · 10/.test(s.button ?? ""), JSON.stringify(s.button));
-  await showing({ depot: mill, across: -40 }, 1250, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
-  await settle();
-  await shot("1-one-track");
+  await showing(p, { depot: mill, across: -40 }, 1250, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
+  await settled(p);
+  await pic("1-one-track");
 
   // 2. A tap: a second track; undo takes it back with its planks; a tap lays it again.
-  await tapButton(".depot-tracks-btn");
+  await tap(p, ".depot-tracks-btn");
   await p.waitForTimeout(600);
   s = await state();
   check("a tap lays a second track, 10 planks taken", s.tracks === 2 && s.planks === 12, JSON.stringify(s));
@@ -234,31 +134,31 @@ if (!setup.error) {
   await p.keyboard.press("Escape");
   // (Past the card's closing, and the click shield after it.)
   await p.waitForTimeout(1200);
-  await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
+  await tap(p, 'button[aria-label="Undo (Ctrl+Z)"]');
   await p.waitForTimeout(600);
   s = await state();
   check("Undo: one step takes the track back, and gives the planks back", s.tracks === 1 && s.planks === 22 && s.crane?.l === 45, JSON.stringify(s));
   const pieces = await p.evaluate(() => [...window.woodrail.layout.pieceIds()].filter((id) => window.woodrail.layout.getPiece(id).type === "crossover").length);
   check("…and its crossovers", pieces === 0, `${pieces} crossovers`);
-  await tapOn({ depot: mill });
-  await tapButton(".depot-tracks-btn");
+  await tap(p, { depot: mill }, cardOpen);
+  await tap(p, ".depot-tracks-btn");
   await p.waitForTimeout(600);
   s = await state();
   check("a tap again: two tracks", s.tracks === 2 && s.planks === 12, JSON.stringify(s));
-  await showing({ depot: mill, across: -40 }, 1250, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
-  await settle();
-  await shot("2-two-tracks");
+  await showing(p, { depot: mill, across: -40 }, 1250, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
+  await settled(p);
+  await pic("2-two-tracks");
 
   // 3. The third.
-  await tapButton(".depot-tracks-btn");
+  await tap(p, ".depot-tracks-btn");
   await p.waitForTimeout(600);
   s = await state();
   check("a tap lays a third track, 12 planks and 10 stone taken", s.tracks === 3 && s.planks === 0 && s.stone === 0, JSON.stringify(s));
   check("…the gantry spans all three", s.crane?.l === -30, JSON.stringify(s.crane));
   check("…and there's no fourth", s.button === null && /3 tracks/.test(s.row ?? ""), JSON.stringify(s));
-  await showing({ depot: mill, across: -70 }, 1300, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
-  await settle();
-  await shot("3-three-tracks");
+  await showing(p, { depot: mill, across: -70 }, 1300, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
+  await settled(p);
+  await pic("3-three-tracks");
   await p.keyboard.press("Escape");
 
   // 4. Two trains, each routed by taps to the mill and on to the workshop: served at once, the crane in turn.
@@ -281,7 +181,10 @@ if (!setup.error) {
     return { a, b };
   });
   check("two trains put down on the line", trains.a !== -1 && trains.b !== -1, JSON.stringify(trains));
-  for (const e of [trains.a, trains.b]) await planRoute(e, [mill, setup.shop]);
+  for (const e of [trains.a, trains.b]) {
+    await planRoute(p, e, [mill, setup.shop]);
+    await p.keyboard.press("Escape");
+  }
   const routes = await p.evaluate(([a, b]) => [a, b].map((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null), [trains.a, trains.b]);
   check("each routed by taps: the mill, then the workshop", routes.every((r) => JSON.stringify(r) === JSON.stringify([mill, setup.shop])), JSON.stringify(routes));
   await p.evaluate(([a, b]) => {
@@ -302,12 +205,12 @@ if (!setup.error) {
     window.woodrail.paused = true;
     window.woodrail.invalidate();
   });
-  await showing({ depot: mill, across: -60 }, 760, { phi: 0.9, theta: Math.PI - 0.55 });
-  await settle();
-  await shot("4-two-trains-served");
-  await showing({ depot: mill, across: -72 }, 2000, { phi: 0.4, theta: Math.PI / 2 });
-  await settle();
-  await shot("5-overview");
+  await showing(p, { depot: mill, across: -60 }, 760, { phi: 0.9, theta: Math.PI - 0.55 });
+  await settled(p);
+  await pic("4-two-trains-served");
+  await showing(p, { depot: mill, across: -72 }, 2000, { phi: 0.4, theta: Math.PI / 2 });
+  await settled(p);
+  await pic("5-overview");
   await p.evaluate(() => (window.woodrail.paused = false));
   const more = await p.evaluate(([a, b]) => window.__run(40, [a, b]), [trains.a, trains.b]);
   const payoff = await p.evaluate(
@@ -327,7 +230,7 @@ if (!setup.error) {
   // 5. Saved, reloaded, continued: three tracks still, the gantry over them.
   await p.waitForTimeout(3000); // (saved)
   await p.reload();
-  await enterGame();
+  await openMode(p, "game");
   const back = await p.evaluate(() => {
     const w = window.woodrail;
     const mill = w.economy.allDepots().find((d) => d.role === "mill" && w.economy.trackCount(d.id) > 1);
@@ -340,17 +243,13 @@ if (!setup.error) {
     const w = window.woodrail;
     for (const id of w.sim.trainIds()) for (const c of w.sim.getTrain(id).cars) if (c.kind === "engine") w.sim.setLever(c.id, 0);
   });
-  await settle();
+  await settled(p);
   await p.waitForTimeout(1500);
-  await settle();
+  await settled(p);
   const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
   await p.waitForTimeout(2000);
   const idle = (await p.evaluate(() => window.woodrail.framesDrawn)) - f0;
   check("idle: no frames drawn over 2 s", idle === 0, `${idle} frames`);
 }
 
-check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
-console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);
-await b.close();
-await server.close();
-process.exit(failures === 0 ? 0 : 1);
+await finish();
