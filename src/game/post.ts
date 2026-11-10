@@ -1,4 +1,4 @@
-import type { CargoKind, Economy } from "../economy";
+import type { Economy } from "../economy";
 
 /**
  * The post (Game mode's Post office blueprint): a small chain you can see in towns. Each town on the line posts sacks of
@@ -62,6 +62,3 @@ export function postLine(learned: boolean, mailWaiting: number, postHad: number,
   const got = vans > 0 ? `${vans === 1 ? "a post van" : `${vans} post vans`} on its streets` : "a mail van takes it to a post office";
   return `${waiting} · ${got}`;
 }
-
-/** Is this good the post's (mail or post)? */
-export const isPostal = (kind: CargoKind): boolean => kind === "mail" || kind === "post";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout } from "../track";
-import { CoverIndex, isOn, trainOn, underByEnds } from "./occupancy";
+import { CoverIndex, trainOn, underByEnds } from "./occupancy";
 import { engineOf } from "./train-cars";
 import { walkTrack } from "./track-walk";
 import { ADV_BUFFER, ADV_OK, ADV_OPEN_END } from "./cursor";
@@ -53,8 +53,6 @@ describe("occupancy: which train is on these pieces", () => {
     const r = sim.addTrain(["engine"], { pieceId: c, pathIndex: 0, s: 15, reversed: false });
     if (r.kind !== "placed") throw new Error("no train");
     const t = sim.getTrain(r.trainId)!;
-    expect(isOn(sim, t, b, "axles")).toBe(false);
-    expect(isOn(sim, t, b, "cars")).toBe(true);
     expect(trainOn(sim, new Set([b]))).toBeUndefined();
     expect(trainOn(sim, new Set([b]), { by: "cars" })).toBe(t);
     expect(trainOn(sim, new Set([a, c]))).toBe(t);

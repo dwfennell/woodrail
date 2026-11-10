@@ -448,12 +448,6 @@ export function pegLook(r: () => number): PegLook {
   return { part: hatted ? "peg-doll-hat" : "peg-doll", coat, hat };
 }
 
-/** A turned peg doll (about 18 mm tall): painted coat, bare beech head, and sometimes a hat. */
-export function pegDoll(b: Batcher, mats: Materials, place: (g: BufferGeometry) => BufferGeometry, r: () => number): void {
-  const look = pegLook(r);
-  addPart(b, mats, look.part, place, { coat: look.coat, hat: look.hat });
-}
-
 /** Arched door outline (w × h, round top), authored facing +z with its back on z = 0. */
 function archedDoor(w: number, h: number, depth: number): BufferGeometry {
   const shape = new Shape();
