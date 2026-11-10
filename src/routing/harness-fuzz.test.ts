@@ -266,3 +266,20 @@ const KNOWN_WORSE: Record<string, string> = {
   // hand-run 186 stops, routed 224, while a hand-run train turned round to give way.)
   "fuzz seed 77": "two hand-run trains head on in a line's end in both runs: a true deadlock, nothing turns",
 };
+
+/**
+ * Stalled long-fuzz seeds made to run, each with what it was (routing stuck trains, 2026-11-10). Each runs its 1800 s
+ * layout for 600 s: no stall, every train to its stops.
+ */
+describe("stalled fuzz seeds that run now", () => {
+  // (Seed 111: a line of three trains, two passing loops. Train 1 stands on the far loop's main road going west, train
+  // 0 comes west into the loop, train 2 between the loops going east. Train 0 asked first and was let onto the loop's
+  // other road beside train 1, both going out west: train 1's way out wasn't known yet (`outByOf`: trains are looked at
+  // in turn, and train 1 hadn't been), so "a loop holds two only to pass" didn't see it. Train 2 then had no road: all
+  // three stood from 13 s, 0 stops in 1800 s. Now the way out is worked out from where it stands: 67, 66, 66.)
+  it("seed 111: a train asking first isn't let into a loop beside one going its way that hasn't been looked at yet", () => {
+    const r = new HarnessRun(new Layout(), fuzz(111, 1800)).run(600);
+    expect(r.stalls.begun).toBe(0);
+    for (const a of r.arrivals) expect(a).toBeGreaterThanOrEqual(15);
+  }, 120_000);
+});

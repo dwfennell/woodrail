@@ -1278,7 +1278,7 @@ export class Sections {
           if (u !== -1) {
             if (!keepSameWay) {
               blockedBy = u;
-              keepSameWay = this.fair && !this.underWay(u) && this.outByOf(u, r) === outBy;
+              keepSameWay = this.fair && !this.underWay(u) && this.outByOf(u, r, topo) === outBy;
             }
             continue;
           }
@@ -1286,7 +1286,7 @@ export class Sections {
           const o = this.slotUser(info, other, st.engine, outBy);
           // (Unless the one there waits, by way of others or not, for this one: each in a loop, each wanting the other's,
           // they'd stand for good. It comes in beside it, and the one there goes on into the loop this one has left.)
-          if (o !== -1 && this.outByOf(o, other) === outBy && !this.waitsFor(o, st.engine)) {
+          if (o !== -1 && this.outByOf(o, other, topo) === outBy && !this.waitsFor(o, st.engine)) {
             blockedBy = o;
             // (A train going out the same way, standing on either road, is named over one passing through (`fair`):
             // it's what the wait is really on, and naming it lets `waitsFor` see two such trains each waiting for the
@@ -1479,7 +1479,7 @@ export class Sections {
     const pieces = info.topo.slots[slot].pieces;
     for (const u of info.users) {
       if (u === engine) continue;
-      if (outBy !== -1 && this.follows(info, engine, u) && this.outByOf(u, slot) === outBy) continue;
+      if (outBy !== -1 && this.follows(info, engine, u) && this.outByOf(u, slot, info.topo) === outBy) continue;
       const m = this.states.get(u)?.move;
       if (m && (m.dest === slot || m.through.includes(slot))) return u;
       const t = this.sim.findCar(u)?.train;
@@ -1759,10 +1759,39 @@ export class Sections {
   }
 
   /** The switch train `u` leaves loop road `slot` by. */
-  private outByOf(u: number, slot: number): number {
+  private outByOf(u: number, slot: number, topo: Topology): number {
     const st = this.states.get(u);
     if (st?.move && st.move.dest === slot) return st.move.outBy;
-    return st?.outBy ?? -1;
+    if (st && st.outBy !== -1) return st.outBy;
+    // (Not looked at yet (put down there, a loaded game: trains are looked at in turn, and one asking first sees the
+    // others' before they are): the switch ahead of where it stands on the road, the way it's driven. Else a train
+    // asking first is let in beside one going its way (fuzz seed 111).)
+    return this.outByStanding(u, slot, topo);
+  }
+
+  /** The switch ahead of train `u` standing on loop road `slot`, the way it's driven (−1: not on it, or not driven). */
+  private outByStanding(u: number, slot: number, topo: Topology): number {
+    const t = this.sim.findCar(u)?.train;
+    if (!t) return -1;
+    const net = this.host.drive(t);
+    if (net === 0) return -1;
+    const front = this.front(t, net < 0);
+    if (topo.slotOf.get(front.pieceId) !== slot) return -1;
+    const piece = this.layout.getPiece(front.pieceId);
+    if (!piece) return -1;
+    const path = getPieceDef(piece.type, piece.flipped).paths[front.pathIndex];
+    let exit = front.reversed ? path.from : (path.to ?? -1);
+    let at = front.pieceId;
+    for (let k = 0; k < SEARCH; k++) {
+      const n = next(this.layout, at, exit);
+      if (!n) return -1;
+      if (topo.slotOf.get(n.pieceId) !== slot) return n.pieceId;
+      const ways = waysFrom(this.layout, n.pieceId, n.entry);
+      if (ways.length !== 1) return -1;
+      at = n.pieceId;
+      exit = ways[0].exit;
+    }
+    return -1;
   }
 
   /**
