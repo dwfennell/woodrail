@@ -154,6 +154,14 @@ before a picture of a page that has only just loaded in a fresh context: it is s
 back from the graphics card, and under load a frame then takes seconds. (e2e:copy-map's last screenshot waited 23–30 s
 there for a frame, and ran out on a slower box after every check had passed; after `quiet` it took under a second.)
 
+## Taps on something that pops in: `scripts/e2e/lib/still.mjs`
+
+CSS animations only move on frames drawn, and under SwiftShader a slow WebGL frame can hold one on its first frame for
+a second or more. A box read then is where the element starts, not where the finger finds it a moment later.
+`still(page, selector, text)` waits until the element and its ancestors have no animation running and its box is the
+same on two reads, and only then should a tap measure it. (e2e:new-game measured ☰ New game while the menu's pop-in
+was held on its first frame, scaled 0.97 from the top right; the menu then came in, and the tap landed on Map seed.)
+
 ## Speed: where the time goes, and `scripts/e2e/lib/fast.mjs`
 
 Under SwiftShader (no GPU, 4 cores) a frame of the game costs about a second on a 390×844 phone page and two on the

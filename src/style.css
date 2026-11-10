@@ -589,7 +589,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Cards pop in where they stand (`scale`, not `transform`, which places them): rising from below, one would sit
    over the tray's tabs as it came in. */
 @keyframes card-in { from { opacity: 0; scale: 0.96; } }
-@keyframes pop-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
+/* (No scale: the ☰ menu is a tall list, and 0.97 of it moved its lower items some 23 px while it played, a finger
+   that tapped then landed on the item above. A 6 px drop keeps every item under its own finger.) */
+@keyframes pop-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 .card:not([hidden]) { animation: card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.15); }
 .menu:not([hidden]) { animation: pop-in 0.18s ease-out; transform-origin: top right; }
 .chip, .tray-item, .menu-item, .tab { transition: transform 0.22s cubic-bezier(0.3, 1.6, 0.5, 1), filter 0.15s, background-color 0.15s; }
