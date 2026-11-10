@@ -1334,17 +1334,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Picked: lifted off the board and set in a painted blue frame (the colour of its lit path), a hair of maple between
    tile and frame and the frame's own cut edge outside it. */
 .bp-node.selected { box-shadow: var(--tile-face), 0 0 0 2px var(--maple), 0 0 0 5px var(--blue), 0 0 0 6.5px var(--blue-cut), 0 9px 7px -3px rgba(40, 22, 6, 0.45); transform: translateY(-3px); z-index: 2; }
-/* Soon: a pencil outline of a tile not cut yet. */
-.bp-node.soon { border: 1.5px dashed var(--pencil); background: transparent; box-shadow: none; }
-.bp-node.soon .bp-name { color: var(--wood-ink-soft); }
 /* Not found yet: a small "?" token, not a tag. */
 .bp-node.hint { width: 44px; min-height: 44px; grid-template-columns: 1fr; place-items: center; padding: 0; border: 1.5px dashed var(--pencil); border-radius: 50%; background: transparent; box-shadow: none; }
 /* (one cell, the "?" in its middle: a tag's two rows, name and price, left it in the top one) */
 .bp-node.hint { grid-template-rows: 1fr; align-content: center; justify-content: center; }
 .bp-node.hint .bp-name { font-size: 17px; font-weight: 900; line-height: 1; color: var(--wood-ink-soft); text-align: center; }
 .bp-node.hint .bp-dot { display: none; }
-.bp-tag.soon { color: var(--wood-ink-soft); background: transparent; border: 1.5px dashed var(--pencil); box-shadow: none; padding: 0 6px; }
-/* Locked till you have a College or a University (tech tree 3): the Learning branch's purple, as Soon's dashed tag. */
+/* Locked till you have a College or a University (tech tree 3): the Learning branch's purple, in a dashed tag. */
 .bp-tag.school { color: #5b3a7a; background: #efe6f6; border: 1.5px dashed #7b4fa0; padding: 0 6px; }
 /* What a locked card waits for (a city, goods delivered), in place of its price: the school tag's shape, in the wood's colours. */
 .bp-tag.gate { color: #6b4316; background: #fbecd2; border: 1.5px dashed #b07a3c; padding: 0 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 15px; }
@@ -1368,7 +1364,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Next up: a hole ringed in blue (the peg's going in). */
 .next .bp-dot { background: var(--hole); box-shadow: var(--hole-sh), 0 0 0 2px var(--blue); }
 .bp-node.next { box-shadow: var(--tile-face), 0 0 0 2px rgba(37, 99, 176, 0.45), var(--tile-drop); }
-.locked .bp-dot, .soon .bp-dot { background: var(--hole); box-shadow: var(--hole-sh); opacity: 0.6; }
+.locked .bp-dot { background: var(--hole); box-shadow: var(--hole-sh); opacity: 0.6; }
 /* Later: a tile not yet sanded, flatter and quieter. */
 .bp-node.locked { background: rgba(251, 241, 223, 0.6); box-shadow: inset 0 0 0 1.5px rgba(110, 66, 20, 0.25); }
 .locked .bp-name { color: var(--wood-ink-soft); }
@@ -1424,7 +1420,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-key.researching { background: var(--peg-blue); box-shadow: var(--peg-drop); }
 .bp-key.next { background: var(--hole); box-shadow: var(--hole-sh), 0 0 0 2px var(--blue); }
 .bp-key.locked { background: var(--hole); box-shadow: var(--hole-sh); opacity: 0.6; }
-.bp-key.soon { border: 1.5px dashed var(--pencil); }
 .bp-key.hint { width: auto; height: auto; border-radius: 0; font-weight: 900; color: var(--wood-ink-soft); }
 /* The ticket's facts: a label column (Unlocks, Needs, Opens, Costs) and what each says. */
 .bp-facts { display: flex; flex-direction: column; gap: 6px; }

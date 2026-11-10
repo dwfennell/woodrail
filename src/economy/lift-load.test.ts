@@ -39,7 +39,7 @@ function line() {
 describe("Lift and load", () => {
   it("is researched (tier 3, after Warehouses and Quicker cranes II), mostly coins", () => {
     const row = BLUEPRINTS.find((b) => b.id === "lift-load")!;
-    expect(row.plan).toBeUndefined();
+    expect(row).toBeDefined();
     expect(row.needs).toEqual(["warehouses", "cranes2"]);
   });
 
