@@ -93,6 +93,7 @@ export type PieceTypeId =
   | "balloon-loop"
   | "double-straight"
   | "crossover"
+  | "split"
   | "double-curve"
   | "ramp-curve"
   | "ramp-curve-small"
@@ -367,6 +368,32 @@ function crossing45(): PieceDef {
     flippable: true,
     isSwitch: false,
     supportHeight: 0,
+  };
+}
+
+/**
+ * A split (2026-11-09): the crossover's straight and its link over, with no line beside the single end. Its
+ * trunk (0) a hole; its two ends pegs, `DOUBLE_TRACK_SPACING` apart (1 straight on, 2 the other line), as a double
+ * track's. Its board is filled in between them, tapering to the trunk (`web`: an S to the middle of the two-track end).
+ */
+function split(): PieceDef {
+  const s = (offset: number): PathGeom => {
+    const sweep = 2 * Math.atan(offset / 216);
+    return { kind: "s", start: pose(0, 0, 0), sweep, radius: 216 / (2 * Math.sin(sweep)), y0: 0, rise: 0 };
+  };
+  return {
+    type: "split",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(216, 0, 0), y: 0 },
+      { kind: "peg", pose: pose(216, DOUBLE_TRACK_SPACING, 0), y: 0 },
+    ],
+    // Straight on first, so the lever's "over" (state 1) picks the link, as a switch's does its curve.
+    paths: [linePath(1, 216), { from: 0, to: 2, geom: s(DOUBLE_TRACK_SPACING) }],
+    flippable: true,
+    isSwitch: true,
+    supportHeight: 0,
+    web: s(DOUBLE_TRACK_SPACING / 2),
   };
 }
 
@@ -658,6 +685,9 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     supportHeight: 0,
     web: { kind: "line", start: pose(0, DOUBLE_TRACK_SPACING / 2, 0), length: 216, y0: 0, rise: 0 },
   },
+  // A split: one line in, two out a double track's width apart (a crossover without the line beside its single end),
+  // so its two-track end joins double track. The lever sends trains straight on (0) or over to the other line (1).
+  split: split(),
   // A turning loop: in at its one end, round, and back out the same end facing the other way.
   "balloon-loop": {
     type: "balloon-loop",
