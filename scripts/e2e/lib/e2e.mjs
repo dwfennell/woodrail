@@ -400,8 +400,24 @@ const FIND = `(sel, text, how) => [...document.querySelectorAll(sel)].find((e) =
 })`;
 const finder = (page) => page.evaluate((src) => (window.__e2eFind ??= (0, eval)(src), true), FIND);
 
-/** A DOM target's middle once it's drawn, in view, standing still and on top; or throw saying which of those failed. */
-async function aimDom(page, { sel, text, exact = false, starts = false }, { timeout = 30_000 } = {}) {
+/**
+ * A DOM target's middle once it's drawn, in view, standing still and on top; or throw saying which of those failed.
+ * Found again (up to three times) if it's gone meanwhile: a card redraws a row when what it shows changes (coins, a
+ * month on), and the element found first is replaced by one just like it.
+ */
+async function aimDom(page, target, opts = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await aimDomOnce(page, target, opts);
+    } catch (e) {
+      if (!e.gone || attempt >= 3) throw e;
+    }
+  }
+}
+
+const goneError = (msg) => Object.assign(new Error(msg), { gone: true });
+
+async function aimDomOnce(page, { sel, text, exact = false, starts = false }, { timeout = 30_000 } = {}) {
   const what = text ? `${sel} "${text}"` : sel;
   const how = exact ? "exact" : starts ? "starts" : "includes";
   await finder(page);
@@ -416,9 +432,12 @@ async function aimDom(page, { sel, text, exact = false, starts = false }, { time
     el.dataset.e2eTap = "1";
     return true;
   }, [sel, text, how]);
-  if (!marked) throw new Error(`tap on ${what}: gone before the tap`);
+  if (!marked) throw goneError(`tap on ${what}: gone before the tap`);
   await frames(page);
-  if (!(await still(page, "[data-e2e-tap]", undefined, timeout))) throw new Error(`tap on ${what}: still moving after ${timeout / 1000} s (or gone)`);
+  if (!(await still(page, "[data-e2e-tap]", undefined, timeout))) {
+    if (!(await page.evaluate(() => !!document.querySelector("[data-e2e-tap]")?.isConnected))) throw goneError(`tap on ${what}: gone while waiting for it to stand still`);
+    throw new Error(`tap on ${what}: still moving after ${timeout / 1000} s`);
+  }
   const end = Date.now() + 10_000;
   for (;;) {
     const r = await page.evaluate(() => {
@@ -430,7 +449,7 @@ async function aimDom(page, { sel, text, exact = false, starts = false }, { time
       const on = !!top && (el === top || el.contains(top));
       return { x, y, on, top: top ? `${top.tagName.toLowerCase()}${[...top.classList].map((c) => `.${c}`).join("")}` : "nothing" };
     });
-    if (r.gone) throw new Error(`tap on ${what}: gone before the tap`);
+    if (r.gone) throw goneError(`tap on ${what}: gone before the tap`);
     if (r.on) return [r.x, r.y];
     if (Date.now() > end) throw new Error(`tap on ${what}: covered at ${Math.round(r.x)},${Math.round(r.y)} by ${r.top}`);
     await frames(page);
