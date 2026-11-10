@@ -152,6 +152,30 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     // (netActed came off with redesign step 3: points another train's car is over on a fouling road are refused.)
     known: [{ invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
   },
+  // (The user, 2026-11-09, two maps sent with "it's like the trains claim as far as they can to their next destination,
+  // but they should just claim to the next signal": every signal is half of a pair. On main (b50d28c), 600 s: four
+  // trains stood 378-441 s on the first, five 535-600 s on the second. Booking to the next signal: none but those
+  // below over 60 s.)
+  {
+    file: "user-signals-wait-too-long.txt",
+    seconds: 600,
+    // (Robin, the hopper train, comes to 13; main 5. Pepper 56, main 10; Rowan 18, main 5.)
+    arrivals: 10,
+    what: "the user's map, 'trains seem to wait too long': signals in pairs everywhere",
+    known: [{ invariant: "heldFree", why: "held by a slot wait though the booking core would book it on: holds too big (redesign step 5)" }],
+    stuck: { 44: "Muffin waits behind Bumble, a train with no route parked in its way (its card says so); the same on main" },
+  },
+  {
+    file: "user-signals-muffin.txt",
+    seconds: 600,
+    // (Robin comes to 9 (main 1), Rowan 13 (main 0), Muffin 13 (main 1, stuck from 90 s), Pepper 41 (main 5).)
+    arrivals: 8,
+    what: "the user's map: 'why is the train on the bottom waiting?' (Muffin, waiting for Juniper to clear the line)",
+    known: [{ invariant: "heldFree", why: "held by a slot wait though the booking core would book it on: holds too big (redesign step 5)" }],
+    stuck: {
+      74: "Juniper's line goes round the mine-and-foundry ring the other way to Bumble's, which never leaves it, and the ring has no passing loop: let on, the two stood nose to nose for good (the head-on check in Sections.convoy keeps it off); stuck on main too",
+    },
+  },
 ];
 
 describe("bug maps: copied maps replayed with the invariants on", () => {

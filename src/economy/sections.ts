@@ -1339,7 +1339,7 @@ export class Sections {
    * it or on the way there. Else it would stand there in the way of a train coming back from that line end, each
    * waiting on the other. −1: yes; else the train it waits for (or `heldOf`'s).
    */
-  private readonly probedNone = new Map<string, { topo: Topology; tick: number }>();
+  private readonly probedNone = new Map<string, { topo: Topology; tick: number; along: ReadonlyMap<number, number> }>();
 
   private convoy(st: TrainState, info: LineInfo, sig: SignalWay): number {
     const topo = info.topo;
@@ -1349,13 +1349,23 @@ export class Sections {
     // kept a while for the same train, signal, stop, track and points. With every signal a waiting point it's asked
     // far more often: on #32's map 3 ms a probe, 230 of them in 300 s, a quarter of the sim's time uncached.)
     const key = `${st.engine}:${sig.mark}:${this.host.target(st.engine)}:${this.layout.switchesVersion}`;
+    // (No loop or line end that way (a ring of waiting points): a train anywhere on the way on, round to where it began,
+    // coming the other way, can never be passed: one stopping here would meet it nose to nose. The user's map of
+    // 2026-11-09 (Muffin's): a hopper train going round the mine-and-foundry ring and a timber train come onto it the
+    // other way stood face to face in two waiting points side by side, for good.)
     const none = this.probedNone.get(key);
-    if (none && none.topo === topo && this.sim.ticks - none.tick < PROBE_KEEP) return this.heldOf(info, st.engine);
+    if (none && none.topo === topo && this.sim.ticks - none.tick < PROBE_KEEP) {
+      const u = this.comingAt(st.engine, info, none.along);
+      return u !== -1 ? u : this.heldOf(info, st.engine);
+    }
     // (Probed: on through any waiting points, to the next loop or line end.)
     const way = this.wayOn(st, info, start, -1, null, 1);
     if (!way) {
       if (this.probedNone.size > 256) this.probedNone.clear();
-      this.probedNone.set(key, { topo, tick: this.sim.ticks });
+      const along = this.walkOnward(st, start);
+      this.probedNone.set(key, { topo, tick: this.sim.ticks, along });
+      const u = this.comingAt(st.engine, info, along);
+      return u !== -1 ? u : this.heldOf(info, st.engine);
     }
     if (!way || way.dest === DEAD_END) return way && way.blockedBy !== -1 ? way.blockedBy : this.heldOf(info, st.engine);
     // (The slot the way comes to, taken or not.)
@@ -1689,6 +1699,31 @@ export class Sections {
         const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target));
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
         w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target);
+      }
+      at = next(layout, at.pieceId, w.exit);
+    }
+    return out;
+  }
+
+  /**
+   * The way on from `start` (piece → the end it's come onto by), as `walkAlong` steers but on through slots, till it comes
+   * back onto itself (round a ring), runs out of track, or `SEARCH` pieces: for `convoy` where no loop or line end is
+   * that way.
+   */
+  private walkOnward(st: TrainState, start: { pieceId: number; entry: number }): Map<number, number> {
+    const { layout } = this;
+    const out = new Map<number, number>();
+    const target = this.host.target(st.engine);
+    const keep = this.host.keep?.(st.engine);
+    let at: { pieceId: number; entry: number } | null = start;
+    for (let k = 0; at && k < SEARCH && !out.has(at.pieceId); k++) {
+      out.set(at.pieceId, at.entry);
+      const ways = waysFrom(layout, at.pieceId, at.entry);
+      if (ways.length === 0) break;
+      let w = ways[0];
+      if (ways.length > 1) {
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target));
+        w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
       }
       at = next(layout, at.pieceId, w.exit);
     }
