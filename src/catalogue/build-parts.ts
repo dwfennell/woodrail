@@ -60,16 +60,6 @@ export function towerCrane(k: Kit, h: number, jib: number, x = 0, z = 0, ry = 0)
   return k.at(g, x, 0, z, ry);
 }
 
-/** A board hoarding round a site: a low painted fence on the four sides, a gap for a gate at +x. */
-export function hoarding(k: Kit, w: number, d: number, color: string = TOY.blue, x = 0, z = 0): Group {
-  const g = new Group();
-  const m = k.paint(color);
-  for (const s of [-1, 1]) g.add(stick(k, m, w, 12, 2, x, 0, z + (s * d) / 2));
-  g.add(stick(k, m, 2, 12, d, x - w / 2, 0, z));
-  for (const s of [-1, 1]) g.add(stick(k, m, 2, 12, d / 2 - 16, x + w / 2, 0, z + s * (d / 4 + 8)));
-  return g;
-}
-
 /** Stacks of goods brought to a site: planks, stone blocks and an iron girder pile, at (x, z). */
 export function goodsStacks(k: Kit, x = 0, z = 0): Group {
   const g = new Group();
@@ -82,20 +72,6 @@ export function goodsStacks(k: Kit, x = 0, z = 0): Group {
 /** A low plinth of foundations: a stone slab `w` × `d`, `h` high, centred at (x, z). */
 export function plinth(k: Kit, w: number, d: number, h = 6, x = 0, z = 0, color = "#c9c2b4"): Mesh {
   return k.box(k.paint(color), w, h, d, 1.2, x, 0, z);
-}
-
-/** A clump of bushes (overgrowth): `n` squashed leaf balls round (x, z), spread over `r`. */
-export function bushes(k: Kit, n: number, r: number, x = 0, z = 0, seed = 1, color: string = TOY.leaf): Group {
-  const g = new Group();
-  let s = seed * 9301 + 49297;
-  const rnd = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
-  for (let i = 0; i < n; i++) {
-    const a = rnd() * Math.PI * 2;
-    const d = Math.sqrt(rnd()) * r;
-    const size = 6 + rnd() * 6;
-    g.add(k.ball(k.paint(i % 3 === 0 ? TOY.green : color), size, x + Math.cos(a) * d, size * 0.5, z + Math.sin(a) * d, 0.75));
-  }
-  return g;
 }
 
 /** A pennant on a pole, its foot at (x, y, z). */
@@ -116,15 +92,6 @@ export function vault(k: Kit, mat: Material, r: number, len: number, x = 0, y = 
   m.castShadow = true;
   m.receiveShadow = true;
   return m;
-}
-
-/** The same vault along z. */
-export function vaultZ(k: Kit, mat: Material, r: number, len: number, x = 0, y = 0, z = 0, segments = 12): Group {
-  const g = new Group();
-  g.add(vault(k, mat, r, len, 0, 0, 0, segments));
-  g.rotation.y = Math.PI / 2;
-  g.position.set(x, y, z);
-  return g;
 }
 
 /** Arched ribs over a vault along x: `n` half rings of radius `r` spread over `len`. */

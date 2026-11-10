@@ -57,9 +57,6 @@ export function dueLandmarks(land: Landscape, town: Town, level: number, knows: 
 
 export const landmarkOf = (id: string): Landmark | undefined => LANDMARKS.find((l) => l.id === id);
 
-/** The landmark that goes up when a town reaches `level`, if any. */
-export const landmarkAt = (level: number): Landmark | undefined => LANDMARKS.find((l) => l.level === level);
-
 /** The landmarks a town has. */
 export function townLandmarks(town: Town): Set<string> {
   // (Only `LANDMARKS`: a town's places and treats share `Building.landmark` but are never landmarks: game/places.ts.)
