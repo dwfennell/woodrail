@@ -42,13 +42,17 @@ const GREEN = "held by sections (a slot or section wait) standing at a signal th
 // (heldFree, added with step 2b: from the full `npm run fuzz:long` (200 seeds × 1800 s), 2026-11-07. Each a train held by
 // sections' slot wait though the booking core would book it a way on: holds too big, step 5's.)
 const FREE = "held by sections' slot wait though the booking core would let it go (redesign step 5: sections grant by booking)";
+// (2026-11-10, a loop road's train's way out known before it's been looked at (`outByStanding`): on 126 and 165, lines
+// with a train too many (stalled either way), a train is now held out of a loop whose other road holds one going out
+// its way, as "a loop holds two only to pass" says; the core books by pieces and would let it in.)
+const LOOP_FULL = "held out of a passing loop whose other road holds a train going out its way (a loop holds two only to pass); the core would book it in. A line with a train too many: stalled either way";
 const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
-  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 183: FREE, 186: FREE, 188: FREE },
+  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 126: LOOP_FULL, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 165: LOOP_FULL, 183: FREE, 186: FREE, 188: FREE },
 };
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-09, booking to the next signal (every signal of a pair a waiting point, sized per train): the full long
   // fuzz, against main seed for seed: 74 came off, 165 went on. The same 53 seeds stalled; nothing else moved.)
-  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 165: FREE, 186: FREE, 188: FREE },
+  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 126: LOOP_FULL, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 165: FREE, 186: FREE, 188: FREE },
   // (14, 30, 76 and 160 came off on the merged base, before step 3 (2026-11-07, the full long fuzz on both).)
   greenHeld: { 37: GREEN, 66: GREEN, 69: GREEN, 105: GREEN, 119: GREEN, 174: GREEN, 192: GREEN },
 };
