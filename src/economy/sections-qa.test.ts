@@ -922,7 +922,11 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const { q, l0, l1, R3 } = two();
       const r = show(`still ${nm}`, scen(q, [...R3, ...build(l0, l1)], [q.a, q.b], 600, cars));
       expect(r.meet).toBe(0);
-      expect(r.stalls).toBeLessThanOrEqual(3);
+      // (Stalls begun: each time a train joins those said stuck. 1 till 2026-11-10; since a loop road's train's way out
+      // is known before it's been looked at (`outByStanding`, fuzz seed 111), a train is held out of a loop at the
+      // start that was let in beside one going its way, and the jam forms in waves over the first 30 s: 4. Still
+      // standing, a steady card each, below.)
+      expect(r.stalls).toBeLessThanOrEqual(4);
       // (Over the last 2 minutes each train shows one card, and one that says what to build or move.)
       for (const e of r.E) {
         const last = new Set(r.cardLog.filter((x) => x.e === e && x.t > 480).map((x) => x.c));
@@ -963,7 +967,8 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       expect([...its].filter((c) => c.includes("track ends here"))).toEqual([]);
       const late = r.E.map((e) => new Set(r.cardLog.filter((x) => x.e === e && x.t > 400).map((x) => x.c)).size);
       if (ENV.SHOW) console.log(`B1 ${other}: stalls ${r.stalls} cards 400-600 s ${late.join("/")}`);
-      expect(r.stalls).toBeLessThanOrEqual(3);
+      // (4 since 2026-11-10, as above: the jam forms in waves at the start; then it stays still.)
+      expect(r.stalls).toBeLessThanOrEqual(4);
       for (const n of late) expect(n).toBe(1);
     });
   // QA's N1 on a2d072c: waiting on another line's train, the card looked that line up by the id waited on, its

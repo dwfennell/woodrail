@@ -1762,9 +1762,9 @@ export class Sections {
   private outByOf(u: number, slot: number, topo: Topology): number {
     const st = this.states.get(u);
     if (st?.move && st.move.dest === slot) return st.move.outBy;
-    if (st && st.outBy !== -1) return st.outBy;
-    // (Not looked at yet (put down there, a loaded game: trains are looked at in turn, and one asking first sees the
-    // others' before they are): the switch ahead of where it stands on the road, the way it's driven. Else a train
+    if (st) return st.outBy;
+    // (Never looked at yet (put down there, a loaded game: trains are looked at in turn, and one asking first sees the
+    // others before they are): the switch ahead of where it stands on the road, the way it's driven. Else a train
     // asking first is let in beside one going its way (fuzz seed 111).)
     return this.outByStanding(u, slot, topo);
   }
