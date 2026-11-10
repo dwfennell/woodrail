@@ -24,8 +24,9 @@ exhaustive search of every move a perfect dispatcher could make under the user's
 | Own lines or hand-run trains, no loop | 8 | **True deadlock, 7 of 8.** 161 is avoidable: the game held a hand-run train on points. | exp3 runs 161 for 25 min (81 stops, was 2), then it stalls another way |
 | Put down facing each other (and the rest) | 5 | 42, 190, 77 **true**. 111 avoidable (exp2). 125 avoidable only by a train hiding in a siding. | exp2 fixes 111 |
 
-All told, **exp1 + exp2 take the plain fuzz from 53 stalled seeds to 41, with no new stall and no new invariant break**
-(the only test "failures" are seeds coming *off* the `heldFree` known list).
+All told, **exp1 + exp2 take the plain fuzz from 53 stalled seeds to 41, with no new stall.** On the plain fuzz there's no new
+invariant break. With signals they add three (`greenHeld` on 165, `heldFree` on 126 and 136), while taking ten seeds
+off those lists. So they're proposals that work, not patches ready to land.
 
 ## How this was checked
 
@@ -206,6 +207,8 @@ On the 53 seeds of today's main, plain fuzz, 30 game minutes:
    - **Also update:** the toast and the "lay N more passing loops" card text, and `heldFree`'s known list.
 2. **Keep a loop's last road for the other way** (exp2, `exp2-last-road.patch`, on top of 1).
    - **Seeds:** 44 → 41; 111, 126, 165 come off. Tested.
+   - **Cost:** with signals, 1 + 2 bring three new invariant breaks (see "Regression runs"), so they need work before
+     landing.
    - **Why:** a wait short of a loop, on plain track. It is the "train waiting short of the section rather than in it"
      idea, and in the redesign it belongs to booking: a booking into a loop road shouldn't take the last road one way
      while a train is booked or standing to come the other way.
@@ -239,7 +242,14 @@ Ideas tried or weighed that don't help these seeds:
   - `heldFree` breaks on 10 seeds (base 18; 37, 91, 112, 132, 134, 145, 186, 188 come off);
   - the only failing check is the known list's "take them off" guard.
 - **Plain fuzz, exp1 + exp2:** 41 stalled, none new. The same 10 `heldFree` seeds, nothing else.
-- **Full `npm run fuzz:long`, exp1 + exp2:** RESULT_FULL12
+- **Full `npm run fuzz:long`, exp1 + exp2** (3 shards, 39 min):
+  - Plain: 41 stalled, as above.
+  - "A route never makes it worse": passes.
+  - **With signals: three new breaks.**
+    - `greenHeld` on seed 165 (a train held 5 s at a signal showing clear, at 30.7 s); 37 comes off that list.
+    - `heldFree` on 126 and 136; 37, 91, 112, 132, 134, 145, 165, 186, 188 come off it.
+    - Both are known classes, due to go with redesign steps 4–5 (signals show the table, sections grant by booking).
+      Still, exp1 + exp2 can't land as they are without those three looked at and the known lists updated.
 - **Plain fuzz, exp3 alone:**
   - all 15 checks pass; 52 stalled (base 53); 161 off the fuzz's stall lines, none new;
   - `heldFree`'s 18 seeds the same as main's.
