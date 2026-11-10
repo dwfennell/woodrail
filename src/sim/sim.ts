@@ -15,6 +15,7 @@ import {
 } from "./cursor";
 import { nearestCursor } from "./nearest";
 import { cleanEngineName, pickEngineName } from "./engine-names";
+import { ACCELERATION, brakeTo, ENGINE_SPEED, stopDistance } from "./brakes";
 import { driveOf, trainLength } from "./train-cars";
 
 export const SIM_HZ = 120;
@@ -61,10 +62,8 @@ const TURN_RETRY_TICKS = SIM_HZ / 2;
  */
 const END_BEHIND_SLACK = 120;
 
-// Motion tuning (mm, s).
-export const ENGINE_SPEED = 120;
-/** How quickly (mm/s²) a train gets up to speed, or stops: half a second either way. */
-export const ACCELERATION = ENGINE_SPEED * 2;
+// Motion tuning (mm, s). (Top speed and braking: ./brakes.)
+export { ACCELERATION, ENGINE_SPEED } from "./brakes";
 const SIDE_HIT_DISTANCE = 12;
 /** How far ahead (mm) a train looks for a signal at red, and in what steps: well past its stopping distance. */
 const SIGNAL_LOOK = 300;
@@ -1403,7 +1402,7 @@ export class Sim {
     const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
     const v = train.speed;
     const c: Cursor = { ...lead };
-    advanceCursor(this.layout, c, (v * v) / (2 * ACCELERATION) + 2 * v * SIM_DT + LIFT_LOOK + inset, null, lookAdv);
+    advanceCursor(this.layout, c, stopDistance(v) + 2 * v * SIM_DT + LIFT_LOOK + inset, null, lookAdv);
     if (lookAdv.status !== ADV_OPEN_END) return Infinity;
     const p = this.layout.getPiece(c.pieceId)!;
     const exit = pathExitConnector(getPieceDef(p.type, p.flipped), c.pathIndex, c.reversed);
@@ -1450,7 +1449,7 @@ export class Sim {
     if (record && this.liftRefused.size > 0) this.liftRefused.delete(train.id);
     const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
     const v = train.speed;
-    const look = (v * v) / (2 * ACCELERATION) + 2 * v * SIM_DT + LIFT_LOOK + inset;
+    const look = stopDistance(v) + 2 * v * SIM_DT + LIFT_LOOK + inset;
     const c: Cursor = { ...lead };
     advanceCursor(this.layout, c, look, null, lookAdv);
     let liftId = -1;
@@ -1648,7 +1647,7 @@ export class Sim {
       const c: Cursor = { ...(back ? t.bogies[t.bogies.length - 1] : t.bogies[0]) };
       if (back) flipCursor(this.layout, c);
       const inset = CAR_SPECS[t.cars[back ? t.cars.length - 1 : 0].kind].bogieInset;
-      advanceCursor(this.layout, c, (t.speed * t.speed) / (2 * ACCELERATION) + LIFT_LOOK + inset, null, lookAdv);
+      advanceCursor(this.layout, c, stopDistance(t.speed) + LIFT_LOOK + inset, null, lookAdv);
       if (c.pieceId === pieceId) return true;
     }
     return false;
@@ -2615,7 +2614,7 @@ export class Sim {
    */
   private followCap(train: Train, v: number): number {
     this.endFace(train, true, followFace);
-    const look = FOLLOW_GAP + (v * v) / (2 * ACCELERATION) + 2 * v * SIM_DT + 8;
+    const look = FOLLOW_GAP + stopDistance(v) + 2 * v * SIM_DT + 8;
     let cap = Infinity;
     let least = Infinity;
     let by: Train | null = null;
@@ -2700,7 +2699,7 @@ export class Sim {
     const racks = this.racksNow();
     if (racks.size === 0 || this.mayRack === null || this.mayRack(train)) return Infinity;
     const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
-    const look = (v * v) / (2 * ACCELERATION) + v * SIM_DT + CROSS_LOOK + inset + RACK_GAP;
+    const look = stopDistance(v) + v * SIM_DT + CROSS_LOOK + inset + RACK_GAP;
     const c = crossAt;
     Object.assign(c, train.bogies[0]);
     let dist = -c.s;
@@ -2746,7 +2745,7 @@ export class Sim {
    */
   private crossCap(train: Train, v: number): number {
     const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
-    const look = (v * v) / (2 * ACCELERATION) + v * SIM_DT + CROSS_LOOK + inset + CROSS_GAP;
+    const look = stopDistance(v) + v * SIM_DT + CROSS_LOOK + inset + CROSS_GAP;
     const c = crossAt;
     Object.assign(c, train.bogies[0]);
     // How far ahead of the front axle the start of the piece c is on.
@@ -2893,8 +2892,6 @@ const LIFT_LOOK = 24;
 export const BRIDGE_RISE_S = 2;
 export const BRIDGE_UP_S = 5;
 
-/** How fast a train may go to stop within `d` mm (as at a red signal). */
-const brakeTo = (d: number): number => (d < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (d - 0.5)));
 
 
 

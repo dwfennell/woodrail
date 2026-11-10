@@ -1,5 +1,5 @@
 import { connectorRef, getPieceDef, indexOfRef, offersChoice, pathLength, pathLengthOf, pieceOfRef, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, SIM_HZ, trainOn, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, SIM_HZ, stopDistance, trainOn, type Cursor, type Sim, type Train } from "../sim";
 import { next, SEARCH, walkOn, waysFrom } from "../routing/graph";
 import { plan, planWay, type KeepTest } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
@@ -827,7 +827,7 @@ export class Sections {
       const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
       const room = st.edge === Infinity ? Infinity : lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s + st.edge - CAR_SPECS[lead.kind].bogieInset - STAND_SHORT;
       const short = (r: number) => (r === Infinity ? 0 : r > 0 ? Math.sqrt(2 * ACCELERATION * r) : 0);
-      const near = room <= (train.speed * train.speed) / (2 * ACCELERATION) + ASK_LOOK;
+      const near = room <= stopDistance(train.speed) + ASK_LOOK;
       if (now - st.askedAt < CHECK_TICKS && !(near && !st.wait && st.nearAsked !== st.frontKey)) return st.wait ? short(room) : Infinity;
       st.askedAt = now;
       if (near) st.nearAsked = st.frontKey;
@@ -852,7 +852,7 @@ export class Sections {
     // asking only at the slot's end it stood at the signal for good, and the line's train waiting for its slot too
     // (signals audit, 2026-11-06). Not at one held by hand: there it holds nothing ahead (signals spec §3.3).)
     const atRed = room > 0 && train.speed < 1 && this.sim.atRedSignal(train.id) && !this.sim.redHeldByHand(train.id);
-    if ((atRed || room <= (train.speed * train.speed) / (2 * ACCELERATION) + ASK_LOOK) && now - st.askedAt >= CHECK_TICKS) {
+    if ((atRed || room <= stopDistance(train.speed) + ASK_LOOK) && now - st.askedAt >= CHECK_TICKS) {
       st.askedAt = now;
       if (this.ask(st, info)) {
         // (Nothing to ask for on this way: it isn't gated here.)
@@ -2664,7 +2664,7 @@ export class Sections {
     const c = this.front(train, net < 0);
     const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
     const gap = 2 * CAR_SPECS[lead.kind].bogieInset + COUPLER_GAP;
-    const look = (train.speed * train.speed) / (2 * ACCELERATION) + gap + 4 * CLEAR_STEP;
+    const look = stopDistance(train.speed) + gap + 4 * CLEAR_STEP;
     const others: Train[] = [];
     if (among) {
       for (const t of among) if (t !== train && !t.derailed) others.push(t);
