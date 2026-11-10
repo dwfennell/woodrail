@@ -196,11 +196,32 @@ function moving(page) {
  * for frames (it resolves false); anything else throws with what was moving. `trains: false` throws then too.
  * `moving: "<why>"`: something the suite knows keeps drawing (an ambient motion it tests, left running): past the cap
  * it says so and resolves false.
+ * `trainCap` (20 s, what the copied helpers waited): a longer `cap` is for a fresh page drawing its tray pictures; a
+ * train still running by then won't stand still for waiting, so it gives up there (resolving false), as they did.
  */
-export async function settled(page, { ticks = 3, cap = 20_000, trains = true, moving: known } = {}) {
+export async function settled(page, { ticks = 3, cap = 20_000, trains = true, moving: known, trainCap = 20_000 } = {}) {
   const f0 = await page.evaluate(() => window.woodrail.framesDrawn);
-  const done = await page.evaluate(([ticks, cap]) => Promise.race([window.woodrail.settled(ticks).then(() => true), new Promise((r) => setTimeout(() => r(false), cap))]), [ticks, cap]);
-  if (done) return true;
+  const done = await page.evaluate(
+    ([ticks, cap, trainCap, trains]) =>
+      new Promise((resolve) => {
+        const t0 = performance.now();
+        const poll = setInterval(() => {
+          const t = performance.now() - t0;
+          const w = window.woodrail;
+          const running = trains && t >= trainCap && w.sim.trainIds().some((id) => Math.abs(w.sim.getTrain(id)?.speed ?? 0) > 0.5);
+          if (running) end("trains");
+          else if (t >= cap) end(false);
+        }, 250);
+        const end = (v) => {
+          clearInterval(poll);
+          resolve(v);
+        };
+        window.woodrail.settled(ticks).then(() => end(true));
+      }),
+    [ticks, cap, trainCap, trains],
+  );
+  if (done === true) return true;
+  if (done === "trains") return false;
   const m = await moving(page);
   if (trains && m.trains > 0) return false;
   if (known) {
