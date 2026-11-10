@@ -4366,6 +4366,12 @@ async function routeUx(ctx, p) {
   await frames(p);
   await p.waitForTimeout(300);
   await still();
+  // (Done looks again every 300 ms for 3 s while the card settles at its full height (main.ts donePlanning), and glides
+  // again if the route's slipped under it: the check is of where that leaves the view, so it waits out those 3 s and
+  // the last glide. QA: the card grew 9 px a second after Done, the game's look at 1.2 s glided to it, and the check,
+  // made at 1 s, caught the view mid-glide 9 px short.)
+  await p.waitForFunction((t) => performance.now() > t + 3200, doneAt, { timeout: 10000 });
+  await still();
   const glides = await p.evaluate(() => { const d = window.woodrail.director; d.glideTo = d.__glide; delete d.__glide; return window.__glides; });
   // (Upright at 360×740 the full card covers two thirds of the screen: where the route can't fit above it however far
   // out, the view is as far out as it goes, with the route's middle above the card.)

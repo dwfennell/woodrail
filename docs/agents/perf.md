@@ -213,7 +213,7 @@ Open ones, biggest first:
   shadow pass's depth programs were compiled twice (its first frame ran before the lights were set up; now the first
   frame skips the shadow pass), and the held piece's are warmed after load (`Game.warmShaders`). Tried twice and
   dropped: `compileAsync` of the whole scene before the first frame. Compiled for the screen it built other programs
-  than the frames use (sRGB, ACES: compile for a render target, as `Game.compileFor` does); with that fixed it still
+  than the frames use (sRGB, ACES: compile for a render target, as `Game.warmShaders` does); with that fixed it still
   built variants the frames didn't use on some loads (possibly the far-detail materials), and held the first frame
   rather than saving time. Leads: fewer material variants (25 `MeshPhysicalMaterial` programs on the Sandbox map), or
   precompiling for the view the first frames actually show. `tools/perf/programs.mjs` and `program-origins.mjs` show

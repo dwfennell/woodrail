@@ -1838,6 +1838,32 @@ export class Hud {
   setRerailVisible(visible: boolean): void {
     if (this.rerailBtn.hidden === !visible) return;
     this.rerailBtn.hidden = !visible;
+    // On a phone it hangs under the goals bar, whose height is its goal's (one line or two, in the display face): kept
+    // under its foot while it shows (QA: at a fixed 112 px it overlapped a one-line goal's foot by 3 px, a two-line
+    // goal's by 12). Watched only while it shows; nothing per frame.
+    this.rerailWatch?.disconnect();
+    this.rerailWatch = undefined;
+    if (!visible) return;
+    this.placeRerail();
+    const goals = this.root.querySelector<HTMLElement>(".goals");
+    if (goals) (this.rerailWatch = new ResizeObserver(() => this.placeRerail())).observe(goals);
+  }
+
+  private rerailWatch: ResizeObserver | undefined;
+
+  /** Re-rail on a phone (`.actions > .chip.attention`, absolute): its top clear of the goals bar's foot, if under it. */
+  private placeRerail(): void {
+    const b = this.rerailBtn;
+    b.style.top = "";
+    if (b.hidden || getComputedStyle(b).position !== "absolute") return;
+    const goals = this.root.querySelector<HTMLElement>(".goals");
+    if (!goals || goals.hidden) return;
+    const g = goals.getBoundingClientRect();
+    const c = b.getBoundingClientRect();
+    // (Clear of it already: the bar short of the chip's left, or put away.)
+    if (g.height === 0 || g.right <= c.left || g.bottom + 4 <= c.top) return;
+    const base = (b.offsetParent ?? document.body).getBoundingClientRect().top;
+    b.style.top = `${Math.ceil(g.bottom + 4 - base)}px`;
   }
 
   /** A short buzz on phones that support it. */

@@ -36,7 +36,7 @@ pictures) isn't cached by run.mjs: it's run for its pictures.
 
 ## Groups in the split suites
 
-**touch** (`scripts/e2e/touch.mjs`): `sandbox-shelves`, the 28 Sandbox checks (`map-taps`, `select-drag`, … `route-ux-more`;
+**touch** (`scripts/e2e/touch.mjs`): `sandbox-shelves`, the 37 Sandbox checks (`map-taps`, `select-drag`, … `turntable-taps`;
 the comment above `openGroundScript` says what each is) and `game-shelves`. The Sandbox groups share one page, as
 before, opened when the first of them that runs needs it (after `sandbox-shelves`'s taps, or without them when that one
 is cached or not selected); each one's `step` takes up what it laid. With `E2E_FRESH=1` each opens a page of its own:
@@ -86,7 +86,7 @@ learned).
 to read its tabs (K1 compares them).
 
 **cloud** (`scripts/e2e/cloud.mjs`, about 19 min idle, 27 with a CPU hog): `sandbox` (steps 1–6, devices A and B),
-`game-sync` (7–8) and `game-rewards` (9–10). Each Game group sets up two devices (C and D) on a code of its own, so it
+`game-sync` (7–8) and `game-rewards` (9–10), and `auto` (cloud saves turned on by themselves when a piece is laid, the title's Continue from cloud, a gone code, offline, Turn off). Each Game group sets up two devices (C and D) on a code of its own, so it
 can run alone; each run starts its own Worker on a free port (`CLOUD_PORT` to pin one), so `E2E_SHARD=1/2` and `2/2`
 can run side by side. As one group, a gate's 1700 s timeout fell on step 10 with every check before it passing.
 

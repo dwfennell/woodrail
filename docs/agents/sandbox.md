@@ -145,7 +145,7 @@ Before going wide: rate-limit HEAD/GET, and codes with nothing saved yet.
 
 ## 4. Open items
 1. **curved-ramps:** `claude/curved-ramps-land` (curved-ramps-2-dont-land on main 0d5410e, plus the e2e fix) is ready to land: e2e:ramps 7/7 twice.
-   - **Cause of the 4/7:** the test clicked the engine card's Go before it was drawn. Its pointerdown came 43 ms after Go came into place, inside `CARD_MOVED_MS`, so the card tap guard dropped it (#19). It wasn't the sim: `crossMasks` is 0 for one-path pieces (straights, all ramps), so `crossCap` never holds them.
+   - **Cause of the 4/7:** the test clicked the engine card's Go before it was drawn. Its pointerdown came 43 ms after Go came into place, inside `CARD_MOVED_MS`, so the card tap guard dropped it (#19). It wasn't the sim: `overlaps` (`src/track/points.ts`, then called `crossMasks`) is empty for one-path pieces (straights, all ramps), so `crossCap` never holds them.
    - **Fix (test only):** two frames and 250 ms before tapping Go, as e2e:touch does.
 2. **cloud-saves-5** deb8623:
    - **The bug:** a false "changed on another device too" toast at step 8a. It means D thought it held an unsent layout edit (`m.layout`).
