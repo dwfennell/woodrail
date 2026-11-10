@@ -2,8 +2,8 @@
 // Track-tray item ends up showing its real picture, not the drawn icon that stands in for it till it's drawn:
 // on a fresh profile with a train running the whole time (the scene's never still), and, reloaded, straight from the
 // cache on entering. Chromium as for e2e:roads.
-// Group `track-pieces` (tech-tree T3, T4): Sandbox's Switch shelf has the single and double slip and the double
-// three-way, each its real picture; in a new Game they're locked there till learned, a tap saying how to unlock them
+// Group `track-pieces` (tech-tree T3, T4): Sandbox's Switch shelf has the single and double slip, the double
+// three-way and the split, each its real picture; in a new Game they're locked there till learned, a tap saying how to unlock them
 // (Research Slips to unlock), and unlocked once learned.
 // Groups (`-- --list`, E2E_ONLY, resume: docs/agents/e2e.md): `pictures`, `track-pieces`.
 import { existsSync, mkdirSync } from "node:fs";
@@ -103,6 +103,8 @@ const NEW = [
   ["piece:slip-single", "Single slip"],
   ["piece:slip-double", "Double slip"],
   ["piece:switch-3way-double", "Double three-way"],
+  // (Junctions, as the crossover: locked in a new Game till that's learned.)
+  ["piece:split", "Split"],
 ];
 
 /** Open the Track tab's Switch shelf by a tap, as a player does. Open? */
@@ -166,7 +168,7 @@ async function trackPieces() {
     for (const id of ["switches", "junctions", "routes", "slips", "double-three-way"]) window.woodrail.learn(id);
   });
   await p.keyboard.press("Escape");
-  await p.waitForFunction(() => ["piece:slip-single", "piece:slip-double", "piece:switch-3way-double"].every((k) => { const e = document.querySelector(`.scroller .tray-item[data-key="${k}"]`); return !e || !e.classList.contains("locked"); }), null, { timeout: 10000 }).catch(() => {});
+  await p.waitForFunction(() => ["piece:slip-single", "piece:slip-double", "piece:switch-3way-double", "piece:split"].every((k) => { const e = document.querySelector(`.scroller .tray-item[data-key="${k}"]`); return !e || !e.classList.contains("locked"); }), null, { timeout: 10000 }).catch(() => {});
   if (!(await p.evaluate(() => document.querySelector(".tray").classList.contains("in-group")))) await switchShelf();
   for (const [key, label] of NEW) {
     const t = await tile(key);
@@ -176,7 +178,7 @@ async function trackPieces() {
 
 const suite = groups("tray", { results, errors, check });
 suite.add("pictures", pictures, { about: "every Track-tray item ends up its real picture, fresh and from the cache" });
-suite.add("track-pieces", trackPieces, { about: "slips and the double three-way on the Switch shelf: pictures, locked in Game till learned" });
+suite.add("track-pieces", trackPieces, { about: "slips, the double three-way and the split on the Switch shelf: pictures, locked in Game till learned" });
 await suite.run();
 check("no page errors", errors.length === 0, errors.join(" | "));
 await b?.close();

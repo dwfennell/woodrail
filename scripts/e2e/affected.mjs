@@ -119,13 +119,13 @@ export const SMOKE = ["touch:sandbox-shelves,map-taps,toast-through,trap,train-c
 export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore", "scripts/e2e/lib/diff-kind.mjs", "scripts/**/*.test.mjs"];
 
 // Touch's groups that plan, run or show routes and lines.
-const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way";
+const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way,split";
 // Touch's groups for the tech tree's track pieces (scripts/e2e/track-pieces.mjs).
-const TOUCH_PIECES = "touch:slips,double-three-way,turntable-taps";
+const TOUCH_PIECES = "touch:slips,double-three-way,split,turntable-taps";
 // Touch's groups that press, hold, drag and drop pieces and trains: what a change to input or picking can break.
 const TOUCH_INPUT = "touch:sandbox-shelves,game-shelves,map-taps,select-drag,redrawn,flick,lever-pins,under-car,toast-through,trap,place-facing,front-join,tight-curves";
 // Touch's groups that lay track, throw points and run trains over it: what a change to the track or the editor can break.
-const TOUCH_TRACK = "touch:map-taps,select-drag,flick,lever-pins,under-car,wye,place-facing,front-join,tight-curves,follow,stuck,slips,double-three-way,turntable-taps";
+const TOUCH_TRACK = "touch:map-taps,select-drag,flick,lever-pins,under-car,wye,place-facing,front-join,tight-curves,follow,stuck,slips,double-three-way,split,turntable-taps";
 // Touch's groups that run trains (the sim's levers, points held, trains stopped, cards): with TOUCH_ROUTES, what a
 // change to the sim can break.
 const TOUCH_TRAINS = "touch:select-drag,lever-pins,under-car,wye,train-card,blocker,stuck,stuck-lines";

@@ -52,6 +52,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:slip-single": { label: "Single slip", cost: { planks: 5 }, tech: "slips" },
   "piece:slip-double": { label: "Double slip", cost: { planks: 6 }, tech: "slips" },
   "piece:crossover": { label: "Crossover", cost: { planks: 5 }, tech: "junctions" },
+  // A crossover's board without the line beside its single end: priced and learned as the crossover is.
+  "piece:split": { label: "Split", cost: { planks: 5 }, tech: "junctions" },
   "piece:wye": { label: "Wye", cost: { planks: 4 }, tech: "junctions" },
   "piece:double-straight": { label: "Double track", cost: { planks: 2 }, tech: "junctions" },
   "piece:double-curve": { label: "Double curve", cost: { planks: 2 }, tech: "junctions" },
