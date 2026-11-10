@@ -89,6 +89,14 @@ await p.evaluate((townId) => {
   w.interaction.openDepotCard(w.world.economy.depotAtPiece(w.world.stations.get(townId)).id);
 }, townId);
 await p.waitForTimeout(800);
+// (The upgrades are on the town card's Station tab: a tap on it first.)
+const stationTab = await p.evaluate(() => {
+  const t = document.querySelector('.town-tab[data-tab="station"]');
+  const r = t?.getBoundingClientRect();
+  return r && r.width > 0 ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+});
+if (stationTab) await p.touchscreen.tap(stationTab.x, stationTab.y);
+await p.waitForTimeout(400);
 const findButton = () =>
   p.evaluate(() => {
     const el = [...document.querySelectorAll(".station-upgrade-btn")].find((e) => e.textContent.trim().startsWith("⬆ Two-platform station") && e.getBoundingClientRect().width > 0);

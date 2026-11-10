@@ -3,7 +3,7 @@ import type { DepotState, Economy } from "../economy/economy";
 import type { Bag } from "../economy/goods";
 import type { ResearchCost } from "./blueprints";
 import type { Progress } from "./progress";
-import { built, needMet, ready, techOf } from "./tech";
+import { needMet, ready, techOf } from "./tech";
 import { addTo } from "../economy/goods";
 
 /**
@@ -91,10 +91,10 @@ export function studyTime(id: string, learned?: ReadonlySet<string>): number {
 /** Study hall (research, tech-tree Q1): tier-1 lessons go this much faster at any school. */
 export const STUDY_HALL = 2;
 
-/** Can it be researched now: built, not learned, what it needs learned and what it requires done? */
+/** Can it be researched now: not learned, what it needs learned and what it requires done? */
 export function canResearch(p: Progress, id: string): boolean {
   const t = techOf(id);
-  return !!t && built(t) && ready(p, id);
+  return !!t && ready(p, id);
 }
 
 /**
@@ -174,12 +174,12 @@ export function missingNeeds(p: Progress, id: string): string[] {
 }
 
 /**
- * Could it be researched once the blueprints it needs are learned: built, not learned, and what it requires (a town, a
+ * Could it be researched once the blueprints it needs are learned: not learned, and what it requires (a town, a
  * count) done? Those requirements aren't brought about by the queue, so they block queueing as they do starting.
  */
 const queueable = (p: Progress, id: string): boolean => {
   const t = techOf(id);
-  return !!t && built(t) && !p.learned.has(id) && t.requires.every((n) => needMet(p, n));
+  return !!t && !p.learned.has(id) && t.requires.every((n) => needMet(p, n));
 };
 
 /** Its unlearned needs are under way or ahead of it (`ahead`): it can wait in the queue there. */
@@ -229,7 +229,7 @@ export function repairQueue(p: Progress): string[] {
   const r = p.research;
   const rest = queueOf(r).filter((x) => {
     const t = techOf(x);
-    return !!t && built(t) && !p.learned.has(x) && x !== r.current;
+    return !!t && !p.learned.has(x) && x !== r.current;
   });
   const dropped = queueOf(r).filter((x) => !rest.includes(x));
   const ok: string[] = [];

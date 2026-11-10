@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { engineStatus, engineView, trainLabel } from "../../game/engine-status";
 import type { World } from "../../game/world";
 import { loopSignalHold } from "../../economy/loop-signal";
-import { ADV_OK, advanceCursor, createAdvance, markKey, SIM_HZ } from "../../sim";
+import { ADV_OK, advanceCursor, createAdvance, SIM_HZ } from "../../sim";
 import { connectorRef } from "../../track";
 import { describeBreak, loadBugMap, replayBugMap } from "../bugmap";
 import MAP from "./signal-green-held.txt?raw";
@@ -22,61 +21,65 @@ function countTurns(world: World): () => number {
 
 /**
  * Issue #31 (2026-11-07, build mw5rjr7b): "I don't understand why this train is stuck... the signal ahead of it is
- * green". The user's map: four trains in a ring of waits. The timber train (Teasel, Blue line) stands at a signal the
- * player put inside the passing loop's road, part way along it, its tail over the loop's points: no train gets into the
- * loop, so the goods train (Muffin) waits at its signal, Rowan for Muffin's tail, the hand-run Hazel for Rowan, and
- * Teasel's signal is red for Hazel. Trains turn round only at the end of the line (the user), so the ring stands: each
- * card says plainly why, and the signal's card says to move it.
+ * green". The user's map: four trains in a ring of waits. The timber train (Teasel, Blue line) stood at a signal the
+ * player put inside the passing loop's road, its tail over the loop's points, and the others waited on it in a ring.
+ *
+ * Since trains book only to the next signal they can stand at (2026-11-09: every signal of a pair is a waiting point,
+ * sized for the train), the ring doesn't form: the trains run, and none turns round. (The ring's cards, "stands at a
+ * signal inside the passing loop", are no longer reached on this map: `loopSignalHold` still names the hold in the
+ * saved position.)
  *
  * Sections stand a held train with its nose exactly at the signal's stop point; its last braking step, or the first tick
  * after a load, can leave it a hair past. The sim read that as passing the signal: it showed the path signal clear for
  * it, while sections held it. Now a standing train that little past a stop point is at it (`STAND_SLOP`): red.
  */
 describe("issue #31: the user's map, a signal inside the passing loop", () => {
-  it("the held train's signal shows red though it stands a hair past; every card names the signal in the loop; no train turns round", async () => {
+  it("the ring doesn't form: every routed train comes to its stops, none turning round", async () => {
+    const { world } = await loadBugMap(MAP);
+    const turns = countTurns(world);
+    // (The saved position, a tick in: Teasel at the signal inside the loop road, its tail on the loop's points.)
+    world.sim.tick();
+    world.economy.tick();
+    const inLoop = world.layout.signalAt(connectorRef(19, 0))!;
+    expect(loopSignalHold(world.layout, world.sim, inLoop.id)).toEqual({ trainId: world.sim.findCar(34)!.train.id, points: 173 });
+    const r = replayBugMap(world, { seconds: 300, stopAtFirst: false });
+    for (const engine of world.economy.lineIdOf.keys()) expect(r.arrivals.get(engine) ?? 0, `engine ${engine}`).toBeGreaterThanOrEqual(4);
+    for (const [engine, s] of r.longestStand) expect(s, `engine ${engine}`).toBeLessThan(120);
+    expect(turns()).toBe(0);
+    expect(world.economy.stalls.gaveWay).toBe(0);
+  }, 60_000);
+
+  it("a train held at a signal shows red though it stands a hair past its stop point", async () => {
     const { world } = await loadBugMap(MAP);
     const { sim, economy, layout } = world;
-    const turns = countTurns(world);
-    const run = (s: number) => {
-      for (let i = 0; i < s * SIM_HZ; i++) {
-        sim.tick();
-        economy.tick();
+    // (Run till a train stands at a red signal, held by sections: Rowan, engine 30, at about 20 s.)
+    let held: { train: ReturnType<typeof sim.getTrain>; key: number } | null = null;
+    for (let i = 0; i < 120 * SIM_HZ && !held; i++) {
+      sim.tick();
+      economy.tick();
+      if (i < 5 * SIM_HZ || i % 12 !== 0) continue;
+      for (const t of sim.trains()) {
+        const e = t.cars.find((c) => c.kind === "engine")!.id;
+        if (t.speed === 0 && sim.atRedSignal(t.id) && economy.sections.waitOf(e) && sim.redSignalKeyAhead(t.id) < 0) {
+          held = { train: t, key: sim.redSignalKeyAhead(t.id) };
+          break;
+        }
       }
-    };
-    run(30);
-    // (Rowan, engine 30, the timber train on the Red line: held at the pair on piece 80's end 1 for Muffin.)
-    const rowan = sim.findCar(30)!.train;
-    const mark = layout.signalAt(connectorRef(80, 1))!;
-    expect(rowan.speed).toBe(0);
-    expect(rowan.bogies[0].pieceId).toBe(80);
-    expect(economy.sections.waitOf(30)).not.toBeNull();
-    expect(sim.markClear(mark.id)).toBe(false);
+    }
+    expect(held).not.toBeNull();
+    const t = held!.train!;
+    const piece = t.bogies[0].pieceId;
     // Test-only: its nose put 1 mm on, past the stop point, as its last braking step or a load can leave it (every
     // bogie the same way, so the train is whole).
     const adv = createAdvance();
-    for (const b of rowan.bogies) expect(advanceCursor(layout, b, 1, null, adv).status).toBe(ADV_OK);
-    run(2);
-    // Still held where it stands, and the signal says so.
-    expect(rowan.bogies[0].pieceId).toBe(80);
-    expect(rowan.speed).toBe(0);
-    expect(sim.markClear(mark.id)).toBe(false);
-    expect(sim.redSignalKeyAhead(rowan.id)).toBe(markKey(mark.id));
-    // The signal inside the loop road (piece 19's end 0): Teasel (engine 34) stands at it, its tail on the loop's points.
-    const inLoop = layout.signalAt(connectorRef(19, 0))!;
-    const teasel = sim.findCar(34)!.train;
-    expect(loopSignalHold(layout, sim, inLoop.id)).toEqual({ trainId: teasel.id, points: 173 });
-    expect(loopSignalHold(layout, sim, mark.id)).toBeNull();
-    // Every card in the ring says so, and what to do; Show finds Teasel.
-    const said = `stands at a signal inside the passing loop, its tail over the points. Move that signal to the loop's end`;
-    expect(engineStatus(sim, economy, 34, () => "")).toBe(`Stuck: it ${said}`);
-    for (const e of [30, 44]) {
-      const v = engineView(sim, economy, e, () => "");
-      expect(v.status, `engine ${e}`).toBe(`Stuck: ${trainLabel(sim, 34)} ${said}`);
-      expect(v.blocker?.car, `engine ${e}`).toBe(34);
-    }
-    // Nobody turned round.
-    expect(turns()).toBe(0);
-    expect(economy.stalls.gaveWay).toBe(0);
+    for (const b of t.bogies) expect(advanceCursor(layout, b, 1, null, adv).status).toBe(ADV_OK);
+    sim.tick();
+    economy.tick();
+    // Still held where it stands, and the signal says so. (Its wait may end a moment later: the trains run now.)
+    expect(t.bogies[0].pieceId).toBe(piece);
+    expect(t.speed).toBe(0);
+    expect(sim.redSignalKeyAhead(t.id)).toBe(held!.key);
+    expect(sim.markClear(-1 - held!.key)).toBe(false);
   }, 60_000);
 });
 

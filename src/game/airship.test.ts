@@ -109,7 +109,7 @@ describe("what there is to see", () => {
 
   it("is a blueprint after the airport, its mast made at the workshop", () => {
     const b = BLUEPRINTS.find((x) => x.id === "airship")!;
-    expect(b.plan).toBeUndefined();
+    expect(b).toBeDefined();
     expect(b.needs).toEqual(["airport"]);
     expect(THING_RULES["piece:depot-mast"]?.tech).toBe("airship");
     expect(INDUSTRY_ROLE["depot-mast"]).toBe("mast");

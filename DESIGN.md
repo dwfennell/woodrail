@@ -182,6 +182,12 @@ A beech board, 12px corners, 12-14px padding and 20px at the foot (over the cut 
 ### The Journal
 The goals bar: the count stamped in red, the bell a small yellow block, the goal's title in Lilita (two lines rather than an ellipsis), Show me a blue block (its word on a wide screen; its ⌖ alone on a phone, where the goal's words need the room). Open: "GOALS", its stamp and the fold on one centre line, inset 14px both sides; each goal and tip a maple tile with its box a hole (a green peg when done), progress stamped in green, and its buttons at the tile's bottom right, the main one rightmost (Got it, then Show me).
 
+### A town's card
+- **Header and tabs:** its level stamped and its goods toward the next (a bar), then a groove of tabs: **Grow**, **Build** (places and treats), **Projects** (grand projects, from City), **Station** (its rows, lines, New route, upgrades, Automatic). A yellow peg on a tab with something ready there. Each pane about a phone's screen; on its side, a pane in two columns.
+- **Next up:** a maple tile ("NEXT UP", its peg) saying what the town needs most, with the card's one painted button (green to make something, blue to go somewhere: the tray, Research). The card opens on its tab.
+- **A project's ticket:** its reward first, its stages as pegs in holes (done green, under way blue) with their goods, then a pencil line and Start painted green. The other projects are maple rows with the price stamped in gold; a tap opens one's ticket.
+- **Landing from the Journal:** the button it was opened for ringed in blue (3px) till the next tap. The Journal never picks the town: an achievement lists the towns it could be built in, and the player taps one.
+
 ### Tray tiles
 84×90px maple tiles with the piece's picture, a two-line label, and corner marks: how many you have stamped in brown (a price to make one in gold), "Locked" stamped, a ★ favourite in yellow. Ready: a green ring and a painted "ready" tag; carried: a blue ring and "placing".
 - **A locked tile, tapped:** a beech note over it (a notch pointing at the tile): 🔒 and the name, how to unlock it in plain words, and a green **📘 Show in Research** (44px). Gone with a tap elsewhere. Hover says the same in the tooltip.

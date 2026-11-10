@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TECHS, built } from "../game/tech";
+import { TECHS } from "../game/tech";
 import { CARGO_KINDS } from "../economy/cargo";
 import { INDUSTRY_GROUPS, TRAIN_GROUPS } from "../ui/tray-catalogue";
 import { WAGON_NAME } from "../economy/wagons";
@@ -24,19 +24,17 @@ function resolve(from: string, href: string): string {
 }
 
 describe("wiki", () => {
-  it("has a page for every built research row, and none for a planned one", () => {
-    for (const t of TECHS.filter(built)) expect(paths.has(`research/${slugOf(t.id)}/`), t.id).toBe(true);
-    const planned = TECHS.filter((t) => !built(t));
-    expect(planned.length).toBeGreaterThan(0);
-    for (const t of planned) expect(paths.has(`research/${slugOf(t.id)}/`), t.id).toBe(false);
+  it("has a page for every research row", () => {
+    for (const t of TECHS) expect(paths.has(`research/${slugOf(t.id)}/`), t.id).toBe(true);
   });
 
-  it("names no planned row anywhere (no promises the game doesn't keep yet)", () => {
-    const builtLabels = new Set(TECHS.filter(built).map((t) => t.label));
-    // A planned row's label that isn't also the name of something built (a row, an industry, a wagon).
-    const names = new Set([...builtLabels, ...data.industries.map((i) => i.name), ...data.engines.map((v) => v.name), ...data.wagons.map((v) => v.name)]);
-    const planned = TECHS.filter((t) => !built(t) && !names.has(t.label)).map((t) => t.label);
-    for (const p of wiki.pages) for (const label of planned) expect(p.html.includes(`>${label}<`), `${p.path} names ${label}`).toBe(false);
+  it("has no page for, and names nowhere, the rows trimmed from the tree (ideas not built, 2026-11-09)", () => {
+    const trimmed: [string, string][] = [["trade", "Imports and exports"], ["monorail", "Monorail"], ["racecourse", "Racecourse"], ["zoo", "Zoo and safari park"], ["ski", "Ski resort and cable car"], ["rocket", "Rocket works"], ["launch", "Launch pad"]];
+    for (const [id, label] of trimmed) {
+      expect(paths.has(`research/${slugOf(id)}/`), id).toBe(false);
+      expect(researchWikiUrl(id), id).toBe(null);
+      for (const p of wiki.pages) expect(p.html.includes(`>${label}<`), `${p.path} names ${label}`).toBe(false);
+    }
   });
 
   it("has a page for every industry on the Industries shelf", () => {
@@ -77,8 +75,7 @@ describe("wiki", () => {
     expect(WIKI_URL).toBe(WIKI_BASE);
     const page = (url: string | null) => url && paths.has(url.slice(WIKI_BASE.length));
     for (const item of INDUSTRY_GROUPS.flatMap((g) => g.items)) if (item.kind === "piece") expect(page(industryWikiUrl(item.type)), item.type).toBe(true);
-    for (const t of TECHS.filter(built)) expect(page(researchWikiUrl(t.id)), t.id).toBe(true);
-    for (const t of TECHS.filter((t) => !built(t))) expect(researchWikiUrl(t.id), t.id).toBe(null);
+    for (const t of TECHS) expect(page(researchWikiUrl(t.id)), t.id).toBe(true);
     expect(industryWikiUrl("depot-town")).toBe(null);
   });
 

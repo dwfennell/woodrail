@@ -1,14 +1,13 @@
 /**
- * Every blueprint in Game mode, built or planned: the one list the Research picker, the rules for researching
- * (`tech.ts`, `research.ts`) and the roadmap page (`npm run blueprints:page`) all read. Every built one is researched
- * at a school. A blueprint not built yet has a
- * `plan`: the board shows it as "coming soon" and nothing can learn it. To add one, add a row; to build one, take its
- * `plan` away (and give it its things in `THING_RULES`, or its feature in the game).
+ * Every blueprint in Game mode: the one list the Research picker, the rules for researching (`tech.ts`,
+ * `research.ts`) and the roadmap page (`npm run blueprints:page`) all read. Every one is in the game and researched at a
+ * school: only what's built gets a row (ideas not built yet live on the design pages, not here). To add one, build it
+ * and add its row (and give it its things in `THING_RULES`, or its feature in the game).
  *
  * Self-contained (no imports but types) so a plain Node script can read it.
  */
 
-export type BranchId = "track" | "trains" | "logistics" | "industry" | "food" | "craft" | "learning" | "civic" | "leisure" | "water" | "passengers" | "roads" | "ending";
+export type BranchId = "track" | "trains" | "logistics" | "industry" | "food" | "craft" | "learning" | "civic" | "leisure" | "water" | "passengers" | "roads";
 
 export interface Branch {
   readonly id: BranchId;
@@ -31,11 +30,7 @@ export const BRANCHES: readonly Branch[] = [
   { id: "water", label: "Water and air", sub: "harbours, ships, planes", color: "#3d86b8" },
   { id: "passengers", label: "Passengers", sub: "by people carried", color: "#e0a526" },
   { id: "roads", label: "Roads", sub: "roads between towns", color: "#6f6a62" },
-  { id: "ending", label: "The ending", sub: "", color: "#3a2a1c" },
 ];
-
-/** When a planned blueprint is meant to be built: next, coming soon (Phases C and D), someday, or the ending. */
-export type Plan = "next" | "soon" | "later" | "ending";
 
 /** Things counted over a game, that a blueprint can ask you to have done. */
 export type Stat = "riders" | "blueprints" | "loadsMoved" | "logsCut" | "planksSawn" | "stoneCut" | "grainGrown" | "flourGround" | "coalDug" | "ironCast";
@@ -64,9 +59,7 @@ export type Need =
    * Something on your map: a town's landmark (a market) or, later, a city's major building; or your school's growth
    * (`CITY_SCHOOL`: a school beside a city, its library wing).
    */
-  | { readonly kind: "landmark"; readonly id: string; readonly label: string }
-  /** Something about the map ("a town by water"): shown, but not yet checked by the game. */
-  | { readonly kind: "place"; readonly text: string };
+  | { readonly kind: "landmark"; readonly id: string; readonly label: string };
 
 /** Its price in planks, goods and coins: what researching it costs is worked out from it (`researchFrom`). */
 export interface Price {
@@ -98,11 +91,8 @@ export interface Blueprint {
    * (`CITY_SCHOOL`). None: tier 1.
    */
   readonly tier?: 1 | 2 | 3;
-  /** Not built yet: shown as coming soon (see `Plan`). */
-  readonly plan?: Plan;
   /**
-   * Shown to a new player from the start (the rest are a "?" until something next to them is learned). Only on built
-   * rows, and the ending's (the goal to aim for): a key tag a child can never learn is a promise the board can't keep.
+   * Shown to a new player from the start (the rest are a "?" until something next to them is learned).
    */
   readonly key?: boolean;
   /** How to start using it, said when it's learned ("Tap a train, then Plan a route"): where it isn't a thing to make. */
@@ -147,7 +137,6 @@ const count = (stat: Stat, n: number): Need => ({ kind: "count", stat, n });
 const delivered = (good: string, n: number): Need => ({ kind: "delivered", good, n });
 const level = (l: number, towns?: number): Need => ({ kind: "level", level: l, ...(towns ? { towns } : {}) });
 const landmark = (id: string, label: string): Need => ({ kind: "landmark", id, label });
-const place = (text: string): Need => ({ kind: "place", text });
 /** A school of yours beside a city (its library wing): every tier-3 research needs one. */
 export const CITY_SCHOOL_ID = "city-school";
 const CITY_SCHOOL = landmark(CITY_SCHOOL_ID, "a school beside a city");
@@ -191,7 +180,6 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "lift-bridge", label: "Lift bridge", branch: "track", tier: 3, needs: ["bridges", "harbours"], price: { planks: 10, coins: 180, goods: { iron: 8 } }, blurb: "The line across a river at the ground, no ramps up: its span lifts straight up to let boats through, and trains wait for it.", brings: "Lift bridge" }),
   // The rack (spec 2026-11-04-rail-types.md): mid game, coins rather than planks (the tech tree's rule before City).
   row({ id: "rack", label: "Mountain railway", branch: "track", tier: 2, needs: ["bridges", "tank"], price: { planks: 8, coins: 120 }, requires: [TOWN], blurb: "A rack up the side of a hill: two levels in one ramp's length. Only a rack engine climbs it. A lookout halt on a hilltop: riders pay twice the fare for the view.", brings: "Rack, short rack, rack engine, lookout halt" }),
-  row({ id: "monorail", label: "Monorail", branch: "track", tier: 3, plan: "later", needs: ["electricity", "viaduct"], price: { planks: 30, coins: 200, goods: { iron: 30 } }, blurb: "A rail in the sky over a city.", brings: "Monorail track and car" }),
   // The metro (spec 2026-11-04-rail-types.md §2): late, and the dearest way to carry people on purpose (the user: "It
   // should be expensive to move folks by metro"). Stops, the train and digging under a town each cost more (things.ts,
   // metro.ts).
@@ -269,7 +257,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "jam", label: "Jam kitchen", branch: "food", tier: 2, needs: ["juice", "sugar"], price: { planks: 10, coins: 160 }, blurb: "An orchard's fruit and a field's sugar make jam, in jars by the crate. Towns buy it at full pay.", brings: "Jam kitchen" }),
   row({ id: "ice-cream", label: "Ice cream factory", branch: "food", tier: 3, school: "college", needs: ["reefer", "orchard"], price: { planks: 10, coins: 200 }, blurb: "Milk and fruit make ice cream, carried in cold vans. Towns pay the most for it.", brings: "Ice cream factory" }),
   row({ id: "fishing", label: "Fishing boats", branch: "food", tier: 3, school: "college", needs: ["harbours"], price: { planks: 8, coins: 160 }, blurb: "Every boat that calls at your harbours brings a catch of fish. Towns buy fish at full pay.", brings: "Fish at every harbour", feature: { label: "A catch of fish with every boat", icon: "🐟" } }),
-  // Cocoa comes by boat (no trade needed: every boat that calls lands some, as Fishing boats' catch), and with a
+  // Cocoa comes by boat (nothing to order: every boat that calls lands some, as Fishing boats' catch), and with a
   // dairy's milk makes chocolate: studied at a College in a city, as the other late chains.
   row({ id: "chocolate", label: "Chocolate factory", branch: "food", tier: 3, school: "college", needs: ["harbours", "dairy"], price: { planks: 10, coins: 220 }, blurb: "Every boat that calls at your harbours brings cocoa beans; cocoa and milk make chocolate. Towns buy it at full pay.", brings: "Chocolate factory, cocoa at every harbour", feature: { label: "Cocoa with every boat", icon: "🫘" } }),
 
@@ -321,15 +309,12 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "sports-field", label: "Sports field", branch: "leisure", tier: 2, needs: ["park"], price: { planks: 4, coins: 100 }, blurb: "Weekend matches: +1 😊, and visitors in spring and autumn.", feature: { label: "Sports field (on a town's card)", icon: "⚽" }, brings: "Sports field (+1 😊)" }),
   row({ id: "swimming", label: "Swimming baths", branch: "leisure", tier: 3, needs: ["park", "electricity"], price: { planks: 6, coins: 150 }, blurb: "Visitors all year round, and +1 😊.", feature: { label: "Swimming baths (on a town's card)", icon: "🌊" }, brings: "Swimming baths (+1 😊, visitors)" }),
   row({ id: "stadium", label: "Football stadium", branch: "leisure", tier: 3, needs: ["sports-field", "stations"], price: { planks: 10, coins: 300, goods: { stone: 20 } }, blurb: "One stadium on the map: crowds ride trains to it from every town, and pay more.", feature: { label: "Stadium (on a town's card)", icon: "🏟️" }, brings: "Stadium (one per map)" }),
-  row({ id: "racecourse", label: "Racecourse", branch: "leisure", tier: 3, plan: "later", needs: ["sports-field", "farming2"], price: { planks: 30, coins: 150 }, blurb: "Race days, and horse boxes on the trains.", brings: "Racecourse, horse box wagon" }),
   row({ id: "golf", label: "Golf course", branch: "leisure", tier: 3, needs: ["park", "bank"], price: { planks: 6, coins: 200 }, blurb: "Quiet visitors who pay first-class fares.", feature: { label: "Golf course (on a town's card)", icon: "⛳" }, brings: "Golf course (visitors)" }),
   row({ id: "cinema", label: "Cinema", branch: "leisure", tier: 3, needs: ["electricity", "park"], price: { planks: 6, coins: 150 }, blurb: "Visitors to the pictures, the most in winter.", feature: { label: "Cinema (on a town's card)", icon: "🎬" }, brings: "Cinema (visitors)" }),
   row({ id: "theatre", label: "Theatre", branch: "leisure", tier: 3, needs: ["college", "stations", "park"], price: { planks: 6, coins: 180 }, blurb: "A city's theatre draws visitors from far away: they pay twice the fare.", feature: { label: "Theatre (on a town's card)", icon: "🎭" }, brings: "Theatre (visitors)" }),
   // The touring circus (late-game spec K1): its train is a gift, two cage wagons, never bought.
   row({ id: "circus", label: "Circus", branch: "leisure", tier: 3, school: "college", needs: ["goods-engine", "first-class"], price: { planks: 16, coins: 200 }, requires: [level(2, 2)], blurb: "Two circus cages, a gift: where a train with them comes to a town, the big top goes up. Fares there pay double.", brings: "Circus train (two cage wagons)", feature: { label: "Circus cages (Trains tab, Wagons)", icon: "✨" } }),
   row({ id: "funfair", label: "Funfair", branch: "leisure", tier: 3, needs: ["park", "bakery"], price: { planks: 6, coins: 180 }, blurb: "A carousel and stalls: visitors all year, and food sells for a quarter more there.", feature: { label: "Funfair (on a town's card)", icon: "🎠" }, brings: "Carousel, stalls (visitors)" }),
-  row({ id: "zoo", label: "Zoo and safari park", branch: "leisure", tier: 3, plan: "later", needs: ["trade", "farming2"], price: { planks: 30, coins: 150 }, blurb: "Animals arrive by ship and train; visitors follow.", brings: "Zoo, animal wagons" }),
-  row({ id: "ski", label: "Ski resort and cable car", branch: "leisure", tier: 3, plan: "later", needs: ["rack", "stations"], price: { planks: 30, coins: 150, goods: { iron: 20 } }, blurb: "On the tallest hill: skiers by mountain railway.", brings: "Ski lodge, cable car" }),
   row({ id: "sailing", label: "Sailing club", branch: "leisure", tier: 3, needs: ["harbours", "park"], price: { planks: 6, coins: 150 }, blurb: "Regattas in summer: riders who get off there pay twice the fare.", feature: { label: "Sailing club (on a town's card)", icon: "⛵" }, brings: "Sailing club (summer visitors)" }),
 
   // Water and air
@@ -337,7 +322,6 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "dock-sheds", label: "Dock sheds", branch: "water", tier: 3, school: "college", needs: ["harbours"], price: { planks: 6, coins: 80 }, blurb: "Build sheds beside a harbour's quay (from its card, 30 coins each, up to three): each holds 12 more of every good for the boats.", feature: { label: "Dock sheds (on a harbour's card)", icon: "🏚️" }, brings: "Dock shed" }),
   row({ id: "barges", label: "River barges", branch: "water", tier: 2, needs: ["routes", "cranes1"], price: { planks: 6, coins: 120 }, blurb: "A landing for your river bank, and tugs with barges to buy there: route them between landings like a train. Each barge carries 4 loads of logs, stone, coal, ore or grain, with no track to lay.", brings: "River landing, boatyard (tugs and barges built from planks and iron brought by train)" }),
   row({ id: "shipyards", label: "Shipyards", branch: "water", tier: 3, needs: ["harbours", "barges"], price: { planks: 12, coins: 160, goods: { iron: 10 } }, blurb: "A shipyard on the shore: trains bring it iron, planks and tools, and it builds cargo ships and train ferries, launched into the sea.", brings: "Shipyard" }),
-  row({ id: "trade", label: "Imports and exports", branch: "water", tier: 3, plan: "soon", needs: ["harbours"], price: { coins: 100 }, requires: [landmark("trading-house", "a trading house")], blurb: "Order goods on the next boat: what you've made, then goods from abroad.", brings: "Buying at harbours and the map's edge" }),
   row({ id: "ferry", label: "Train ferry", branch: "water", tier: 3, needs: ["shipyards", "junctions"], price: { planks: 12, coins: 160, goods: { iron: 10 } }, blurb: "A ferry slip on the shore, and a ferry built at your shipyard: a train routed there rides it abroad, its load sold at a town's full price, and comes back with goods from abroad.", brings: "Ferry slip, train ferry" }),
   row({ id: "lighthouse", label: "Lighthouse", branch: "water", tier: 3, needs: ["harbours"], price: { planks: 8, coins: 80, goods: { stone: 10 } }, blurb: "A lighthouse on the shore: ships call twice as often at a harbour near it.", brings: "Lighthouse" }),
   row({ id: "cargo-ships", label: "Cargo ships", branch: "water", tier: 3, needs: ["shipyards"], price: { planks: 10, coins: 200, goods: { iron: 10 } }, blurb: "Build a cargo ship at your shipyard and it calls at your harbours instead of rowing boats: each takes 24 loads and pays a town's full price for them.", brings: "Cargo ships at every harbour", feature: { label: "Cargo ships at every harbour", icon: "🚢" } }),
@@ -367,9 +351,6 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "vans", label: "Delivery vans", branch: "roads", tier: 2, needs: ["roads", "warehouses"], price: { planks: 4, coins: 150 }, blurb: "Vans take goods from the station to towns off the line.", brings: "Delivery van", feature: { label: "A van at a station joined by road to a town off the line", icon: "🚐" } }),
   row({ id: "buses", label: "Buses", branch: "roads", tier: 2, needs: ["vans", "halts"], price: { planks: 3, coins: 120 }, blurb: "A bus brings people to your trains.", brings: "Bus stop, bus", feature: { label: "Bus stop (Industries tab, Lineside): beside a station, a bus brings people from a town off the line", icon: "🚌" } }),
 
-  // The ending
-  row({ id: "rocket", label: "Rocket works", branch: "ending", key: true, plan: "ending", needs: ["observatory", "trade", "express", "cranes3", "electricity"], requires: [level(4, 3)], blurb: "Build the rocket from parts brought by train. Not designed yet.", brings: "Rocket works" }),
-  row({ id: "launch", label: "Launch pad", branch: "ending", key: true, plan: "ending", needs: ["rocket"], requires: [place("all the rocket's parts")], blurb: "Launch day: every town comes to watch. The railway carries on after.", brings: "The launch" }),
 ];
 
 /**
@@ -391,8 +372,6 @@ export function describeNeed(n: Need): string {
       return n.towns && n.towns > 1 ? `${n.towns} ${["", "villages", "towns", "cities", "cities ★"][n.level]}` : LEVEL_NAMES[n.level];
     case "landmark":
       return n.label;
-    case "place":
-      return n.text;
   }
 }
 

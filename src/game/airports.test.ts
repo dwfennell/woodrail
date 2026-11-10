@@ -150,7 +150,7 @@ describe("riders and the airport", () => {
 describe("the airport in the game", () => {
   it("is a blueprint after Electricity and Harbours and 400 riders, made at the workshop, an industry of its own", () => {
     const b = BLUEPRINTS.find((x) => x.id === "airport")!;
-    expect(b.plan).toBeUndefined();
+    expect(b).toBeDefined();
     expect(b.needs).toEqual(["electricity", "harbours"]);
     expect(b.requires).toContainEqual({ kind: "count", stat: "riders", n: 400 });
     expect(THING_RULES["piece:depot-airport"]?.tech).toBe("airport");

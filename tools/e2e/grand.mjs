@@ -2,7 +2,8 @@
 // with touch (spec 2026-11-05-character-and-goals.md, "Grand projects are achievements with a reward"):
 //  1. Larkfield a City ★ and the other towns smaller (deliveries written as trains would bring them: a setup shortcut,
 //     as e2e:civic). The Journal has an Achievements tab (🥇): the Great Exhibition, its reward said before it starts.
-//  2. Larkfield's card has Grand projects: a tap on Build pays its coins, and its plot goes up on clear land by the
+//  2. The achievement's "Build it in" lists Larkfield (the player picks the city); its row opens Larkfield's card on
+//     Projects, the Exhibition's Start ringed: a tap on Start pays its coins, and its plot goes up on clear land by the
 //     city (a prop of the map). The tab says stage 1 of 4, in Larkfield.
 //  3. Each stage's goods by train to Larkfield's station (wagons standing at its crane): each stage moves the project
 //     on, its site's model swapped (foundations, the iron hall, the stands, opening day), the goods not paid for or
@@ -146,7 +147,7 @@ const row = () => p.evaluate(() => {
   return r ? { text: r.textContent, got: r.closest(".ach-item").classList.contains("got"), pips: r.querySelector(".ach-pips")?.textContent } : null;
 });
 const r1 = await row();
-check("1. it lists the Great Exhibition with its reward, to start from a City ★'s card", !!r1 && /Great Exhibition/.test(r1.text) && /Every town grows a step/.test(r1.text) && /City ★'s card/.test(r1.text), JSON.stringify(r1));
+check("1. it lists the Great Exhibition with its reward, and \"Pick a City ★ to build it in\"", !!r1 && /Great Exhibition/.test(r1.text) && /Every town grows a step/.test(r1.text) && /Pick a City ★ to build it in/.test(r1.text), JSON.stringify(r1));
 const tabsFit = await p.evaluate(() => {
   const tabs = document.querySelector(".goals-tabs").getBoundingClientRect();
   return [...document.querySelectorAll(".goals-tabs > *")].filter((e) => !e.hidden).every((e) => e.getBoundingClientRect().right <= tabs.right + 1 && e.getBoundingClientRect().height >= 40);
@@ -154,18 +155,29 @@ const tabsFit = await p.evaluate(() => {
 check("1. the Journal's tabs fit at 390 px, 44 px tall", tabsFit);
 await tap('.ach-row[data-id="exhibition"]');
 check("1. a tap on it shows its four stages and their goods", (await p.evaluate(() => document.querySelectorAll(".ach-item.open .ach-stages li").length)) === 4);
+// The player picks the city: "Build it in" lists Larkfield, ready, first (the game never picks one for them).
+const cities = await p.evaluate(() => [...document.querySelectorAll(".ach-item.open .ach-city")].map((c) => ({ town: Number(c.dataset.town), ready: c.classList.contains("ready"), text: c.textContent, h: c.getBoundingClientRect().height })));
+check("1. Build it in: Larkfield first, ready, 44 px or more", cities[0]?.town === town.id && cities[0].ready && /Ready: start it for 400/.test(cities[0].text) && cities.every((c) => c.h >= 44), JSON.stringify(cities));
 await shot("1-achievements");
-await p.evaluate(() => document.querySelector(".goals-close")?.click());
 
-// ---- 2. Build it from Larkfield's card ----------------------------------------------------------------------------
-const openCard = () => p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
-await openCard();
-await p.waitForTimeout(900);
-const tileState = () => p.evaluate(() => [...(document.querySelector('.grand-tile[data-grand="exhibition"]')?.classList ?? [])].find((c) => !["place-tile", "grand-tile"].includes(c)) ?? null);
+// ---- 2. Build it from Larkfield's card, reached from the Journal -------------------------------------------------
+// The city's row: the Journal closes (a phone), the card opens on Projects, the Exhibition's ticket, its Start ringed.
+await tap(`.ach-item.open .ach-city[data-town="${town.id}"]`);
+await p.waitForFunction(() => !!document.querySelector(".depot-card:not([hidden]) .grand-ticket"), null, { timeout: 20000 }).catch(() => {});
+await p.waitForTimeout(600);
+const landed = await p.evaluate(() => ({
+  depot: window.woodrail.interaction.openDepotId,
+  tab: document.querySelector(".town-card")?.dataset.tab,
+  ticket: document.querySelector(".grand-ticket")?.dataset.grand,
+  ringed: !!document.querySelector(".grand-ticket .grand-start.ringed"),
+  journal: document.querySelector(".goals")?.classList.contains("collapsed"),
+}));
+check("2. the row opens Larkfield's card on Projects, the Exhibition's Start ringed", landed.depot === town.depot && landed.tab === "projects" && landed.ticket === "exhibition" && landed.ringed, JSON.stringify(landed));
+const tileState = () => p.evaluate(() => [...(document.querySelector('.grand-tile[data-grand="exhibition"]')?.classList ?? [])].find((c) => !["place-tile", "grand-tile", "grand-ticket", "grand-row"].includes(c)) ?? null);
 check("2. Larkfield's card offers the Great Exhibition", (await tileState()) === "build", String(await tileState()));
 await shot("2-card");
 const coins0 = await p.evaluate(() => window.woodrail.progress().coins);
-await tap('.grand-tile[data-grand="exhibition"] .place-btn');
+await tap('.grand-ticket[data-grand="exhibition"] .grand-start');
 await p.waitForFunction(() => window.woodrail.world.economy.grandPlans.has("exhibition"), null, { timeout: 30000 }).catch(() => {});
 const started = await p.evaluate(() => {
   const w = window.woodrail;
@@ -178,8 +190,8 @@ check("2. its plot stands on the map by the city", started.prop?.asset === "gran
 let site = { x: started.prop?.x ?? 0, z: started.prop?.z ?? 0 };
 await p.waitForTimeout(600);
 await shot("2-after-build");
-const card2 = await p.evaluate(() => ({ open: window.woodrail.hud.depotCardOpen, depot: window.woodrail.interaction.openDepotId, tile: document.querySelector('.grand-tile[data-grand="exhibition"]')?.textContent ?? null }));
-check("2. the card says stage 1 of 4", /Stage 1 of 4/.test(card2.tile ?? ""), JSON.stringify(card2));
+const card2 = await p.evaluate(() => ({ open: window.woodrail.hud.depotCardOpen, depot: window.woodrail.interaction.openDepotId, next: document.querySelector(".town-pane-projects .town-next")?.textContent ?? null, now: document.querySelector('.grand-ticket[data-grand="exhibition"] .grand-stages li.now')?.textContent ?? null }));
+check("2. the card says stage 1 of 4, the foundations under way", /stage 1 of 4/.test(card2.next ?? "") && /foundations/.test(card2.now ?? ""), JSON.stringify(card2));
 
 /** The camera on the site, from the south-east, a little above. */
 const lookAtSite = async (dist = 1100) => {
@@ -370,6 +382,17 @@ const cityStar = async (i) => {
   await closeSheets();
   return t;
 };
+/**
+ * Start project `id` on the open city card by taps: its Projects tab (if it didn't open there), its row (if another's
+ * ticket is open), then its Start.
+ */
+const startOnCard = async (id) => {
+  // (The card's drawn on the next frame: its tabs waited for first.)
+  await p.waitForFunction(() => document.querySelector(".town-tab")?.getBoundingClientRect().width > 0, null, { timeout: 20000 }).catch(() => {});
+  if (await p.evaluate(() => document.querySelector(".town-card")?.dataset.tab !== "projects")) await tap('.town-tab[data-tab="projects"]');
+  if (await p.evaluate((id) => !document.querySelector(`.grand-ticket[data-grand="${id}"]`), id)) await tap(`.grand-row[data-grand="${id}"]`);
+  await tap(`.grand-ticket[data-grand="${id}"] .grand-start`);
+};
 /** Build project `id` from city `t`'s card by a tap, then every stage's goods by train: pictures of each stage. */
 const buildByTrain = async (t, id, label) => {
   await p.evaluate(() => {
@@ -379,7 +402,7 @@ const buildByTrain = async (t, id, label) => {
   });
   await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), t.depot);
   await p.waitForTimeout(900);
-  const state = await p.evaluate((id) => [...(document.querySelector(`.grand-tile[data-grand="${id}"]`)?.classList ?? [])].find((c) => !["place-tile", "grand-tile"].includes(c)) ?? null, id);
+  const state = await p.evaluate((id) => [...(document.querySelector(`.grand-tile[data-grand="${id}"]`)?.classList ?? [])].find((c) => !["place-tile", "grand-tile", "grand-ticket", "grand-row"].includes(c)) ?? null, id);
   check(`${label}: ${t.name}'s card offers it`, state === "build", String(state));
   // (A growth's reward sheet may come up late, over the card: shut first, the card opened again; tapped again if the
   // first tap met one.)
@@ -387,7 +410,7 @@ const buildByTrain = async (t, id, label) => {
     await closeSheets();
     await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), t.depot);
     await p.waitForTimeout(700);
-    await tap(`.grand-tile[data-grand="${id}"] .place-btn`);
+    await startOnCard(id);
     // (Its models are fetched before its site is found: slow on a busy machine.)
     const ok = await p.waitForFunction((id) => window.woodrail.world.economy.grandPlans.has(id), id, { timeout: 90000 }).then(() => true, () => false);
     if (ok) break;
@@ -518,7 +541,7 @@ for (let attempt = 0; attempt < 2; attempt++) {
     await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
     await p.waitForTimeout(900);
   }
-  await tap('.grand-tile[data-grand="central"] .place-btn');
+  await startOnCard("central");
   if (await p.waitForFunction(() => window.woodrail.world.economy.grandPlans.has("central"), null, { timeout: 30000 }).then(() => true, () => false)) break;
 }
 const kitOwned = await p.evaluate(() => window.woodrail.progress().owned.get("piece:kit-grand-central-1") ?? 0);

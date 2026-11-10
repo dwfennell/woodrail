@@ -134,15 +134,12 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
   {
     file: "issue-31-green-ahead.txt",
     seconds: 600,
-    arrivals: 20,
+    // (The Red line's timber train, engine 30, comes to 11: its line is the longest.)
+    arrivals: 10,
     what: "issue #31: four trains stuck at signals from the start, a ring of slot waits",
     known: [{ invariant: "heldFree", why: "engine 52 held in the ring of slot waits though the booking core would let it go (redesign steps 4–6)" }],
-    stuck: {
-      30: "ring of slot waits at signals (30 → 44 → 34 → 52): redesign steps 4–6",
-      34: "ring of slot waits at signals: redesign steps 4–6",
-      44: "ring of slot waits at signals: redesign steps 4–6",
-      52: "ring of slot waits at signals (on no line): redesign steps 4–6",
-    },
+    // (The ring of slot waits at signals (30 → 44 → 34 → 52) no longer forms: every signal of a pair is a waiting point
+    // sized for the train, 2026-11-09. 600 s on main: 58 stops, four trains standing the whole run; now 99, none over 42 s.)
   },
   // (Issue #32, two minutes after #31: "added a signal but all trains are still stuck". The same map with signal 43 laid
   // between engine 34 and the points ahead of it: the same ring, the same four stuck, engine 48 alone running.)

@@ -8,11 +8,10 @@ import { seenOf, TECHS } from "./tech";
 const SCHOOL = "Larkfield school";
 
 describe("the picker's card states", () => {
-  it("learned · researching · next · ready · locked · soon", () => {
+  it("learned · researching · next · ready · locked", () => {
     const p = Progress.fresh();
     expect(cardState(p, "switches")).toBe("ready");
     expect(cardState(p, "junctions")).toBe("locked"); // needs switches
-    expect(cardState(p, "monorail")).toBe("soon"); // not in the game yet
     pick(p, "switches");
     expect(cardState(p, "switches")).toBe("researching");
     pick(p, "bridges");

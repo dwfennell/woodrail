@@ -46,7 +46,9 @@ const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
   heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 183: FREE, 186: FREE, 188: FREE },
 };
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
-  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 77: FREE, 89: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 186: FREE, 188: FREE },
+  // (2026-11-09, booking to the next signal (every signal of a pair a waiting point, sized per train): the full long
+  // fuzz, against main seed for seed: 74 came off, 165 went on. The same 53 seeds stalled; nothing else moved.)
+  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 165: FREE, 186: FREE, 188: FREE },
   // (14, 30, 76 and 160 came off on the merged base, before step 3 (2026-11-07, the full long fuzz on both).)
   greenHeld: { 37: GREEN, 66: GREEN, 69: GREEN, 105: GREEN, 119: GREEN, 174: GREEN, 192: GREEN },
 };

@@ -16,6 +16,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { still } from "../../scripts/e2e/lib/still.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/new-game";
@@ -46,6 +47,9 @@ async function phone() {
 
 /** Tap the first visible element matching `selector` (whose text includes `text`, if given) with a finger. */
 async function tap(p, selector, text) {
+  // (Once it's standing still: the ☰ menu pops in, and a box read mid-way, under SwiftShader's slow frames, isn't
+  // where the finger lands once it's in: lib/still.mjs.)
+  await still(p, selector, text);
   const at = await p.evaluate(
     ({ selector, text }) => {
       const el = [...document.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0 && !e.closest("[hidden]") && (!text || e.textContent.includes(text)));

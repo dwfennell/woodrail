@@ -652,6 +652,44 @@ The `heldFree` invariant (F6) runs the shadow beside the checks (opt-in: the fuz
 A profile of that map says where a tick goes: sections' `loopsOn` and `line` are 22% of it, before and after. That is
 the next thing to make cheaper, and step 5 deletes most of it.
 
+### 4.3 Book to the next signal (2026-11-09)
+
+**The user:** "it's like the trains claim as far as they can to their next destination, but they should just claim to
+the next signal." Then: "don't do the safe version, do the full version".
+
+**What was wrong.** Sections' signal waiting points were one-way, sized for the network's longest train, and of a pair
+at one joint (as the tray places them) only the first placed could be one. On the user's maps most signals were passed:
+#31/#32's 44 marks made 13 waiting points, the user's 2026-11-09 map's 54 made 13. A move ran on to the next loop,
+line end or far waiting point.
+
+**What changed (`economy/sections.ts`, `signalSlots`):**
+- Each stretch of plain track between signal joints (or a signal and points) is a waiting point for every mark whose
+  approach it is (`Slot.ways`): a pair makes it one both ways. Its whole length is kept; a train that doesn't fit,
+  clear of points, runs through it. Shorter than an engine alone: none.
+- Waiting points may be next to each other: a move out of one straight into the next has no section.
+- `convoy` asks of a loop what it asked of a line end: no train between the signal and the loop coming the other way.
+  Without it the simplest signalled line (one pair mid-line, two trains starting toward each other) stood nose to nose
+  from the start. Between two loops opposing trains can never pass, so it costs no running. Not the "safe version" the
+  user turned down: followers going the same way get in behind block by block.
+- With no signals, nothing changes.
+
+**Numbers (against main at `b50d28c`):**
+
+| | main | branch |
+|---|---|---|
+| user's 2026-11-09 map, 600 s: stops | 81 | 148 |
+| #31 / signal-green-held, 600 s: stops (longest stand) | 58 (600 s, four trains stuck) | 99 (42 s) |
+| #32 / signal-added-still-stuck | 100 (41 s) | 91 (72 s) |
+| signals-mill-wait | 110 (20 s) | 104 (31 s) |
+| other bug maps | | the same |
+| `pairedFollowers`: both in the stretch / arrivals | 76 s / 35 + 34 | 280 s / 39 + 39 |
+| `pairOpposed` (one pair, trains toward each other) | 20 + 20 | 21 + 21 |
+| full `fuzz:long` | 53 stalled | the same 53, cause for cause; heldFree with signals 74 off, 165 on |
+
+`bench:tick`: a probe past a signal that reaches no slot walks its whole search; asked far more often now, it cost
+about +25% on #32 until kept for 2 s (`probedNone`). After: within the bench's noise (signal maps −15% to +14%,
+maps with no signals ±30%).
+
 ## 5. Summary for a non-programmer
 
 - Today five different parts of the game each have their own opinion about which train may use which bit of track, and

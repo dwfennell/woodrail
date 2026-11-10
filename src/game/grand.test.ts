@@ -51,6 +51,14 @@ function growTo(w: World, life: TownLife, townId: number, level: number): void {
   life.update();
 }
 
+/** Every town's standing, as main gives the Achievements tab. */
+function standings(w: World) {
+  return w.landscape.towns.map((town) => {
+    const s = statusOf(w, town.id);
+    return { town, level: s.level, name: s.name, have: total(s.got), need: total(s.wants) };
+  });
+}
+
 /** Every stage's footprint of a project, together (its whole site), as main finds it. */
 /** Saved and loaded again, as a reload does. */
 function reload(w: World): World {
@@ -214,11 +222,48 @@ describe("building it, stage by stage, by train", () => {
     expect(all.map((e) => e.kind)).toEqual(["stage", "stage", "stage", "earned"]);
     expect(earned(w, "exhibition")).toBe(true);
     expect(w.props.get(w.economy.grandPlans.get("exhibition")!.prop)!.asset).toBe("grand-exhibition-4");
-    const view = achievements(w, true).find((a) => a.id === "exhibition")!;
+    const view = achievements(w, p, standings(w)).find((a) => a.id === "exhibition")!;
     expect(view).toMatchObject({ done: 4, of: 4, earned: true, town: town.name });
     // Finished, it takes nothing more: stone goes to the city.
     expect(stageLacks("exhibition", w.economy.grandPlans.get("exhibition")!, "stone")).toBe(0);
     expect(grandRow(w, p, town, statusOf(w, town.id).level)[0].state).toBe("earned");
+  });
+});
+
+describe("the Journal's Build it in: the player picks the city", () => {
+  it("lists every City ★ that could build it, ready ones first, with what each can do; then the nearest to City ★", () => {
+    const { w, life, p } = game();
+    const [a, b, c] = w.landscape.towns;
+    growTo(w, life, a.id, GRAND_LEVEL);
+    growTo(w, life, b.id, GRAND_LEVEL);
+    growTo(w, life, c.id, GRAND_LEVEL - 1);
+    p.coins = 1000;
+    // b builds the Cathedral first: it can't start a second until that's done.
+    build(w, p, b, "cathedral");
+    const view = achievements(w, p, standings(w)).find((v) => v.id === "exhibition")!;
+    expect(view.line).toBe("Pick a City ★ to build it in");
+    // (The hamlets aren't listed: there's a City ★ to build it in.)
+    expect(view.cities.map((r) => [r.name, r.ready, r.star])).toEqual([
+      [a.name, true, true],
+      [b.name, false, true],
+      [c.name, false, false],
+    ]);
+    expect(view.cities[0].note).toBe("Ready: start it for 400 🪙");
+    expect(view.cities[1].note).toBe("Building the Cathedral: one at a time");
+    expect(view.cities[2].note).toMatch(/^\d+ of \d+ goods to grow$/);
+    expect(view.cities.length).toBeLessThanOrEqual(4);
+    // Started, it lists no towns: its line says where it is.
+    expect(achievements(w, p, standings(w)).find((v) => v.id === "cathedral")!.cities).toEqual([]);
+  });
+
+  it("short of coins, says how many; with no City ★, lists the towns nearest to one", () => {
+    const { w, life, p } = game();
+    const [a] = w.landscape.towns;
+    expect(achievements(w, p, standings(w))[0].cities.every((r) => !r.star)).toBe(true);
+    expect(achievements(w, p, standings(w))[0].line).toBe("Grow a town into a City ★ to build it");
+    growTo(w, life, a.id, GRAND_LEVEL);
+    p.coins = 120;
+    expect(achievements(w, p, standings(w))[0].cities[0]).toMatchObject({ name: a.name, ready: false, note: "Needs 400 🪙 (you have 120)" });
   });
 });
 
@@ -280,7 +325,7 @@ describe("the early game is as it was", () => {
     for (const t of w.landscape.towns) growTo(w, life, t.id, 2);
     for (const t of w.landscape.towns) expect(statusOf(w, t.id)).toEqual(townStatus(growthOf(w, t.id), 0));
     expect(w.economy.grandGift.size).toBe(0);
-    expect(achievements(w, false).every((a) => !a.earned && a.done === 0)).toBe(true);
+    expect(achievements(w, Progress.fresh(), standings(w)).every((a) => !a.earned && a.done === 0)).toBe(true);
   });
 
   it("no project can start below City ★: the earliest is after the bands' 180-minute window", () => {

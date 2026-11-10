@@ -81,7 +81,8 @@ export interface HudHandlers {
   emptyCar(): void;
   /** The engine card's Empty all: tip out every wagon of its train, while it stands. */
   emptyTrain(): void;
-  rotate(): void;
+  /** The piece card's Rotate: an eighth, or `fine` (Shift held), 15°. */
+  rotate(fine?: boolean): void;
   flip(): void;
   deletePiece(): void;
   /** Piece card: start picking several pieces, to move or turn them together. */
@@ -122,8 +123,8 @@ export interface HudHandlers {
   home(): void;
   toggleQuality(): void;
   closeCards(): void;
-  /** Tray: turn the piece in hand and the ones taken out next (an eighth turn). */
-  trayTurn(): void;
+  /** Tray: turn the piece in hand and the ones taken out next (an eighth turn, or `fine`: 15°, Shift held). */
+  trayTurn(fine?: boolean): void;
   /** Tray: mirror the piece in hand and the ones taken out next. */
   trayFlip(): void;
   /** Tray: drawing track switched on or off (the Draw chip). */
@@ -182,6 +183,9 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", html = ""):
 /** How long a menu item that asks first (New game) waits for the second tap (ms). */
 const ASK_MS = 4000;
 
+/** Was Shift held on the last button clicked (a finer turn: Turn and Rotate read it)? */
+let shiftClick = false;
+
 function button(label: string, title: string, onClick: () => void, cls = "chip"): HTMLButtonElement {
   const b = el("button", cls, label);
   b.title = title;
@@ -190,6 +194,7 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
     e.stopPropagation();
     // Greyed for now (see `setRefused`): it would only be refused.
     if (b.getAttribute("aria-disabled") === "true") return;
+    shiftClick = e.shiftKey;
     onClick();
   });
   return b;
@@ -793,7 +798,7 @@ export class Hud {
     this.pieceCard.hidden = true;
     this.flipBtn = button("Flip", "Mirror this piece (F)", h.flip, "chip text");
     const pieceRow = this.pieceRow;
-    this.rotateBtn = button("Rotate", "Rotate 45° (R)", h.rotate, "chip text");
+    this.rotateBtn = button("Rotate", "Rotate 45° (R; Shift for 15°)", () => h.rotate(shiftClick), "chip text");
     this.deleteBtn = button("Delete", "Remove this piece (Del)", h.deletePiece, "chip text danger");
     pieceRow.append(this.rotateBtn, this.flipBtn, this.deleteBtn);
     // Picking several pieces: from a single piece's card, or Shift+click.
@@ -1236,7 +1241,12 @@ export class Hud {
     const orient = el("div", "tray-orient");
     // (On a phone they sit in the tray's tab row as icons: their words go.)
     this.flipTrayBtn = button(`⇋<span class="chip-word"> Flip</span>`, "Mirror the next piece (or the one you're holding)", () => this.handlers.trayFlip(), "chip text tray-flip");
-    const turnBtn = button(`↻<span class="chip-word"> Turn</span><span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text");
+    const turnBtn = button(
+      `↻<span class="chip-word"> Turn</span><span class="turn-arrow">↑</span>`,
+      "Turn the next piece (or the one you're holding) an eighth of a turn (Shift: 15°; or twist a held piece with two fingers)",
+      () => this.handlers.trayTurn(shiftClick),
+      "chip text",
+    );
     // Tapped with a second finger while the first holds a piece (QA): a browser sends no click for a finger that isn't
     // the first, so these act on that finger's lift over them (the first finger's tap still clicks, once).
     const secondFinger = (b: HTMLButtonElement, act: () => void) =>
@@ -1599,6 +1609,18 @@ export class Hud {
   /** Open a tray tab (and one of its shelves), as if tapped: "Show me" reaches for what a goal needs. */
   openTray(id: string, shelf?: string): void {
     this.openTrayTab(id, shelf);
+  }
+
+  /**
+   * Point at a tray tile (`trayKey`: "piece:depot-mill"): scrolled into view on its shelf and ringed in blue till the
+   * next tap anywhere (a town card's Find a mill ›). After `openTray` for its tab.
+   */
+  pointAtTile(key: string): void {
+    const tile = this.tray.querySelector<HTMLElement>(`.tray-item[data-key="${CSS.escape(key)}"]`);
+    if (!tile) return;
+    tile.scrollIntoView({ block: "nearest", inline: "center" });
+    tile.classList.add("pointed");
+    setTimeout(() => window.addEventListener("pointerdown", () => tile.classList.remove("pointed"), { once: true, capture: true }), 0);
   }
   private trayMode: GameMode | null = null;
 

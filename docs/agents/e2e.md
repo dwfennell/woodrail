@@ -70,6 +70,10 @@ put down an underpass first when run alone).
 tray, an engine run up it) and `drag` (#8's curves dragged out and tapped), on one desktop Sandbox page, each finding its
 own room. On the test clock and Battery saver, a tray item's shelf tapped straight off (not shelf after shelf).
 
+**rotate** (`scripts/e2e/rotate.mjs`, about 6 min): `touch` (a 390×844 phone: a held curve twisted 30° by a second
+finger, laid, a curve joined on) and `mouse` (1440×900: Shift+R twice, laid at 30°, a loop of eight from the tray that
+closes, R on to the next eighth). Each on a fresh Sandbox page (#seed-24).
+
 **joints** (`scripts/e2e/joints.mjs`): `qa-line` (QA's drawn line's joints through a reload, an older build's save),
 `slip-draw` (a Draw stroke along a 45° crossing's turn makes it a slip, Game mode). Each on a fresh page.
 
@@ -149,6 +153,14 @@ timeout (2 min) and a bound of its own past Playwright's, and on failure prints 
 before a picture of a page that has only just loaded in a fresh context: it is still drawing its tray pictures, each read
 back from the graphics card, and under load a frame then takes seconds. (e2e:copy-map's last screenshot waited 23–30 s
 there for a frame, and ran out on a slower box after every check had passed; after `quiet` it took under a second.)
+
+## Taps on something that pops in: `scripts/e2e/lib/still.mjs`
+
+CSS animations only move on frames drawn, and under SwiftShader a slow WebGL frame can hold one on its first frame for
+a second or more. A box read then is where the element starts, not where the finger finds it a moment later.
+`still(page, selector, text)` waits until the element and its ancestors have no animation running and its box is the
+same on two reads, and only then should a tap measure it. (e2e:new-game measured ☰ New game while the menu's pop-in
+was held on its first frame, scaled 0.97 from the top right; the menu then came in, and the tap landed on Map seed.)
 
 ## Speed: where the time goes, and `scripts/e2e/lib/fast.mjs`
 
