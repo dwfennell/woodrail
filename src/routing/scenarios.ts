@@ -770,9 +770,10 @@ export const OTHERS: readonly Scenario[] = [
  * The user's 2026-11-05 deadlock, small: a line with a station spur (`junction`: Forest yard ⊐ Y ══ ══ ══ ══ points, the
  * straight road on to a buffer, the curved one ══ Sawmill ⊏). Clover is routed Sawmill → Forest yard (a single-train line);
  * Willow, four cars, has no route ("goes anywhere") and shuttles along the straight as the points lie. They met head on
- * on the trunk and stood for good, each "in the way" of the other. From 2026-11-05 Willow turned round to give way; since
- * 2026-11-07 nothing turns a train round short of the end of its line (the user, firm), so they stand, said stuck, the
- * card's fix a passing loop: a true deadlock, no road out ahead of either.
+ * on the trunk and stood for good, each "in the way" of the other. From 2026-11-05 Willow turned round to give way; from
+ * 2026-11-07 nothing turns a train round short of the end of its line (the user, firm), so they stood, said stuck, Willow
+ * held by sections with its front on the points. Since 2026-11-11 Willow asks for the way short of the points
+ * (`Sections.comesInto`) and waits clear of them while Clover goes by: both keep working.
  */
 export const routedMeetsHandRun: Scenario = {
   name: "a routed train meets a hand-run one head on by a station spur",

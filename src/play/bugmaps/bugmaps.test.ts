@@ -86,7 +86,9 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     // (From 51.9 s: trains following each other round the ring come onto points (78, 122, 130) the one ahead is still
     // on, its tail on them: following on circuits (§16 Q10) by the follow gap, through points. The core frees points
     // only once the leader's tail is off them.)
-    known: [{ invariant: "oneOwner", why: "close following through points on a ring (redesign step 6: every train reserves)" }, { invariant: "heldFree", why: "held by a line wait (sections) though the booking core would book it on: holds too big (redesign step 5: sections grant by booking)" }],
+    // (heldFree came off 2026-11-11: the hand-run trains coming onto the routed train's way ask for it short of the
+    // points (`Sections.comesInto`). oneOwner 11 → 14 then, still close following through points.)
+    known: [{ invariant: "oneOwner", why: "close following through points on a ring (redesign step 6: every train reserves)" }],
   },
   // (Issue #29, 2026-11-05: "This train is blocked by a train all the way on the other side of the map!" (v154). The
   // routed train, and a hand-run one, waited for good on an engine parked across the map: on no line, standing in the

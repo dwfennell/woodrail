@@ -311,16 +311,18 @@ const stuckSteadily = (n: number, s: number) => (r: Report) => {
 const nobodyGaveWay = (r: Report) => expect(r.gaveWay).toEqual({ any: 0 });
 const GIVE_WAY: Case[] = [
   {
-    // (Head on with nothing between them but the points the hand-run one stands on: no road out ahead for either.
-    // Before 2026-11-07 the hand-run one turned round, short of the end of its line.)
+    // (They met head on with nothing between them but the points the hand-run one stood on, held there by sections,
+    // and stood for good. Now the hand-run one asks for the way short of the points (`comesInto`), and waits clear of
+    // them while the routed one goes by: both keep working, turning only at the buffers.)
     scenario: S.routedMeetsHandRun,
     checks: {
-      "both stand, stuck in each other's way, the card's fix a passing loop": (r) => {
-        stuckSteadily(1, 200)(r);
-        expect(r.arrivals).toEqual([0, 0]);
+      "payoff: the routed train 10+ stops, the hand-run one 10+ runs to its end": (r) => {
+        expect(r.arrivals[0]).toBeGreaterThanOrEqual(10);
+        expect(r.turns[1].buffer).toBeGreaterThanOrEqual(10);
       },
-      "nobody gives way: no road out ahead": nobodyGaveWay,
-      "nobody turns back": (r) => expect(r.turns).toEqual(r.turns.map(() => ({ buffer: 0, "open-end": 0 }))),
+      "never stuck": noStall,
+      "nobody gives way: no need": nobodyGaveWay,
+      "turns back only at the buffers": endsOnly,
     },
   },
   {
@@ -597,9 +599,10 @@ describe("step 7: hand-run trains respect locks", () => {
     }
     const r = run.run(0);
     noBreaks(r);
-    // (It stood a few seconds, its nose STAND_SHORT + OVERLAP short of the points, as a routed train does.)
+    // (It stood a few seconds, clear of the points. Coming onto the routed train's way, it works its single track from
+    // short of the points (`comesInto`): sections hold it STAND_SHORT short of them, as they hold a line's train.)
     expect(waitedS).toBeGreaterThan(3);
-    expect(near).toBeGreaterThanOrEqual(STAND_SHORT + OVERLAP - 1);
+    expect(near).toBeGreaterThanOrEqual(STAND_SHORT - 1);
     // (And went on, the way the points lie, once the routed one was by: down the trunk.)
     expect(wentAt).toBeGreaterThan(0);
     expect(r.arrivals[0]).toBeGreaterThanOrEqual(1);

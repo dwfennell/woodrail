@@ -69,12 +69,11 @@ describe("the user's map, small (2026-11-05): a routed train behind a hand-run o
   // Clover follows to the points and waits for the yard's line end. Willow comes back to the points, which lie for the
   // branch Clover holds: each waited on the other for good, said stuck, though the mill spur on the points' other road
   // was free. Now Willow gives way by the spur: the points are thrown for it, and back to the player's way after.
-  // Known (2026-11-07): Willow then comes back out of the spur and stands with its front on the points, held by sections
-  // for Clover at the forest yard, whose only way out is over them: nose to nose, said stuck. Willow is on no line, and
-  // sections don't hold such a train at its stretch's end short of the points (routing spec §5 rule 9; the routing
-  // redesign's step 6, every train reserving). Till then a turn round got them out; nothing turns mid-line now.)
+  // (From 2026-11-07 to 11-11, Willow then came back out of the spur and stood with its front on the points, held by
+  // sections for Clover at the forest yard, whose only way out is over them: nose to nose, said stuck. Now Willow asks
+  // for the way short of the points it comes onto the line by (`Sections.comesInto`) and waits in the spur.)
   for (const ahead of [0, 1, 2])
-    it(`Willow ${2 - ahead} pieces nearer the points: Willow takes the spur, Clover gets to the forest yard; then they jam on the points (known)`, () => {
+    it(`Willow ${2 - ahead} pieces nearer the points: Willow takes the spur, Clover gets to the forest yard and keeps working; no jam on the points`, () => {
       const m = spurWorld();
       const { w, branch, sw } = m;
       const before = w.economy.router.defaultOf(sw);
@@ -82,9 +81,8 @@ describe("the user's map, small (2026-11-05): a routed train behind a hand-run o
       train(w, branch[ahead], true, CARS, 150);
       routeOn(w, clover, [{ depotId: m.depots.sawmill.id, action: "drop" }, { depotId: m.depots.forest.id, action: "pick" }, { depotId: m.depots.sawmill.id, action: "drop" }], 1);
       const r = runFor(w, 180, clover);
-      expect(r.stops).toBeGreaterThanOrEqual(1);
-      // (The jam on the points, known: a fix flips this. Nobody turns to get out of it.)
-      expect(r.stuck).toBeGreaterThan(60);
+      expect(r.stops).toBeGreaterThanOrEqual(4);
+      expect(r.stuck).toBe(0);
       expect(w.economy.stalls.gaveWay).toBeGreaterThanOrEqual(1);
       expect(w.economy.router.gaveWayThrows).toBeGreaterThanOrEqual(1);
       // (The player's way at the points is still theirs.)
