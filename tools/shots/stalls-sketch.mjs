@@ -27,6 +27,16 @@ function panel(d, which, label) {
     const mid = p.paths[0][4];
     s += `<text class="id" x="${X(mid[0]).toFixed(1)}" y="${(Z(mid[1]) + (p.type === "switch" ? -9 : 16)).toFixed(1)}">${stops.has(p.id) ? "▣" : ""}${p.id}</text>`;
   }
+  // (Signals, ring3.test.ts's dumps: a post at the joint, set off to the side of the end it guards a train leaving by.)
+  for (const m of d.signals ?? []) {
+    const p = d.track.find((q) => q.id === m.piece);
+    if (!p) continue;
+    const path = p.paths[0];
+    const [e, f] = m.end === 0 ? [path[0], path[1]] : [path[path.length - 1], path[path.length - 2]];
+    const a = Math.atan2(Z(e[1]) - Z(f[1]), X(e[0]) - X(f[0]));
+    const x = X(e[0]) - Math.cos(a) * 7 - Math.sin(a) * 9, y = Z(e[1]) - Math.sin(a) * 7 + Math.cos(a) * 9;
+    s += `<circle class="sig" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5"/>`;
+  }
   trains.forEach((t, i) => {
     if (t.gone) return;
     const c = COL[i % 3];
@@ -51,9 +61,10 @@ for (const seed of seeds) {
   const o = d.oracle;
   const n = d.start.length;
   const v = (r) => `${r.best} of ${n}`;
-  body += `<text class="seed" x="12" y="${y}">seed ${seed} — oracle: trains that could keep delivering, from the start ${v(o.startAny)}, from the stall ${v(o.stallAny)} · game: stops ${d.arrivals.join("/")} in 30 min</text>`;
+  if (d.name) body += `<text class="seed" x="12" y="${y}">${d.name} — oracle (with the signals' blocks): trains that could keep running ${v(o.startAny)} · game: stops ${d.arrivals.join("/")} in 30 min${d.begun ? ", stalled" : ""}</text>`;
+  else body += `<text class="seed" x="12" y="${y}">seed ${seed} — oracle: trains that could keep delivering, from the start ${v(o.startAny)}, from the stall ${v(o.stallAny)} · game: stops ${d.arrivals.join("/")} in 30 min</text>`;
   body += `<g transform="translate(0 ${y + 6})">${panel(d, "start", "as put down")}</g>`;
-  body += `<g transform="translate(${W + 20} ${y + 6})">${panel(d, "stall", `at the stall (${d.stallAt} s)`)}</g>`;
+  body += `<g transform="translate(${W + 20} ${y + 6})">${panel(d, "stall", d.panel ?? `at the stall (${d.stallAt} s)`)}</g>`;
   y += H + 40;
 }
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${2 * W + 30}" height="${y}" viewBox="0 0 ${2 * W + 30} ${y}">
@@ -63,7 +74,7 @@ text{font-family:Helvetica,Arial,sans-serif}
 .id{font-size:10px;fill:#888;text-anchor:middle}.lab{font-size:12px;font-weight:600}
 polyline{fill:none;stroke-linecap:round;stroke-linejoin:round}
 .rail{stroke:#b9a27c;stroke-width:5}.sw{stroke:#7a5c2e;stroke-width:5}.stop{stroke:#e6b800;stroke-width:9}.buf{stroke:#333;stroke-width:9}
-.train{stroke-width:11;opacity:.9}
+.train{stroke-width:11;opacity:.9}.sig{fill:#c0392b;stroke:#222;stroke-width:1.5}
 </style><rect width="100%" height="100%" fill="#fbf8f2"/><text class="t" x="12" y="26">${TITLE}</text>${body}</svg>`;
 const CHROMIUM = existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined;
 const b = await chromium.launch({ executablePath: CHROMIUM });

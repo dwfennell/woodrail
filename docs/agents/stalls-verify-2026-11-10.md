@@ -263,3 +263,69 @@ does. The earlier class "three trains on a line with one loop" is the exception.
 one loop, because the line's two ends hold a train each. The game's room rule (one more train than loops) is too strict,
 holds the third, and tells the player to lay a loop they don't need. Four more the game walks into on its own: three by
 filling a loop with two trains going the same way, one by holding a train on points.
+
+## A ring in three blocks (2026-11-11)
+
+The user's question, from the coordinator: "two trains on a line that is a loop, picture it divided into three segments
+with signals... should the trains move?" Yes, if both run the same way round, and on today's main they do. Checked as a
+real scenario test, `src/routing/ring3.test.ts` (12 cases, about 1 min, runs in the plain `npm test`), and by the
+dispatcher oracle with the signals' blocks (a train may not come onto a piece whose block another train is in:
+`oracle(…, blocks)`).
+
+The ring: ▣A, three straights, a half round, ▣B, three straights, a half round (16 pieces), cut at three joints into
+blocks of 5, 5 and 6 pieces, by a pair of signals at each cut (a post each way, as the tray drops them) or by one signal
+each, facing the way the trains run. 3-car trains, 30 game minutes, every train invariant on. In the harness a train
+doesn't dwell at its stops, so two trains put down apart stay apart; to make the follower come up behind, the player
+holds one cut's signal red by hand for 15 s every 4 minutes.
+
+![two trains the same way](shots/ring3-same-way.jpg)
+
+| Case | Stops in 30 min | Stalls | Waits at an auto red | Stands on points / elsewhere | Game's checks | Oracle |
+|---|---|---|---|---|---|---|
+| 1a one line, same way, pairs | 143 / 144 | 0 | 8 | 0 / 0 | clean | 2 of 2 |
+| 1b one line, same way, single signals | 143 / 144 | 0 | 8 | 0 / 0 | clean | 2 of 2 |
+| 1c one line, same way, in the next block behind | 143 / 144 | 0 | 8 | 0 / 0 | clean | 2 of 2 |
+| 2a own lines, same way, pairs | 143 / 144 | 0 | 8 | 0 / 0 | clean | 2 of 2 |
+| 2b own lines, same way, single signals | 143 / 144 | 0 | 8 | 0 / 0 | clean | 2 of 2 |
+| 2c a hand-run train behind a routed one, pairs | 143 / – | 0 | 8 | 0 / 0 | clean | 2 of 2 |
+| 2d the same, single signals | 143 / – | 0 | 8 | 0 / 0 | clean | 2 of 2 |
+| 3a one line, three trains (one a block), pairs | 0 / 0 / 1 | yes, 10 s | – | 0 / 0 | clean | 0 of 3 |
+| 3b own lines, three trains, single signals | 0 / 0 / 1 | yes, 10 s | – | 0 / 0 | clean | 0 of 3 |
+| 3c one line, two facing each other, pairs | 0 / 0 | yes, 9 s | – | 0 / 0 | clean | 0 of 2 |
+| 3d own lines, two facing each other, singles | 0 / 0 | yes, 9 s | – | 0 / 1 | clean | 0 of 2 |
+| 3e control: three trains, one line, no signals | 150 / 151 / 151 | 0 | – | 0 / 0 | clean | 3 of 3 |
+
+The longest any train in 1a to 2d stood was 14.4 s, at the red held by hand. Each time that red was held, the other
+train came up behind and waited at the auto red of the block before. No train ever came to a stand anywhere but at a
+signal or a stop. (The plain ring has no points; the check is there all the same.)
+
+![three trains, or two facing each other](shots/ring3-cannot-move.jpg)
+
+**Three trains, one a block (3a, 3b):** a true deadlock *of the signals*. Each train's next block holds another, and the
+oracle finds no move for any of them. Without the signals the same three trains run (3e: 150 stops each). The card says
+"Stuck: too many trains for these signals. Add a signal", which is right: a fourth block lets them move.
+
+**Two facing each other (3c, 3d):** a true deadlock, signals or not: on a ring nothing can turn round. The game stalls
+within 9 s, but **its card is wrong**. It says "too many trains for these signals. Add a signal" (`Stuck` kind
+"signals"), and no signal lets them pass. The rule in `stalls.ts` calls any ring of waits with a train held at a signal
+"signals". Proposed fix, `stalls-verify/exp4-head-on-card.patch` (in `stalls.ts` only): a ring of waits where some train
+waits on one whose front comes toward it (along its way, points as set, the first of the other met is its front, driving
+out toward it) is "in-way" instead. The card then says "Move one of them", or for two lines' trains "Add a passing loop
+here". On a scratch copy: 3c and 3d say "in-way", 3a and 3b still say "signals", and the stalls, signals, harness and
+engine-status tests pass (925). `ring3.test.ts` holds the expectation as `it.fails`, so it turns red once the fix lands.
+
+**Signal fuzz with exp4** (40 + 40 seeds × 600 s, pairs laid as a player does): running; results to follow in the next commit.
+
+**One for the routing redesign:** in 1a to 2d, every time the follower waits at an auto red with the train ahead in the
+block beyond, the booking core in shadow (`heldFree`, test-only) says it could go on 1 to 3 pieces. The core stops only
+at a signal held red, not at an auto block's red (`shadow.ts`, "a signal held at red"). Today's game is right to hold
+it. If the core took over as it stands, a follower would run on into an occupied block. So the core needs auto blocks
+before step 3. `ring3.test.ts` logs it and doesn't assert it.
+
+**Answer:** two trains on a ring in three blocks keep running when they go the same way round, on one line or their
+own, routed or hand-run. The follower waits at signals and never on points. The game has no bug here. Three trains (one
+a block) can't move, and the card tells you why and what to do. Two facing each other can't move either, but the card
+gives the wrong fix (exp4 corrects it).
+
+Run: `npx vitest run src/routing/ring3.test.ts`. Pictures: `RING3_OUT=.ring3 npx vitest run src/routing/ring3.test.ts`,
+then `node tools/shots/stalls-sketch.mjs .ring3 <out.jpg> "<title>" 1,2,6` (the cases by number, in the test's order).

@@ -60,7 +60,11 @@ export function atEnd(layout: Layout, f: Elem): boolean {
   return isBuffer(layout, n.pieceId);
 }
 
-export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own", maxStates = 400_000): OracleResult {
+/**
+ * `blocks` (optional): signal blocks, piece → block. A train may not come onto a piece whose block another train has a
+ * piece in (a block signal's rule, each way: a little stricter than the game's, which lets a train stand across a joint).
+ */
+export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own", maxStates = 400_000, blocks?: ReadonlyMap<number, number>): OracleResult {
   const n = start.length;
   const key = (ts: Elem[][]) => ts.map((t) => t.map((e) => `${e.p}.${e.en}.${e.ex}`).join(",")).join("|");
   const sw = new Map<number, boolean>();
@@ -80,8 +84,14 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own", max
   /** Rest positions train k reaches by one move forward (through points, to the first place clear of them). */
   const forward = (k: number, ts: Elem[][]): Elem[][] => {
     const others = new Set<number>();
+    const taken = new Set<number>();
     ts.forEach((t, j) => {
-      if (j !== k) for (const e of t) others.add(e.p);
+      if (j !== k)
+        for (const e of t) {
+          others.add(e.p);
+          const b = blocks?.get(e.p);
+          if (b !== undefined) taken.add(b);
+        }
     });
     const out: Elem[][] = [];
     let frontier: Elem[][] = [ts[k]];
@@ -92,6 +102,8 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own", max
         if (f.ex < 0) continue;
         const nx = next(layout, f.p, f.ex);
         if (!nx || isBuffer(layout, nx.pieceId) || others.has(nx.pieceId)) continue;
+        const nb = blocks?.get(nx.pieceId);
+        if (nb !== undefined && taken.has(nb)) continue;
         for (const w of waysFrom(layout, nx.pieceId, nx.entry, () => false)) {
           if (w.exit < 0) continue;
           const nt = [...t.slice(1), { p: nx.pieceId, en: nx.entry, ex: w.exit }];
