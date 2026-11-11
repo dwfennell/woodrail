@@ -308,29 +308,40 @@ export const crossoverRing: Scenario = {
   },
 };
 
+/**
+ * Three trains on a line with one passing loop: the line's two ends wait a train each, so there's room for all three
+ * (stalls-verify 2026-11-10; before, the room rule (loops + 1) held one and the line stood still, "too many trains").
+ */
+const threeOn = (l: ReturnType<typeof lineWithLoop>): TrainSpec[] => [
+  { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 0, line: 1, cars: CARS },
+  { pieceId: l.e1, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+  { pieceId: l.loop.main[0], stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+];
+
 export const threeTrainsOneLoop: Scenario = {
   name: "three trains on a line with one loop",
   seconds: 600,
+  build: (layout) => ({ trains: threeOn(lineWithLoop(layout)) }),
+};
+
+/** The same, and a fourth at the B end: a train too many (room for three), so one is held. */
+export const fourTrainsOneLoop: Scenario = {
+  name: "four trains on a line with one loop",
+  seconds: 600,
   build: (layout) => {
     const l = lineWithLoop(layout);
-    return {
-      trains: [
-        { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 0, line: 1, cars: CARS },
-        { pieceId: l.e1, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
-        { pieceId: l.loop.main[0], stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
-      ],
-    };
+    return { trains: [...threeOn(l), { pieceId: l.e2, reversed: true, stops: [l.a, l.b], next: 1, line: 1, cars: CARS }] };
   },
 };
 
 /**
- * The same three trains, and the player's fix once they're stuck (stalls.ts: too many trains for the line): the held
- * one put away (its card's Remove), at 2 minutes. The other two then pass at the loop and deliver.
+ * The four trains, and the player's fix once they're stuck (stalls.ts: too many trains for the line): the held one put
+ * away (its card's Remove), at 2 minutes. The other three then pass at the loop and deliver.
  */
-export const threeTrainsPutAway: Scenario = {
-  ...threeTrainsOneLoop,
-  name: "three trains on a line with one loop, the held one put away",
-  build: (layout) => ({ ...threeTrainsOneLoop.build(layout), events: [{ at: 120, do: (run) => run.putAway(run.engines.findIndex((e) => run.sections.heldForRoom(e))) }] }),
+export const fourTrainsPutAway: Scenario = {
+  ...fourTrainsOneLoop,
+  name: "four trains on a line with one loop, the held one put away",
+  build: (layout) => ({ ...fourTrainsOneLoop.build(layout), events: [{ at: 120, do: (run) => run.putAway(run.engines.findIndex((e) => run.sections.heldForRoom(e))) }] }),
 };
 
 /**
@@ -756,7 +767,8 @@ export const OTHERS: readonly Scenario[] = [
   balloonBehindOpenRoad,
   crossoverRing,
   threeTrainsOneLoop,
-  threeTrainsPutAway,
+  fourTrainsOneLoop,
+  fourTrainsPutAway,
   headOnTwoLines,
   facingInLineEnd,
   leverDuringLock,

@@ -43,14 +43,21 @@ const GREEN = "held by sections (a slot or section wait) standing at a signal th
 // sections' slot wait though the booking core would book it a way on: holds too big, step 5's.)
 const FREE = "held by sections' slot wait though the booking core would let it go (redesign step 5: sections grant by booking)";
 const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
-  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 183: FREE, 186: FREE, 188: FREE },
+  // (2026-11-11, the room counting a line's ends (3 trains on one loop run): the full long fuzz against main, seed for
+  // seed: 37, 91, 112, 132, 134, 145, 186 and 188 came off (their third train no longer held), nothing went on.)
+  heldFree: { 22: FREE, 34: FREE, 68: FREE, 69: FREE, 74: FREE, 104: FREE, 113: FREE, 127: FREE, 152: FREE, 183: FREE },
 };
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-09, booking to the next signal (every signal of a pair a waiting point, sized per train): the full long
   // fuzz, against main seed for seed: 74 came off, 165 went on. The same 53 seeds stalled; nothing else moved.)
-  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 165: FREE, 186: FREE, 188: FREE },
+  // (2026-11-11, the room counting a line's ends: 37, 91, 112, 132, 134, 145, 165, 186 and 188 came off; 136 went on,
+  // a seed that stands still on main too, its three trains in a ring of signals, before and after.)
+  heldFree: { 22: FREE, 34: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 127: FREE, 136: FREE, 152: FREE },
   // (14, 30, 76 and 160 came off on the merged base, before step 3 (2026-11-07, the full long fuzz on both).)
-  greenHeld: { 37: GREEN, 66: GREEN, 69: GREEN, 105: GREEN, 119: GREEN, 174: GREEN, 192: GREEN },
+  // (2026-11-11, the room counting a line's ends: 37 came off; 165 went on. On main 165 stood still from the start (1, 0
+  // and 0 stops in 30 min, the third train held); now its three run (46, 44, 44 stops), now and then held by sections
+  // at a signal showing clear.)
+  greenHeld: { 66: GREEN, 69: GREEN, 105: GREEN, 119: GREEN, 165: GREEN, 174: GREEN, 192: GREEN },
 };
 
 /** Of these runs (seeds FIRST + k), those that broke `inv` and aren't known to; and the known ones that ran and didn't. */

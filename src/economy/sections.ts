@@ -26,8 +26,10 @@ import { engineOf, trainLength } from "../sim/train-cars";
  *   move never meets a train of its line head on, and nothing here turns a train. A wait that can't end (a ring, a
  *   line over room whose held train is in the way) is never broken by turning a train back (routing spec §16 Q3): the
  *   trains stand, and economy/stalls.ts says why on their cards.
- * - **Room rule**: a line takes one train more than it has passing loops on its way (a loop per extra train). The
- *   rest are held (never sent into a section), with the reason (`waitOf`: kind "room", and how many loops to lay).
+ * - **Room rule**: a line takes one train more than it has passing loops on its way (a loop per extra train), and one
+ *   more again once it has a loop where both its ends fit its longest train (each end waits a train: 3 trains on one
+ *   loop). The rest are held (never sent into a section), with the reason (`waitOf`: kind "room", and how many loops to
+ *   lay).
  * - **A train in a section with no move** (put down there, a loaded game, a second train joining the line) asks for
  *   the rest of its way to the slot ahead; it waits only for a train of its line on that way, or coming the other way.
  * - **Lines sharing track** (single-line working across lines, routing spec §16 Q3 follow-up): lines whose ways run
@@ -1476,8 +1478,9 @@ export class Sections {
 
   private roomWait(st: TrainState, info: LineInfo): BlockWait {
     const loops = Math.max(0, info.loops - info.blocked.size);
-    // (A line stood still for a parked train: every train of it says to move that, as moving it is what works.)
-    return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: Math.max(1, info.more), spare: info.spareCut, parked: info.parked, other: info.other, pinned: this.pinnedLoopOn(st.engine) };
+    // (A line stood still for a parked train: every train of it says to move that, as moving it is what works. `more`
+    // 0: it has room for them all, this one waits its turn; no loop to ask for.)
+    return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: info.more, spare: info.spareCut, parked: info.parked, other: info.other, pinned: this.pinnedLoopOn(st.engine) };
   }
 
   /** Does a train the line has no room for stand on this loop road? */
@@ -2388,8 +2391,9 @@ export class Sections {
       for (const t of looseTrains) mine.add(t.id);
       for (const t of this.sim.trains()) if (!t.derailed && !mine.has(t.id)) foreign.push(t);
       // Which trains it has room for: kept once given (a train is never left without room mid-way), more let in as
-      // room allows, in the order they came to the line. Room: a train more than its passing loops, less the loops a
-      // standing train it has no room for (or one not on the line) takes a road of.
+      // room allows, in the order they came to the line. Room: a train more than its passing loops (and one more for
+      // its two ends: `roomOf`), less the loops a standing train it has no room for (or one not on the line) takes a
+      // road of.
       admitted = this.admitted.get(lineId) ?? new Set();
       this.admitted.set(lineId, admitted);
       for (const e of [...admitted]) if (!engines.includes(e)) admitted.delete(e);
@@ -2441,9 +2445,26 @@ export class Sections {
         };
         // (Every train working its track going round circuits one way (none could ever meet another head on: they only
         // follow, `follows`): room for all of them, however many loops (the user, 2026-11-02: a line of 3 on a ring with
-        // one loop was held "too many", though they could just follow round). Else a train more than its loops.)
+        // one loop was held "too many", though they could just follow round). Else a train more than its loops, and
+        // one more for its ends.)
         oneWay = this.oneWayRound([...engines, ...peers, ...loose]);
-        const roomOf = (adm: ReadonlySet<number>) => (oneWay ? engines.length : Math.max(1, loops - roadsHeld(adm).b.size + 1));
+        // (The line's two ends are waiting places too, where its longest train fits in each: with a passing loop, they
+        // make room for a train more (3 trains on one loop: 4 places, the free one moving round like the gap in a
+        // sliding puzzle; stalls-verify 2026-11-10). Not with no loop: no train passes then. Nor with a loop pinned so
+        // each road is one way, or one a train not on the line stands on: there the trains can't trade places so.)
+        const ends = this.endsOn(lineId, topo, longest) >= 2 && [...own].every((l) => topo.loops[l].into.every((x) => x.length > 1)) ? 1 : 0;
+        const roomOf = (adm: ReadonlySet<number>) => {
+          if (oneWay) return engines.length;
+          const h = roadsHeld(adm);
+          return Math.max(1, loops - h.b.size + 1 + (loops >= 1 && h.gone === 0 ? ends : 0));
+        };
+        // (Passing loops to lay for all its trains, past those a train not on the line stands on; 0 if it has room
+        // for them all once its own held trains are let in.)
+        const toLay = (gone: number) => {
+          const free = loops - gone;
+          const need = engines.length - 1 - (gone === 0 ? ends : 0) - free;
+          return engines.length < 2 ? 0 : free < 1 ? Math.max(1, need) : Math.max(0, need);
+        };
         // (Let in first those whose holding would block most: one in a section holds the single track; one at a line end
         // holds its stop; one standing on a loop's road costs only that loop, and is let in last.)
         const where = (e: number): number => {
@@ -2492,7 +2513,7 @@ export class Sections {
         if (this.onFull && !this.toldFull.has(lineId) && fresh.some((e) => !admitted.has(e))) {
           this.toldFull.add(lineId);
           const room = roomOf(admitted);
-          this.onFull(lineId, room, engines.length, Math.max(1, engines.length - room));
+          this.onFull(lineId, room, engines.length, Math.max(1, toLay(roadsHeld(admitted).gone)));
         }
         // Too many for the room left (a train came to stand on a loop's road): one gives up its room, never mid-way (only
         // one standing with no move, never one in a section: held there it'd block the line). The one whose giving up
@@ -2556,9 +2577,9 @@ export class Sections {
         const way = this.loopCount.get(lineId)?.way ?? EMPTY;
         for (const t of foreign)
           if (t.speed < 1 && this.host.drive(t) === 0 && t.bogies.some((x) => way.has(x.pieceId) && topo.sectionOf.has(x.pieceId))) spareCut = true;
-        // (Loops to lay: enough for a loop between each two of its trains, past those a train not on the line stands on.
+        // (Loops to lay: enough for its trains with its ends (`toLay`), past those a train not on the line stands on.
         // Its own held trains count as trains: once there's room they're let in and give their loop back.)
-        if (engines.length > admitted.size) more = Math.max(1, engines.length - 1 - (loops - held.gone));
+        if (engines.length > admitted.size) more = toLay(held.gone);
         parked = held.gone > 0;
         other = parked && !byParked;
         this.slow.set(lineId, { key, topo, blocked, more, spareCut, parked, other, oneWay });
@@ -2845,6 +2866,22 @@ export class Sections {
       st.frontKey = -1;
       this.cut++;
     }
+  }
+
+  /** A line's ends (end slots on its way) its longest train, `length` mm, fits in. */
+  private endsOn(lineId: number, topo: Topology, length: number): number {
+    const way = this.loopCount.get(lineId)?.way;
+    if (!way) return 0;
+    let n = 0;
+    for (const sl of topo.slots) {
+      if (sl.kind !== "end" || sl.length < length) continue;
+      for (const p of sl.pieces)
+        if (way.has(p)) {
+          n++;
+          break;
+        }
+    }
+    return n;
   }
 
   /** Is a loop on its line's way pinned so it's no passing place (see `findLoops`)? */

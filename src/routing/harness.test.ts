@@ -160,11 +160,17 @@ const OTHERS: Case[] = [
   },
   {
     scenario: S.threeTrainsOneLoop,
-    // (One train has no room (loops + 1): held, by design, where it stands in the others' way. Nothing turns back short
-    // of it any more (§16 Q3, `deadEndCap` is gone): the two it has room for stand, stuck, "too many trains".)
+    // (Room for all three: the loop and the line's two ends. Before, the room rule (loops + 1) held one, where it stood
+    // in the others' way, and the line stood still, "too many trains" (stalls-verify 2026-11-10).)
+    checks: { "turns back only at the buffers": endsOnly, "payoff: each train 15+ stops": arrivals(15), "never stuck": noStall },
+  },
+  {
+    scenario: S.fourTrainsOneLoop,
+    // (One train has no room (the loop and the line's two ends hold three): held, by design, where it stands in the
+    // others' way. Nothing turns back short of it (§16 Q3): those it has room for stand, stuck, "too many trains".)
     checks: {
       "turns back only at the buffers": endsOnly,
-      "the two it has room for stand stuck: too many trains": (r) => {
+      "those it has room for stand stuck: too many trains": (r) => {
         // (Room handed to the held one now and then (`unring`'s hand-over) changes which one is held: any may be.)
         expect(r.stalls.why.filter((w) => w === "too-many").length).toBeGreaterThanOrEqual(2);
         expect(Math.min(...r.stalls.stuck.filter((n) => n > 0))).toBeGreaterThan(60 * SIM_HZ);
@@ -172,9 +178,9 @@ const OTHERS: Case[] = [
     },
   },
   {
-    scenario: S.threeTrainsPutAway,
-    // (The player's fix: the held one put away at 2 minutes. The other two pass at the loop and deliver.)
-    checks: { "turns back only at the buffers": endsOnly, "payoff: the two deliver once it's put away (30+ stops)": (r) => expect(r.arrivals.reduce((a, b) => a + b)).toBeGreaterThanOrEqual(30) },
+    scenario: S.fourTrainsPutAway,
+    // (The player's fix: the held one put away at 2 minutes. The other three pass at the loop and deliver.)
+    checks: { "turns back only at the buffers": endsOnly, "payoff: the three deliver once it's put away (30+ stops)": (r) => expect(r.arrivals.reduce((a, b) => a + b)).toBeGreaterThanOrEqual(30) },
   },
   {
     scenario: S.headOnTwoLines,
