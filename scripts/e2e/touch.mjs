@@ -1225,7 +1225,7 @@ async function wyeLevers(ctx, p, tapOn) {
 
 // (Groups, for E2E_ONLY (one or a comma list, run in the full run's order; `-- --list` lists them): sandbox-shelves and
 // game-shelves (a touch tap on each shelf and Back, in each mode), and Sandbox's checks by name: map-taps, select-drag, redrawn,
-// flick, lever-pins, under-car, toast-through, trap (the third-train trap), dead-end (Continue), routes (two trains'
+// flick, lever-pins, under-car, toast-through, trap (the train-too-many trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
 // wait (a train waiting at points set for another), wye (a wye's three levers, #15), slips, double-three-way, split and turntable-taps (the tech tree's track pieces, track-pieces.mjs), stuck (two trains of a line head
 // on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
@@ -2882,10 +2882,11 @@ async function deadEndContinue(p) {
 }
 
 /**
- * The third-train trap, by the player's path: a line with one passing loop and three trains. The third is held (the
- * newest), the player's told once (the real toast, at 360 px), and its card says what to do (no "Put away" button: the
- * user, 2026-11-01): a touch tap on its own Remove takes it off, and the other two deliver. A reload keeps the same
- * train held, and says nothing again.
+ * The train-too-many trap, by the player's path: a line with one passing loop and four trains (room for three: the loop
+ * and the line's two ends; it was three trains before the room counted the ends). The fourth is held (the newest), the
+ * player's told once (the real toast, at 360 px), and its card says what to do (no "Put away" button: the user,
+ * 2026-11-01): a touch tap on its own Remove takes it off, and the other three deliver. A reload keeps the same train
+ * held, and says nothing again.
  */
 async function putAwayButton(p) {
   await p.keyboard.press("Escape");
@@ -2921,7 +2922,7 @@ async function putAwayButton(p) {
     const forest = depot(real(a), "forest");
     const sawmill = depot(real(b), "sawmill");
     // Harness shortcut (setup): the trains put down and joined to one line in code, as the tray and the card's line
-    // would; the third comes on a moment later, as the player adds it.
+    // would; the fourth comes on a moment later, as the player adds it.
     const put = (piece, s, next, lineId) => {
       const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId: real(piece), pathIndex: 0, reversed: false, s });
       if (r.kind !== "placed") throw new Error("no room for a train");
@@ -2933,6 +2934,7 @@ async function putAwayButton(p) {
     };
     const first = put(west[0], 200, 1);
     const second = put(east[0], 200, 0, first.lineId);
+    const third = put(loop.main[0], 100, 0, first.lineId);
     // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of SwiftShader's
     // few frames a second; the forest kept stocked (its logs aren't what's tested). Counts goods unloaded at the sawmill.
     window.__run = (secs) => {
@@ -2957,15 +2959,15 @@ async function putAwayButton(p) {
     const toast = w.hud.toast.bind(w.hud);
     w.hud.toast = (m, ...rest) => (window.__trapSaid.push(m), toast(m, ...rest));
     window.__run(30);
-    const third = put(west[1], 100, 1, first.lineId);
+    const fourth = put(west[1], 100, 1, first.lineId);
     window.__run(1);
     const at = { x: g.x + 1200, z: g.z };
     w.director.glideTo(w.controls.target.clone().set(at.x, 0, at.z), frameDistance(1600, w.camera.fov, w.camera.aspect), { duration: 0.3 });
     // (Where the two places stand: a reload gives out depot ids afresh, as it does car ids.)
     const standsAt = (d) => { const q = w.layout.getPiece(d.pieceId).pose; return [q.x, q.z]; };
-    return { E: [first.e, second.e, third.e], forest: forest.id, sawmill: sawmill.id, forestAt: standsAt(forest), sawmillAt: standsAt(sawmill), lineId: first.lineId };
+    return { E: [first.e, second.e, third.e, fourth.e], forest: forest.id, sawmill: sawmill.id, forestAt: standsAt(forest), sawmillAt: standsAt(sawmill), lineId: first.lineId };
   });
-  // The toast, said as the third came on: once, in the line's numbers, and it fits a 360 px phone.
+  // The toast, said as the fourth came on: once, in the line's numbers, and it fits a 360 px phone.
   await p.waitForFunction(() => document.querySelector(".toast")?.classList.contains("show"), null, { timeout: 60000 }).catch(() => {});
   const toast = await p.evaluate(() => {
     const t = document.querySelector(".toast");
@@ -2982,14 +2984,14 @@ async function putAwayButton(p) {
     one.remove();
     return { said: window.__trapSaid.filter((m) => /^This line has room/.test(m)), shown: t.textContent, left: r.left, right: r.right, lines: Math.round((t.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), lh, font: document.fonts.check(`${cs.fontWeight} ${cs.fontSize} Nunito`), vw: innerWidth };
   });
-  check("trap: a third train on a 1-loop line: the player's told once, how to fix it", toast.said.length === 1 && toast.said[0] === "This line has room for 2 trains. Lay another passing loop, or take one off the track.", JSON.stringify(toast.said));
+  check("trap: a fourth train on a 1-loop line: the player's told once, how to fix it", toast.said.length === 1 && toast.said[0] === "This line has room for 3 trains. Lay another passing loop, or take one off the track.", JSON.stringify(toast.said));
   check("trap: the line's toast fits a 360 px phone (three lines at most)", toast.left >= 0 && toast.right <= toast.vw && toast.lines <= 3, JSON.stringify(toast));
   // The newest is held; the line delivers nothing while it is (the trap).
   const trapped = await p.evaluate(({ E }) => {
     const s = window.woodrail.economy.sections;
     return { held: E.map((e) => (s.heldForRoom(e) ? "held" : "room")).join("/"), goods: window.__run(90) };
   }, setup);
-  check("trap: the newest train is the one held, and the line delivers nothing", trapped.held === "room/room/held" && trapped.goods === 0, JSON.stringify(trapped));
+  check("trap: the newest train is the one held, and the line delivers nothing", trapped.held === "room/room/room/held" && trapped.goods === 0, JSON.stringify(trapped));
   // Reloaded (saved as the page goes): the same train is held, and the player isn't told again.
   const before = await p.evaluate(({ E }) => E.map((e) => { const q = window.woodrail.sim.findCar(e).train.world[0]; return [q.x, q.z]; }), setup);
   await p.reload();
@@ -3023,7 +3025,7 @@ async function putAwayButton(p) {
     const s = w.economy.sections;
     return { E, held: E.map((e) => (e < 0 ? "?" : s.heldForRoom(e) ? "held" : "room")).join("/"), said: window.__trapSaid.filter((m) => /^This line has room/.test(m)) };
   }, { before });
-  check("trap: after a reload the same train is held, and the player isn't told again", reloaded.held === "room/room/held" && reloaded.said.length === 0, JSON.stringify(reloaded));
+  check("trap: after a reload the same train is held, and the player isn't told again", reloaded.held === "room/room/room/held" && reloaded.said.length === 0, JSON.stringify(reloaded));
   const E = reloaded.E;
   // Harness shortcut: the run-ahead helper again (the page was reloaded); it's the same as above.
   await p.evaluate(async ({ forestAt, sawmillAt }) => {
@@ -3052,7 +3054,7 @@ async function putAwayButton(p) {
   }, setup);
   // The held train's card (opened in code: opening a card is tested above): no "Put away" of its own any more (beside
   // Remove it read as the other train's, the user, 2026-11-01); its status says what to do, in two lines at 360 px.
-  await p.evaluate((e) => window.woodrail.interaction.openEngineCard(e), E[2]);
+  await p.evaluate((e) => window.woodrail.interaction.openEngineCard(e), E[3]);
   await p.waitForFunction(() => { const c = document.querySelector(".engine-card"); return !!c && !c.hidden && document.querySelector(".engine-card .engine-status")?.textContent; }, null, { timeout: 60000 });
   const fit = await p.evaluate(() => {
     const s = document.querySelector(".engine-card .engine-status");
@@ -3060,7 +3062,7 @@ async function putAwayButton(p) {
     return { putAway, status: s.textContent, statusLines: Math.round(s.getBoundingClientRect().height / (1.25 * parseFloat(getComputedStyle(s).fontSize))) };
   });
   check("trap: the held train's card says what to do in two lines at 360 px, with no Put away button", fit.putAway === 0 && fit.statusLines <= 2 && /loop/.test(fit.status), JSON.stringify(fit));
-  // The player's fix: the held train off the track, by its own card's Remove (a touch tap); the other two deliver.
+  // The player's fix: the held train off the track, by its own card's Remove (a touch tap); the other three deliver.
   await p.waitForFunction(() => new Promise((r) => {
     const at = () => JSON.stringify(document.querySelector(".engine-card .remove")?.getBoundingClientRect());
     const a = at();
@@ -3071,10 +3073,10 @@ async function putAwayButton(p) {
   const box = await (await p.$(".engine-card .remove")).boundingBox();
   await tapped(p, () => p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2));
   const gone = await p.evaluate((E) => ({ on: E.map((e) => !!window.woodrail.sim.findCar(e)), card: !document.querySelector(".engine-card").hidden }), E);
-  check("trap: a tap on the held train's Remove takes it off the track", JSON.stringify(gone.on) === "[true,true,false]" && !gone.card, JSON.stringify(gone));
-  // The payoff: the other two deliver (QA's plain 2-train run: 24 goods in 150 s).
+  check("trap: a tap on the held train's Remove takes it off the track", JSON.stringify(gone.on) === "[true,true,true,false]" && !gone.card, JSON.stringify(gone));
+  // The payoff: the other three deliver (QA's plain 2-train run: 24 goods in 150 s).
   const goods = await p.evaluate(() => window.__run(150));
-  check("trap: taken off, the other two deliver", goods >= 12, `${goods} goods in 150 s`);
+  check("trap: taken off, the other three deliver", goods >= 12, `${goods} goods in 150 s`);
   await p.setViewportSize({ width: 390, height: 844 });
   await frames(p);
 }
