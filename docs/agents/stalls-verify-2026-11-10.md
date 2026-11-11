@@ -314,7 +314,7 @@ out toward it) is "in-way" instead. The card then says "Move one of them", or fo
 here". On a scratch copy: 3c and 3d say "in-way", 3a and 3b still say "signals", and the stalls, signals, harness and
 engine-status tests pass (925). `ring3.test.ts` holds the expectation as `it.fails`, so it turns red once the fix lands.
 
-**Signal fuzz with exp4** (40 + 40 seeds × 600 s, pairs laid as a player does): running; results to follow in the next commit.
+**Signal fuzz with exp4** (40 + 40 seeds × 600 s, pairs laid as a player does): the same output as main, seed for seed (exp4 changes no stall but the head-on card's words). Both runs fail `oneOwner` on ring fuzz seeds 14, 26 and 27. That is on main already and isn't caught at the default 8 seeds; it's a separate bug, noted here, not chased.
 
 **One for the routing redesign:** in 1a to 2d, every time the follower waits at an auto red with the train ahead in the
 block beyond, the booking core in shadow (`heldFree`, test-only) says it could go on 1 to 3 pieces. The core stops only
