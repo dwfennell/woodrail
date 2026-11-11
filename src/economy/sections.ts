@@ -61,6 +61,10 @@ export const FIRST_COME_S = 10;
 const PROBE_KEEP = 240;
 /** How often (sim ticks) a waiting train asks again. */
 export const CHECK_TICKS = 12;
+/** How far ahead (pieces) a hand-run train coming onto a line's track works its single track from (`comesInto`). */
+const COMES_INTO = 3;
+/** Every switch as it lies: the one way a train with no route runs through it. */
+const LIES = () => true;
 /** How long (s) a line's train waits for a line-mate going its way before a signal is suggested (signals spec §7). */
 export const FOLLOW_HINT_S = 20;
 
@@ -1889,6 +1893,30 @@ export class Sections {
   }
 
   /**
+   * Does a train on no line, its lever on, run into the line's track (`regions`) within `COMES_INTO` pieces ahead, the
+   * way the points lie (as it will run: it has no route to set them)? Then it works the line's single track from there,
+   * asking for the way short of the points it comes on by, not once it's on them (stalls-verify 2026-11-10, fuzz seed
+   * 161: one coming out of a siding was held with its front on the points, the line's only way through, and the line's
+   * train stood for good). The user's rule: points are never a place to wait.
+   */
+  private comesInto(t: Train, topo: Topology, regions: ReadonlySet<number>): boolean {
+    const front = this.front(t, this.host.drive(t) < 0);
+    const piece = this.layout.getPiece(front.pieceId);
+    if (!piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[front.pathIndex];
+    let at = { p: front.pieceId, exit: front.reversed ? path.from : (path.to ?? -1) };
+    for (let i = 0; i < COMES_INTO; i++) {
+      const n = next(this.layout, at.p, at.exit);
+      if (!n) return false;
+      if (regions.has(regionOf(topo, n.pieceId) ?? NaN)) return true;
+      const way = waysFrom(this.layout, n.pieceId, n.entry, LIES)[0];
+      if (!way || way.exit < 0) return false;
+      at = { p: n.pieceId, exit: way.exit };
+    }
+    return false;
+  }
+
+  /**
    * First come, first served (routing spec §5 rule 4, for sections and slots): a train of the line's network that has
    * stood waiting at its slot's end `FIRST_COME_S` or more, and longer than this one, keeps what it waits for: the
    * sections of its way and the loop (or line end) it goes to. A later ask for any of them waits for it (−1: none such).
@@ -2331,6 +2359,7 @@ export class Sections {
     const peers: number[] = [];
     if (net && loops >= 0) for (const l of net.lines) if (l !== lineId && this.loopsOn(l, topo, turns(l)) >= 0) peers.push(...this.host.live(l));
     // (Trains on no line with their levers on, on the network's slots and sections: they work its single track too.)
+    // (And those about to come onto them, short of the points: `comesInto`.)
     const loose: number[] = [];
     const looseTrains: Train[] = [];
     if (this.shared && loops >= 0 && this.sim.trainCount > engines.length + peers.length) {
@@ -2339,7 +2368,7 @@ export class Sections {
       for (const t of this.sim.trains()) {
         if (t.derailed || this.host.drive(t) === 0 || !t.cars.some((c) => c.kind === "engine")) continue;
         if (t.cars.some((c) => c.kind === "engine" && this.host.lineOf(c.id) >= 0)) continue;
-        if (!t.bogies.some((b) => regions.has(regionOf(topo, b.pieceId) ?? NaN))) continue;
+        if (!t.bogies.some((b) => regions.has(regionOf(topo, b.pieceId) ?? NaN)) && !this.comesInto(t, topo, regions)) continue;
         loose.push(engineOf(t));
         looseTrains.push(t);
       }
