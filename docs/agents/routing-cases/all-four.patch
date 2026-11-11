@@ -1,0 +1,217 @@
+diff --git a/src/economy/sections.ts b/src/economy/sections.ts
+index b521951..54ce54b 100644
+--- a/src/economy/sections.ts
++++ b/src/economy/sections.ts
+@@ -1878,6 +1878,12 @@ export class Sections {
+       this.hold(st, { kind: "slot", engine: way.blockedBy });
+       return false;
+     }
++    // (Scratch, stalls-verify exp2: a loop's last free road is kept for a train coming the other way.)
++    const other = this.lastRoadFor(st, info, way);
++    if (other !== -1) {
++      this.hold(st, { kind: "section", engine: other });
++      return false;
++    }
+     // (First come, first served: a train that has waited long for this stretch or this loop goes first.)
+     const first = this.firstCome(st, info, way);
+     if (first !== -1) {
+@@ -1896,6 +1902,99 @@ export class Sections {
+    * for that road stood for good (`ringLinesBothWays`). Not for one that waits, by way of others or not, for this one,
+    * nor one whose way runs into the slot this one stands in: then this one must go first.
+    */
++  /**
++   * Scratch (stalls-verify exp2): `way` takes the last free road of a loop whose every other road holds a train going
++   * the same way (it leaves by the same switch), while another of the line's trains wants that loop from the other side.
++   * Then the loop would be full one way and the other train could never pass: hold for it (its engine; −1: go).
++   */
++  private lastRoadFor(st: TrainState, info: LineInfo, way: Way): number {
++    const topo = info.topo;
++    if (way.dest < 0) return -1;
++    const d = topo.slots[way.dest];
++    if (d?.kind !== "road" || way.outBy < 0) return -1;
++    const roads = topo.loops[d.loop].roads;
++    for (const r of roads) {
++      if (r === way.dest) continue;
++      // (Each other road: a train of the line in it (or going to it) leaving by the same switch.)
++      let same = false;
++      const pieces = topo.slots[r].pieces;
++      for (const u of info.users) {
++        if (u === st.engine) continue;
++        const w = this.states.get(u);
++        const t = this.sim.findCar(u)?.train;
++        if (!t) continue;
++        const inIt = t.bogies.some((b) => pieces.has(b.pieceId));
++        if (w?.move && w.move.dest === r) same = w.move.outBy === way.outBy;
++        else if (inIt) same = this.headsTo(t, [topo.loops[d.loop].a, topo.loops[d.loop].b]) === way.outBy;
++        else continue;
++        break;
++      }
++      if (!same) return -1;
++    }
++    const loop = topo.loops[d.loop];
++    for (const u of info.users) {
++      if (u === st.engine) continue;
++      const t = this.sim.findCar(u)?.train;
++      // (Outside the loop, coming at it by the switch this one leaves by.)
++      if (t && !t.bogies.some((b) => roads.some((r) => topo.slots[r].pieces.has(b.pieceId)) || b.pieceId === loop.a || b.pieceId === loop.b) && this.headsTo(t, [loop.a, loop.b]) === way.outBy) {
++        return u;
++      }
++      const w = this.states.get(u);
++      if (!w || w.move || w.exitPiece < 0 || (w.slot >= 0 && roads.includes(w.slot))) continue;
++      const theirs = this.wayOn(w, info, { pieceId: w.exitPiece, entry: w.exitEntry });
++      if (!theirs || theirs.dest < 0 || theirs.dest === DEAD_END) continue;
++      const td = topo.slots[theirs.dest];
++      if (td?.kind === "road" && td.loop === d.loop && theirs.outBy >= 0 && theirs.outBy !== way.outBy) return u;
++    }
++    return -1;
++  }
++
++  /** Scratch (stalls-verify exp2): which of `ends` (switches) a train comes to first going forwards (−1: none near). */
++  private headsTo(t: Train, ends: readonly number[]): number {
++    const d = this.host.drive(t) < 0 ? -1 : 1;
++    const lead = d > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
++    const rev = d > 0 ? lead.reversed : !lead.reversed;
++    let p = lead.pieceId;
++    const piece = this.layout.getPiece(p);
++    if (!piece) return -1;
++    const path = getPieceDef(piece.type, piece.flipped).paths[lead.pathIndex];
++    let exit = rev ? path.from : (path.to ?? -1);
++    for (let i = 0; i < 12; i++) {
++      if (ends.includes(p)) return p;
++      const n = next(this.layout, p, exit);
++      if (!n) return -1;
++      p = n.pieceId;
++      const ways = waysFrom(this.layout, p, n.entry);
++      if (ways.length === 0) return -1;
++      exit = ways[0].exit;
++    }
++    return -1;
++  }
++
++  /**
++   * Scratch (stalls-verify exp3): a train on no line whose way just ahead (3 pieces, any way at points) comes into the
++   * line's regions: it works the line's single track from before the points, not from on them.
++   */
++  private comesInto(t: Train, topo: Topology, regions: ReadonlySet<number>): boolean {
++    const net = this.host.drive(t);
++    const front = this.front(t, net < 0);
++    const piece = this.layout.getPiece(front.pieceId);
++    if (!piece) return false;
++    const path = getPieceDef(piece.type, piece.flipped).paths[front.pathIndex];
++    let at: { p: number; exit: number }[] = [{ p: front.pieceId, exit: front.reversed ? path.from : (path.to ?? -1) }];
++    for (let i = 0; i < 3 && at.length > 0; i++) {
++      const nx: { p: number; exit: number }[] = [];
++      for (const a of at) {
++        const n = next(this.layout, a.p, a.exit);
++        if (!n) continue;
++        if (regions.has(regionOf(topo, n.pieceId) ?? NaN)) return true;
++        for (const w of waysFrom(this.layout, n.pieceId, n.entry)) if (w.exit >= 0) nx.push({ p: n.pieceId, exit: w.exit });
++      }
++      at = nx;
++    }
++    return false;
++  }
++
+   private firstCome(st: TrainState, info: LineInfo, way: Way): number {
+     if (!this.fair) return -1;
+     // (Only between trains on passing loops' roads, for a loop road: what one going round non-stop takes each time.)
+@@ -1995,6 +2094,9 @@ export class Sections {
+       if (way.mouth) st.edge = this.edgeOn(way.steps);
+       return this.recoverWait(st, way.blockedBy !== -1 ? way.blockedBy : this.inWayOf(way, train, info), info);
+     }
++    // (Scratch, stalls-verify exp2: a loop's last free road is kept for a train coming the other way.)
++    const keep = this.lastRoadFor(st, info, way);
++    if (keep !== -1) return this.recoverWait(st, keep, info);
+     this.grant(st, way);
+     return true;
+   }
+@@ -2339,7 +2441,7 @@ export class Sections {
+       for (const t of this.sim.trains()) {
+         if (t.derailed || this.host.drive(t) === 0 || !t.cars.some((c) => c.kind === "engine")) continue;
+         if (t.cars.some((c) => c.kind === "engine" && this.host.lineOf(c.id) >= 0)) continue;
+-        if (!t.bogies.some((b) => regions.has(regionOf(topo, b.pieceId) ?? NaN))) continue;
++        if (!t.bogies.some((b) => regions.has(regionOf(topo, b.pieceId) ?? NaN)) && !this.comesInto(t, topo, regions)) continue;
+         loose.push(engineOf(t));
+         looseTrains.push(t);
+       }
+@@ -2414,7 +2516,7 @@ export class Sections {
+         // follow, `follows`): room for all of them, however many loops (the user, 2026-11-02: a line of 3 on a ring with
+         // one loop was held "too many", though they could just follow round). Else a train more than its loops.)
+         oneWay = this.oneWayRound([...engines, ...peers, ...loose]);
+-        const roomOf = (adm: ReadonlySet<number>) => (oneWay ? engines.length : Math.max(1, loops - roadsHeld(adm).b.size + 1));
++        const roomOf = (adm: ReadonlySet<number>) => (oneWay ? engines.length : Math.max(1, loops - roadsHeld(adm).b.size + (loops >= 1 ? 2 : 1)));
+         // (Let in first those whose holding would block most: one in a section holds the single track; one at a line end
+         // holds its stop; one standing on a loop's road costs only that loop, and is let in last.)
+         const where = (e: number): number => {
+diff --git a/src/economy/stalls.ts b/src/economy/stalls.ts
+index 91aafe5..b679480 100644
+--- a/src/economy/stalls.ts
++++ b/src/economy/stalls.ts
+@@ -2,6 +2,8 @@ import { loopSignalHold } from "./loop-signal";
+ import { trainKey, type Sim, type Train } from "../sim";
+ import { CHECK_TICKS, type Sections } from "./sections";
+ import { driveOf, engineOf } from "../sim/train-cars";
++import { getPieceDef } from "../track";
++import { next, waysFrom } from "../routing/graph";
+ 
+ /**
+  * Stalls: trains stuck for good, said on their cards (routing spec §16 Q3). Nothing turns a train back short of the end
+@@ -130,6 +132,48 @@ export class Stalls {
+     sim.onTurnedRound?.((id) => this.waiting.delete(id));
+   }
+ 
++  /** Does a train in this ring of waits wait on one that comes toward it (the first of it met ahead is its front)? */
++  private headOn(chain: readonly number[], on: ReadonlyMap<number, number>): boolean {
++    for (const id of chain) {
++      const by = on.get(id);
++      const a = by === undefined ? undefined : this.sim.getTrain(id);
++      const b = by === undefined ? undefined : this.sim.getTrain(by);
++      if (a && b && this.faces(a, b)) return true;
++    }
++    return false;
++  }
++
++  /** Where a train's front is and the end of its piece it drives out by. */
++  private frontOf(t: Train): { p: number; exit: number } | null {
++    const d = driveOf(t);
++    if (d === 0) return null;
++    const lead = d > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
++    const piece = this.sim.layout.getPiece(lead.pieceId);
++    if (!piece) return null;
++    const path = getPieceDef(piece.type, piece.flipped).paths[lead.pathIndex];
++    const rev = d > 0 ? lead.reversed : !lead.reversed;
++    return { p: lead.pieceId, exit: rev ? path.from : (path.to ?? -1) };
++  }
++
++  /** Along the way `a` drives (points as set), is the first piece of `b` met `b`'s front, driving out toward `a`? */
++  private faces(a: Train, b: Train): boolean {
++    const fa = this.frontOf(a);
++    const fb = this.frontOf(b);
++    if (!fa || !fb) return false;
++    const mine = new Set(a.bogies.map((x) => x.pieceId));
++    const theirs = new Set(b.bogies.map((x) => x.pieceId));
++    let at = fa;
++    for (let i = 0; i < 64; i++) {
++      const n = next(this.sim.layout, at.p, at.exit);
++      if (!n || mine.has(n.pieceId)) return false;
++      if (theirs.has(n.pieceId)) return n.pieceId === fb.p && fb.exit === n.entry;
++      const way = waysFrom(this.sim.layout, n.pieceId, n.entry, () => true)[0];
++      if (!way || way.exit < 0) return false;
++      at = { p: n.pieceId, exit: way.exit };
++    }
++    return false;
++  }
++
+   /** Why this engine's train is stuck (null: it isn't). */
+   stuckOf(engine: number): Stuck | null {
+     if (this.stuck.size === 0) return null;
+@@ -232,7 +276,8 @@ export class Stalls {
+       // (A ring with a train at a signal inside a passing loop, its tail over the points: that signal, to move. Else a
+       // ring with a red signal in it: too many trains for the signals.)
+       const inLoop = why === "ring" ? this.loopSignalIn(chain) : null;
+-      const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal");
++      // (Not when two of its trains face each other: no signal lets them pass, moving one is the fix.)
++      const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal") && !this.headOn(chain, on);
+       for (const id of chain) {
+         const t = sim.getTrain(id)!;
+         // (The held train itself is waiting by rule: its card already says the line is full.)

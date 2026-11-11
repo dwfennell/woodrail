@@ -116,7 +116,7 @@ export function estimate(want) {
 export const SMOKE = ["touch:sandbox-shelves,map-taps,toast-through,trap,train-card,game-shelves", "click:desktop"];
 
 /** Paths that can't change what an e2e sees. */
-export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore", "scripts/e2e/lib/diff-kind.mjs", "scripts/**/*.test.mjs"];
+export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/routing/cases/**", "tools/cases-*.mjs", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore", "scripts/e2e/lib/diff-kind.mjs", "scripts/**/*.test.mjs"];
 
 // Touch's groups that plan, run or show routes and lines.
 const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way,split";
