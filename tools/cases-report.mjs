@@ -17,7 +17,7 @@ const game = (r) => {
   const stops = g.stops.map((s, k) => (s < 0 ? `${g.ran[k]} m` : `${s}`)).join(" / ");
   return g.stallAt >= 0 ? `stall at ${g.stallAt} s (${g.why.map((w) => w ?? "–").join(", ")}); ${stops}` : stops;
 };
-const status = (r) => (r.mismatches.length === 0 ? (r.known ? "**fixed?**" : "pass") : r.known ? `known: ${r.mismatches.join(", ")}` : `**FAIL**: ${r.mismatches.join(", ")}`);
+const status = (r) => (r.mismatches.length === 0 ? (r.known ? "**fixed?**" : "pass") : r.known ? `known: ${r.mismatches.join(", ")}${r.reason ? ` (${r.reason})` : ""}` : `**FAIL**: ${r.mismatches.join(", ")}`);
 const verdict = (r) => `${r.verdict} (${r.oracle.best}/${r.oracle.n}${r.oracle.own !== undefined && r.oracle.own !== r.oracle.best ? `; own ends ${r.oracle.own}` : ""}${r.oracle.noSignals !== undefined ? `; no signals ${r.oracle.noSignals}` : ""})`;
 
 let out = "";
