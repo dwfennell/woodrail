@@ -190,6 +190,8 @@ const DEAD_END = -2;
 const FOLLOW_LOOK = 48;
 /** The room (mm) a train following another into a slot leaves (the sim's `FOLLOW_GAP`, and some to stop in). */
 const FOLLOW_ROOM = 150;
+/** How far (mm) short of its slot's end a train stands with another standing just past it: that one's cars overhang its axles. */
+const OVERHANG_ROOM = 60;
 
 /** `Sections.circling`'s walk: whether it circles, and the piece ends (piece × 8 + end) it comes in by and goes out by. */
 interface Circuit {
@@ -239,6 +241,8 @@ interface TrainState {
   /** When it last looked for a train facing it, and whether it's holding for one. */
   facedAt: number;
   faceHold: boolean;
+  /** Held for a train standing just past its slot's end: it pulls up short of that one's overhang, not stopping dead. */
+  faceShort: boolean;
   /** What lay past its last dead end (its stops there can't be reached while the line is full). */
   lastDead: ReadonlySet<number> | null;
   /** In a section: how far (mm) past its front's piece the next points or crossing ahead begin (Infinity: none near). */
@@ -832,7 +836,7 @@ export class Sections {
     if (net === 0 || train.turnback >= 0) return Infinity;
     let st = this.states.get(engine);
     if (!st) {
-      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo, ahead: new Set(), facedAt: -Infinity, faceHold: false, lastDead: null, edge: Infinity, nearAsked: -1, claim: -1, claimAt: -Infinity, aside: null, lettingBy: -1, lettingSlot: -1 };
+      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo, ahead: new Set(), facedAt: -Infinity, faceHold: false, faceShort: false, lastDead: null, edge: Infinity, nearAsked: -1, claim: -1, claimAt: -Infinity, aside: null, lettingBy: -1, lettingSlot: -1 };
       this.states.set(engine, st);
     }
     const topo = info.topo;
@@ -871,12 +875,17 @@ export class Sections {
       }
       return Infinity;
     }
-    // In a slot, with a train of its line put down facing it on the way to the slot's end: one gives way.
-    if (this.facing(st, info, train)) return 0;
+    const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
+    // In a slot, with a train of its line put down facing it on the way to the slot's end: one gives way. (With one
+    // standing just past the slot's end: up to short of its overhang.)
+    if (this.facing(st, info, train)) {
+      if (!st.faceShort || st.beyond === Infinity) return 0;
+      const r = lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s + st.beyond - CAR_SPECS[lead.kind].bogieInset - OVERHANG_ROOM;
+      return r > 0 ? Math.sqrt(2 * ACCELERATION * r) : 0;
+    }
     // In a slot, with its move on from it granted.
     if (this.ownsAhead(st)) return Infinity;
     if (st.beyond === Infinity) return Infinity;
-    const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
     const room = lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s + st.beyond - CAR_SPECS[lead.kind].bogieInset;
     // (Not a waiting point's: it waits at the signal there. And only where the train fits in its slot: pulled up to the
     // end, it's off the points behind; one too long for it gains nothing by moving up.)
@@ -908,6 +917,7 @@ export class Sections {
     if (now - st.facedAt < CHECK_TICKS) return st.faceHold;
     st.facedAt = now;
     st.faceHold = false;
+    st.faceShort = false;
     // (One the line has no room for is held for that, whatever stands by it: its card says how many loops to lay.)
     const why = (w: BlockWait): BlockWait => (this.hasRoom(info, st.engine) ? w : this.roomWait(st, info));
     const slotPieces = st.topo.slots[st.slot].pieces;
@@ -925,6 +935,12 @@ export class Sections {
         if (t === train || t.speed >= 1 || !t.bogies.some((b) => b.pieceId === st.exitPiece)) continue;
         const u = engineOf(t);
         st.faceHold = true;
+        // (Still on the points behind, it pulls up into its slot, short of the overhang (`OVERHANG_ROOM`): stopped where it
+        // is, it stood with its tail on them (ring2, three trains, one put down on the far points).)
+        st.faceShort = train.bogies.some((b) => {
+          const p = this.layout.getPiece(b.pieceId);
+          return !!p && getPieceDef(p.type, p.flipped).paths.length > 1;
+        });
         this.hold(st, why({ kind: "slot", engine: u }));
         return true;
       }

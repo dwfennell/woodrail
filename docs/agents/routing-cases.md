@@ -174,6 +174,12 @@ clear: 36 known. ring1 `sig:blocks2` cleared too while the rule held for any tra
 pulling up past signals off no points (the bug map signal-added-still-stuck lost 5 of 101 stops in 600 s), so it
 stays: there the train at the signal isn't on points.
 
+**Pulling up short of an overhang** (`claude/routing-zero-overhang`, on in-loop): a train coming into a loop road or
+line end with another standing just past its far end waited for it where it was, its tail still on the points behind.
+Now, while still on points, it pulls up into its slot, short of the other's overhang (`OVERHANG_ROOM`), then waits.
+Both ring2 3× `opposed` cases clear (a train put down on the far points; the oracle calls them dead, and the game no
+longer leaves one standing on points): 34 known.
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
@@ -247,12 +253,12 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-484 cases; 36 mismatched.
+484 cases; 34 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
 | ring | 18 | 0 | – |
-| trains | 258 | 24 | waits-on-points 12, stalls-live:siding 14 |
+| trains | 258 | 22 | waits-on-points 10, stalls-live:siding 14 |
 | signals | 104 | 1 | stalls-live 1 |
 | placement | 30 | 1 | waits-on-points 1 |
 | stops | 50 | 4 | stalls-live 4, waits-on-points 1 |
@@ -282,7 +288,7 @@ and pass / known.
 | ring0 3×own same sig:blocks3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 | ring0 3×own same sig:oneway3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 
-### trains (258 cases, 24 mismatched)
+### trains (258 cases, 22 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -456,9 +462,9 @@ and pass / known.
 | ring2 2×one same | live (2/2) | 11 / 10 | pass |
 | ring2 2×own opposed | live (2/2) | 11 / 9 | pass |
 | ring2 2×own same | live (2/2) | 11 / 10 | pass |
-| ring2 3×mix opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 m / 0.6 m | known: waits-on-points |
+| ring2 3×mix opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 m / 0.8 m | pass |
 | ring2 3×mix same | live (3/3) | 11 / 18 m / 18 m | pass |
-| ring2 3×one opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 / 0 | known: waits-on-points |
+| ring2 3×one opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 / 0 | pass |
 | ring2 3×one same | live (3/3) | 11 / 12 / 10 | pass |
 | siding 1×hand | live (1/1) | 15.6 m | pass |
 | siding 1×one | live (1/1) | 10 | pass |
