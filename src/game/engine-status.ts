@@ -56,7 +56,7 @@ export type TrainState =
   | { kind: "stuck"; why: "in-way"; line: string; loop: boolean; by: number }
   | { kind: "stuck"; why: "too-many" }
   | { kind: "stuck"; why: "parked"; by?: number }
-  | { kind: "stuck"; why: "signals"; by: number }
+  | { kind: "stuck"; why: "signals"; by: number; headOn?: { loop: boolean } }
   /** A train (`by`, maybe this one) at a signal inside a passing loop, its tail over the points (`mark`: that signal). */
   | { kind: "stuck"; why: "loop-signal"; by: number; mark: number }
   /** Standing with its lever on, for want of anything better known: `by`, the train the sim or sections say it's behind. */
@@ -162,7 +162,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
         return { kind: "stuck", why: "too-many" };
       }
       if (s.kind === "parked") return { kind: "stuck", why: "parked", by: s.by };
-      if (s.kind === "signals") return { kind: "stuck", why: "signals", by: s.by };
+      if (s.kind === "signals") return { kind: "stuck", why: "signals", by: s.by, headOn: s.headOn };
       if (s.kind === "loop-signal") return { kind: "stuck", why: "loop-signal", by: s.by, mark: s.mark };
       return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop, by: s.by };
     }
@@ -565,6 +565,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
     case "stuck":
       // (The quick fix named too, the card's Remove: QA 2026-11-04, two engines on the starter line both waited.)
       if (s.why === "too-many") return `Stuck: this line has a train too many. Add a passing loop${OR_REMOVE}`;
+      // (Two facing each other between signals: no signal helps. Named, and the fix: move one, or a passing loop.)
+      if (s.why === "signals" && s.headOn) return `Stuck: ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} faces it between the signals. ${s.headOn.loop ? "Add a passing loop here" : "Move one of them"}`;
       if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal";
       // (Issue #31: a signal inside a passing loop's road holds a train with its tail over the loop's points; no train
       // gets into the loop past it. Named: the train (this one or another), the fix the signal's own card says too.)

@@ -71,9 +71,11 @@ export type Stuck =
   | { kind: "parked"; by: number }
   /**
    * In a ring of waits through signals (signals spec §6): each stands at a red signal with a train in the block (or on
-   * the way) beyond. Too many trains for the signals placed: adding a signal, or putting a train away, helps.
+   * the way) beyond. Too many trains for the signals placed: adding a signal, or putting a train away, helps. `headOn`:
+   * two of its trains face each other (one waits on a train whose front comes toward it), where no signal helps: moving
+   * one does, or (`loop`: another line's train, or one on no line) a passing loop there.
    */
-  | { kind: "signals"; by: number }
+  | { kind: "signals"; by: number; headOn?: { loop: boolean } }
   /**
    * In a ring of waits where a train (`by`) stands at a signal inside a passing loop's road, its tail over the loop's
    * points (`loopSignalHold`, issue #31): no train gets into the loop past it. Moving that signal (`mark`) to the loop
@@ -276,8 +278,9 @@ export class Stalls {
       // (A ring with a train at a signal inside a passing loop, its tail over the points: that signal, to move. Else a
       // ring with a red signal in it: too many trains for the signals.)
       const inLoop = why === "ring" ? this.loopSignalIn(chain) : null;
-      // (Not when two of its trains face each other: no signal lets them pass, moving one is the fix.)
-      const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal") && !this.headOn(chain, on);
+      const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal");
+      // (Two of its trains facing each other: no signal lets them pass; moving one is the fix, or a passing loop there.)
+      const headOn = signals && this.headOn(chain, on);
       for (const id of chain) {
         const t = sim.getTrain(id)!;
         // (The held train itself is waiting by rule: its card already says the line is full.)
@@ -285,7 +288,7 @@ export class Stalls {
         const by = sim.getTrain(on.get(id)!);
         const engine = this.lineEngine(t);
         if (engine < 0 || !by) continue;
-        found.set(engine, inLoop ? { kind: "loop-signal", ...inLoop } : signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
+        found.set(engine, inLoop ? { kind: "loop-signal", ...inLoop } : signals ? { kind: "signals", by: nameOf(by), ...(headOn ? { headOn: { loop: this.loopFixes(engine, by) } } : {}) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
     }
     // (Rings that have held `YIELD_S`: one of their trains gives way, where one can. Its ring's trains aren't stuck.)

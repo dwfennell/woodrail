@@ -79,6 +79,7 @@ export function judge(c: Case): Judged {
   // (At half time: stops and metres so far, so the floors count the second half.)
   let half: { stops: number[]; ran: number[] } | null = null;
   let stallAt = -1;
+  let addSignalCard = false;
   let onPoints = false;
   let report = h.run(0);
   const step = 1;
@@ -96,6 +97,8 @@ export function judge(c: Case): Judged {
       if (!tr) return;
       ran[k] += (Math.abs(tr.speed) * step) / 1000;
       const st = h.stalls.stuckOf(engine);
+      // (The "Add a signal" card: too many trains for the signals, not two facing each other between them.)
+      if (st?.kind === "signals" && !st.headOn) addSignalCard = true;
       if (st) {
         if (stallAt < 0) stallAt = s + step;
         // (Not one put down there that never moved: "standing on points at the start" is the player's doing.)
@@ -129,7 +132,7 @@ export function judge(c: Case): Judged {
     if (!below && !(free.best === n && !free.capped)) mismatches.push("beats-oracle");
   }
   if (onPoints) mismatches.push("waits-on-points");
-  if (report.stalls.why.includes("signals") && noSig && noSig.best < n) mismatches.push("wrong-card");
+  if (addSignalCard && noSig && noSig.best < n) mismatches.push("wrong-card");
   for (const k of INVARIANTS) if (k !== "heldFree" && report.broke[k].count > 0) mismatches.push(`break:${k}`);
 
   return {
