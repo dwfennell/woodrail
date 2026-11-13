@@ -88,7 +88,11 @@ Main has since gained the room rule counting a line's ends and a hand-run train 
 | lengths | 6 | 2 |
 | fuzz | 18 | 7 |
 
-Fixes 2 (keep a loop's last road; fuzz 111, 126, 165) and 4 (the head-on card, 16) are still to land. The table at
+Fixes 2 (keep a loop's last road; fuzz 111, 126, 165) and 4 (the head-on card, 16) are still to land.
+
+**The head-on card** (`claude/routing-zero-head-on-card`): a ring of waits through signals in which a train waits on
+one coming toward it is "in-way" (the card: "Move one of them", or for two lines' trains "Add a passing loop here"), not
+"too many trains for these signals. Add a signal". All 16 wrong cards clear and nothing else changes: 68 known. The table at
 the end is this run's. The sections below are as first written, on f10b8ee.
 
 ## Results (on f10b8ee, before the fixes)
