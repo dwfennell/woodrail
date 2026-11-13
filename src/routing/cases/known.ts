@@ -10,7 +10,6 @@ export const KNOWN: Record<string, string[]> = {
   "line1 2×hand opposed facing": ["waits-on-points"],
   "line1+siding 2×hand same": ["waits-on-points"],
   "line1+siding-spare 2×hand same": ["waits-on-points"],
-  "ring1 2×one opposed long": ["waits-on-points"],
   "ring1 3×one same sig:blocks2": ["stalls-live"],
   "siding-spare 3×one same": ["stalls-live:siding"],
   "terminus-spare 3×one opposed": ["stalls-live:siding"],

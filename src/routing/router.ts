@@ -662,6 +662,17 @@ export class Router {
         this.refusedUnder++;
         break;
       }
+      // (Points are never a place to wait (the user's rule): a routed train sections don't hold (on track they don't
+      // manage: no slot on it, ring1 with loops too short for its trains) isn't sent onto points with a train coming at
+      // them on the single track beyond, the way it would take. It waits short of them, as a hand-run one does (`askHand`).)
+      if (!mine && !this.host.granted(engine) && isPoints(layout, w.pieceId)) {
+        const out = waysFrom(layout, w.pieceId, w.entry).find((x) => x.option === w.state);
+        const coming = out ? this.comingAt(w, trainId, out.exit) : -1;
+        if (coming !== -1) {
+          by = coming;
+          break;
+        }
+      }
     }
     if (!stop) return null;
     if (by !== -2) {
@@ -1008,9 +1019,12 @@ export class Router {
    * points, a crossing or the line's end), heading back toward them; −1 for none. For a hand-run train about to come onto them
    * (`askHand`): it waits short of them for that one, never on them.
    */
-  private comingAt(w: Want, trainId: number): number {
+  private comingAt(w: Want, trainId: number, exit?: number): number {
     const { layout, sim } = this.host;
     const ways = waysFrom(layout, w.pieceId, w.entry, () => true);
+    // (Given its way out (a routed train's): any train coming at it there counts, routed or not.)
+    const any = exit !== undefined;
+    if (any) ways.splice(0, ways.length, { option: w.state, path: -1, exit });
     let at = { p: w.pieceId, exit: ways[0]?.exit ?? -1 };
     for (let k = 0; k < WALK; k++) {
       const n = next(layout, at.p, at.exit);
@@ -1018,7 +1032,7 @@ export class Router {
       const t = trainOn(sim, (p) => p === n.pieceId, { except: trainId, onRails: true });
       // (Only another hand-run train: a routed one's moves are sections' to grant, and they keep a hand-run train coming
       // onto its line short of the points (`Sections.comesInto`); this one gives way to it as before.)
-      if (t) return this.headsAt(t, w.pieceId, ways[0]?.exit ?? -1) && !t.cars.some((c) => this.host.routed.has(c.id)) ? engineOf(t) : -1;
+      if (t) return this.headsAt(t, w.pieceId, ways[0]?.exit ?? -1) && (any || !t.cars.some((c) => this.host.routed.has(c.id))) ? engineOf(t) : -1;
       const on = waysFrom(layout, n.pieceId, n.entry, () => true);
       if (on.length !== 1 || isPoints(layout, n.pieceId) || on[0].exit < 0) return -1;
       at = { p: n.pieceId, exit: on[0].exit };
@@ -1313,6 +1327,9 @@ export class Router {
       // (A crossing, or points it trails through, with another train's car over them on a road that fouls its own:
       // asked for, so it's refused and waits short of them, step 3.)
       else if (ways.length === 1 && this.crossingFouled(n.pieceId, n.entry, ways[0].path, train.id)) want.push({ pieceId: n.pieceId, state: 0, ways: 1, entry: n.entry, d, path: ways[0].path });
+      // (Points it trails through, with a train coming at them on the single track beyond, for a routed train sections
+      // don't hold: asked for, so it's refused and waits short of them, never on them (`ask`; ring1 with loops too short).)
+      else if (ways.length === 1 && isPoints(layout, n.pieceId) && !this.host.granted(this.engineOfWalk) && this.comingAt({ pieceId: n.pieceId, state: ways[0].option, ways: 1, entry: n.entry, d }, train.id, ways[0].exit) !== -1) want.push({ pieceId: n.pieceId, state: ways[0].option, ways: 1, entry: n.entry, d });
       let w = ways[0];
       if (ways.length > 1) {
         const followed = follow ? ways.filter((x) => follow(n.pieceId, x.path)) : [];
