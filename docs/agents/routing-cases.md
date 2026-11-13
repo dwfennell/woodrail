@@ -146,9 +146,9 @@ the end is this run's. The sections below are as first written, on f10b8ee.
   their titles (`cases/reasons.ts`). Fuzz 136 and 149 are decision 4's already (above).
 - **Also a train held in `recover`** (stopped for one in its way, coming at it, or a blocked way) steps aside the same
   way, from where it stands.
-- **Also open:** branch-spare (a ring with no slots at all, so its line isn't managed), and hand-run trains on the
-  new tracks waiting on points (wye-spare, line1+siding-spare, branch-spare: the player's, B1's rule doesn't reach a
-  hand-run train meeting one at a wye or a branch's points).
+- **Also open:** branch-spare (a ring with no slots at all, so its line isn't managed), and the new tracks' copies of
+  known cases: hand-run trains waiting on points on wye-spare, line1+siding-spare and branch-spare go wrong just as on
+  wye, line1+siding and branch.
 - **Counts,** on batch1: the industry-siding cases on siding, terminus and wye now stand as the user chose, and the
   new spare tracks add their own: **42** known (from 53). The table at
 the end is this run's. The sections below are as first written, on f10b8ee.
