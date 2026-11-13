@@ -241,6 +241,26 @@ their buffers. The three-train spare cases and fuzz 19 (two trains, and the line
 booking ahead in the reservation core (`reasons.ts`): a try that keeps a train in the spare deep and steps another aside
 in front of it (`claude/routing-zero-spare3`) only turned their stalls into one train starving.
 
+**The lap rule** (`claude/routing-zero-lap`, on fuzz125): on a ring of a line's way with no passing loop on it (dead
+ends off it allowed), two of its trains (of the line, or of lines sharing its track) put down facing each other could
+never pass: the one whose way to its stop met no slot was left alone (sections' `recover` gave up at once) and ran onto
+the wye into the other, both standing on the points. Now:
+- such a train, its way to its stop meeting no slot, is held short of the points for a line-mate coming at it head on
+  (`headOnAlong`);
+- the trains' plans keep to one lap, the way the line's first train goes round (`Sections.lapFor`, plan's `Lap`: no
+  ring piece run the other way round, a way into a dead end off the ring always open). One put down the other way plans
+  into the dead end, turns at its buffer and comes out going round with the rest; going round with it, a train waits
+  to go into that dead end till it has (`lapYield`), and its claim there gives way. The router walks to the same lap
+  (`RouterHost.lapRule`), and so does the harness's wrongRoad;
+- circuits count what a train runs once going round (`circuitFrom`), so `oneWayRound` gives the line room for all.
+And on track sections don't manage (ring1 with loops too short for its trains: no slot), a routed train is refused
+points, facing or trailing, with a train coming at them on the single track beyond (the router's `comingAt`), and
+waits short of them. 7 cases clear, none the other way: branch and branch-spare 2× one and own opposed, near and far
+stops, and ring1 2× one opposed long: 14 known. The long fuzz, the play-through and the bug maps are as before.
+Still open: a routed and a hand-run train opposed (branch, branch-spare 2× mix: the hand-run one put down on the wye,
+the routed one held just short of it, so the hand-run one's tail stays on the points), and two hand-run ones meeting
+on points (line1 facing, line1+siding(-spare) same, wye(-spare)).
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
@@ -314,16 +334,16 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-484 cases; 21 mismatched.
+484 cases; 14 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
 | ring | 18 | 0 | – |
-| trains | 258 | 15 | waits-on-points 10, stalls-live:siding 7 |
+| trains | 258 | 11 | waits-on-points 6, stalls-live:siding 5 |
 | signals | 104 | 1 | stalls-live 1 |
 | placement | 30 | 1 | waits-on-points 1 |
-| stops | 50 | 2 | stalls-live 2, waits-on-points 1 |
-| lengths | 6 | 1 | waits-on-points 1 |
+| stops | 50 | 0 | – |
+| lengths | 6 | 0 | – |
 | fuzz | 18 | 1 | stalls-live 1 |
 
 ### ring (18 cases, 0 mismatched)
@@ -349,7 +369,7 @@ and pass / known.
 | ring0 3×own same sig:blocks3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 | ring0 3×own same sig:oneway3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 
-### trains (258 cases, 15 mismatched)
+### trains (258 cases, 11 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -359,9 +379,9 @@ and pass / known.
 | branch 2×hand same | live (2/2) | 18 m / 18 m | pass |
 | branch 2×mix opposed | partial (1/2; through an industry siding 2) | stall at 11 s (in-way, in-way); 1 / 0.6 m | known: waits-on-points |
 | branch 2×mix same | live (2/2) | 15 / 18 m | pass |
-| branch 2×one opposed | partial (1/2; through an industry siding 2) | stall at 11 s (in-way, in-way); 1 / 0 | known: waits-on-points |
+| branch 2×one opposed | partial (1/2; through an industry siding 2) | 15 / 13 | pass |
 | branch 2×one same | live (2/2) | 15 / 14 | pass |
-| branch 2×own opposed | partial (1/2; through an industry siding 2) | stall at 11 s (in-way, in-way); 1 / 0 | known: waits-on-points |
+| branch 2×own opposed | partial (1/2; through an industry siding 2) | 15 / 13 | pass |
 | branch 2×own same | live (2/2) | 15 / 14 | pass |
 | branch 3×mix opposed | dead (0/3) | stall at 8 s (in-way, in-way, in-way); 0 / 0.2 m / 0.7 m | pass |
 | branch 3×mix same | live (3/3) | 15 / 18 m / 18 m | pass |
@@ -373,9 +393,9 @@ and pass / known.
 | branch-spare 2×hand same | live (2/2) | 18 m / 18 m | pass |
 | branch-spare 2×mix opposed | live (2/2; own ends 1) | stall at 11 s (in-way, in-way); 1 / 0.6 m | known: waits-on-points |
 | branch-spare 2×mix same | live (2/2) | 15 / 18 m | pass |
-| branch-spare 2×one opposed | live (2/2; own ends 1) | stall at 11 s (in-way, in-way); 1 / 0 | known: stalls-live:siding, waits-on-points |
+| branch-spare 2×one opposed | live (2/2) | 15 / 13 | pass |
 | branch-spare 2×one same | live (2/2) | 15 / 14 | pass |
-| branch-spare 2×own opposed | live (2/2; own ends 1) | stall at 11 s (in-way, in-way); 1 / 0 | known: stalls-live:siding, waits-on-points |
+| branch-spare 2×own opposed | live (2/2) | 15 / 13 | pass |
 | branch-spare 2×own same | live (2/2) | 15 / 14 | pass |
 | branch-spare 3×mix opposed | dead (0/3) | stall at 8 s (in-way, in-way, in-way); 0 / 0.2 m / 0.7 m | pass |
 | branch-spare 3×mix same | live (3/3) | 15 / 18 m / 18 m | pass |
@@ -756,14 +776,14 @@ and pass / known.
 | ring1 2×one same straddle sig:blocks3 | live (2/2) | 11 / 10 | pass |
 | ring1 2×one same tail | live (2/2) | 11 / 11 | pass |
 
-### stops (50 cases, 2 mismatched)
+### stops (50 cases, 0 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
 | branch 1×one stops:far | live (1/1) | 10 | pass |
-| branch 2×one opposed stops:far | live (2/2) | stall at 11 s (in-way, in-way); 0 / 0 | known: stalls-live, waits-on-points |
+| branch 2×one opposed stops:far | live (2/2) | 8 / 8 | pass |
 | branch 2×one same stops:far | live (2/2) | 9 / 8 | pass |
-| branch 2×own opposed stops:far | live (2/2) | stall at 26 s (in-way, in-way); 1 / 0 | known: stalls-live |
+| branch 2×own opposed stops:far | live (2/2) | 8 / 8 | pass |
 | branch 2×own same stops:far | live (2/2) | 9 / 8 | pass |
 | double 1×one stops:far | dead (0/1; through an industry siding 1) | 9 | pass |
 | double 2×one opposed stops:far | partial (1/2; through an industry siding 2) | 11 / 0 | pass |
@@ -811,7 +831,7 @@ and pass / known.
 | wye 2×own opposed stops:far | partial (1/2; through an industry siding 2) | stall at 31 s (in-way, in-way); 1 / 1 | pass |
 | wye 2×own same stops:far | partial (1/2; through an industry siding 2) | stall at 50 s (in-way, in-way); 2 / 1 | pass |
 
-### lengths (6 cases, 1 mismatched)
+### lengths (6 cases, 0 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -819,7 +839,7 @@ and pass / known.
 | line1 2×one opposed short | live (2/2) | 6 / 6 | pass |
 | line2 2×one opposed long | dead (0/2) | stall at 9 s (too-many, –); 0 / 0 | pass |
 | line2 2×one opposed short | live (2/2) | 4 / 4 | pass |
-| ring1 2×one opposed long | dead (0/2) | stall at 13 s (in-way, in-way); 1 / 0 | known: waits-on-points |
+| ring1 2×one opposed long | dead (0/2) | stall at 14 s (in-way, in-way); 1 / 0 | pass |
 | ring1 2×one opposed short | live (2/2) | 6 / 5 | pass |
 
 ### fuzz (18 cases, 1 mismatched)
