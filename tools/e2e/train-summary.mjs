@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { still } from "../../scripts/e2e/lib/still.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/train-summary";
@@ -337,18 +338,42 @@ if (!setup.error) {
     w.interaction.openEngineCard(engine);
   }, { engine, wagon });
   await p.waitForFunction(() => { const b = document.querySelector(".engine-card .empty-all"); return !!b && !b.hidden && b.getAttribute("aria-disabled") === null; }, null, { timeout: 10000 }).catch(() => {});
-  await tapButton(".engine-card .empty-all");
-  const asked = await p.evaluate((id) => ({ text: document.querySelector(".engine-card .empty-all")?.textContent, asking: document.querySelector(".engine-card .empty-all")?.classList.contains("asking"), count: window.woodrail.economy.cargoOf(id).count }), wagon);
-  check("Delete cargo: the first tap asks, and throws nothing away", asked.asking && asked.text === "Delete cargo? Tap again" && asked.count === 3, JSON.stringify(asked));
-  await shot("4-throw-away-asks");
-  // (The second press straight on the button, as its tap's click: it asks for 4 s, and on a busy page a touch's click
-  // can come later than that. Not before 400 ms: the card's tap guard drops a click on a button that just changed size
-  // (asking, its words are longer), as it should a double tap.)
-  await p.waitForTimeout(400);
-  await p.evaluate(() => document.querySelector(".engine-card .empty-all.asking")?.click());
+  // Both taps a finger's, in the same place, as a player taps twice. (The second was once a script click after the
+  // asking picture: on CI the picture took about 5 s, past the 4 s the button asks for, and the click found no asking
+  // button and did nothing: count 3. The picture is taken after, and the second tap comes while it asks.)
+  const BTN = ".engine-card .empty-all";
+  await settle();
+  await still(p, BTN);
+  const spot = await p.evaluate((s) => {
+    const b = document.querySelector(s)?.getBoundingClientRect();
+    return b ? { x: b.x + b.width / 2, y: b.y + b.height / 2 } : null;
+  }, BTN);
+  if (spot) await p.touchscreen.tap(spot.x, spot.y);
+  await p.waitForFunction((s) => document.querySelector(s)?.classList.contains("asking"), BTN, { timeout: 10000 }).catch(() => {});
+  const askedAt = Date.now();
+  const asked = await p.evaluate(({ id, s }) => ({ text: document.querySelector(s)?.textContent, asking: document.querySelector(s)?.classList.contains("asking"), count: window.woodrail.economy.cargoOf(id).count }), { id: wagon, s: BTN });
+  check("Delete cargo: the first tap asks, and throws nothing away", !!spot && asked.asking && asked.text === "Delete cargo? Tap again" && asked.count === 3, JSON.stringify({ spot, ...asked }));
+  // (The asking button grew with its words: once it stands still, and past the card's tap guard (150 ms after a button
+  // moves), a tap where the finger was is still on it, and is taken as Delete cargo's.)
+  await still(p, `${BTN}.asking`);
+  await p.waitForTimeout(200);
+  const under = await p.evaluate(({ spot, s }) => {
+    const b = document.querySelector(s);
+    const hit = spot && document.elementFromPoint(spot.x, spot.y);
+    return { asking: !!b?.classList.contains("asking"), sameSpot: !!b && !!hit && b.contains(hit) };
+  }, { spot, s: BTN });
+  check("…the asking button is still under the finger", under.sameSpot, JSON.stringify(under));
+  // (Still asking, or the check after reads a tap that came too late as Delete cargo doing nothing: say which.)
+  const late = !under.asking;
+  if (!late && spot) await p.touchscreen.tap(spot.x, spot.y);
   await p.waitForFunction((id) => window.woodrail.economy.cargoOf(id).count === 0, wagon, { timeout: 10000 }).catch(() => {});
   const thrown = await p.evaluate((id) => ({ count: window.woodrail.economy.cargoOf(id).count, hidden: document.querySelector(".engine-card .empty-all")?.hidden, toasts: window.woodrail.__toasts }), wagon);
-  check("…the second throws the logs away, the button goes, a toast says what went", thrown.count === 0 && thrown.hidden === true && thrown.toasts.some((t) => t.startsWith("Tipped out 3 🪵")), JSON.stringify(thrown));
+  check("…the second throws the logs away, the button goes, a toast says what went", !late && thrown.count === 0 && thrown.hidden === true && thrown.toasts.some((t) => t.startsWith("Tipped out 3 🪵")), JSON.stringify({ late, sinceAsked: Date.now() - askedAt, ...thrown }));
+  await shot("4-throw-away-done");
+  // (A picture of it asking, after the checks: logs put back in code, as above, and one tap.)
+  await p.evaluate((id) => window.woodrail.economy.setCargo(id, "log", 3), wagon);
+  await p.waitForFunction((s) => { const b = document.querySelector(s); return !!b && !b.hidden; }, BTN, { timeout: 10000 }).catch(() => {});
+  if (await tapButton(BTN)) await shot("4-throw-away-asks");
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
