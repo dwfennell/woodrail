@@ -209,6 +209,13 @@ siding-spare 2× hand same and 3× one same; partial → live: fuzz 7, 94, 189, 
 spare's; dead → partial: siding 3× one and mix same, siding-spare 3× mix same; fuzz 125 live with or without a siding.
 New known (the game doesn't yet do the convoy): fuzz 7, 19, 94, 189, siding-spare 3× one same. 36 known.
 
+**A lever thrown under a hand-run train's move** (`claude/routing-zero-lever-regrant`, on oracle-mm): a train on no
+line goes the way the points lie, and a lever tap moves points held only by hand-run trains at once (§16 Q1). Its
+move, granted for the way they lay, was kept: fuzz seed 161's player tapped a three-way's lever ahead of a hand-run
+train, which ran into the leg a routed train stood in, nose to nose on the points (`netActed`). Now when the points
+change, a hand-run train whose move's way ahead no longer lies so lets it go and asks again from where it is
+(`liesAsMove`). Fuzz seed 161 clears, and give-way's town ring seed 8 with a loop: 35 known.
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
