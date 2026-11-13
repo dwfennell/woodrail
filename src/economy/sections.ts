@@ -1930,11 +1930,15 @@ export class Sections {
     if (by < 0 || st.aside || !start) return false;
     const lineId = this.host.lineOf(st.engine);
     const own = this.sim.findCar(st.engine)?.train;
-    const other = this.sim.findCar(by)?.train;
-    if (lineId < 0 || !own || !other || !this.headingAt(other, own)) return false;
+    if (lineId < 0 || !own) return false;
     // (Only refuges both ways can run into (`bothWaysIn`): off plain points the train boxed in past it is the user's
-    // decision 4, a convoy into a dead end, said stuck (boxed.ts; fuzz seed 125's layout).)
-    for (const r of this.refugesOf(lineId, info.topo, trainLength(own))) {
+    // decision 4, a convoy into a dead end, said stuck (boxed.ts; fuzz seed 125's layout). Most lines have none: then
+    // nothing more is looked at, as this runs each time a train is held.)
+    const refuges = this.refugesOf(lineId, info.topo, trainLength(own));
+    if (refuges.length === 0) return false;
+    const other = this.sim.findCar(by)?.train;
+    if (!other || !this.headingAt(other, own)) return false;
+    for (const r of refuges) {
       if (this.slotUser(info, r, st.engine) !== -1) continue;
       st.aside = { slot: r, piece: this.innerOf(info.topo.slots[r]), by };
       const way = this.wayOn(st, info, { pieceId: start.pieceId, entry: start.entry }, start.path);
