@@ -958,6 +958,18 @@ export class Router {
         this.refusedUnder++;
         return { stop: w, by: under };
       }
+      // (Points are never a place to wait: not onto points with a train coming at them on the single track beyond, as
+      // they lie, to the next points or the line's end. It waits short of them, and the two meet off the points.)
+      if (!mine && isPoints(this.host.layout, w.pieceId)) {
+        const coming = this.comingAt(w, trainId);
+        if (coming !== -1) {
+          for (let j = i; j < want.length; j++) {
+            const l = h.held.get(want[j].pieceId);
+            if (l && !l.entered) this.release(engine, h, want[j].pieceId);
+          }
+          return { stop: w, by: coming };
+        }
+      }
       const lock = this.locks.get(w.pieceId);
       const other = lock ? [...lock.holders].find((e) => e !== engine) : undefined;
       if (lock && other !== undefined) {
@@ -983,6 +995,55 @@ export class Router {
       this.pending.delete(w.pieceId);
     }
     return null;
+  }
+
+  /**
+   * A hand-run train (its engine, or its first car) on the single track beyond points `w` as they lie (to the next
+   * points, a crossing or the line's end), heading back toward them; −1 for none. For a hand-run train about to come onto them
+   * (`askHand`): it waits short of them for that one, never on them.
+   */
+  private comingAt(w: Want, trainId: number): number {
+    const { layout, sim } = this.host;
+    const ways = waysFrom(layout, w.pieceId, w.entry, () => true);
+    let at = { p: w.pieceId, exit: ways[0]?.exit ?? -1 };
+    for (let k = 0; k < WALK; k++) {
+      const n = next(layout, at.p, at.exit);
+      if (!n || layout.getPiece(n.pieceId)?.type.startsWith("buffer")) return -1;
+      const t = trainOn(sim, (p) => p === n.pieceId, { except: trainId, onRails: true });
+      // (Only another hand-run train: a routed one's moves are sections' to grant, and they keep a hand-run train coming
+      // onto its line short of the points (`Sections.comesInto`); this one gives way to it as before.)
+      if (t) return this.headsAt(t, w.pieceId, ways[0]?.exit ?? -1) && !t.cars.some((c) => this.host.routed.has(c.id)) ? engineOf(t) : -1;
+      const on = waysFrom(layout, n.pieceId, n.entry, () => true);
+      if (on.length !== 1 || isPoints(layout, n.pieceId) || on[0].exit < 0) return -1;
+      at = { p: n.pieceId, exit: on[0].exit };
+    }
+    return -1;
+  }
+
+  /**
+   * Does train `t` (driving) come to piece `pieceId` by its end `end` (head on into one leaving by it), going on as the
+   * points lie, within `WALK` pieces of its front? (Not one going away round a ring and back to them from behind.)
+   */
+  private headsAt(t: Train, pieceId: number, end: number): boolean {
+    const { layout } = this.host;
+    const net = this.host.drive(t);
+    if (net === 0) return false;
+    const c: Cursor = { ...(net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };
+    if (net < 0) flipCursor(layout, c);
+    const piece = layout.getPiece(c.pieceId);
+    if (!piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
+    let at = { p: c.pieceId, exit: c.reversed ? path.from : (path.to ?? -1) };
+    for (let k = 0; k < WALK; k++) {
+      if (at.p === pieceId) return false;
+      const n = next(layout, at.p, at.exit);
+      if (!n) return false;
+      if (n.pieceId === pieceId) return n.entry === end;
+      const on = waysFrom(layout, n.pieceId, n.entry, () => true);
+      if (!on[0] || on[0].exit < 0) return false;
+      at = { p: n.pieceId, exit: on[0].exit };
+    }
+    return false;
   }
 
   /**

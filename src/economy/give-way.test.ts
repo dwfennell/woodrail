@@ -177,6 +177,9 @@ const KNOWN: Record<number, string> = {
   23: ON_WYE,
   26: ON_WYE,
   30: ON_WYE,
+  // (2026-11-13, a hand-run train waits short of points with another hand-run one coming at them: all hand-run, the two
+  // put down facing each other on the ring now pass by the wye; with the route they stand as before, nose to nose on it.)
+  6: "the two put down facing each other on the ring: with the route, nose to nose on the wye, as before (all hand-run they now pass)",
 };
 /** Of those: laid a loop, they never stall. */
 const LOOP_FIXES = [19, 22];
@@ -186,7 +189,7 @@ const LOOP_FIXES = [19, 22];
  * move one or give it a route). The same with a loop laid, and with the route.
  */
 const FACING = "the two trains put down facing each other on the ring: nose to nose, nothing turns";
-const KNOWN_HAND: Record<number, string> = { 6: FACING, 13: FACING, 15: `${HEAD_ON}, all hand-run too`, 21: FACING, 24: FACING, 29: FACING };
+const KNOWN_HAND: Record<number, string> = { 13: FACING, 15: `${HEAD_ON}, all hand-run too`, 21: FACING, 24: FACING, 29: FACING };
 /**
  * With a passing loop laid (`loop`), seeds that still stall (2026-11-05), both one class: the hand-run train goes round
  * the ring non-stop, and the routed one, in the loop, waits for it, its way round to its stop running against it (they'd
