@@ -4,7 +4,6 @@
  * proposed fix clears it: docs/agents/routing-cases.md.
  */
 export const KNOWN: Record<string, string[]> = {
-  "branch 2×hand opposed": ["waits-on-points"],
   "branch 2×mix opposed": ["waits-on-points"],
   "branch 2×one opposed": ["stalls-live:siding","waits-on-points"],
   "branch 2×one opposed stops:far": ["stalls-live","waits-on-points"],
@@ -34,9 +33,6 @@ export const KNOWN: Record<string, string[]> = {
   "line1 3×one opposed sig:loopEnds": ["break:greenHeld"],
   "line1 3×one same sig:loopEnds": ["break:greenHeld"],
   "line1+siding 2×hand same": ["waits-on-points"],
-  "line2 2×hand opposed": ["waits-on-points"],
-  "line3 2×hand opposed": ["waits-on-points"],
-  "line3 2×hand same": ["waits-on-points"],
   "ring0 2×mix opposed sig:blocks3": ["wrong-card"],
   "ring0 2×one opposed sig:blocks2": ["wrong-card"],
   "ring0 2×one opposed sig:blocks3": ["wrong-card"],
@@ -47,7 +43,6 @@ export const KNOWN: Record<string, string[]> = {
   "ring0 3×one opposed sig:blocks3": ["wrong-card"],
   "ring0 3×one opposed sig:blocks4": ["wrong-card"],
   "ring0 3×one opposed sig:oneway3": ["wrong-card"],
-  "ring1 2×hand opposed": ["waits-on-points"],
   "ring1 2×one opposed long": ["waits-on-points"],
   "ring1 2×one opposed sig:loopEnds": ["break:greenHeld"],
   "ring1 3×one opposed sig:blocks2": ["wrong-card"],
@@ -55,7 +50,6 @@ export const KNOWN: Record<string, string[]> = {
   "ring1 3×one same sig:beforePoints": ["stalls-live","waits-on-points","break:wrongRoad"],
   "ring1 3×one same sig:blocks2": ["stalls-live"],
   "ring1 3×one same sig:pair": ["stalls-live"],
-  "ring2 2×hand opposed": ["waits-on-points"],
   "ring2 3×mix opposed": ["waits-on-points"],
   "ring2 3×one opposed": ["waits-on-points"],
   "siding 2×one opposed": ["stalls-live:siding"],
@@ -66,7 +60,6 @@ export const KNOWN: Record<string, string[]> = {
   "siding 2×own opposed stops:far": ["stalls-live:siding"],
   "siding 2×own same": ["stalls-live:siding"],
   "siding 2×own same stops:far": ["stalls-live:siding"],
-  "terminus 2×hand opposed": ["waits-on-points"],
   "terminus 2×one opposed": ["stalls-live:siding"],
   "terminus 2×one opposed stops:far": ["starves-live"],
   "terminus 2×one same": ["stalls-live:siding"],

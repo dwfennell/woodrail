@@ -88,7 +88,15 @@ Main has since gained the room rule counting a line's ends and a hand-run train 
 | lengths | 6 | 2 |
 | fuzz | 18 | 7 |
 
-Fixes 2 (keep a loop's last road; fuzz 111, 126, 165) and 4 (the head-on card, 16) are still to land. The table at
+Fixes 2 (keep a loop's last road; fuzz 111, 126, 165) and 4 (the head-on card, 16) are still to land.
+
+**Hand-run trains short of points** (`claude/routing-zero-hand-run-points`, the user's B1): a hand-run train doesn't come
+onto points (facing or trailing) with another hand-run train on the single track beyond them, as they lie, heading back
+at them; it waits short of them (the router's hand-run wait). Two hand-run trains meeting so stand off the points, said
+stuck, or pass where the points lie for another road. 7 cases clear (two hand-run trains on lines with 1 to 3 loops, a
+ring with 1 or 2 loops, a branch, a terminus); 77 known. A hand-run train meeting a routed one is sections' (fix 3,
+`comesInto`), as before. give-way's town-ring seed 6: all hand-run, the two put down facing each other now pass by the
+wye (was 169 s stuck); with the route it stands as before. The table at
 the end is this run's. The sections below are as first written, on f10b8ee.
 
 ## Results (on f10b8ee, before the fixes)
