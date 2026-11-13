@@ -88,7 +88,12 @@ Main has since gained the room rule counting a line's ends and a hand-run train 
 | lengths | 6 | 2 |
 | fuzz | 18 | 7 |
 
-Fixes 2 (keep a loop's last road; fuzz 111, 126, 165) and 4 (the head-on card, 16) are still to land. The table at
+Fixes 2 (keep a loop's last road; fuzz 111, 126, 165) and 4 (the head-on card, 16) are still to land.
+
+**A loop's last road** (`claude/routing-zero-last-road`): a train isn't granted the last free road of a passing loop
+whose other road holds a train leaving the same way while a line-mate comes at the loop from the other side, unless
+that one waits, by way of others, on it (on a ring with two loops it would be a ring of waits: the §12 scenario "two
+lines round a ring with two loops" caught it). Fuzz seeds 111, 126 and 165 run; 81 known. The table at
 the end is this run's. The sections below are as first written, on f10b8ee.
 
 ## Results (on f10b8ee, before the fixes)

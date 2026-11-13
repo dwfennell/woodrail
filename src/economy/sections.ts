@@ -1885,6 +1885,12 @@ export class Sections {
       this.hold(st, { kind: "slot", engine: way.blockedBy });
       return false;
     }
+    // (A loop's last free road is kept for a train coming the other way: `lastRoadFor`.)
+    const other = this.lastRoadFor(st, info, way);
+    if (other !== -1) {
+      this.hold(st, { kind: "section", engine: other });
+      return false;
+    }
     // (First come, first served: a train that has waited long for this stretch or this loop goes first.)
     const first = this.firstCome(st, info, way);
     if (first !== -1) {
@@ -1917,6 +1923,77 @@ export class Sections {
       at = { p: n.pieceId, exit: way.exit };
     }
     return false;
+  }
+
+  /**
+   * A passing loop's last free road, kept for a train coming the other way (docs/agents/routing-cases.md, fix 2): `way`
+   * takes the last free road of a loop whose every other road holds a train going the same way (it leaves by the same
+   * switch), while another of the line's trains wants that loop from the other side. Then the loop would be full one
+   * way and the other train could never pass (fuzz seeds 111, 126, 165): hold for it (its engine; −1: go).
+   */
+  private lastRoadFor(st: TrainState, info: LineInfo, way: Way): number {
+    const topo = info.topo;
+    if (way.dest < 0) return -1;
+    const d = topo.slots[way.dest];
+    if (d?.kind !== "road" || way.outBy < 0) return -1;
+    const roads = topo.loops[d.loop].roads;
+    for (const r of roads) {
+      if (r === way.dest) continue;
+      // (Each other road: a train of the line in it (or going to it) leaving by the same switch.)
+      let same = false;
+      const pieces = topo.slots[r].pieces;
+      for (const u of info.users) {
+        if (u === st.engine) continue;
+        const w = this.states.get(u);
+        const t = this.sim.findCar(u)?.train;
+        if (!t) continue;
+        const inIt = t.bogies.some((b) => pieces.has(b.pieceId));
+        if (w?.move && w.move.dest === r) same = w.move.outBy === way.outBy;
+        else if (inIt) same = this.headsTo(t, [topo.loops[d.loop].a, topo.loops[d.loop].b]) === way.outBy;
+        else continue;
+        break;
+      }
+      if (!same) return -1;
+    }
+    const loop = topo.loops[d.loop];
+    for (const u of info.users) {
+      // (Not for one that waits, by way of others or not, on this one: holding for it would be a ring of waits.)
+      if (u === st.engine || this.waitsFor(u, st.engine)) continue;
+      const t = this.sim.findCar(u)?.train;
+      // (Outside the loop, coming at it by the switch this one leaves by.)
+      if (t && !t.bogies.some((b) => roads.some((r) => topo.slots[r].pieces.has(b.pieceId)) || b.pieceId === loop.a || b.pieceId === loop.b) && this.headsTo(t, [loop.a, loop.b]) === way.outBy) {
+        return u;
+      }
+      const w = this.states.get(u);
+      if (!w || w.move || w.exitPiece < 0 || (w.slot >= 0 && roads.includes(w.slot))) continue;
+      const theirs = this.wayOn(w, info, { pieceId: w.exitPiece, entry: w.exitEntry });
+      if (!theirs || theirs.dest < 0 || theirs.dest === DEAD_END) continue;
+      const td = topo.slots[theirs.dest];
+      if (td?.kind === "road" && td.loop === d.loop && theirs.outBy >= 0 && theirs.outBy !== way.outBy) return u;
+    }
+    return -1;
+  }
+
+  /** Which of `ends` (switches) a train comes to first going forwards, points as set (−1: none within 12 pieces). */
+  private headsTo(t: Train, ends: readonly number[]): number {
+    const d = this.host.drive(t) < 0 ? -1 : 1;
+    const lead = d > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+    const rev = d > 0 ? lead.reversed : !lead.reversed;
+    let p = lead.pieceId;
+    const piece = this.layout.getPiece(p);
+    if (!piece) return -1;
+    const path = getPieceDef(piece.type, piece.flipped).paths[lead.pathIndex];
+    let exit = rev ? path.from : (path.to ?? -1);
+    for (let i = 0; i < 12; i++) {
+      if (ends.includes(p)) return p;
+      const n = next(this.layout, p, exit);
+      if (!n) return -1;
+      p = n.pieceId;
+      const ways = waysFrom(this.layout, p, n.entry);
+      if (ways.length === 0) return -1;
+      exit = ways[0].exit;
+    }
+    return -1;
   }
 
   /**
@@ -2026,6 +2103,9 @@ export class Sections {
       if (way.mouth) st.edge = this.edgeOn(way.steps);
       return this.recoverWait(st, way.blockedBy !== -1 ? way.blockedBy : this.inWayOf(way, train, info), info);
     }
+    // (A loop's last free road is kept for a train coming the other way: `lastRoadFor`.)
+    const keep = this.lastRoadFor(st, info, way);
+    if (keep !== -1) return this.recoverWait(st, keep, info);
     this.grant(st, way);
     return true;
   }
