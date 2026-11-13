@@ -88,7 +88,19 @@ Main has since gained the room rule counting a line's ends and a hand-run train 
 | lengths | 6 | 2 |
 | fuzz | 18 | 7 |
 
-Fixes 2 (keep a loop's last road; fuzz 111, 126, 165) and 4 (the head-on card, 16) are still to land. The table at
+Fixes 2 (keep a loop's last road; fuzz 111, 126, 165) and 4 (the head-on card, 16) are still to land.
+
+**Signals by points** (`claude/routing-zero-signals-by-points`): two fixes.
+- **`greenHeld`, 5 cases.** A train held by sections at the end of a loop road or a line end now has the signal the
+  player put there show red to it, as a waiting point's does. It had stood at a green signal. This clears all 5 cases
+  with pairs at the loop roads' ends, and `greenHeld` on all 7 long-fuzz seeds that had it.
+- **`wrongRoad`, 1 case.** The router reads a waiting point's gate as the sim does: a path signal gated for a train
+  further back in its slot no longer stops the router setting the points for the train at the front, which has its
+  move granted. That front train had run onto the points as they lay (ring1, three trains, a pair just before the
+  loop's points).
+
+  That case still stalls: three trains round a ring with one loop and one pair of signals wait on each other's slots.
+  79 known. The table at
 the end is this run's. The sections below are as first written, on f10b8ee.
 
 ## Results (on f10b8ee, before the fixes)

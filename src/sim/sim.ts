@@ -1955,7 +1955,11 @@ export class Sim {
     this.findSignals();
     const g = this.signalByExit.get(ref);
     if (!g) return null;
-    if (this.gatedFor(g) !== -1) return { free: false };
+    // (A waiting point's gate holds the train it was set for, as `redFor` reads it: a path signal's, only that train (one
+    // further back in the slot gates it for itself, not the one at the front with its move granted); a plain signal
+    // shows red to all while gated.)
+    const gated = this.gatedFor(g);
+    if (gated === train.id || (!g.junction && gated !== -1)) return { free: false };
     if (!g.junction) return { free: !this.isHeld(g) && (this.blockBy.get(g.key) ?? -1) === -1 };
     const r = this.pathFor(train, g, false);
     return { free: r.clear };
