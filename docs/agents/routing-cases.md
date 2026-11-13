@@ -230,6 +230,13 @@ Still open here: the three-train spare cases (siding-spare 3× one same, terminu
 three trains in three dead ends, one must follow into the spare behind a train standing there, and that one comes out
 to the mouth to wait, so none can; fuzz 19 (too-many with two trains) and 125 (in-way).
 
+**A refuge whose way back runs through passing loops** (`claude/routing-zero-fuzz125`, on convoy): a spare line end
+off plain points is a refuge where the one that stepped aside, coming out, reaches a line end holding two of the line's
+trains to turn behind the one there (`convoyEndPast`). That way was followed on plain track only; now on every way the
+points give, through passing loops too. Fuzz seed 125 (two loops in series, then points into a forest end and a spare
+one): the train coming at the forest end's train steps aside into the spare, and comes out to turn at the far end
+behind the train loading there. It clears, nothing else moves: 21 known.
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
@@ -303,7 +310,7 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-484 cases; 22 mismatched.
+484 cases; 21 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
@@ -313,7 +320,7 @@ and pass / known.
 | placement | 30 | 1 | waits-on-points 1 |
 | stops | 50 | 2 | stalls-live 2, waits-on-points 1 |
 | lengths | 6 | 1 | waits-on-points 1 |
-| fuzz | 18 | 2 | stalls-live 2 |
+| fuzz | 18 | 1 | stalls-live 1 |
 
 ### ring (18 cases, 0 mismatched)
 
@@ -811,7 +818,7 @@ and pass / known.
 | ring1 2×one opposed long | dead (0/2) | stall at 13 s (in-way, in-way); 1 / 0 | known: waits-on-points |
 | ring1 2×one opposed short | live (2/2) | 6 / 5 | pass |
 
-### fuzz (18 cases, 2 mismatched)
+### fuzz (18 cases, 1 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -825,7 +832,7 @@ and pass / known.
 | fuzz seed 91 | live (3/3) | 8 / 9 / 8 | pass |
 | fuzz seed 94 | live (2/2) | 11 / 11 | pass |
 | fuzz seed 111 | live (3/3) | 10 / 10 / 9 | pass |
-| fuzz seed 125 | live (3/3) | stall at 15 s (in-way, in-way, in-way); 0 / 1 / 0 | known: stalls-live |
+| fuzz seed 125 | live (3/3) | 6 / 8 / 7 | **fixed?** |
 | fuzz seed 126 | live (3/3) | 7 / 6 / 8 | pass |
 | fuzz seed 136 | live (3/3) | 8 / 8 / 9 | pass |
 | fuzz seed 149 | live (3/3) | 7 / 8 / 8 | pass |

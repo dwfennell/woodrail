@@ -3401,15 +3401,24 @@ export class Sections {
     const def = getPieceDef(piece.type, piece.flipped);
     const out = def.paths.find((q) => q.from === into || q.to === into);
     if (!out) return false;
-    let at = { pieceId: mouth, exit: out.from === into ? (out.to ?? -1) : out.from };
-    for (let k = 0; k < SEARCH && at.exit >= 0; k++) {
+    // (On every way the points give, through passing loops too: any line end there that holds two will do (fuzz seed
+    // 125: out of the spare end and back through two loops to the far end, to turn behind the train there).)
+    const seen = new Set<number>();
+    const stack: { pieceId: number; exit: number; k: number }[] = [{ pieceId: mouth, exit: out.from === into ? (out.to ?? -1) : out.from, k: 0 }];
+    while (stack.length > 0) {
+      const at = stack.pop()!;
+      if (at.exit < 0 || at.k >= SEARCH) continue;
       const n = next(this.layout, at.pieceId, at.exit);
-      if (!n) return false;
+      if (!n) continue;
+      const key = n.pieceId * 8 + n.entry;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const sl = topo.slotOf.get(n.pieceId);
-      if (sl !== undefined && topo.slots[sl].kind === "end") return topo.slots[sl].length >= 2 * length + FOLLOW_ROOM && !this.signalGuards(topo.slots[sl]);
-      const ways = waysFrom(this.layout, n.pieceId, n.entry);
-      if (ways.length !== 1) return false;
-      at = { pieceId: n.pieceId, exit: ways[0].exit };
+      if (sl !== undefined && topo.slots[sl].kind === "end") {
+        if (topo.slots[sl].length >= 2 * length + FOLLOW_ROOM && !this.signalGuards(topo.slots[sl])) return true;
+        continue;
+      }
+      for (const w of waysFrom(this.layout, n.pieceId, n.entry)) stack.push({ pieceId: n.pieceId, exit: w.exit, k: at.k + 1 });
     }
     return false;
   }

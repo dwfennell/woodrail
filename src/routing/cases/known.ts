@@ -13,7 +13,6 @@ export const KNOWN: Record<string, string[]> = {
   "branch-spare 2×one opposed": ["stalls-live:siding","waits-on-points"],
   "branch-spare 2×own opposed": ["stalls-live:siding","waits-on-points"],
   "fuzz seed 19": ["stalls-live"],
-  "fuzz seed 125": ["stalls-live"],
   "line1 2×hand opposed facing": ["waits-on-points"],
   "line1+siding 2×hand same": ["waits-on-points"],
   "line1+siding-spare 2×hand same": ["waits-on-points"],
