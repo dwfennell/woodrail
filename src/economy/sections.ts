@@ -1646,15 +1646,35 @@ export class Sections {
     const n0 = Math.max(1, aims.length);
     let j = 0;
     const seen = new Set<number>([(at * 8 + entry0) * n0 + j]);
+    // (A train on a line turns back at the end of a dead end and comes out again (the user's rule: only at line ends).
+    // Going round, in and out of a branch off it, it still circles: the dead end is single-line, one train in it at a
+    // time (`inDeadEnd`), so it's left out of who goes which way (`oneWayRound`).)
+    const ends = aims.length > 0 ? deadEndsOf(layout) : null;
+    let turned = false;
+    let turnedIn = -1;
     for (let k = 0; k < SEARCH * n0; k++) {
-      const n = next(layout, at, exit);
+      let n = next(layout, at, exit);
+      if ((!n || waysFrom(layout, n.pieceId, n.entry).every((x) => x.exit < 0)) && ends?.regionOf.has(at)) {
+        // (At the end of the line: back out the way it came in.)
+        n = { pieceId: at, entry: exit };
+        turned = true;
+        // (Turning back in two dead ends: a line it shuttles along, not a ring it goes round.)
+        const r = ends!.regionOf.get(at)!;
+        if (turnedIn !== -1 && turnedIn !== r) return NOT_CIRCLING;
+        turnedIn = r;
+      }
       if (!n) return NOT_CIRCLING;
       // (Come to its aim: on toward the one after.)
       for (let s = 0; s < aims.length && aims[j] === n.pieceId; s++) j = (j + 1) % aims.length;
       const ways = waysFrom(layout, n.pieceId, n.entry);
       if (ways.length === 0) return NOT_CIRCLING;
       const key = (n.pieceId * 8 + n.entry) * n0 + j;
-      if (seen.has(key)) return { yes: true, ins, outs };
+      if (seen.has(key)) {
+        // (Turned back somewhere: it circles only if, off the dead ends, it never runs a piece both ways (a ring with a
+        // branch it goes up and back, not a line it shuttles along, through its loops either way).)
+        if (turned && ends) for (const x of ins) if (outs.has(x) && !ends.regionOf.has(x >> 3) && !ends.intoAt.has(x)) return NOT_CIRCLING;
+        return { yes: true, ins, outs };
+      }
       seen.add(key);
       const target = aims.length > 0 ? aims[j] : -1;
       let w = ways[0];
@@ -1684,10 +1704,13 @@ export class Sections {
       if (!c.yes) return false;
       cs.push(c);
     }
+    // (Not in a dead end, nor at its mouth: one train at a time goes in and out there (`circuitFrom`).)
+    const ends = deadEndsOf(this.layout);
+    const single = (x: number) => ends.regionOf.has(x >> 3) || ends.intoAt.has(x);
     for (let a = 0; a < cs.length; a++)
       for (let b = a + 1; b < cs.length; b++) {
-        for (const x of cs[a].ins) if (cs[b].outs.has(x)) return false;
-        for (const x of cs[b].ins) if (cs[a].outs.has(x)) return false;
+        for (const x of cs[a].ins) if (cs[b].outs.has(x) && !single(x)) return false;
+        for (const x of cs[b].ins) if (cs[a].outs.has(x) && !single(x)) return false;
       }
     return true;
   }
