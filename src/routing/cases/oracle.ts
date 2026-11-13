@@ -6,8 +6,8 @@
  * perfect dispatcher (or a player with every lever) could make under the user's rules, and says how many trains can
  * keep delivering for ever. The model, deliberately generous to the trains:
  *
- * - A train fills `L` = 2 whole pieces (268 mm on 216 mm pieces: the least it can stand on). It moves a piece at a
- *   time; a piece holds one train.
+ * - A train fills the whole pieces from its front back as far as they're as long as it is (`OTrain.length`, by the
+ *   pieces' real paths; else as given). It moves a piece at a time; a piece holds one train.
  * - **Points are never a place to wait:** a train comes to rest only where none of its pieces is a switch; a move runs
  *   on through points to the next such place.
  * - **Trains turn round only at the ends of lines:** a train reverses only with its front at the end of the track (a
@@ -26,6 +26,7 @@
 import { connectorRef, getPieceDef, type Layout } from "../../track";
 import { blocksOf } from "../../game/signal-place";
 import { next, waysFrom } from "../graph";
+import { pathLength } from "../../track/path";
 
 export interface Elem {
   p: number;
@@ -36,6 +37,12 @@ export interface OTrain {
   /** Tail first, front last. */
   elems: Elem[];
   stops: number[] | null;
+  /**
+   * Its length (mm), buffer face to buffer face. Given, it fills the pieces from its front back as far as they're that
+   * long by their real paths (a curve is shorter than a straight): it rests clear of points only where those are none.
+   * Not given: `elems` as they are, one piece on and one off each move.
+   */
+  length?: number;
 }
 
 export interface OracleResult {
@@ -80,6 +87,29 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
     return v;
   };
   const restOk = (t: Elem[]) => t.every((e) => !swOf(e.p));
+  // (A piece's length the way it's run: its path from the end it's come onto by to the one it leaves by.)
+  const lens = new Map<string, number>();
+  const lenOf = (e: Elem): number => {
+    const k = `${e.p}.${e.en}.${e.ex}`;
+    let v = lens.get(k);
+    if (v === undefined) {
+      const piece = layout.getPiece(e.p);
+      const def = piece ? getPieceDef(piece.type, piece.flipped) : undefined;
+      const path = def?.paths.find((q) => (q.from === e.en && q.to === e.ex) || (q.from === e.ex && q.to === e.en)) ?? def?.paths.find((q) => q.from === e.en || q.to === e.en);
+      lens.set(k, (v = path ? pathLength(path.geom) : 216));
+    }
+    return v;
+  };
+  /** A train moved on a piece: its tail let go of as far as the rest still covers its length. */
+  const trimmed = (k: number, t: Elem[]): Elem[] => {
+    const L = start[k].length;
+    if (L === undefined) return t.slice(1);
+    let sum = 0;
+    for (const e of t) sum += lenOf(e);
+    let i = 0;
+    while (i < t.length - 1 && sum - lenOf(t[i]) >= L) sum -= lenOf(t[i++]);
+    return t.slice(i);
+  };
   // (Its own end of the line: one of its stops on the plain track from the end back to the first points (it runs to the
   // end beyond its stop and turns there, as on any line). The plain stretch an end is on, cached.)
   const stretches = new Map<number, number[]>();
@@ -166,7 +196,7 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
         // (A hand-run train takes points as they're set: no one throws them for it. A routed one, any way.)
         for (const w of waysFrom(layout, nx.pieceId, nx.entry, () => !start[k].stops && !handFree)) {
           if (w.exit < 0) continue;
-          const nt = [...t.slice(1), { p: nx.pieceId, en: nx.entry, ex: w.exit }];
+          const nt = trimmed(k, [...t, { p: nx.pieceId, en: nx.entry, ex: w.exit }]);
           if (new Set(nt.map((e) => e.p)).size < nt.length) continue;
           if (restOk(nt)) out.push(nt);
           else nextF.push(nt);

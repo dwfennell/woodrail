@@ -87,8 +87,30 @@ export function elemsOf(layout: Layout, t: Train, n = piecesFor(t)): Elem[] {
   return elems.slice(-n);
 }
 
+/**
+ * A train as the oracle sees it by its real length: the pieces from its front back as far as their paths are as long as
+ * it is (a curve is shorter than a straight; the old count, `piecesFor`, took every piece as 216 mm).
+ */
+export function elemsByLength(layout: Layout, t: Train): Elem[] {
+  const L = trainLength(t);
+  const all = elemsOf(layout, t, 16);
+  const lenOf = (e: Elem) => {
+    const piece = layout.getPiece(e.p)!;
+    const def = getPieceDef(piece.type, piece.flipped);
+    const q = def.paths.find((x) => (x.from === e.en && x.to === e.ex) || (x.from === e.ex && x.to === e.en)) ?? def.paths[0];
+    return pathLength(q.geom);
+  };
+  let sum = 0;
+  let i = all.length;
+  while (i > 0 && sum < L) sum += lenOf(all[--i]);
+  return all.slice(i);
+}
+
 export function oTrains(h: HarnessRun): OTrain[] {
-  return h.engines.map((engine) => ({ elems: elemsOf(h.layout, h.sim.findCar(engine)!.train), stops: h.routes.get(engine)?.stops ?? null }));
+  return h.engines.map((engine) => {
+    const t = h.sim.findCar(engine)!.train;
+    return { elems: elemsByLength(h.layout, t), stops: h.routes.get(engine)?.stops ?? null, length: trainLength(t) };
+  });
 }
 
 export function track(layout: Layout) {

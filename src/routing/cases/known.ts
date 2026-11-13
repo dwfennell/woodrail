@@ -19,7 +19,6 @@ export const KNOWN: Record<string, string[]> = {
   "fuzz seed 149": ["stalls-live"],
   "fuzz seed 161": ["waits-on-points","break:netActed"],
   "line1 2×hand opposed facing": ["waits-on-points"],
-  "line1 2×one opposed long": ["stalls-live"],
   "line1+siding 2×hand same": ["waits-on-points"],
   "line1+siding-spare 2×hand same": ["waits-on-points"],
   "ring1 2×one opposed long": ["waits-on-points"],

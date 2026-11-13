@@ -180,6 +180,14 @@ Now, while still on points, it pulls up into its slot, short of the other's over
 Both ring2 3× `opposed` cases clear (a train put down on the far points; the oracle calls them dead, and the game no
 longer leaves one standing on points): 34 known.
 
+**The oracle measures trains and roads by their real lengths** (`claude/routing-zero-oracle-lengths`, on overhang): it
+gave a train its length in 216 mm pieces (`piecesFor`, 2 at least), so a 526 mm train took 3 pieces and fit a loop road
+of 3, though two of them are curves and the road is 499 mm. Now each train covers the pieces from its front back as far
+as their real paths are as long as it is (`OTrain.length`), and on each move lets go of its tail only as far as the rest
+still covers it. Of the 484 cases, 2 verdicts change, none the other way: line1 2× `long` (live → dead: neither road,
+432 and 499 mm, holds a 526 mm train clear of the points, so no passing; the game's stall is right, and the case clears)
+and ring1 2× `long` (partial → dead; still known for a train standing on points). 33 known.
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
@@ -253,7 +261,7 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-484 cases; 34 mismatched.
+484 cases; 33 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
@@ -262,7 +270,7 @@ and pass / known.
 | signals | 104 | 1 | stalls-live 1 |
 | placement | 30 | 1 | waits-on-points 1 |
 | stops | 50 | 4 | stalls-live 4, waits-on-points 1 |
-| lengths | 6 | 2 | stalls-live 1, waits-on-points 1 |
+| lengths | 6 | 1 | waits-on-points 1 |
 | fuzz | 18 | 4 | stalls-live:siding 1, stalls-live 2, waits-on-points 1, break:netActed 1 |
 
 ### ring (18 cases, 0 mismatched)
@@ -750,15 +758,15 @@ and pass / known.
 | wye 2×own opposed stops:far | partial (1/2; through an industry siding 2) | stall at 31 s (in-way, in-way); 1 / 1 | pass |
 | wye 2×own same stops:far | partial (1/2; through an industry siding 2) | stall at 50 s (in-way, in-way); 2 / 1 | pass |
 
-### lengths (6 cases, 2 mismatched)
+### lengths (6 cases, 1 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
-| line1 2×one opposed long | live (2/2) | stall at 9 s (too-many, –); 0 / 0 | known: stalls-live |
+| line1 2×one opposed long | dead (0/2) | stall at 9 s (too-many, –); 0 / 0 | **fixed?** |
 | line1 2×one opposed short | live (2/2) | 6 / 6 | pass |
 | line2 2×one opposed long | dead (0/2) | stall at 9 s (too-many, –); 0 / 0 | pass |
 | line2 2×one opposed short | live (2/2) | 4 / 4 | pass |
-| ring1 2×one opposed long | partial (1/2) | stall at 13 s (in-way, in-way); 1 / 0 | known: waits-on-points |
+| ring1 2×one opposed long | dead (0/2) | stall at 13 s (in-way, in-way); 1 / 0 | known: waits-on-points |
 | ring1 2×one opposed short | live (2/2) | 6 / 5 | pass |
 
 ### fuzz (18 cases, 4 mismatched)
