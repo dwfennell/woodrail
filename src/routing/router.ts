@@ -18,7 +18,7 @@ import { ACCELERATION, CAR_SPECS, CoverIndex, engineOf, flipCursor, stopDistance
 import { BookingTable } from "./bookings";
 import { STAND_SHORT } from "../economy/sections";
 import { next, walkOn, waysFrom, type PinnedTest } from "./graph";
-import { planWay, WayMemory } from "./plan";
+import { planWay, WayMemory, type Lap } from "./plan";
 import { mouthWay } from "./dead-ends";
 import { trainLength } from "../sim/train-cars";
 
@@ -99,6 +99,8 @@ export interface RouterHost {
   goal(engine: number): number;
   /** The piece it's aimed at after `goal` (a via's next aim; −1: none): its look ahead goes on past a via point to it. */
   then?(engine: number): number;
+  /** The lap its line's plans keep to (sections' `lapFor`: the user's lap rule), if any. */
+  lapRule?(engine: number): Lap | undefined;
   /** Whose kept ways it keeps (stickiness, `WayMemory`): its line's (by default its own). */
   owner?(engine: number): number;
   /** A train's net drive toward its front (sign only matters; 0: not driven). */
@@ -242,6 +244,9 @@ export class Router {
   private readonly underStamps = new Map<number, number>();
   /** Asks refused because another train's car was over the points or crossing on a road that fouls (`fouledUnder`). */
   refusedUnder = 0;
+
+  /** The engine `walk` is walking for (`steerTrains`), for its line's lap. */
+  private engineOfWalk = -1;
 
   constructor(private readonly host: RouterHost) {
     this.bookings = new BookingTable(host.layout);
@@ -543,6 +548,7 @@ export class Router {
       h ??= this.holdingOf(engine);
       this.looks++;
       const target = grant?.aim ?? goal;
+      this.engineOfWalk = engine;
       const want = this.walk(layout, train, net > 0, target, grant?.follow, h, this.host.owner?.(engine) ?? engine, grant ? -1 : (this.host.then?.(engine) ?? -1));
       // (Pinned points against its way end the walk: it asks for those before them, and waits at them.)
       const pin = want.length > 0 && want[want.length - 1].pinned ? want.pop()! : null;
@@ -1312,12 +1318,13 @@ export class Router {
         const followed = follow ? ways.filter((x) => follow(n.pieceId, x.path)) : [];
         // (Its line's way kept where two cost nearly the same: stickiness, remembered as it's set.)
         const cost = this.costOut;
-        let best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost);
+        const lap = this.host.lapRule?.(this.engineOfWalk);
+        let best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost, lap);
         // (No way on leads there: nothing set, and nothing further asked for.)
         if (best === -1) break;
         // (Coming out of a dead end: a road no train faces it on, if one still gets there (routing spec §5 rule 8), as
         // sections granted it.)
-        if (followed.length !== 1) {
+        if (followed.length !== 1 && !lap) {
           const out = mouthWay(layout, this.host.sim, train, n.pieceId, n.entry, ways, best, (x) => planWay(layout, n.pieceId, n.entry, [{ option: 0, path: x.path, exit: x.exit }], target) !== -1);
           if (out !== best) {
             const o = { cost: Infinity };

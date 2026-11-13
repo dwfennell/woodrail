@@ -315,6 +315,7 @@ export class HarnessRun implements InvariantWorld {
       // (As the economy's: where it's heading, the stop after once at one, or a via point on the way; `then` aims on.)
       goal: (engine) => this.goal(engine, 0),
       then: (engine) => this.goal(engine, 1),
+      lapRule: (engine) => this.sections.lapRule(engine),
       owner: (engine) => this.owner(engine),
       drive,
       granted: (engine) => this.sections.steerHint(engine),

@@ -750,8 +750,14 @@ export class Invariants {
     let wrong: boolean;
     if (followed.length === 1) wrong = followed[0].option !== taken.option;
     else {
-      const costs: number[] = [];
-      const best = planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs);
+      let costs: number[] = [];
+      // (Round its line's lap where a way goes so, as the router plans it: sections' `lapRule`.)
+      const lap = sections.lapRule?.(engine);
+      let best = lap ? planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs, undefined, lap) : -1;
+      if (best === -1) {
+        costs = [];
+        best = planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs);
+      }
       if (best === -1 || best === taken.option) return;
       // (Or the way its line kept, costing nearly the best: stickiness, via points' §3.5.)
       const aim = held?.aim ?? target;

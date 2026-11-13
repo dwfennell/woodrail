@@ -684,6 +684,7 @@ export class Economy {
       // train ahead.)
       goal: (engine) => this.goalOf(engine, 0),
       then: (engine) => this.goalOf(engine, 1),
+      lapRule: (engine) => this.sections.lapRule(engine),
       owner: (engine) => this.ownerOf(engine),
       drive: (train) => this.drive(train),
       granted: (engine) => this.sections.steerHint(engine),

@@ -1,7 +1,7 @@
 import { connectorRef, getPieceDef, indexOfRef, offersChoice, pathLength, pathLengthOf, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, SIM_HZ, stopDistance, trainOn, type Cursor, type Sim, type Train } from "../sim";
 import { next, SEARCH, walkOn, waysFrom } from "../routing/graph";
-import { plan, planWay, type KeepTest } from "../routing/plan";
+import { plan, planWay, type KeepTest, type Lap } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
 import { deadEndsOf, mouthWay } from "../routing/dead-ends";
 import { engineOf, trainLength } from "../sim/train-cars";
@@ -1199,7 +1199,9 @@ export class Sections {
    * comes on its road facing this one and another way has none (`mouthWay`; for a routed train, one that still reaches
    * `target`). Elsewhere `w`.
    */
-  private outOfDeadEnd(own: Train | undefined, at: { pieceId: number; entry: number }, ways: readonly { option: number; path: number; exit: number }[], w: { option: number; path: number; exit: number }, target: number): { option: number; path: number; exit: number } {
+  private outOfDeadEnd(own: Train | undefined, at: { pieceId: number; entry: number }, ways: readonly { option: number; path: number; exit: number }[], w: { option: number; path: number; exit: number }, target: number, lap?: Lap): { option: number; path: number; exit: number } {
+    // (Round its line's lap: not out the other way round, though a train faces it on the lap's road (it waits for it).)
+    if (lap) return w;
     const reaches = target < 0 ? undefined : (x: { option: number; path: number; exit: number }) => planWay(this.layout, at.pieceId, at.entry, [{ option: 0, path: x.path, exit: x.exit }], target) !== -1;
     const o = mouthWay(this.layout, this.sim, own, at.pieceId, at.entry, ways, w.option, reaches);
     return o === w.option ? w : (ways.find((x) => x.option === o) ?? w);
@@ -1230,6 +1232,7 @@ export class Sections {
     const topo = info.topo;
     let target = st.aside ? st.aside.piece : this.host.target(st.engine);
     const keep = st.aside ? undefined : this.host.keep?.(st.engine);
+    const lap = this.lapFor(st.engine);
     const loose = this.host.lineOf(st.engine) < 0;
     // (Past its stop on the way (a stop in a section is called at inside the move), its way goes on toward the one
     // after, as the router aims it, not as the points lie: 2026-11-06, a train at a mill in a section was taken on into
@@ -1267,7 +1270,13 @@ export class Sections {
       if (depth === 0) {
         const r = ends.regionOf.get(at.pieceId);
         if (r !== undefined && r !== lastRegion && !own?.bogies.some((b) => ends.regionOf.get(b.pieceId) === r)) {
-          const u = this.inDeadEnd(r, st.engine, own);
+          let u = this.inDeadEnd(r, st.engine, own);
+          // (Going round its line's lap the other way, coming to turn here: a line-mate going round with it that only
+          // claims the dead end (not in it, no move into it) lets it go first (`lapYield`).)
+          if (u !== -1 && lap && this.againstLap(st.engine, lap) && !this.againstLap(u, lap) && !this.states.get(u)?.move) {
+            const pieces = ends.mouths[r].pieces;
+            if (!this.sim.findCar(u)?.train.bogies.some((b) => pieces.has(b.pieceId))) u = -1;
+          }
           if (u !== -1 && !this.followsIntoRegion(info, r, st.engine, u)) return { steps, sections, through, dest: -1, outBy: -1, blockedBy: u, mouth: true };
           // (Free: it's going in. Claimed while it asks again on its way there, so no other goes in meanwhile.)
           st.claim = r;
@@ -1416,9 +1425,9 @@ export class Sections {
       }
       else if (ways.length > 1) {
         // (The router's choice: the plan's way to its stop.)
-        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target));
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target), undefined, lap);
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
-        w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target);
+        w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target, lap);
       }
       steps.push({ pieceId: at.pieceId, path: w.path, entry: at.entry });
       // (The same place again next (a line's last stop and its first): on to the one after that.)
@@ -1842,16 +1851,17 @@ export class Sections {
     const f = this.front(t, net < 0);
     const aims = this.host.lineOf(u) >= 0 ? (this.host.lap?.(u) ?? [this.host.target(u)]) : NO_AIMS;
     if (this.host.lineOf(u) >= 0 && aims.length === 0) return NOT_CIRCLING;
-    const key = `${f.pieceId}.${f.pathIndex}.${f.reversed ? 1 : 0}|${this.layout.revision}|${this.layout.switchesVersion}|${aims.join(",")}`;
+    const lap = this.lapFor(u);
+    const key = `${f.pieceId}.${f.pathIndex}.${f.reversed ? 1 : 0}|${this.layout.revision}|${this.layout.switchesVersion}|${aims.join(",")}|${lap?.id ?? ""}`;
     const hit = this.circlingOf.get(u);
     if (hit && hit.key === key) return hit.c;
-    const c = this.circuitFrom(f, aims);
+    const c = this.circuitFrom(f, aims, lap);
     this.circlingOf.set(u, { key, c });
     return c;
   }
   private readonly circlingOf = new Map<number, { key: string; c: Circuit }>();
 
-  private circuitFrom(f: Cursor, aims: readonly number[]): Circuit {
+  private circuitFrom(f: Cursor, aims: readonly number[], lap?: Lap): Circuit {
     const { layout } = this;
     const piece = layout.getPiece(f.pieceId);
     if (!piece) return NOT_CIRCLING;
@@ -1870,6 +1880,9 @@ export class Sections {
     const ends = aims.length > 0 ? deadEndsOf(layout) : null;
     let turned = false;
     let turnedIn = -1;
+    // (Round a lap: the walk's steps, in and out, two numbers a step, and where each key's step is.)
+    const seq: number[] = [];
+    const seqAt = new Map<number, number>();
     for (let k = 0; k < SEARCH * n0; k++) {
       let n = next(layout, at, exit);
       if ((!n || waysFrom(layout, n.pieceId, n.entry).every((x) => x.exit < 0)) && ends?.regionOf.has(at)) {
@@ -1890,17 +1903,35 @@ export class Sections {
       if (seen.has(key)) {
         // (Turned back somewhere: it circles only if, off the dead ends, it never runs a piece both ways (a ring with a
         // branch it goes up and back, not a line it shuttles along, through its loops either way).)
-        if (turned && ends) for (const x of ins) if (outs.has(x) && !ends.regionOf.has(x >> 3) && !ends.intoAt.has(x)) return NOT_CIRCLING;
-        return { yes: true, ins, outs };
+        // (Round its line's lap: what it runs once it's going round (from where it first came back to), not on its way
+        // to it: a train put down the other way round turns in a dead end off the ring first, held for those coming at it
+        // till then (`headOnAlong`).)
+        let cIns = ins;
+        let cOuts = outs;
+        const at0 = lap ? seqAt.get(key) : undefined;
+        if (at0 !== undefined) {
+          cIns = new Set<number>();
+          cOuts = new Set<number>();
+          for (let i = at0; i < seq.length; i += 2) {
+            cIns.add(seq[i]);
+            cOuts.add(seq[i + 1]);
+          }
+        }
+        if (turned && ends) for (const x of cIns) if (cOuts.has(x) && !ends.regionOf.has(x >> 3) && !ends.intoAt.has(x)) return NOT_CIRCLING;
+        return { yes: true, ins: cIns, outs: cOuts };
       }
       seen.add(key);
       const target = aims.length > 0 ? aims[j] : -1;
       let w = ways[0];
       if (ways.length > 1) {
-        const best = target < 0 ? -1 : planWay(layout, n.pieceId, n.entry, ways, target);
+        const best = target < 0 ? -1 : planWay(layout, n.pieceId, n.entry, ways, target, undefined, undefined, undefined, lap);
         w = best === -1 ? (ways[pointsWayFrom(layout, n.pieceId, n.entry, ways.length)] ?? ways[0]) : ways[best];
       }
       if (w.exit < 0) return NOT_CIRCLING;
+      if (lap) {
+        seqAt.set(key, seq.length);
+        seq.push(n.pieceId * 8 + n.entry, n.pieceId * 8 + w.exit);
+      }
       ins.add(n.pieceId * 8 + n.entry);
       outs.add(n.pieceId * 8 + w.exit);
       at = n.pieceId;
@@ -2001,6 +2032,7 @@ export class Sections {
     const out = new Map<number, number>();
     const target = this.host.target(st.engine);
     const keep = this.host.keep?.(st.engine);
+    const lap = this.lapFor(st.engine);
     const own = this.sim.findCar(st.engine)?.train;
     let at: { pieceId: number; entry: number } | null = start;
     for (let k = 0; at && k < SEARCH && !out.has(at.pieceId); k++) {
@@ -2013,9 +2045,9 @@ export class Sections {
       const under = own?.bogies.find((b) => b.pieceId === p);
       if (ways.length > 1 && under) w = ways.find((x) => x.path === under.pathIndex) ?? w;
       else if (ways.length > 1) {
-        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target));
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target), undefined, lap);
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
-        w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target);
+        w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target, lap);
       }
       at = next(layout, at.pieceId, w.exit);
     }
@@ -2197,6 +2229,13 @@ export class Sections {
     const other = this.lastRoadFor(st, info, way);
     if (other !== -1) {
       this.hold(st, { kind: "section", engine: other });
+      return false;
+    }
+    // (Round its line's lap, into a dead end off the ring: after any line-mate still going round the other way, which
+    // turns there to go round with it (`lapYield`).)
+    const against = this.lapYield(st, info, way);
+    if (against !== -1) {
+      this.hold(st, { kind: "slot", engine: against });
       return false;
     }
     // (First come, first served: a train that has waited long for this stretch or this loop goes first.)
@@ -2496,6 +2535,9 @@ export class Sections {
     // (A loop's last free road is kept for a train coming the other way: `lastRoadFor`.)
     const keep = this.lastRoadFor(st, info, way);
     if (keep !== -1) return this.recoverWait(st, keep, info);
+    // (Round its line's lap into a dead end: after a line-mate going round the other way, as `ask`.)
+    const against = this.lapYield(st, info, way);
+    if (against !== -1) return this.recoverWait(st, against, info);
     this.grant(st, way);
     return true;
   }
@@ -3376,6 +3418,112 @@ export class Sections {
       st.frontKey = -1;
       this.cut++;
     }
+  }
+
+  /**
+   * The lap of `engine`'s line (the user's lap rule, 2026-11-13): where two or more of its trains go round a ring of its
+   * way with no passing loop on it (dead ends off it allowed), the way round its first train (by engine) goes, as it
+   * was first found. Plans for its trains keep to it (`Lap`): one put down the other way round turns in a dead end off
+   * the ring and comes out going round with the others, so they follow one another, never meeting head on (branch 2×
+   * opposed). Undefined where there's none.
+   */
+  /**
+   * A line-mate going round its line's lap the other way (`againstLap`) while this one, going round with it, asks to go
+   * into a dead end off the ring: that one (−1: none). It goes first: it turns there to go round with the rest; this one
+   * turned there first comes out facing it, with nowhere to turn (branch 2× opposed: both stood for good).
+   */
+  private lapYield(st: TrainState, info: LineInfo, way: Way): number {
+    const lap = this.lapFor(st.engine);
+    if (!lap || way.dest < 0 || info.topo.slots[way.dest]?.kind !== "end" || this.againstLap(st.engine, lap)) return -1;
+    for (const u of info.users) if (u !== st.engine && !info.loose.includes(u) && this.againstLap(u, lap)) return u;
+    return -1;
+  }
+
+  /** Is train `u` going round the ring of `lap` the other way (its front on the ring, heading against it)? */
+  private againstLap(u: number, lap: Lap): boolean {
+    const t = this.sim.findCar(u)?.train;
+    if (!t) return false;
+    const net = this.host.drive(t);
+    if (net === 0) return false;
+    const f = this.front(t, net < 0);
+    const piece = this.layout.getPiece(f.pieceId);
+    if (!piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[f.pathIndex];
+    return lap.against(f.pieceId, f.reversed ? path.from : (path.to ?? -1));
+  }
+
+  /** `lapFor`, for the router (its walk's plans keep to the same lap). */
+  lapRule(engine: number): Lap | undefined {
+    return this.enabled ? this.lapFor(engine) : undefined;
+  }
+
+  private lapFor(engine: number): Lap | undefined {
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0) return undefined;
+    // (Lines sharing its track (`network`) go round one lap: the user's (a) is about trains on one track, not line labels.)
+    const lines = this.network().get(lineId)?.lines ?? [lineId];
+    const first = Math.min(...lines);
+    const hit = this.laps.get(first);
+    if (hit && hit.revision === this.layout.revision && hit.lines === lines.join(",") && (hit.lap || this.sim.ticks === hit.at)) return hit.lap ?? undefined;
+    const engines: number[] = [];
+    for (const l of lines) engines.push(...this.host.live(l));
+    const lap = engines.length < 2 ? null : this.findLap(lines, engines);
+    this.laps.set(first, { revision: this.layout.revision, lines: lines.join(","), at: this.sim.ticks, lap });
+    return lap ?? undefined;
+  }
+  private readonly laps = new Map<number, { revision: number; lines: string; at: number; lap: Lap | null }>();
+
+  /** `lapFor`'s walk: round the ring from the first of `engines` on it going, the way it goes. */
+  private findLap(lines: readonly number[], engines: readonly number[]): Lap | null {
+    const { layout } = this;
+    const way = new Set<number>();
+    for (const l of lines) for (const p of this.wayOf(l)) way.add(p);
+    const ends = deadEndsOf(layout);
+    const ring = (p: number) => way.has(p) && !ends.regionOf.has(p);
+    for (const e of [...engines].sort((a, b) => a - b)) {
+      const t = this.sim.findCar(e)?.train;
+      if (!t) continue;
+      // (Standing (put down, not yet going): its engine's end first, the way it'll go.)
+      const f = this.front(t, this.host.drive(t) < 0);
+      if (!ring(f.pieceId)) continue;
+      const piece = layout.getPiece(f.pieceId);
+      if (!piece) continue;
+      const path = getPieceDef(piece.type, piece.flipped).paths[f.pathIndex];
+      const exit0 = f.reversed ? path.from : (path.to ?? -1);
+      if (exit0 < 0) continue;
+      const outs = new Map<number, number>([[f.pieceId, exit0]]);
+      let at = f.pieceId;
+      let exit = exit0;
+      let closed = false;
+      for (let k = 0; k < SEARCH; k++) {
+        const n = next(layout, at, exit);
+        if (!n) break;
+        if (n.pieceId === f.pieceId) {
+          closed = n.entry !== exit0;
+          break;
+        }
+        // (On round the ring: of the ways on, those onto ring pieces. Two: a passing loop on it, no lap.)
+        const ws = waysFrom(layout, n.pieceId, n.entry).filter((w) => {
+          const m = next(layout, n.pieceId, w.exit);
+          return !!m && ring(m.pieceId);
+        });
+        if (ws.length !== 1 || outs.has(n.pieceId)) break;
+        outs.set(n.pieceId, ws[0].exit);
+        at = n.pieceId;
+        exit = ws[0].exit;
+      }
+      if (!closed) continue;
+      return {
+        id: `lap:${lines.join(",")}:${layout.revision}:${f.pieceId}:${exit0}`,
+        against: (p, x) => {
+          const o = outs.get(p);
+          if (o === undefined || o === x) return false;
+          const m = next(layout, p, x);
+          return !!m && ring(m.pieceId);
+        },
+      };
+    }
+    return null;
   }
 
   /** A line's ends (end slots on its way) its longest train, `length` mm, fits in. */
