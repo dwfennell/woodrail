@@ -1925,17 +1925,23 @@ export class Sections {
    * buffer there, and waits for `by` to pass. Granted: true. Only where it can run in going the way it faces (a refuge
    * off facing points), and the stretch to it is free.
    */
-  private stepAside(st: TrainState, info: LineInfo, by: number): boolean {
-    if (by < 0 || st.aside || st.exitPiece < 0) return false;
+  private stepAside(st: TrainState, info: LineInfo, by: number, from?: { pieceId: number; entry: number; path: number }): boolean {
+    const start = from ?? (st.exitPiece >= 0 ? { pieceId: st.exitPiece, entry: st.exitEntry, path: -1 } : null);
+    if (by < 0 || st.aside || !start) return false;
     const lineId = this.host.lineOf(st.engine);
     const own = this.sim.findCar(st.engine)?.train;
     const other = this.sim.findCar(by)?.train;
     if (lineId < 0 || !own || !other || !this.headingAt(other, own)) return false;
+    // (Only refuges both ways can run into (`bothWaysIn`): off plain points the train boxed in past it is the user's
+    // decision 4, a convoy into a dead end, said stuck (boxed.ts; fuzz seed 125's layout).)
     for (const r of this.refugesOf(lineId, info.topo, trainLength(own))) {
       if (this.slotUser(info, r, st.engine) !== -1) continue;
       st.aside = { slot: r, piece: this.innerOf(info.topo.slots[r]), by };
-      const way = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
-      if (way && way.dest === r && way.sections.every((x) => this.sectionUser(info, x, st.engine) === -1)) {
+      const way = this.wayOn(st, info, { pieceId: start.pieceId, entry: start.entry }, start.path);
+      // (Its way to the refuge free: no other train of the line on it (in a section, the one it's in counts only ahead).)
+      const ahead = new Set(way?.steps.map((x) => x.pieceId) ?? []);
+      const clear = !!way && (from ? !info.users.some((u) => u !== st.engine && this.sim.findCar(u)?.train.bogies.some((b) => ahead.has(b.pieceId) && !own.bogies.some((o) => o.pieceId === b.pieceId))) : way.sections.every((x) => this.sectionUser(info, x, st.engine) === -1));
+      if (way && way.dest === r && clear) {
         this.grant(st, way);
         st.lettingBy = by;
         st.lettingSlot = r;
@@ -2184,6 +2190,7 @@ export class Sections {
         if (along && this.follows(info, st.engine, u) && this.sameWayAhead(u, along)) continue;
         // (Coming out of a dead end: one standing ahead the same way, it follows.)
         if (this.standing(u) && this.comingOut(st.engine) && this.sameWayAhead(u, along ?? (along = this.alongOf(way.steps, info.topo)))) continue;
+        if (this.stepAside(st, info, u, { pieceId: front.pieceId, entry, path: front.pathIndex })) return true;
         return this.recoverWait(st, u, info);
       }
       // Coming the other way through it (its move's way runs over where this one stands, the other way round).
@@ -2191,7 +2198,10 @@ export class Sections {
       // (With one it may follow, only one heading out by the end it comes in by: two coming together at points the same
       // way only follow.)
       const exact = along !== null && this.follows(info, st.engine, u);
-      if (m && m.sections.some((x) => way.sections.includes(x)) && m.steps.some((s) => mine.has(s.pieceId) && way.steps.some((w) => w.pieceId === s.pieceId && (exact ? this.exitOf(s) === w.entry : w.entry !== s.entry)))) return this.recoverWait(st, u, info);
+      if (m && m.sections.some((x) => way.sections.includes(x)) && m.steps.some((s) => mine.has(s.pieceId) && way.steps.some((w) => w.pieceId === s.pieceId && (exact ? this.exitOf(s) === w.entry : w.entry !== s.entry)))) {
+        if (this.stepAside(st, info, u, { pieceId: front.pieceId, entry, path: front.pathIndex })) return true;
+        return this.recoverWait(st, u, info);
+      }
     }
     // (A train not on the line running on its way ahead: wait for it, as for one of the line's.)
     for (const t of info.foreign) if (t.speed >= 1 && t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) return this.recoverWait(st, engineOf(t), info);
@@ -2199,7 +2209,9 @@ export class Sections {
       // (Held at a dead end's mouth: its way up to there is clear (nothing above stopped it); it comes up to the points
       // outside the mouth and stands short of them.)
       if (way.mouth) st.edge = this.edgeOn(way.steps);
-      return this.recoverWait(st, way.blockedBy !== -1 ? way.blockedBy : this.inWayOf(way, train, info), info);
+      const by = way.blockedBy !== -1 ? way.blockedBy : this.inWayOf(way, train, info);
+      if (this.stepAside(st, info, by, { pieceId: front.pieceId, entry, path: front.pathIndex })) return true;
+      return this.recoverWait(st, by, info);
     }
     // (A loop's last free road is kept for a train coming the other way: `lastRoadFor`.)
     const keep = this.lastRoadFor(st, info, way);
@@ -3085,12 +3097,13 @@ export class Sections {
    * A line's refuges (the user's A1, 2026-11-13): spare sidings and platforms off its way where a train of it can step
    * aside to let another by. Line ends (end slots) not on its way, joined to it where trains going either way can run
    * in (`bothWaysIn`), that its longest train fits, with no industry on them (no depot piece) and no line's stop: their
-   * slots. Worked out per topology and line way.
+   * slots. `oneWay`: off plain points too, where only trains heading one way run in (stepping aside on a line with a
+   * passing loop, where the one that steps aside can still get round: not room). Worked out per topology and line way.
    */
-  private refugesOf(lineId: number, topo: Topology, length: number): readonly number[] {
+  private refugesOf(lineId: number, topo: Topology, length: number, oneWay = false): readonly number[] {
     const way = this.loopCount.get(lineId)?.way;
     if (!way) return NO_SLOTS;
-    const key = `${lineId}|${length}`;
+    const key = `${lineId}|${length}|${oneWay ? 1 : 0}`;
     const hit = this.refugeCache.get(topo)?.get(key);
     if (hit && hit.way === way) return hit.slots;
     const out: number[] = [];
@@ -3108,7 +3121,7 @@ export class Sections {
         const def = getPieceDef(piece.type, piece.flipped);
         for (let c = 0; c < def.connectors.length; c++) {
           const n = next(this.layout, p, c);
-          if (n && !sl.pieces.has(n.pieceId) && way.has(n.pieceId) && this.bothWaysIn(n.pieceId, n.entry)) joined = true;
+          if (n && !sl.pieces.has(n.pieceId) && way.has(n.pieceId) && (oneWay || this.bothWaysIn(n.pieceId, n.entry))) joined = true;
         }
       }
       if (!onWay && spare && joined) out.push(i);
