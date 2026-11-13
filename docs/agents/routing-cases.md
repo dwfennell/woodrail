@@ -197,6 +197,18 @@ branch: room for both. branch 2× `same stops:far` clear (one and own): 31 known
 down facing each other (`opposed`) and branch-spare. Their way to a stop on the ring meets no slot (the ring has no
 loop), so sections don't hold them, and one runs onto the wye into the other: a ring with no slot of its own.
 
+**The oracle measures trains in millimetres** (`claude/routing-zero-oracle-mm`, on balloon): a train held whole pieces,
+and a piece one train, so two 268 mm trains needed 4 pieces where they fit in 3 (a line end of 648 mm: the user's (a)
+convoy, one closed up behind the other to turn there). Now a train covers a stretch: its front may stand short of its
+front piece's end (`fs`), its tail covers only as much of its last piece as its length needs, and trains share a
+piece where their stretches keep a 10 mm gap. A train closes up part way onto a piece behind another only on plain track
+running to the end of the line, where it's for turning behind it (§16 Q9); elsewhere it waits a piece back as before.
+18 verdicts change, all toward more trains running, none the other way:
+dead → live: fuzz 19, fuzz 161, line1+siding 2× hand same and 3× mix same, its spare's too, siding 2× hand same,
+siding-spare 2× hand same and 3× one same; partial → live: fuzz 7, 94, 189, line1+siding 3× mix opposed and its
+spare's; dead → partial: siding 3× one and mix same, siding-spare 3× mix same; fuzz 125 live with or without a siding.
+New known (the game doesn't yet do the convoy): fuzz 7, 19, 94, 189, siding-spare 3× one same. 36 known.
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
@@ -270,17 +282,17 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-484 cases; 31 mismatched.
+484 cases; 36 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
 | ring | 18 | 0 | – |
-| trains | 258 | 22 | waits-on-points 10, stalls-live:siding 14 |
+| trains | 258 | 23 | waits-on-points 10, stalls-live:siding 15 |
 | signals | 104 | 1 | stalls-live 1 |
 | placement | 30 | 1 | waits-on-points 1 |
 | stops | 50 | 2 | stalls-live 2, waits-on-points 1 |
 | lengths | 6 | 1 | waits-on-points 1 |
-| fuzz | 18 | 4 | stalls-live:siding 1, stalls-live 2, waits-on-points 1, break:netActed 1 |
+| fuzz | 18 | 8 | stalls-live:siding 3, stalls-live 4, waits-on-points 1, break:netActed 1 |
 
 ### ring (18 cases, 0 mismatched)
 
@@ -305,7 +317,7 @@ and pass / known.
 | ring0 3×own same sig:blocks3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 | ring0 3×own same sig:oneway3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 
-### trains (258 cases, 22 mismatched)
+### trains (258 cases, 23 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -353,14 +365,14 @@ and pass / known.
 | double 2×hand same | live (2/2) | 15.1 m / 14.6 m | pass |
 | double 2×mix opposed | live (2/2) | 11 / 15 m | pass |
 | double 2×mix same | live (2/2) | 11 / 14.4 m | pass |
-| double 2×one opposed | partial (1/2) | stall at 9 s (too-many, –); 0 / 0 | pass |
-| double 2×one same | partial (1/2) | stall at 15 s (too-many, –); 0 / 1 | pass |
+| double 2×one opposed | partial (1/2; through an industry siding 2) | stall at 9 s (too-many, –); 0 / 0 | pass |
+| double 2×one same | partial (1/2; through an industry siding 2) | stall at 15 s (too-many, –); 0 / 1 | pass |
 | double 2×own opposed | live (2/2) | 11 / 11 | pass |
 | double 2×own same | live (2/2) | 11 / 11 | pass |
 | double 3×mix opposed | live (2/2) | 11 / 15 m | pass |
 | double 3×mix same | live (2/2) | 11 / 14.4 m | pass |
-| double 3×one opposed | partial (1/2) | stall at 9 s (too-many, –); 0 / 0 | pass |
-| double 3×one same | partial (1/2) | stall at 17 s (–, too-many); 0 / 1 | pass |
+| double 3×one opposed | partial (1/2; through an industry siding 2) | stall at 9 s (too-many, –); 0 / 0 | pass |
+| double 3×one same | partial (1/2; through an industry siding 2) | stall at 17 s (–, too-many); 0 / 1 | pass |
 | line0 1×hand | live (1/1) | 15 m | pass |
 | line0 1×one | live (1/1) | 11 | pass |
 | line0 2×hand opposed | dead (0/2) | stall at 8 s (in-way, in-way); 0.1 m / 0.1 m | pass |
@@ -388,29 +400,29 @@ and pass / known.
 | line1+siding 1×hand | live (1/1) | 16.4 m | pass |
 | line1+siding 1×one | live (1/1) | 6 | pass |
 | line1+siding 2×hand opposed | dead (0/2) | 15.5 m / 15.2 m | pass |
-| line1+siding 2×hand same | dead (0/2) | stall at 19 s (in-way, in-way); 1.5 m / 1.2 m | known: waits-on-points |
+| line1+siding 2×hand same | live (2/2) | stall at 19 s (in-way, in-way); 1.5 m / 1.2 m | known: waits-on-points |
 | line1+siding 2×mix opposed | live (2/2) | 6 / 15.1 m | pass |
 | line1+siding 2×mix same | live (2/2) | 5 / 15.4 m | pass |
 | line1+siding 2×one opposed | live (2/2) | 6 / 6 | pass |
 | line1+siding 2×one same | live (2/2) | 5 / 6 | pass |
 | line1+siding 2×own opposed | live (2/2) | 6 / 6 | pass |
 | line1+siding 2×own same | live (2/2) | 5 / 6 | pass |
-| line1+siding 3×mix opposed | partial (1/3) | 4 / 10.7 m / 10.2 m | pass |
-| line1+siding 3×mix same | dead (0/3) | 2 / 9.1 m / 10 m | pass |
+| line1+siding 3×mix opposed | live (3/3) | 4 / 10.7 m / 10.2 m | pass |
+| line1+siding 3×mix same | live (3/3) | 2 / 9.1 m / 10 m | pass |
 | line1+siding 3×one opposed | live (3/3) | 4 / 4 / 4 | pass |
 | line1+siding 3×one same | live (3/3) | 3 / 4 / 4 | pass |
 | line1+siding-spare 1×hand | live (1/1) | 16.4 m | pass |
 | line1+siding-spare 1×one | live (1/1) | 6 | pass |
 | line1+siding-spare 2×hand opposed | dead (0/2) | 15.5 m / 15.2 m | pass |
-| line1+siding-spare 2×hand same | dead (0/2) | stall at 19 s (in-way, in-way); 1.5 m / 1.2 m | known: waits-on-points |
+| line1+siding-spare 2×hand same | live (2/2) | stall at 19 s (in-way, in-way); 1.5 m / 1.2 m | known: waits-on-points |
 | line1+siding-spare 2×mix opposed | live (2/2) | 6 / 15.1 m | pass |
 | line1+siding-spare 2×mix same | live (2/2) | 5 / 15.4 m | pass |
 | line1+siding-spare 2×one opposed | live (2/2) | 6 / 6 | pass |
 | line1+siding-spare 2×one same | live (2/2) | 5 / 6 | pass |
 | line1+siding-spare 2×own opposed | live (2/2) | 6 / 6 | pass |
 | line1+siding-spare 2×own same | live (2/2) | 5 / 6 | pass |
-| line1+siding-spare 3×mix opposed | partial (1/3) | 4 / 10.7 m / 10.2 m | pass |
-| line1+siding-spare 3×mix same | dead (0/3) | 2 / 9.1 m / 10 m | pass |
+| line1+siding-spare 3×mix opposed | live (3/3) | 4 / 10.7 m / 10.2 m | pass |
+| line1+siding-spare 3×mix same | live (3/3) | 2 / 9.1 m / 10 m | pass |
 | line1+siding-spare 3×one opposed | live (3/3) | 4 / 4 / 4 | pass |
 | line1+siding-spare 3×one same | live (3/3) | 3 / 4 / 4 | pass |
 | line2 1×hand | live (1/1) | 16.6 m | pass |
@@ -486,7 +498,7 @@ and pass / known.
 | siding 1×hand | live (1/1) | 15.6 m | pass |
 | siding 1×one | live (1/1) | 10 | pass |
 | siding 2×hand opposed | dead (0/2) | stall at 28 s (in-way, in-way); 2 m / 1.3 m | pass |
-| siding 2×hand same | dead (0/2) | stall at 13 s (in-way, in-way); 0.8 m / 0.6 m | pass |
+| siding 2×hand same | live (2/2) | stall at 13 s (in-way, in-way); 0.8 m / 0.6 m | pass |
 | siding 2×mix opposed | partial (1/2; through an industry siding 2) | stall at 9 s (in-way, in-way); 0 / 0.1 m | pass |
 | siding 2×mix same | partial (1/2; through an industry siding 2) | stall at 17 s (in-way, in-way); 0 / 1.1 m | pass |
 | siding 2×one opposed | partial (1/2; through an industry siding 2) | stall at 9 s (too-many, –); 0 / 0 | pass |
@@ -494,13 +506,13 @@ and pass / known.
 | siding 2×own opposed | partial (1/2; through an industry siding 2) | stall at 9 s (in-way, in-way); 0 / 0 | pass |
 | siding 2×own same | partial (1/2; through an industry siding 2) | stall at 17 s (in-way, in-way); 0 / 1 | pass |
 | siding 3×mix opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 m / 0.4 m | pass |
-| siding 3×mix same | dead (0/3) | stall at 21 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
+| siding 3×mix same | partial (2/3) | stall at 21 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
 | siding 3×one opposed | dead (0/3) | stall at 6 s (–, too-many, –); 0 / 0 / 1 | pass |
-| siding 3×one same | dead (0/3) | stall at 7 s (too-many, –, –); 0 / 0 / 1 | pass |
+| siding 3×one same | partial (2/3; through an industry siding 3) | stall at 7 s (too-many, –, –); 0 / 0 / 1 | pass |
 | siding-spare 1×hand | live (1/1) | 15.6 m | pass |
 | siding-spare 1×one | live (1/1) | 10 | pass |
 | siding-spare 2×hand opposed | dead (0/2) | stall at 28 s (in-way, in-way); 2 m / 1.3 m | pass |
-| siding-spare 2×hand same | dead (0/2) | stall at 13 s (in-way, in-way); 0.8 m / 0.6 m | pass |
+| siding-spare 2×hand same | live (2/2) | stall at 13 s (in-way, in-way); 0.8 m / 0.6 m | pass |
 | siding-spare 2×mix opposed | live (2/2; own ends 1) | stall at 9 s (in-way, in-way); 0 / 0.1 m | pass |
 | siding-spare 2×mix same | live (2/2; own ends 1) | stall at 17 s (in-way, in-way); 0 / 1.1 m | pass |
 | siding-spare 2×one opposed | live (2/2; own ends 1) | stall at 9 s (too-many, –); 0 / 0 | known: stalls-live:siding (waiting on the user's call: the spare end is off plain points, so only one way in; to get by, one train follows the other into the line end and turns behind it (§16 Q9), a convoy decision 4 keeps out) |
@@ -508,9 +520,9 @@ and pass / known.
 | siding-spare 2×own opposed | live (2/2; own ends 1) | stall at 9 s (in-way, in-way); 0 / 0 | known: stalls-live:siding (waiting on the user's call: the spare end is off plain points, so only one way in; to get by, one train follows the other into the line end and turns behind it (§16 Q9), a convoy decision 4 keeps out) |
 | siding-spare 2×own same | live (2/2; own ends 1) | stall at 17 s (in-way, in-way); 0 / 1 | known: stalls-live:siding (waiting on the user's call: the spare end is off plain points, so only one way in; to get by, one train follows the other into the line end and turns behind it (§16 Q9), a convoy decision 4 keeps out) |
 | siding-spare 3×mix opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 m / 0.4 m | pass |
-| siding-spare 3×mix same | dead (0/3) | stall at 21 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
+| siding-spare 3×mix same | partial (2/3) | stall at 21 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
 | siding-spare 3×one opposed | dead (0/3) | stall at 6 s (–, too-many, –); 0 / 0 / 1 | pass |
-| siding-spare 3×one same | dead (0/3) | stall at 7 s (too-many, –, –); 0 / 0 / 1 | pass |
+| siding-spare 3×one same | live (3/3; own ends 2) | stall at 7 s (too-many, –, –); 0 / 0 / 1 | **FAIL**: stalls-live:siding |
 | terminus 1×hand | live (1/1) | 15.5 m | pass |
 | terminus 1×one | live (1/1) | 9 | pass |
 | terminus 2×hand opposed | dead (0/2) | 12.9 m / 11.7 m | pass |
@@ -722,10 +734,10 @@ and pass / known.
 | branch 2×own opposed stops:far | live (2/2) | stall at 26 s (in-way, in-way); 1 / 0 | known: stalls-live |
 | branch 2×own same stops:far | live (2/2) | 9 / 8 | pass |
 | double 1×one stops:far | dead (0/1; through an industry siding 1) | 9 | pass |
-| double 2×one opposed stops:far | partial (1/2) | 11 / 0 | pass |
-| double 2×one same stops:far | partial (1/2) | 11 / 0 | pass |
-| double 2×own opposed stops:far | partial (1/2) | stall at 22 s (in-way, in-way); 1 / 1 | pass |
-| double 2×own same stops:far | partial (1/2) | stall at 21 s (in-way, in-way); 1 / 0 | pass |
+| double 2×one opposed stops:far | partial (1/2; through an industry siding 2) | 11 / 0 | pass |
+| double 2×one same stops:far | partial (1/2; through an industry siding 2) | 11 / 0 | pass |
+| double 2×own opposed stops:far | partial (1/2; through an industry siding 2) | stall at 22 s (in-way, in-way); 1 / 1 | pass |
+| double 2×own same stops:far | partial (1/2; through an industry siding 2) | stall at 21 s (in-way, in-way); 1 / 0 | pass |
 | line1 1×one stops:loop | dead (0/1; through an industry siding 1) | 7 | pass |
 | line1 1×one stops:mid | live (1/1) | 7 | pass |
 | line1 2×one opposed stops:loop | partial (1/2; through an industry siding 2) | 7 / 6 | pass |
@@ -778,26 +790,26 @@ and pass / known.
 | ring1 2×one opposed long | dead (0/2) | stall at 13 s (in-way, in-way); 1 / 0 | known: waits-on-points |
 | ring1 2×one opposed short | live (2/2) | 6 / 5 | pass |
 
-### fuzz (18 cases, 4 mismatched)
+### fuzz (18 cases, 8 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
-| fuzz seed 7 | partial (1/2) | stall at 9 s (too-many, –); 0 / 0 | pass |
-| fuzz seed 19 | dead (0/2) | stall at 17 s (too-many, –); 0 / 0 | pass |
+| fuzz seed 7 | live (2/2; own ends 1) | stall at 9 s (too-many, –); 0 / 0 | **FAIL**: stalls-live:siding |
+| fuzz seed 19 | live (2/2) | stall at 17 s (too-many, –); 0 / 0 | **FAIL**: stalls-live |
 | fuzz seed 34 | live (3/3) | 7 / 7 / 7 | pass |
 | fuzz seed 37 | live (3/3) | 7 / 8 / 7 | pass |
 | fuzz seed 42 | dead (0/2) | stall at 6 s (in-way, in-way); 0 / 0 | pass |
-| fuzz seed 60 | dead (0/2) | stall at 28 s (in-way, in-way); 1 / 1 | pass |
+| fuzz seed 60 | dead (0/2; through an industry siding 2) | stall at 28 s (in-way, in-way); 1 / 1 | pass |
 | fuzz seed 77 | live (3/3) | stall at 13 s (in-way, in-way, in-way); 1.4 m / 0 / 0.6 m | pass |
 | fuzz seed 91 | live (3/3) | 8 / 9 / 8 | pass |
-| fuzz seed 94 | partial (1/2) | stall at 15 s (in-way, in-way); 0 / 1 | pass |
+| fuzz seed 94 | live (2/2; own ends 1) | stall at 15 s (in-way, in-way); 0 / 1 | **FAIL**: stalls-live:siding |
 | fuzz seed 111 | live (3/3) | 10 / 10 / 9 | pass |
-| fuzz seed 125 | live (3/3; own ends 2) | stall at 15 s (in-way, in-way, in-way); 0 / 1 / 0 | known: stalls-live:siding (the user's decision 4: boxed in past a passing loop, a convoy into a dead end (boxed.ts's own case), said stuck; the oracle finds a way through stepping aside into the siding off plain points) |
+| fuzz seed 125 | live (3/3) | stall at 15 s (in-way, in-way, in-way); 0 / 1 / 0 | known: stalls-live (the user's decision 4: boxed in past a passing loop, a convoy into a dead end (boxed.ts's own case), said stuck; the oracle finds a way through stepping aside into the siding off plain points) |
 | fuzz seed 126 | live (3/3) | 6 / 7 / 8 | pass |
 | fuzz seed 136 | live (3/3) | stall at 11 s (in-way, in-way, in-way); 0 / 0 / 0 | known: stalls-live (the user's decision 4: two of a line's trains following into a line end stay one train to a section (the card says add a passing loop), though the oracle finds a §16 Q9 turn behind the one standing there) |
 | fuzz seed 149 | live (3/3) | stall at 11 s (in-way, in-way, in-way); 0 / 0 / 0 | known: stalls-live (the user's decision 4: two of a line's trains following into a line end stay one train to a section (the card says add a passing loop), though the oracle finds a §16 Q9 turn behind the one standing there) |
-| fuzz seed 161 | dead (0/2) | stall at 274 s (in-way, in-way); 15 / 17.9 m | known: waits-on-points, break:netActed |
+| fuzz seed 161 | live (2/2; own ends 1) | stall at 274 s (in-way, in-way); 15 / 17.9 m | known: waits-on-points, break:netActed |
 | fuzz seed 165 | live (3/3) | 9 / 6 / 7 | pass |
-| fuzz seed 189 | partial (1/2) | stall at 17 s (in-way, in-way); 1 / 0 | pass |
+| fuzz seed 189 | live (2/2; own ends 1) | stall at 17 s (in-way, in-way); 1 / 0 | **FAIL**: stalls-live:siding |
 | fuzz seed 190 | dead (0/2) | stall at 6 s (in-way, in-way); 0 / 0 | pass |
 <!-- /cases table -->

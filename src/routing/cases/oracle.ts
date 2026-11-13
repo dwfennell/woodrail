@@ -28,6 +28,11 @@ import { blocksOf } from "../../game/signal-place";
 import { next, waysFrom } from "../graph";
 import { pathLength } from "../../track/path";
 
+/** The gap (mm) two trains keep on a piece they share (the sim's, standing close behind: `STOP_GAP`). */
+const GAP = 10;
+/** How finely (mm) a train closes up behind another part way onto a piece. */
+const STEP = 8;
+
 export interface Elem {
   p: number;
   en: number;
@@ -79,7 +84,9 @@ export function atEnd(layout: Layout, f: Elem): boolean {
  */
 export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "spare", maxStates = 400_000, signals = false, handFree = false, behind = true): OracleResult {
   const n = start.length;
-  const key = (ts: Elem[][]) => ts.map((t) => t.map((e) => `${e.p}.${e.en}.${e.ex}`).join(",")).join("|");
+  /** A train in a state: its pieces (tail first) and how far (mm) its front stands short of its front piece's far end. */
+  type T = { e: Elem[]; fs: number };
+  const key = (ts: T[]) => ts.map((t) => `${t.e.map((e) => `${e.p}.${e.en}.${e.ex}`).join(",")}~${t.fs}`).join("|");
   const sw = new Map<number, boolean>();
   const swOf = (p: number) => {
     let v = sw.get(p);
@@ -87,28 +94,73 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
     return v;
   };
   const restOk = (t: Elem[]) => t.every((e) => !swOf(e.p));
-  // (A piece's length the way it's run: its path from the end it's come onto by to the one it leaves by.)
-  const lens = new Map<string, number>();
-  const lenOf = (e: Elem): number => {
+  // (A piece's length the way it's run, and whether that's its path's own way (from its `from` end).)
+  const lens = new Map<string, { len: number; fwd: boolean }>();
+  const pathOf = (e: Elem): { len: number; fwd: boolean } => {
     const k = `${e.p}.${e.en}.${e.ex}`;
     let v = lens.get(k);
     if (v === undefined) {
       const piece = layout.getPiece(e.p);
       const def = piece ? getPieceDef(piece.type, piece.flipped) : undefined;
       const path = def?.paths.find((q) => (q.from === e.en && q.to === e.ex) || (q.from === e.ex && q.to === e.en)) ?? def?.paths.find((q) => q.from === e.en || q.to === e.en);
-      lens.set(k, (v = path ? pathLength(path.geom) : 216));
+      lens.set(k, (v = path ? { len: pathLength(path.geom), fwd: path.from === e.en } : { len: 216, fwd: true }));
     }
     return v;
   };
-  /** A train moved on a piece: its tail let go of as far as the rest still covers its length. */
-  const trimmed = (k: number, t: Elem[]): Elem[] => {
+  const lenOf = (e: Elem) => pathOf(e).len;
+  /** A train's length (mm): given, or (none given) its pieces as they are. */
+  const lengthOf = (k: number, t: T): number => {
     const L = start[k].length;
-    if (L === undefined) return t.slice(1);
-    let sum = 0;
-    for (const e of t) sum += lenOf(e);
+    if (L !== undefined) return L;
+    let sum = -t.fs;
+    for (const e of t.e) sum += lenOf(e);
+    return sum;
+  };
+  /** Its pieces from the front back, let go of at the tail as far as the rest still covers its length. */
+  const trimmed = (k: number, t: T): T => {
+    if (start[k].length === undefined) return { e: t.e.slice(1), fs: 0 };
+    const L = lengthOf(k, t);
+    let sum = -t.fs;
+    for (const e of t.e) sum += lenOf(e);
     let i = 0;
-    while (i < t.length - 1 && sum - lenOf(t[i]) >= L) sum -= lenOf(t[i++]);
-    return t.slice(i);
+    while (i < t.e.length - 1 && sum - lenOf(t.e[i]) >= L) sum -= lenOf(t.e[i++]);
+    return { e: t.e.slice(i), fs: t.fs };
+  };
+  /**
+   * The stretch a train covers on each of its pieces, along each piece's own path from its `from` end (mm): its front
+   * piece up to `fs` short of its far end, its tail piece only as far back as its length reaches.
+   */
+  const spans = (k: number, t: T): Map<number, [number, number][]> => {
+    const out = new Map<number, [number, number][]>();
+    let left = lengthOf(k, t);
+    for (let i = t.e.length - 1; i >= 0 && left > 0; i--) {
+      const e = t.e[i];
+      const { len, fwd } = pathOf(e);
+      // (Along its run: from the end it came onto by. Its front piece up to `fs` short of the far end.)
+      const hi = i === t.e.length - 1 ? len - t.fs : len;
+      const lo = Math.max(0, hi - left);
+      left -= hi - lo;
+      const a = fwd ? lo : len - hi;
+      const b = fwd ? hi : len - lo;
+      const list = out.get(e.p) ?? [];
+      list.push([a, b]);
+      out.set(e.p, list);
+    }
+    return out;
+  };
+  /** Does train k as `t` keep clear of the others (a gap between them on a piece they share)? */
+  const clear = (k: number, t: T, ts: T[]): boolean => {
+    const mine = spans(k, t);
+    for (let j = 0; j < ts.length; j++) {
+      if (j === k) continue;
+      const theirs = spans(j, ts[j]);
+      for (const [p, as] of mine) {
+        const bs = theirs.get(p);
+        if (!bs) continue;
+        for (const [a0, a1] of as) for (const [b0, b1] of bs) if (a0 < b1 + GAP && b0 < a1 + GAP) return false;
+      }
+    }
+    return true;
   };
   // (Its own end of the line: one of its stops on the plain track from the end back to the first points (it runs to the
   // end beyond its stop and turns there, as on any line). The plain stretch an end is on, cached.)
@@ -141,25 +193,31 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
   const spareEnd = (p: number): boolean => stretchOf(p).every((q) => !allStops.has(q) && !(layout.getPiece(q)?.type.startsWith("depot") ?? false));
   /**
    * The end of the line ahead: the track's end, or (routing spec §16 Q9) another train standing at it, facing it, close
-   * ahead with no points between: that train is this one's end of the line.
+   * ahead with no points between: that train is this one's end of the line. (On its own front piece too, closed up behind
+   * it there.)
    */
-  const endAhead = (k: number, ts: Elem[][], f: Elem): boolean => {
-    if (atEnd(layout, f)) return true;
+  const endAhead = (k: number, ts: T[], f: Elem): boolean => {
+    if (ts[k].fs === 0 && atEnd(layout, f)) return true;
     if (!behind) return false;
     const owner = new Map<number, number>();
     ts.forEach((t, j) => {
-      if (j !== k) for (const e of t) owner.set(e.p, j);
+      if (j !== k) for (const e of t.e) owner.set(e.p, j);
     });
-    let at = f;
     let j = -1;
+    // (One whose tail is on its own front piece, ahead of it there: closed up behind it.)
+    const here = owner.get(f.p);
+    if (here !== undefined && ts[here].e[0].p === f.p && ts[k].fs > 0) j = here;
+    else if (ts[k].fs > 0) return false;
+    let at = f;
     for (let i = 0; i < 16; i++) {
       const nx = next(layout, at.p, at.ex);
       if (!nx) return j >= 0;
       if (isBuffer(layout, nx.pieceId)) return j >= 0;
       const o = owner.get(nx.pieceId);
-      if (o === undefined || (j >= 0 && o !== j) || swOf(nx.pieceId)) return false;
+      if (o === undefined) return false;
+      if ((j >= 0 && o !== j) || swOf(nx.pieceId)) return false;
       // (Behind it: the first of it met is its tail, so it faces away, to the end. Nose to nose isn't behind.)
-      if (j < 0 && ts[o][0].p !== nx.pieceId) return false;
+      if (j < 0 && ts[o].e[0].p !== nx.pieceId) return false;
       j = o;
       const w = waysFrom(layout, nx.pieceId, nx.entry, () => true)[0];
       if (!w || w.exit < 0) return true;
@@ -167,44 +225,90 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
     }
     return false;
   };
-  const mayTurn = (k: number, ts: Elem[][]): boolean => {
-    const t = ts[k];
+  const mayTurn = (k: number, ts: T[]): boolean => {
+    const t = ts[k].e;
     const f = t[t.length - 1];
     if (!endAhead(k, ts, f)) return false;
-    if (!atEnd(layout, f)) return true;
+    if (!(ts[k].fs === 0 && atEnd(layout, f))) return true;
     const stops = start[k].stops;
     if (ends === "any" || !stops) return true;
     if (stretchOf(f.p).some((q) => stops.includes(q))) return true;
     return ends === "spare" && spareEnd(f.p);
   };
   /** Rest positions train k reaches by one move forward (through points, to the first place clear of them). */
-  const forward = (k: number, ts: Elem[][]): Elem[][] => {
-    const others = new Set<number>();
-    ts.forEach((t, j) => {
-      if (j !== k) for (const e of t) others.add(e.p);
-    });
-    const out: Elem[][] = [];
-    let frontier: Elem[][] = [ts[k]];
+  const forward = (k: number, ts: T[]): T[] => {
+    const out: T[] = [];
+    let from = ts[k];
+    // (Closed up short of its front piece's end: up to the end of it if that's clear (and on from there), else only as
+    // far as it's clear.)
+    if (from.fs > 0) {
+      const up = trimmed(k, { e: from.e, fs: 0 });
+      if (!clear(k, up, ts)) return closeUp(k, ts, from).filter((t) => t.fs < from.fs);
+      out.push(up);
+      from = up;
+    }
+    let frontier: T[] = [from];
     for (let depth = 0; depth < 8 && frontier.length > 0; depth++) {
-      const nextF: Elem[][] = [];
+      const nextF: T[] = [];
       for (const t of frontier) {
-        const f = t[t.length - 1];
+        const f = t.e[t.e.length - 1];
         if (f.ex < 0) continue;
         const nx = next(layout, f.p, f.ex);
-        if (!nx || isBuffer(layout, nx.pieceId) || others.has(nx.pieceId)) continue;
-        if (signals && layout.signalAt(connectorRef(f.p, f.ex)) && [...blockAhead(connectorRef(f.p, f.ex))].some((p) => others.has(p))) continue;
+        if (!nx || isBuffer(layout, nx.pieceId)) continue;
+        if (signals && layout.signalAt(connectorRef(f.p, f.ex)) && [...blockAhead(connectorRef(f.p, f.ex))].some((p) => ts.some((o, j) => j !== k && o.e.some((x) => x.p === p)))) continue;
         // (A hand-run train takes points as they're set: no one throws them for it. A routed one, any way.)
         for (const w of waysFrom(layout, nx.pieceId, nx.entry, () => !start[k].stops && !handFree)) {
           if (w.exit < 0) continue;
-          const nt = trimmed(k, [...t, { p: nx.pieceId, en: nx.entry, ex: w.exit }]);
-          if (new Set(nt.map((e) => e.p)).size < nt.length) continue;
-          if (restOk(nt)) out.push(nt);
+          const onto = { e: [...t.e, { p: nx.pieceId, en: nx.entry, ex: w.exit }], fs: 0 };
+          const nt = trimmed(k, onto);
+          if (new Set(nt.e.map((e) => e.p)).size < nt.e.length) continue;
+          if (!clear(k, nt, ts)) {
+            // (Another train on it: up close behind that one, part way onto the piece, if that's clear of points.)
+            for (const c of closeUp(k, ts, onto)) if (restOk(c.e)) out.push(c);
+            continue;
+          }
+          if (restOk(nt.e)) out.push(nt);
           else nextF.push(nt);
         }
       }
       frontier = nextF;
     }
     return out;
+  };
+  /** Does the way on from this element run, over plain track (no points), to the end of the line? */
+  const ends0 = new Map<string, boolean>();
+  const toEnd = (f: Elem): boolean => {
+    const kk = `${f.p}.${f.en}.${f.ex}`;
+    let v = ends0.get(kk);
+    if (v !== undefined) return v;
+    v = false;
+    let at = f;
+    for (let i = 0; i < 32; i++) {
+      if (swOf(at.p)) break;
+      if (atEnd(layout, at)) {
+        v = true;
+        break;
+      }
+      const nx = next(layout, at.p, at.ex)!;
+      const w = waysFrom(layout, nx.pieceId, nx.entry, () => true);
+      if (w.length !== 1 || w[0].exit < 0) break;
+      at = { p: nx.pieceId, en: nx.entry, ex: w[0].exit };
+    }
+    ends0.set(kk, v);
+    return v;
+  };
+  /** Train k as `t`, its front pulled back on its front piece till it's clear of the others (the gap behind one ahead): or none. */
+  const closeUp = (k: number, ts: T[], t: T): T[] => {
+    const f = t.e[t.e.length - 1];
+    // (Only where it leads to the end of the line, plain track on to it: to turn behind the one there (§16 Q9). Elsewhere
+    // it waits a piece back as before; closing up there only adds states.)
+    if (!toEnd(f)) return [];
+    const len = lenOf(f);
+    for (let fs = Math.max(t.fs, 1); fs < len; fs += STEP) {
+      const c = trimmed(k, { e: t.e, fs: Math.round(fs) });
+      if (clear(k, c, ts)) return [c];
+    }
+    return [];
   };
   // (A plain block's: its pieces. A block with points or a crossing in it is a path signal's (sim.ts, signals spec
   // §3.1): it lets a train on when its way through is free, which the pieces it moves onto already are. Empty, then.)
@@ -217,13 +321,22 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
     }
     return b;
   };
-  const turn = (t: Elem[]): Elem[] => [...t].reverse().map((e) => ({ p: e.p, en: e.ex, ex: e.en }));
+  /** Turned round where it stands: its pieces the other way, its front now where its tail was (short of that piece's end by what it didn't cover). */
+  const turn = (k: number, t: T): T => {
+    const e = [...t.e].reverse().map((x) => ({ p: x.p, en: x.ex, ex: x.en }));
+    let covered = 0;
+    for (let i = 1; i < t.e.length; i++) covered += lenOf(t.e[i]);
+    covered -= t.fs;
+    const tailCover = Math.max(0, lengthOf(k, t) - covered);
+    const fs = t.e.length === 1 ? Math.max(0, lenOf(t.e[0]) - t.fs - lengthOf(k, t)) : Math.max(0, lenOf(t.e[0]) - tailCover);
+    return { e, fs: Math.round(fs) };
+  };
 
   // Reachable states (BFS), edges.
   const ids = new Map<string, number>();
-  const states: Elem[][][] = [];
+  const states: T[][] = [];
   const edges: number[][] = [];
-  const add = (ts: Elem[][]): number => {
+  const add = (ts: T[]): number => {
     const kk = key(ts);
     let id = ids.get(kk);
     if (id === undefined) {
@@ -234,7 +347,7 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
     }
     return id;
   };
-  add(start.map((t) => t.elems));
+  add(start.map((t) => ({ e: t.elems, fs: 0 })));
   let capped = false;
   for (let i = 0; i < states.length; i++) {
     if (states.length > maxStates) {
@@ -250,7 +363,7 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
       }
       if (mayTurn(k, ts)) {
         const nts = ts.slice();
-        nts[k] = turn(ts[k]);
+        nts[k] = turn(k, ts[k]);
         edges[i].push(add(nts));
       }
     }
@@ -311,7 +424,7 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
       if (stops) {
         const need = new Set(stops);
         const seen = new Set<number>();
-        for (const s of c) for (const e of states[s][k]) if (need.has(e.p)) seen.add(e.p);
+        for (const s of c) for (const e of states[s][k].e) if (need.has(e.p)) seen.add(e.p);
         if (seen.size === need.size) delivers.push(k);
       } else {
         const pos = new Set(c.map((s) => key([states[s][k]])));
