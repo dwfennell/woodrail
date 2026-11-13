@@ -63,7 +63,35 @@ Run: `npx vitest run src/routing/cases/`. The table below: `rm -rf .cases; CASES
 Figure-8s aren't in: they don't close from the fixtures' pieces. Crossings are covered by the two lines over a
 crossing.
 
-## Results
+## Update: main with fixes 1 and 3 (b124522, 2026-11-13)
+
+Main has since gained the room rule counting a line's ends and a hand-run train asking short of the points
+(`claude/routing-room-line-ends`). Merged into this branch, the suite turned 25 known cases red, as it should:
+
+- **22 cleared.** All 18 of fix 1's (three trains on one loop, with and without signals; fuzz seeds 34, 37, 91) and all
+  4 of fix 3's (a routed train among hand-run ones on a siding or a wye).
+- **3 changed, the same 3 the patches changed, now on main:**
+  - `line1 3×one same sig:loopEnds` and `line1 3×one opposed sig:loopEnds` stop stalling, but break `greenHeld` (a
+    train stands 5 s at a signal showing clear), with pairs of signals at the loop roads' ends;
+  - fuzz seed 161 still waits on points, and now also breaks `netActed`.
+- **No new mismatch.**
+
+`known.ts` now lists **84**:
+
+| Family | Cases | Mismatched |
+|---|---|---|
+| ring | 18 | 3 |
+| trains | 188 | 30 |
+| signals | 104 | 25 |
+| placement | 30 | 1 |
+| stops | 50 | 16 |
+| lengths | 6 | 2 |
+| fuzz | 18 | 7 |
+
+Fixes 2 (keep a loop's last road; fuzz 111, 126, 165) and 4 (the head-on card, 16) are still to land. The table at
+the end is this run's. The sections below are as first written, on f10b8ee.
+
+## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
 `known.ts`:
@@ -136,17 +164,17 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-414 cases; 106 mismatched.
+414 cases; 84 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
 | ring | 18 | 3 | wrong-card 3 |
-| trains | 188 | 38 | waits-on-points 18, stalls-live:siding 18, stalls-live 4 |
-| signals | 104 | 36 | wrong-card 13, stalls-live 20, waits-on-points 5, break:greenHeld 5, break:wrongRoad 1 |
+| trains | 188 | 30 | waits-on-points 14, stalls-live:siding 18 |
+| signals | 104 | 25 | wrong-card 13, stalls-live 7, waits-on-points 5, break:greenHeld 5, break:wrongRoad 1 |
 | placement | 30 | 1 | waits-on-points 1 |
 | stops | 50 | 16 | stalls-live 4, waits-on-points 1, starves-live 5, stalls-live:siding 7 |
 | lengths | 6 | 2 | stalls-live 1, waits-on-points 1 |
-| fuzz | 18 | 10 | stalls-live 7, stalls-live:siding 2, waits-on-points 1 |
+| fuzz | 18 | 7 | stalls-live 5, stalls-live:siding 1, waits-on-points 1, break:netActed 1 |
 
 ### ring (18 cases, 3 mismatched)
 
@@ -171,7 +199,7 @@ and pass / known.
 | ring0 3×own same sig:blocks3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 | ring0 3×own same sig:oneway3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 
-### trains (188 cases, 38 mismatched)
+### trains (188 cases, 30 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -193,8 +221,8 @@ and pass / known.
 | crossing 1×one | live (1/1) | 12 | pass |
 | crossing 2×hand opposed | live (2/2) | 14.9 m / 15 m | pass |
 | crossing 2×hand same | live (2/2) | 15 m / 14.6 m | pass |
-| crossing 2×mix opposed | live (2/2) | 10 / 13.6 m | pass |
-| crossing 2×mix same | live (2/2) | 10 / 13 m | pass |
+| crossing 2×mix opposed | live (2/2) | 7 / 9.8 m | pass |
+| crossing 2×mix same | live (2/2) | 7 / 8.9 m | pass |
 | crossing 2×one opposed | dead (0/2) | stall at 9 s (too-many, –); 0 / 0 | pass |
 | crossing 2×one same | dead (0/2) | stall at 11 s (too-many, –); 0 / 1 | pass |
 | crossing 2×own opposed | live (2/2) | 7 / 8 | pass |
@@ -204,13 +232,13 @@ and pass / known.
 | double 2×hand opposed | live (2/2) | 14.9 m / 15 m | pass |
 | double 2×hand same | live (2/2) | 15.1 m / 14.6 m | pass |
 | double 2×mix opposed | live (2/2) | 11 / 15 m | pass |
-| double 2×mix same | live (2/2) | 11 / 14.8 m | pass |
+| double 2×mix same | live (2/2) | 11 / 14.4 m | pass |
 | double 2×one opposed | partial (1/2) | stall at 9 s (too-many, –); 0 / 0 | pass |
 | double 2×one same | partial (1/2) | stall at 15 s (too-many, –); 0 / 1 | pass |
 | double 2×own opposed | live (2/2) | 11 / 11 | pass |
 | double 2×own same | live (2/2) | 11 / 11 | pass |
 | double 3×mix opposed | live (2/2) | 11 / 15 m | pass |
-| double 3×mix same | live (2/2) | 11 / 14.8 m | pass |
+| double 3×mix same | live (2/2) | 11 / 14.4 m | pass |
 | double 3×one opposed | partial (1/2) | stall at 9 s (too-many, –); 0 / 0 | pass |
 | double 3×one same | partial (1/2) | stall at 17 s (–, too-many); 0 / 1 | pass |
 | line0 1×hand | live (1/1) | 15 m | pass |
@@ -235,8 +263,8 @@ and pass / known.
 | line1 2×own same | live (2/2) | 6 / 7 | pass |
 | line1 3×mix opposed | live (3/3) | 4 / 11.2 m / 10.8 m | pass |
 | line1 3×mix same | live (3/3) | 3 / 9.7 m / 9.6 m | pass |
-| line1 3×one opposed | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 1 / 1 | known: stalls-live |
-| line1 3×one same | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live |
+| line1 3×one opposed | live (3/3) | 4 / 4 / 5 | **fixed?** |
+| line1 3×one same | live (3/3) | 3 / 4 / 5 | **fixed?** |
 | line1+siding 1×hand | live (1/1) | 16.4 m | pass |
 | line1+siding 1×one | live (1/1) | 6 | pass |
 | line1+siding 2×hand opposed | dead (0/2) | 15.5 m / 15.2 m | pass |
@@ -249,8 +277,8 @@ and pass / known.
 | line1+siding 2×own same | live (2/2) | 5 / 6 | pass |
 | line1+siding 3×mix opposed | partial (1/3) | 4 / 10.7 m / 10.1 m | pass |
 | line1+siding 3×mix same | dead (0/3) | 2 / 9.1 m / 10 m | pass |
-| line1+siding 3×one opposed | live (3/3) | stall at 9 s (–, too-many, too-many); 0 / 0 / 1 | known: stalls-live |
-| line1+siding 3×one same | live (3/3) | stall at 27 s (–, too-many, too-many); 0 / 1 / 1 | known: stalls-live |
+| line1+siding 3×one opposed | live (3/3) | 4 / 4 / 4 | **fixed?** |
+| line1+siding 3×one same | live (3/3) | 3 / 4 / 4 | **fixed?** |
 | line2 1×hand | live (1/1) | 16.6 m | pass |
 | line2 1×one | live (1/1) | 5 | pass |
 | line2 2×hand opposed | dead (0/2) | stall at 13 s (in-way, in-way); 0.8 m / 0.8 m | known: waits-on-points |
@@ -332,7 +360,7 @@ and pass / known.
 | siding 2×own opposed | live (2/2; own ends 1) | stall at 9 s (in-way, in-way); 0 / 0 | known: stalls-live:siding |
 | siding 2×own same | live (2/2; own ends 1) | stall at 17 s (in-way, in-way); 0 / 1 | known: stalls-live:siding |
 | siding 3×mix opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 m / 0.4 m | pass |
-| siding 3×mix same | dead (0/3) | stall at 30 s (in-way, in-way, in-way); 0 / 1.3 m / 0.8 m | known: waits-on-points |
+| siding 3×mix same | dead (0/3) | stall at 21 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | **fixed?** |
 | siding 3×one opposed | dead (0/3) | stall at 6 s (–, too-many, –); 0 / 0 / 1 | pass |
 | siding 3×one same | dead (0/3) | stall at 7 s (too-many, –, –); 0 / 0 / 1 | pass |
 | terminus 1×hand | live (1/1) | 15.5 m | pass |
@@ -353,18 +381,18 @@ and pass / known.
 | wye 1×one | live (1/1) | 9 | pass |
 | wye 2×hand opposed | dead (0/2) | stall at 11 s (in-way, in-way); 0.6 m / 0.5 m | known: waits-on-points |
 | wye 2×hand same | live (2/2) | stall at 14 s (in-way, in-way); 0.9 m / 0.7 m | pass |
-| wye 2×mix opposed | live (2/2; own ends 1) | stall at 70 s (in-way, in-way); 2 / 6.2 m | known: waits-on-points |
-| wye 2×mix same | live (2/2) | stall at 77 s (in-way, in-way); 2 / 6.9 m | known: waits-on-points |
+| wye 2×mix opposed | live (2/2) | 5 / 12.7 m | **fixed?** |
+| wye 2×mix same | live (2/2) | 5 / 12.7 m | **fixed?** |
 | wye 2×one opposed | live (2/2; own ends 0) | stall at 10 s (too-many, –); 0 / 0 | known: stalls-live:siding |
 | wye 2×one same | live (2/2; own ends 1) | stall at 17 s (too-many, –); 0 / 1 | known: stalls-live:siding |
 | wye 2×own opposed | live (2/2; own ends 0) | stall at 10 s (in-way, in-way); 0 / 0 | known: stalls-live:siding |
 | wye 2×own same | live (2/2; own ends 1) | stall at 17 s (in-way, in-way); 0 / 1 | known: stalls-live:siding |
-| wye 3×mix opposed | live (3/3; own ends 2) | stall at 30 s (in-way, in-way, in-way); 0 / 2.1 m / 0.8 m | known: waits-on-points |
+| wye 3×mix opposed | live (3/3; own ends 2) | stall at 24 s (in-way, in-way, in-way); 0 / 2 m / 0.8 m | **fixed?** |
 | wye 3×mix same | live (3/3; own ends 2) | stall at 9 s (in-way, in-way, in-way); 0 / 0.1 m / 0.1 m | pass |
 | wye 3×one opposed | live (3/3; own ends 1) | stall at 9 s (too-many, –, –); 0 / 0 / 0 | known: stalls-live:siding |
 | wye 3×one same | live (3/3; own ends 1) | stall at 9 s (–, too-many, –); 0 / 1 / 0 | known: stalls-live:siding |
 
-### signals (104 cases, 36 mismatched)
+### signals (104 cases, 25 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -401,20 +429,20 @@ and pass / known.
 | line1 2×own same sig:loopEnds | live (2/2) | 6 / 7 | known: break:greenHeld |
 | line1 2×own same sig:oneway3 | live (2/2) | 6 / 7 | pass |
 | line1 2×own same sig:pair | live (2/2) | 5 / 6 | pass |
-| line1 3×one opposed sig:beforePoints | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 1 / 1 | known: stalls-live, break:greenHeld |
-| line1 3×one opposed sig:blocks2 | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 1 / 1 | known: stalls-live |
-| line1 3×one opposed sig:blocks3 | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 1 / 1 | known: stalls-live |
-| line1 3×one opposed sig:inLoop | live (3/3) | stall at 10 s (loop-signal, loop-signal, –); 0 / 0 / 1 | known: stalls-live, waits-on-points |
-| line1 3×one opposed sig:loopEnds | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 1 / 1 | known: stalls-live |
-| line1 3×one opposed sig:oneway3 | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 1 / 1 | known: stalls-live |
-| line1 3×one opposed sig:pair | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 1 / 1 | known: stalls-live |
-| line1 3×one same sig:beforePoints | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live |
-| line1 3×one same sig:blocks2 | live (3/3) | stall at 19 s (signals, signals, signals); 0 / 0 / 1 | known: stalls-live |
-| line1 3×one same sig:blocks3 | live (3/3) | stall at 17 s (signals, signals, signals); 0 / 0 / 1 | known: stalls-live |
-| line1 3×one same sig:inLoop | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live |
-| line1 3×one same sig:loopEnds | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live, break:greenHeld |
-| line1 3×one same sig:oneway3 | live (3/3) | stall at 21 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live |
-| line1 3×one same sig:pair | live (3/3) | stall at 19 s (signals, signals, signals); 0 / 0 / 1 | known: stalls-live |
+| line1 3×one opposed sig:beforePoints | live (3/3) | 4 / 4 / 5 | **fixed?** |
+| line1 3×one opposed sig:blocks2 | live (3/3) | 4 / 4 / 5 | **fixed?** |
+| line1 3×one opposed sig:blocks3 | live (3/3) | 4 / 4 / 5 | **fixed?** |
+| line1 3×one opposed sig:inLoop | live (3/3) | stall at 10 s (loop-signal, loop-signal, loop-signal); 0 / 0 / 1 | known: stalls-live, waits-on-points |
+| line1 3×one opposed sig:loopEnds | live (3/3) | 4 / 4 / 5 | known: break:greenHeld |
+| line1 3×one opposed sig:oneway3 | live (3/3) | 4 / 4 / 5 | **fixed?** |
+| line1 3×one opposed sig:pair | live (3/3) | 4 / 4 / 5 | **fixed?** |
+| line1 3×one same sig:beforePoints | live (3/3) | 3 / 4 / 5 | **fixed?** |
+| line1 3×one same sig:blocks2 | live (3/3) | 3 / 4 / 4 | **fixed?** |
+| line1 3×one same sig:blocks3 | live (3/3) | 3 / 4 / 4 | **fixed?** |
+| line1 3×one same sig:inLoop | live (3/3) | 3 / 4 / 5 | **fixed?** |
+| line1 3×one same sig:loopEnds | live (3/3) | 3 / 4 / 5 | known: break:greenHeld |
+| line1 3×one same sig:oneway3 | live (3/3) | 3 / 4 / 5 | **fixed?** |
+| line1 3×one same sig:pair | live (3/3) | 3 / 4 / 4 | **fixed?** |
 | ring0 2×one opposed sig:blocks2 | dead (0/2; no signals 0) | stall at 17 s (signals, signals); 0 / 0 | known: wrong-card |
 | ring0 2×one opposed sig:blocks4 | dead (0/2; no signals 0) | stall at 15 s (signals, signals); 1 / 0 | known: wrong-card |
 | ring0 2×one opposed sig:pair | dead (0/2; no signals 0) | stall at 13 s (signals, signals); 1 / 0 | known: wrong-card |
@@ -574,26 +602,26 @@ and pass / known.
 | ring1 2×one opposed long | partial (1/2) | stall at 13 s (in-way, in-way); 1 / 0 | known: waits-on-points |
 | ring1 2×one opposed short | live (2/2) | 6 / 5 | pass |
 
-### fuzz (18 cases, 10 mismatched)
+### fuzz (18 cases, 7 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
 | fuzz seed 7 | partial (1/2) | stall at 9 s (too-many, –); 0 / 0 | pass |
 | fuzz seed 19 | dead (0/2) | stall at 17 s (too-many, –); 0 / 0 | pass |
-| fuzz seed 34 | live (3/3) | stall at 15 s (too-many, –, too-many); 0 / 0 / 0 | known: stalls-live |
-| fuzz seed 37 | live (3/3; own ends 2) | stall at 28 s (too-many, –, too-many); 1 / 1 / 0 | known: stalls-live:siding |
+| fuzz seed 34 | live (3/3) | 7 / 7 / 7 | **fixed?** |
+| fuzz seed 37 | live (3/3) | 7 / 8 / 7 | **fixed?** |
 | fuzz seed 42 | dead (0/2) | stall at 6 s (in-way, in-way); 0 / 0 | pass |
 | fuzz seed 60 | dead (0/2) | stall at 28 s (in-way, in-way); 1 / 1 | pass |
 | fuzz seed 77 | live (3/3) | stall at 13 s (in-way, in-way, in-way); 1.4 m / 0 / 0.6 m | pass |
-| fuzz seed 91 | live (3/3) | stall at 22 s (too-many, too-many, –); 0 / 1 / 0 | known: stalls-live |
+| fuzz seed 91 | live (3/3) | 8 / 9 / 8 | **fixed?** |
 | fuzz seed 94 | partial (1/2) | stall at 15 s (in-way, in-way); 0 / 1 | pass |
 | fuzz seed 111 | live (3/3) | stall at 14 s (in-way, in-way, in-way); 0 / 0 / 0 | known: stalls-live |
 | fuzz seed 125 | live (3/3; own ends 2) | stall at 15 s (in-way, in-way, in-way); 0 / 1 / 0 | known: stalls-live:siding |
-| fuzz seed 126 | live (3/3) | stall at 9 s (too-many, too-many, –); 0 / 0 / 0 | known: stalls-live |
-| fuzz seed 136 | live (3/3) | stall at 11 s (too-many, too-many, –); 0 / 0 / 0 | known: stalls-live |
-| fuzz seed 149 | live (3/3) | stall at 11 s (too-many, too-many, –); 0 / 0 / 0 | known: stalls-live |
-| fuzz seed 161 | dead (0/2) | stall at 32 s (in-way, in-way); 2 / 1.4 m | known: waits-on-points |
-| fuzz seed 165 | live (3/3) | stall at 9 s (–, too-many, too-many); 1 / 0 / 0 | known: stalls-live |
+| fuzz seed 126 | live (3/3) | stall at 14 s (in-way, in-way, in-way); 0 / 0 / 0 | known: stalls-live |
+| fuzz seed 136 | live (3/3) | stall at 11 s (in-way, in-way, in-way); 0 / 0 / 0 | known: stalls-live |
+| fuzz seed 149 | live (3/3) | stall at 11 s (in-way, in-way, in-way); 0 / 0 / 0 | known: stalls-live |
+| fuzz seed 161 | dead (0/2) | stall at 274 s (in-way, in-way); 15 / 17.9 m | known: waits-on-points, break:netActed |
+| fuzz seed 165 | live (3/3) | stall at 12 s (in-way, in-way, in-way); 1 / 0 / 0 | known: stalls-live |
 | fuzz seed 189 | partial (1/2) | stall at 17 s (in-way, in-way); 1 / 0 | pass |
 | fuzz seed 190 | dead (0/2) | stall at 6 s (in-way, in-way); 0 / 0 | pass |
 <!-- /cases table -->
