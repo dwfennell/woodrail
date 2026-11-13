@@ -37,7 +37,6 @@ const FAILS: Partial<Record<Invariant, string>> = {};
  */
 // (From the long fuzz on 2026-11-07, 200 seeds × 1800 s: the old invariants held on every seed; oneOwner and netActed
 // broke on none. Each break here comes within the first 30 s of its seed, so a run of 30 s or more sees it.)
-const GREEN = "held by sections (a slot or section wait) standing at a signal that shows clear (#31; redesign step 4: signals show the table)";
 // (midTurn's 11 seeds came off with step 1: nothing turns a train round mid-line now.)
 // (heldFree, added with step 2b: from the full `npm run fuzz:long` (200 seeds × 1800 s), 2026-11-07. Each a train held by
 // sections' slot wait though the booking core would book it a way on: holds too big, step 5's.)
@@ -60,7 +59,8 @@ const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-11, the room counting a line's ends: 37 came off; 165 went on. On main 165 stood still from the start (1, 0
   // and 0 stops in 30 min, the third train held); now its three run (46, 44, 44 stops), now and then held by sections
   // at a signal showing clear.)
-  greenHeld: { 66: GREEN, 69: GREEN, 105: GREEN, 119: GREEN, 165: GREEN, 174: GREEN, 192: GREEN },
+  // (2026-11-13, a train held at its slot's end shows that slot's own signal red (a loop road's, a line end's, not
+  // only a waiting point's): 66, 69, 105, 119, 165, 174 and 192 came off, the list with them.)
 };
 
 /** Of these runs (seeds FIRST + k), those that broke `inv` and aren't known to; and the known ones that ran and didn't. */

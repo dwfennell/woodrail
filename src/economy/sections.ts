@@ -2201,11 +2201,18 @@ export class Sections {
       for (const st of this.states.values()) {
         if (st.slot < 0 || st.exitPiece < 0) continue;
         const sl = st.topo.slots[st.slot];
-        const sw = sl?.kind === "signal" ? signalWayOut(sl, connectorRef(st.exitPiece, st.exitEntry)) : undefined;
-        if (!sw || this.ownsAhead(st)) continue;
+        if (!sl) continue;
+        // (A waiting point's signal; or a signal the player put at the far end of another slot (a loop road's, a line
+        // end's), facing out of it: held at its end, the train is held at that signal too, and it shows red to it.)
+        let mark = sl.kind === "signal" ? (signalWayOut(sl, connectorRef(st.exitPiece, st.exitEntry))?.mark ?? -1) : -1;
+        if (sl.kind !== "signal") {
+          const at = this.layout.joinedConnector(connectorRef(st.exitPiece, st.exitEntry));
+          if (at !== -1 && sl.pieces.has(pieceOfRef(at)) && this.layout.signalAt(at)) mark = at;
+        }
+        if (mark === -1 || this.ownsAhead(st)) continue;
         const t = this.sim.getTrain(st.trainId);
         if (!t || t.derailed || !t.bogies.some((b) => sl.pieces.has(b.pieceId))) continue;
-        now.set(sw.mark, t.id);
+        now.set(mark, t.id);
       }
     let same = now.size === this.gate.size;
     if (same) for (const [k, v] of now) if (this.gate.get(k) !== v) same = false;
