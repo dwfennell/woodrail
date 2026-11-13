@@ -52,7 +52,10 @@ const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   // fuzz, against main seed for seed: 74 came off, 165 went on. The same 53 seeds stalled; nothing else moved.)
   // (2026-11-11, the room counting a line's ends: 37, 91, 112, 132, 134, 145, 165, 186 and 188 came off; 136 went on,
   // a seed that stands still on main too, its three trains in a ring of signals, before and after.)
-  heldFree: { 22: FREE, 34: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 127: FREE, 136: FREE, 152: FREE },
+  // (2026-11-13, a loop's last free road kept for a train coming the other way: 111, 126 and 165 run (no longer three
+  // trains standing for good, the loop filled one way); 126 went on: a train held 5 s for the one coming at the loop,
+  // which the core, foreseeing nothing, would book on.)
+  heldFree: { 22: FREE, 34: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 126: FREE, 127: FREE, 136: FREE, 152: FREE },
   // (14, 30, 76 and 160 came off on the merged base, before step 3 (2026-11-07, the full long fuzz on both).)
   // (2026-11-11, the room counting a line's ends: 37 came off; 165 went on. On main 165 stood still from the start (1, 0
   // and 0 stops in 30 min, the third train held); now its three run (46, 44, 44 stops), now and then held by sections
