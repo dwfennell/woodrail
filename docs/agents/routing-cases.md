@@ -197,6 +197,13 @@ branch: room for both. branch 2× `same stops:far` clear (one and own): 31 known
 down facing each other (`opposed`) and branch-spare. Their way to a stop on the ring meets no slot (the ring has no
 loop), so sections don't hold them, and one runs onto the wye into the other: a ring with no slot of its own.
 
+**A lever thrown under a hand-run train's move** (`claude/routing-zero-lever-regrant`, on balloon): a train on no
+line goes the way the points lie, and a lever tap moves points held only by hand-run trains at once (§16 Q1). Its
+move, granted for the way they lay, was kept: fuzz seed 161's player tapped a three-way's lever ahead of a hand-run
+train, which ran into the leg a routed train stood in, nose to nose on the points (`netActed`). Now when the points
+change, a hand-run train whose move's way ahead no longer lies so lets it go and asks again from where it is
+(`liesAsMove`). Fuzz seed 161 clears: 30 known.
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
@@ -270,7 +277,7 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-484 cases; 31 mismatched.
+484 cases; 30 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
@@ -280,7 +287,7 @@ and pass / known.
 | placement | 30 | 1 | waits-on-points 1 |
 | stops | 50 | 2 | stalls-live 2, waits-on-points 1 |
 | lengths | 6 | 1 | waits-on-points 1 |
-| fuzz | 18 | 4 | stalls-live:siding 1, stalls-live 2, waits-on-points 1, break:netActed 1 |
+| fuzz | 18 | 3 | stalls-live:siding 1, stalls-live 2 |
 
 ### ring (18 cases, 0 mismatched)
 
@@ -778,7 +785,7 @@ and pass / known.
 | ring1 2×one opposed long | dead (0/2) | stall at 13 s (in-way, in-way); 1 / 0 | known: waits-on-points |
 | ring1 2×one opposed short | live (2/2) | 6 / 5 | pass |
 
-### fuzz (18 cases, 4 mismatched)
+### fuzz (18 cases, 3 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -796,7 +803,7 @@ and pass / known.
 | fuzz seed 126 | live (3/3) | 6 / 7 / 8 | pass |
 | fuzz seed 136 | live (3/3) | stall at 11 s (in-way, in-way, in-way); 0 / 0 / 0 | known: stalls-live (the user's decision 4: two of a line's trains following into a line end stay one train to a section (the card says add a passing loop), though the oracle finds a §16 Q9 turn behind the one standing there) |
 | fuzz seed 149 | live (3/3) | stall at 11 s (in-way, in-way, in-way); 0 / 0 / 0 | known: stalls-live (the user's decision 4: two of a line's trains following into a line end stay one train to a section (the card says add a passing loop), though the oracle finds a §16 Q9 turn behind the one standing there) |
-| fuzz seed 161 | dead (0/2) | stall at 274 s (in-way, in-way); 15 / 17.9 m | known: waits-on-points, break:netActed |
+| fuzz seed 161 | dead (0/2; own ends 2) | 17 / 20 m | **fixed?** |
 | fuzz seed 165 | live (3/3) | 9 / 6 / 7 | pass |
 | fuzz seed 189 | partial (1/2) | stall at 17 s (in-way, in-way); 1 / 0 | pass |
 | fuzz seed 190 | dead (0/2) | stall at 6 s (in-way, in-way); 0 / 0 | pass |

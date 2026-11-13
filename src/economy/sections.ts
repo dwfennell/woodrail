@@ -258,6 +258,8 @@ interface TrainState {
    * it's in it; then it waits there, turned at the buffer, and goes on its way once that one has passed.
    */
   aside: { slot: number; piece: number; by: number } | null;
+  /** The layout's points version its move was last checked against (a train on no line: `liesAsMove`). */
+  moveSw?: number;
   /** In a refuge, letting this train by (for its card): −1 for none; and that refuge's slot. */
   lettingBy: number;
   lettingSlot: number;
@@ -847,6 +849,17 @@ export class Sections {
       st.frontKey = -1;
     }
     const front = this.front(train, net < 0);
+    // (A train on no line goes the way the points lie: thrown by the player under its move, its move is let go, and it
+    // asks again from where it is (fuzz seed 161: a lever tapped ahead of a hand-run train sent it into the leg another
+    // stood in, its move granted for the other).)
+    if (st.move && info.loose.includes(engine) && st.moveSw !== this.layout.switchesVersion) {
+      st.moveSw = this.layout.switchesVersion;
+      if (!this.liesAsMove(st.move, front.pieceId)) {
+        st.move = null;
+        st.askedAt = -Infinity;
+        st.frontKey = -1;
+      }
+    }
     const frontKey = (front.pieceId * 8 + front.pathIndex) * 2 + (front.reversed ? 1 : 0);
     if (frontKey !== st.frontKey || st.trainId !== train.id) {
       st.frontKey = frontKey;
@@ -998,6 +1011,19 @@ export class Sections {
   }
 
   /** Does it hold the move on from the slot it's in (granted at this slot's end)? */
+  /** Do the points on a move's way ahead of `fromPiece` lie the way it runs? */
+  private liesAsMove(m: Move, fromPiece: number): boolean {
+    const i = m.steps.findIndex((x) => x.pieceId === fromPiece);
+    for (let k = i + 1; k < m.steps.length; k++) {
+      const x = m.steps[k];
+      const ways = waysFrom(this.layout, x.pieceId, x.entry);
+      if (ways.length < 2) continue;
+      const lie = ways[pointsWayFrom(this.layout, x.pieceId, x.entry, ways.length)] ?? ways[0];
+      if (lie.path !== x.path) return false;
+    }
+    return true;
+  }
+
   private ownsAhead(st: TrainState): boolean {
     const m = st.move;
     if (!m || st.exitPiece === -1) return false;
