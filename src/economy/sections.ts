@@ -1577,7 +1577,8 @@ export class Sections {
    * other. The one ahead holds off turning till the one behind has (`convoyHold`).
    */
   private followsInto(info: LineInfo, slot: number, engine: number, u: number): boolean {
-    if (!info.engines.includes(u) || !info.engines.includes(engine)) return false;
+    // (Routed trains working the track together: a line's, or lines' sharing it (`network`), each going its own way.)
+    if (!info.users.includes(u) || !info.users.includes(engine) || info.loose.includes(u) || info.loose.includes(engine)) return false;
     const sl = info.topo.slots[slot];
     if (sl.kind !== "end") return false;
     // (Only to get by, turning there: not to come to a stop of its own in there, which the one ahead would stand on.)
@@ -1606,7 +1607,7 @@ export class Sections {
     if (sl.kind !== "end" || !this.headsToEnd(train, sl)) return null;
     let coming = -1;
     let turning = false;
-    for (const v of info.engines) {
+    for (const v of info.users) {
       if (v === st.engine) continue;
       const m = this.states.get(v)?.move;
       const t = this.sim.findCar(v)?.train;
@@ -1615,6 +1616,13 @@ export class Sections {
       if (t.turnback >= 0 && t.bogies.some((x) => sl.pieces.has(x.pieceId)) && this.endBehindOf(t, sl, train)) {
         coming = v;
         turning = true;
+        continue;
+      }
+      // (One standing aside in a refuge to let this one by: it comes out after it, and follows it in here to turn behind
+      // it (it gets by only so, the refuge off plain points). Held for it now: else this one turns first, and it can't.)
+      const vs = this.states.get(v);
+      if (vs && vs.lettingBy === st.engine && !sl.pieces.has(this.host.target(v)) && trainLength(t) + trainLength(train) + FOLLOW_ROOM <= sl.length) {
+        coming = v;
         continue;
       }
       if (t.turnback >= 0) continue;
