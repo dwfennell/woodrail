@@ -944,9 +944,9 @@ export const boxedOnLoopLine: Scenario = {
  * Boxed in past a passing loop (fuzz seed 125, small: its layout by hand). `⊐ A ══ ══ (loop) ══ ══ (loop) ══ ══ (siding
  * points) ══ ══ B ⊐`. The routed train runs A ⇄ B; two hand-run ones shuttle. It comes to stand on the single line past
  * the second loop, bound for B, a hand-run train boxed in by B on its stop: each waits on the other. Neither has a way
- * round, and the loop is behind the routed train: no road out ahead, so they stand, said stuck. (From 9158a7a9 till
- * 2026-11-07 the routed one turned back to the loop to let the boxed one out; nothing turns a train round short of the
- * end of its line now.)
+ * round, and the loop is behind the routed train. (From 9158a7a9 till 2026-11-07 the routed one turned back to the loop
+ * to let the boxed one out; then they stood, said stuck. Since 2026-11-13, the user's (a): it steps aside into the
+ * spare siding, lets the boxed one out, and comes out to turn at A, behind the train there if one is.)
  */
 export const boxedPastLoop: Scenario = {
   name: "boxed in past a passing loop",

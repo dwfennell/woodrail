@@ -42,8 +42,10 @@ describe("the boxed-in convoy (decision 4) is recognised by its shape, and only 
   });
   // (Since 2026-11-07 nothing turns a train round to give way: these stand too, the same shape with a passing loop
   // behind the routed train, and a train queued behind them.)
-  it("boxed in past a passing loop (fuzz seed 125's layout): boxed in", () => {
-    expect(atFirstStall(S.boxedPastLoop)).toBe(true);
+  // (2026-11-13, the user's (a): the routed one steps aside into the spare siding by B and comes out to turn behind
+  // the train at A, back through both loops (`convoyEndPast`): no stall.)
+  it("boxed in past a passing loop (fuzz seed 125's layout): no stall now", () => {
+    expect(atFirstStall(S.boxedPastLoop)).toBeNull();
   });
   it("a routed train come into a line's end behind a hand-run one, a passing loop behind it (seed 77's): boxed in", () => {
     expect(atFirstStall(S.deadEndMouthThrown)).toBe(true);

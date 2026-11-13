@@ -383,12 +383,13 @@ const GIVE_WAY: Case[] = [
   },
   {
     // (Fuzz seed 125: the routed train past the last loop, a hand-run one boxed in by B on the routed one's stop, facing
-    // it. The loop is behind the routed train: no road out ahead for either, so they stand, and the third waits behind.
-    // Before 2026-11-07 the routed one turned back to the loop to let it out.)
+    // it. Since 2026-11-13 (the user's (a)) the routed one steps aside into the spare siding by B, lets it out, and comes
+    // out to turn at A behind the train there, back through both loops. Before: all three stood, said stuck.)
     scenario: S.boxedPastLoop,
     checks: {
-      "all stand, said stuck in the way": stuckSteadily(2, 200),
-      "nobody gives way": nobodyGaveWay,
+      "payoff: the routed train 5+ stops in 5 min": (r) => expect(r.arrivals[0]).toBeGreaterThanOrEqual(5),
+      "never stuck": noStall,
+      "the hand-run ones keep going: 5+ turns at the buffers each": (r) => r.turns.slice(1).forEach((t) => expect(t.buffer).toBeGreaterThanOrEqual(5)),
     },
   },
 ];

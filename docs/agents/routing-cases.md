@@ -550,7 +550,7 @@ and pass / known.
 | siding-spare 3×mix opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 m / 0.4 m | pass |
 | siding-spare 3×mix same | partial (2/3) | stall at 21 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
 | siding-spare 3×one opposed | dead (0/3) | stall at 6 s (in-way, in-way, –); 0 / 0 / 1 | pass |
-| siding-spare 3×one same | live (3/3; own ends 2) | stall at 15 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live:siding |
+| siding-spare 3×one same | live (3/3; own ends 2) | stall at 15 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live:siding (waits for booking ahead (the reservation core): three line ends off one set of points, trains trading places through a spare one, need swaps planned several moves ahead; a train waiting deep in the spare with another stepped aside in front of it got out only if its stop was free just then, and it never was (claude/routing-zero-spare3, parked 2026-11-13)) |
 | terminus 1×hand | live (1/1) | 15.5 m | pass |
 | terminus 1×one | live (1/1) | 9 | pass |
 | terminus 2×hand opposed | dead (0/2) | 12.9 m / 11.7 m | pass |
@@ -577,8 +577,8 @@ and pass / known.
 | terminus-spare 2×own same | live (2/2) | 4 / 4 | pass |
 | terminus-spare 3×mix opposed | live (3/3; own ends 2) | stall at 28 s (in-way, in-way, in-way); 0 / 1 m / 0.8 m | pass |
 | terminus-spare 3×mix same | live (3/3; own ends 2) | stall at 9 s (in-way, in-way, in-way); 0 / 0.1 m / 0.1 m | pass |
-| terminus-spare 3×one opposed | live (3/3; own ends 2) | stall at 38 s (too-many, too-many, –); 0 / 1 / 1 | known: stalls-live:siding |
-| terminus-spare 3×one same | live (3/3; own ends 2) | stall at 42 s (too-many, too-many, –); 0 / 2 / 1 | known: stalls-live:siding |
+| terminus-spare 3×one opposed | live (3/3; own ends 2) | stall at 38 s (too-many, too-many, –); 0 / 1 / 1 | known: stalls-live:siding (waits for booking ahead (the reservation core): three line ends off one set of points, trains trading places through a spare one, need swaps planned several moves ahead; a train waiting deep in the spare with another stepped aside in front of it got out only if its stop was free just then, and it never was (claude/routing-zero-spare3, parked 2026-11-13)) |
+| terminus-spare 3×one same | live (3/3; own ends 2) | stall at 42 s (too-many, too-many, –); 0 / 2 / 1 | known: stalls-live:siding (waits for booking ahead (the reservation core): three line ends off one set of points, trains trading places through a spare one, need swaps planned several moves ahead; a train waiting deep in the spare with another stepped aside in front of it got out only if its stop was free just then, and it never was (claude/routing-zero-spare3, parked 2026-11-13)) |
 | wye 1×hand | live (1/1) | 16.1 m | pass |
 | wye 1×one | live (1/1) | 9 | pass |
 | wye 2×hand opposed | dead (0/2) | stall at 35 s (in-way, in-way); 2.6 m / 2.2 m | known: waits-on-points |
@@ -605,8 +605,8 @@ and pass / known.
 | wye-spare 2×own same | live (2/2) | 4 / 6 | pass |
 | wye-spare 3×mix opposed | live (3/3; own ends 2) | stall at 27 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
 | wye-spare 3×mix same | live (3/3; own ends 2) | stall at 9 s (in-way, in-way, in-way); 0 / 0.1 m / 0.1 m | pass |
-| wye-spare 3×one opposed | live (3/3; own ends 2) | stall at 15 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live:siding |
-| wye-spare 3×one same | live (3/3; own ends 2) | stall at 31 s (too-many, too-many, –); 0 / 2 / 1 | known: stalls-live:siding |
+| wye-spare 3×one opposed | live (3/3; own ends 2) | stall at 15 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live:siding (waits for booking ahead (the reservation core): three line ends off one set of points, trains trading places through a spare one, need swaps planned several moves ahead; a train waiting deep in the spare with another stepped aside in front of it got out only if its stop was free just then, and it never was (claude/routing-zero-spare3, parked 2026-11-13)) |
+| wye-spare 3×one same | live (3/3; own ends 2) | stall at 31 s (too-many, too-many, –); 0 / 2 / 1 | known: stalls-live:siding (waits for booking ahead (the reservation core): three line ends off one set of points, trains trading places through a spare one, need swaps planned several moves ahead; a train waiting deep in the spare with another stepped aside in front of it got out only if its stop was free just then, and it never was (claude/routing-zero-spare3, parked 2026-11-13)) |
 
 ### signals (104 cases, 1 mismatched)
 
@@ -823,7 +823,7 @@ and pass / known.
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
 | fuzz seed 7 | live (2/2) | 10 / 10 | pass |
-| fuzz seed 19 | live (2/2) | stall at 17 s (too-many, –); 0 / 0 | known: stalls-live |
+| fuzz seed 19 | live (2/2) | stall at 17 s (too-many, –); 0 / 0 | known: stalls-live (waits for booking ahead (the reservation core): three line ends off one set of points, trains trading places through a spare one, need swaps planned several moves ahead; a train waiting deep in the spare with another stepped aside in front of it got out only if its stop was free just then, and it never was (claude/routing-zero-spare3, parked 2026-11-13)) |
 | fuzz seed 34 | live (3/3) | 7 / 7 / 7 | pass |
 | fuzz seed 37 | live (3/3) | 7 / 8 / 7 | pass |
 | fuzz seed 42 | dead (0/2) | stall at 6 s (in-way, in-way); 0 / 0 | pass |
@@ -832,7 +832,7 @@ and pass / known.
 | fuzz seed 91 | live (3/3) | 8 / 9 / 8 | pass |
 | fuzz seed 94 | live (2/2) | 11 / 11 | pass |
 | fuzz seed 111 | live (3/3) | 10 / 10 / 9 | pass |
-| fuzz seed 125 | live (3/3) | 6 / 8 / 7 | **fixed?** |
+| fuzz seed 125 | live (3/3) | 6 / 8 / 7 | pass |
 | fuzz seed 126 | live (3/3) | 7 / 6 / 8 | pass |
 | fuzz seed 136 | live (3/3) | 8 / 8 / 9 | pass |
 | fuzz seed 149 | live (3/3) | 7 / 8 / 8 | pass |
