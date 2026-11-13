@@ -142,10 +142,15 @@ the end is this run's. The sections below are as first written, on f10b8ee.
 - **Off plain points, not used.** There only trains heading one way can run in, so the same train would always be the
   one to step aside and never reach its far stop. To get by, it would have to follow its line-mate into the line end
   and turn behind it (§16 Q9), and the user's decision 4 keeps convoys into a dead end one train to a section. Those
-  13 cases (siding-spare ×4, terminus-spare ×5, wye-spare with 3 trains ×2, fuzz 136, 149) wait for the user's call.
-- **Also open:** branch-spare (a ring with no slots at all, so its line isn't managed) and fuzz 125.
-- **Counts:** 28 cases clear, most of them industry-siding cases now standing as the user chose; 75 known. Play-through
-  and bug map replays identical to main. The table at
+  12 cases (siding-spare ×4, terminus-spare ×6, wye-spare with 3 trains ×2) wait for the user's call, said so in
+  their titles (`cases/reasons.ts`). Fuzz 136 and 149 are decision 4's already (above).
+- **Also a train held in `recover`** (stopped for one in its way, coming at it, or a blocked way) steps aside the same
+  way, from where it stands.
+- **Also open:** branch-spare (a ring with no slots at all, so its line isn't managed), and hand-run trains on the
+  new tracks waiting on points (wye-spare, line1+siding-spare, branch-spare: the player's, B1's rule doesn't reach a
+  hand-run train meeting one at a wye or a branch's points).
+- **Counts,** on batch1: the industry-siding cases on siding, terminus and wye now stand as the user chose, and the
+  new spare tracks add their own: **42** known (from 53). The table at
 the end is this run's. The sections below are as first written, on f10b8ee.
 
 ## Results (on f10b8ee, before the fixes)

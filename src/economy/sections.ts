@@ -3097,13 +3097,12 @@ export class Sections {
    * A line's refuges (the user's A1, 2026-11-13): spare sidings and platforms off its way where a train of it can step
    * aside to let another by. Line ends (end slots) not on its way, joined to it where trains going either way can run
    * in (`bothWaysIn`), that its longest train fits, with no industry on them (no depot piece) and no line's stop: their
-   * slots. `oneWay`: off plain points too, where only trains heading one way run in (stepping aside on a line with a
-   * passing loop, where the one that steps aside can still get round: not room). Worked out per topology and line way.
+   * slots. Worked out per topology and line way.
    */
-  private refugesOf(lineId: number, topo: Topology, length: number, oneWay = false): readonly number[] {
+  private refugesOf(lineId: number, topo: Topology, length: number): readonly number[] {
     const way = this.loopCount.get(lineId)?.way;
     if (!way) return NO_SLOTS;
-    const key = `${lineId}|${length}|${oneWay ? 1 : 0}`;
+    const key = `${lineId}|${length}`;
     const hit = this.refugeCache.get(topo)?.get(key);
     if (hit && hit.way === way) return hit.slots;
     const out: number[] = [];
@@ -3121,7 +3120,7 @@ export class Sections {
         const def = getPieceDef(piece.type, piece.flipped);
         for (let c = 0; c < def.connectors.length; c++) {
           const n = next(this.layout, p, c);
-          if (n && !sl.pieces.has(n.pieceId) && way.has(n.pieceId) && (oneWay || this.bothWaysIn(n.pieceId, n.entry))) joined = true;
+          if (n && !sl.pieces.has(n.pieceId) && way.has(n.pieceId) && this.bothWaysIn(n.pieceId, n.entry)) joined = true;
         }
       }
       if (!onWay && spare && joined) out.push(i);
