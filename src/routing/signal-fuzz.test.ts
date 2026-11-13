@@ -177,8 +177,13 @@ describe(`signal fuzz: pairs laid as a player does, ${SEEDS} + ${SEEDS} seeds ×
       expect(run().filter((r) => r.marked.broke[inv].count > 0).map((r) => `${r.marked.name}: ${r.marked.broke[inv].first[0]}`)).toEqual([]);
     }, timeout);
   it("a stall only with a signal ring (or where the seed stalls without signals)", () => {
-    const odd = run().filter((r) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals" && w !== "loop-signal"));
-    expect(odd.map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
+    // (Seed 7: a convoy into a line end a signal guards, kept out till a call-on lets the one behind in (as harness-fuzz's
+    // `KNOWN_SIGNAL_STALLS`, 2026-11-13, the user's (a)).)
+    const KNOWN_SIGNAL_STALLS: Record<number, string> = { 7: "a convoy into a line end a signal guards" };
+    const seedOfName = (name: string): number => Number(/seed (\d+)/.exec(name)?.[1] ?? -1);
+    const odd = (r: { plain: Report; marked: Report }) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals" && w !== "loop-signal");
+    const known = (r: { marked: Report }) => seedOfName(r.marked.name) in KNOWN_SIGNAL_STALLS;
+    expect(run().filter((r) => odd(r) && !known(r)).map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
   }, timeout);
   it("the pairs were tested: blocks with trains in them, and trains held at a red", () => {
     // (A guard on the fuzz itself: it laid signals that trains came to.)

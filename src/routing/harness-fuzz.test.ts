@@ -44,13 +44,25 @@ const FREE = "held by sections' slot wait though the booking core would let it g
 // (2026-11-13, the user's (a): a train stands at a line end for a line-mate following it in to turn behind it
 // (`Sections.convoyHold`); the core, foreseeing nothing, would book it on. The full long fuzz against lever-regrant,
 // seed for seed: 7, 38, 66, 76, 116, 126, 149 and 165 went on, each its convoy hold (logged: the held engine and its
-// time). With signals none: no convoy into a line end a signal guards (`signalGuards`; seed 119 with signals, the one
+// time). 152 came off (it no longer stands where the core would book it on). With signals none: no convoy into a line end a signal guards (`signalGuards`; seed 119 with signals, the one
 // behind held at the signal and the one ahead standing for it for good, and 52's stall).)
 const CONVOY = "held at a line end for a line-mate following it in to turn behind it (the user's (a)), the core foreseeing nothing";
+/**
+ * Seeds that stall with signals where they no longer do without (2026-11-13, the user's (a)): each a convoy into a line
+ * end, which runs without signals and is kept out where a signal guards that end (`Sections.signalGuards`: the signal
+ * would hold the one behind out of the block the one ahead stands in). They stalled with signals before (a)
+ * just the same (the full long fuzz against lever-regrant, seed for seed); a call-on (a signal letting a line-mate in
+ * behind a train at a line end) would take them off.
+ */
+const SIGNAL_CONVOY = "a convoy into a line end a signal guards: none till a call-on lets the one behind in";
+const KNOWN_SIGNAL_STALLS: Record<number, string> = Object.fromEntries([7, 52, 93, 100, 105, 149, 151, 158, 189, 192, 197].map((n) => [n, SIGNAL_CONVOY]));
+/** A report's seed, from its name ("fuzz seed 7 with signals"). */
+const seedOfName = (name: string): number => Number(/seed (\d+)/.exec(name)?.[1] ?? -1);
+
 const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-11, the room counting a line's ends (3 trains on one loop run): the full long fuzz against main, seed for
   // seed: 37, 91, 112, 132, 134, 145, 186 and 188 came off (their third train no longer held), nothing went on.)
-  heldFree: { 7: CONVOY, 22: FREE, 34: FREE, 38: CONVOY, 66: CONVOY, 68: FREE, 69: FREE, 74: FREE, 76: CONVOY, 104: FREE, 113: FREE, 116: CONVOY, 126: CONVOY, 127: FREE, 149: CONVOY, 152: FREE, 165: CONVOY, 183: FREE },
+  heldFree: { 7: CONVOY, 22: FREE, 34: FREE, 38: CONVOY, 66: CONVOY, 68: FREE, 69: FREE, 74: FREE, 76: CONVOY, 104: FREE, 113: FREE, 116: CONVOY, 126: CONVOY, 127: FREE, 149: CONVOY, 165: CONVOY, 183: FREE },
 };
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-09, booking to the next signal (every signal of a pair a waiting point, sized per train): the full long
@@ -148,8 +160,10 @@ describe(`routing fuzz with signals: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRS
       expect(fixed, "known breaks that no longer break (take them off)").toEqual([]);
     }, timeout);
   it("a stall only with a signal ring (or where the seed stalls without signals)", () => {
-    const odd = run().filter((r) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals" && w !== "loop-signal"));
-    expect(odd.map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
+    const odd = (r: { plain: Report; marked: Report }) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals" && w !== "loop-signal");
+    const known = (r: { marked: Report }) => seedOfName(r.marked.name) in KNOWN_SIGNAL_STALLS;
+    expect(run().filter((r) => odd(r) && !known(r)).map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
+    expect(run().filter((r) => known(r) && !odd(r)).map((r) => r.marked.name), "known ones that no longer stall so (take them off)").toEqual([]);
   }, timeout);
 });
 
