@@ -190,6 +190,11 @@ const DEAD_END = -2;
 const FOLLOW_LOOK = 48;
 /** The room (mm) a train following another into a slot leaves (the sim's `FOLLOW_GAP`, and some to stop in). */
 const FOLLOW_ROOM = 150;
+/**
+ * Room (mm) past two trains' lengths for one to step aside into a refuge in front of another standing deep in it
+ * (`asideBehind`): they meet nose to nose, closer than one follows another (the sim stops them just short of touching).
+ */
+const NOSE_ROOM = 60;
 /** How far (mm) short of its slot's end a train stands with another standing just past it: that one's cars overhang its axles. */
 const OVERHANG_ROOM = 60;
 /** How far (mm) short of the buffer a train at a line end stands for a line-mate to turn behind it (`convoyHold`): well
@@ -728,6 +733,16 @@ export class Sections {
   standsWithin(train: Train): number {
     return this.stands.get(train.id) ?? Infinity;
   }
+
+  /**
+   * May this train turn round where it has met a train standing at the end of the line nose to nose (the sim's
+   * `endOfLineBehind`)? Only one sections sent into a refuge where a line-mate stands deep (`asideBehind`): hand-run
+   * trains meeting so wait, as before (two of them turned there ran onto the points together).
+   */
+  turnsNose(train: Train): boolean {
+    return this.noseTurns.has(train.id);
+  }
+  private readonly noseTurns = new Set<number>();
   private readonly stands = new Map<number, number>();
 
   cap(train: Train): number {
@@ -894,6 +909,10 @@ export class Sections {
       return Infinity;
     }
     const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
+    const sl0 = topo.slots[st.slot];
+    // (Going into a refuge where a line-mate stands: it may turn where it meets that one (`turnsNose`).)
+    if (sl0?.kind === "end" && this.headsToEnd(train, sl0) && this.isRefuge(st.engine, st.slot, train) && info.users.some((v) => v !== st.engine && this.sim.findCar(v)?.train.bogies.some((x) => sl0.pieces.has(x.pieceId)))) this.noseTurns.add(train.id);
+    else this.noseTurns.delete(train.id);
     // In a slot, with a train of its line put down facing it on the way to the slot's end: one gives way. (With one
     // standing just past the slot's end: up to short of its overhang.)
     if (this.facing(st, info, train)) {
@@ -913,6 +932,18 @@ export class Sections {
     // length and a little): it stands there.)
     if (hold !== null) return hold > CONVOY_NEAR ? Math.sqrt(2 * ACCELERATION * (hold - CONVOY_NEAR)) : 0;
     if (st.beyond === Infinity) return Infinity;
+    // (In a refuge of its line, turned to come out, its way on not granted: it asks from where it stands, deep in it, and
+    // waits there, not up at the refuge's mouth: a line-mate may step aside in front of it (`asideBehind`).)
+    if (sl0?.kind === "end" && train.turnback < 0 && !this.headsToEnd(train, sl0) && this.isRefuge(st.engine, st.slot, train)) {
+      if (now - st.askedAt >= CHECK_TICKS) {
+        st.askedAt = now;
+        if (this.ask(st, info)) {
+          if (!st.move) st.beyond = Infinity;
+          return Infinity;
+        }
+      }
+      return 0;
+    }
     const room = lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s + st.beyond - CAR_SPECS[lead.kind].bogieInset;
     // (Not a waiting point's: it waits at the signal there. And only where the train fits in its slot: pulled up to the
     // end, it's off the points behind; one too long for it gains nothing by moving up.)
@@ -977,6 +1008,8 @@ export class Sections {
       if (!tu || !tu.bogies.some((b) => slotPieces.has(b.pieceId))) continue;
       // (Following a line-mate in to turn behind it (`followsInto`): up close behind it, as the sim keeps the gap.)
       if (this.followsInto(info, st.slot, st.engine, u)) continue;
+      // (Stepped aside into a refuge in front of a line-mate standing deep in it (`inFrontOf`): it turns where it meets it.)
+      if (this.inFrontOf(info, st.slot, st.engine, u) && this.isRefuge(st.engine, st.slot, train)) continue;
       const mineOn = train.bogies.map((b) => b.pieceId);
       const ahead = tu.bogies.some((b) => st.ahead.has(b.pieceId) && !mineOn.includes(b.pieceId));
       if (!ahead) continue;
@@ -1305,7 +1338,7 @@ export class Sections {
           let u = this.slotUser(info, slot, st.engine);
           // (A line-mate going to the end of it, both fitting: it follows it in and turns behind it (§16 Q9, the user's
           // (a), 2026-11-13).)
-          if (u !== -1 && depth === 0 && this.followsInto(info, slot, st.engine, u)) u = -1;
+          if (u !== -1 && depth === 0 && (this.followsInto(info, slot, st.engine, u) || this.asideBehind(info, slot, st.engine, u))) u = -1;
           // (Held there for want of room on the line: it won't move, so the section before it is a dead end, turned
           // back in.)
           if (u !== -1 && !this.hasRoom(info, u)) return deadEnd(u, s.pieces);
@@ -2229,8 +2262,14 @@ export class Sections {
     const other = this.sim.findCar(by)?.train;
     if (!other || !this.headingAt(other, own)) return false;
     for (const r of refuges) {
-      if (this.slotUser(info, r, st.engine) !== -1) continue;
+      const there = this.slotUser(info, r, st.engine);
       st.aside = { slot: r, piece: this.innerOf(info.topo.slots[r]), by };
+      // (One of its line standing in the refuge, deep in it: it may step aside in front of that one, both fitting
+      // (`asideBehind`): three trains on three line ends, one spare, get by only so.)
+      if (there !== -1 && !this.asideBehind(info, r, st.engine, there)) {
+        st.aside = null;
+        continue;
+      }
       const way = this.wayOn(st, info, { pieceId: start.pieceId, entry: start.entry }, start.path);
       // (Its way to the refuge free: no other train of the line on it (in a section, the one it's in counts only ahead).)
       const ahead = new Set(way?.steps.map((x) => x.pieceId) ?? []);
@@ -2265,6 +2304,46 @@ export class Sections {
     return false;
   }
 
+
+  /**
+   * May `engine`'s train, stepping aside into refuge `slot` (`st.aside`), run in where line-mate `u` stands in it? `u`
+   * stands wholly in the slot, turned to come out (it waits there deep in the refuge: `capOf`), no other train is in it
+   * or bound for it, and the two fit one behind the other. The one coming in meets it nose to nose and turns there (the
+   * sim's end of the line behind a standing train, §16 Q9), and comes out first.
+   */
+  private asideBehind(info: LineInfo, slot: number, engine: number, u: number): boolean {
+    return this.states.get(engine)?.aside?.slot === slot && this.inFrontOf(info, slot, engine, u);
+  }
+
+  /**
+   * `asideBehind` once in it: `engine`'s train in or bound for refuge `slot`, going to its end, with `u` standing deep
+   * in it, turned to come out. (Its facing `u` there is no head-on to give way in: it turns where it meets it.)
+   */
+  private inFrontOf(info: LineInfo, slot: number, engine: number, u: number): boolean {
+    if (!info.users.includes(u) || info.loose.includes(u) || info.loose.includes(engine)) return false;
+    const sl = info.topo.slots[slot];
+    if (sl.kind !== "end") return false;
+    const a = this.sim.findCar(engine)?.train;
+    const b = this.sim.findCar(u)?.train;
+    if (!a || !b || b.speed >= 1 || trainLength(a) + trainLength(b) + NOSE_ROOM > sl.length) return false;
+    if (a.bogies.some((x) => sl.pieces.has(x.pieceId)) && !this.headsToEnd(a, sl)) return false;
+    if (!b.bogies.every((x) => sl.pieces.has(x.pieceId)) || this.headsToEnd(b, sl) || this.states.get(u)?.move) return false;
+    for (const v of info.users) {
+      if (v === engine || v === u) continue;
+      if (this.states.get(v)?.move?.dest === slot) return false;
+      const t = this.sim.findCar(v)?.train;
+      if (t && t.bogies.some((x) => sl.pieces.has(x.pieceId))) return false;
+    }
+    return true;
+  }
+
+  /** Is end slot `slot` one of the refuges of `engine`'s line (`refugesOf`)? */
+  private isRefuge(engine: number, slot: number, train: Train): boolean {
+    const lineId = this.host.lineOf(engine);
+    const st = this.states.get(engine);
+    if (lineId < 0 || !st) return false;
+    return this.refugesOf(lineId, st.topo, trainLength(train)).includes(slot);
+  }
 
   /** A refuge's innermost piece (its buffer's neighbour, else any of its pieces): what a train stepping aside aims for. */
   private innerOf(slot: Slot): number {
@@ -2938,8 +3017,10 @@ export class Sections {
         // each road is one way, or one a train not on the line stands on: there the trains can't trade places so.)
         const ends = this.endsOn(lineId, topo, longest) >= 2 && [...own].every((l) => topo.loops[l].into.every((x) => x.length > 1)) ? 1 : 0;
         // (Spare sidings and platforms off its way (the user's A1): each a place a train steps aside into to let one by,
-        // a train more.)
-        const refuges = this.refugesOf(lineId, topo, longest).length;
+        // a train more; two more where two of its trains fit in one, the second stepping aside in front of the first
+        // (`asideBehind`: three trains on three line ends, one of them spare).)
+        let refuges = 0;
+        for (const r of this.refugesOf(lineId, topo, longest)) refuges += topo.slots[r].length >= 2 * longest + NOSE_ROOM ? 2 : 1;
         const roomOf = (adm: ReadonlySet<number>) => {
           if (oneWay) return engines.length;
           const h = roadsHeld(adm);

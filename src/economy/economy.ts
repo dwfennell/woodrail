@@ -627,6 +627,7 @@ export class Economy {
     // (A train the router holds short of points claims nothing there: routing spec §13 step 7.)
     sim.waitsAt = (train) => this.router.waitsAt(train);
     sim.standsWithin = (train) => this.sections.standsWithin(train);
+    sim.turnsNose = (train) => this.sections.turnsNose(train);
     this.sections = new Sections(layout, sim, {
       lineOf: (engine) => {
         const id = this.lineIdOf.get(engine);
