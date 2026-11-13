@@ -235,7 +235,11 @@ off plain points is a refuge where the one that stepped aside, coming out, reach
 trains to turn behind the one there (`convoyEndPast`). That way was followed on plain track only; now on every way the
 points give, through passing loops too. Fuzz seed 125 (two loops in series, then points into a forest end and a spare
 one): the train coming at the forest end's train steps aside into the spare, and comes out to turn at the far end
-behind the train loading there. It clears, nothing else moves: 21 known.
+behind the train loading there. It clears, nothing else moves: 21 known. Its unit cases follow: the boxed-in shape
+past a loop (scenarios' `boxedPastLoop`) runs now, the routed train 5+ stops in 5 min and the hand-run ones turning at
+their buffers. The three-train spare cases and fuzz 19 (two trains, and the line stops in the spare) are parked for
+booking ahead in the reservation core (`reasons.ts`): a try that keeps a train in the spare deep and steps another aside
+in front of it (`claude/routing-zero-spare3`) only turned their stalls into one train starving.
 
 ## Results (on f10b8ee, before the fixes)
 
