@@ -188,6 +188,8 @@ interface Move {
 const DEAD_END = -2;
 /** How far on (pieces) a train whose front is off another's way is followed, to see if it comes onto it head on (`sameWayAhead`). */
 const FOLLOW_LOOK = 48;
+/** The room (mm) a train following another into a slot leaves (the sim's `FOLLOW_GAP`, and some to stop in). */
+const FOLLOW_ROOM = 150;
 
 /** `Sections.circling`'s walk: whether it circles, and the piece ends (piece × 8 + end) it comes in by and goes out by. */
 interface Circuit {
@@ -1496,6 +1498,18 @@ export class Sections {
     return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: info.more, spare: info.spareCut, parked: info.parked, other: info.other, pinned: this.pinnedLoopOn(st.engine) };
   }
 
+  /**
+   * Do `engine`'s train and `u`'s fit one behind the other in a waiting point, with the sim's gap between them, and is
+   * there no signal where trains come into it? (One there guards a plain block, which lets one train in at a time: the
+   * one following would stand at it, on the points behind (ring1, blocks2).)
+   */
+  private fitBehind(sl: Slot, engine: number, u: number): boolean {
+    for (const w of sl.ways ?? []) if (this.layout.signalAt(w.back) || this.layout.signalAt(this.layout.joinedConnector(w.back))) return false;
+    const a = this.sim.findCar(engine)?.train;
+    const b = this.sim.findCar(u)?.train;
+    return !!a && !!b && trainLength(a) + trainLength(b) + FOLLOW_ROOM <= sl.length;
+  }
+
   /** Does a train the line has no room for stand on this loop road? */
   private heldOnRoad(info: LineInfo, road: number): boolean {
     const pieces = info.topo.slots[road].pieces;
@@ -1513,10 +1527,15 @@ export class Sections {
    * that `engine` may follow (`follows`) going out of the road by that same switch isn't in its way, and is passed over.
    */
   private slotUser(info: LineInfo, slot: number, engine: number, outBy = -1): number {
-    const pieces = info.topo.slots[slot].pieces;
+    const sl = info.topo.slots[slot];
+    const pieces = sl.pieces;
     for (const u of info.users) {
       if (u === engine) continue;
       if (outBy !== -1 && this.follows(info, engine, u) && this.outByOf(u, slot) === outBy) continue;
+      // (A signal's waiting point on a circuit all go round one way: it may follow one in there, as into a loop road,
+      // where the two fit (ring1, three trains, a pair of signals: the one at the signal waits for a loop road the one
+      // behind can only leave into the waiting point).)
+      if (sl.kind === "signal" && this.follows(info, engine, u) && this.fitBehind(sl, engine, u)) continue;
       const m = this.states.get(u)?.move;
       if (m && (m.dest === slot || m.through.includes(slot))) return u;
       const t = this.sim.findCar(u)?.train;
