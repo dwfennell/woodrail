@@ -181,7 +181,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
       if (!w) continue;
       if (w.kind === "room") {
         const by = w.spare || w.parked ? spareBy(economy, car.id) : undefined;
-        return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare, parked: w.parked, other: w.other, pinned: w.pinned, by };
+        return { kind: "needs-loop", more: w.more, trains: w.trains, spare: w.spare, parked: w.parked, other: w.other, pinned: w.pinned, by };
       }
       // (One with room waiting a moment for a line-mate: just that, though the line be full.)
       const lineId = economy.lineIdOf.get(car.id);
@@ -490,7 +490,7 @@ export function engineView(
   // A line with a train too many (no passing loop for it): a loop is the lasting fix, but taking a train off the track
   // is the quick one, offered on the card (QA 2026-11-04: two engines on the starter line). (Leaving the line isn't:
   // the train still stands on its one track.)
-  const crowded = (s.kind === "stuck" && s.why === "too-many") || (s.kind === "needs-loop" && !s.spare && !s.pinned);
+  const crowded = (s.kind === "stuck" && s.why === "too-many") || (s.kind === "needs-loop" && !s.spare && !s.pinned && s.more > 0);
   return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place), blocker, ...(crowded ? { crowded: true as const } : {}) };
 }
 
@@ -585,6 +585,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (s.spare && who) return `Waiting: ${inTheWay(who, place)}`;
       if (s.spare) return `Waiting: ${s.other ? OTHER_CUT : SPARE_CUT}`;
       if (s.pinned) return `Waiting: ${UNPIN}`;
+      // (Room for them all, its line's ends counted: it waits its turn, and no loop is asked for.)
+      if (s.more <= 0) return "Waiting its turn on the line";
       return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? (s.other ? OR_MOVE_OTHER : OR_MOVE) : OR_REMOVE}`;
     case "held-up":
       return who ? `Waiting: ${inTheWay(who, place)}` : "Waiting: something's in the way";
@@ -648,8 +650,9 @@ export function headOnTip(learned: ReadonlySet<string> | null): string {
  * Said once a line, when a train is put on it with no room for it: what the line has room for, and what would run
  * them all (or one fewer: taken off the track).
  */
-export function fullLineToast(room: number, trains: number, more: number): string {
-  const loops = room <= 1 && trains === 2 ? "a passing loop" : more === 1 ? "another passing loop" : `${more} more passing loops`;
+export function fullLineToast(room: number, _trains: number, more: number): string {
+  // (No loop yet: "a passing loop", however many trains; with one, its ends count, so 3 trains need only that one.)
+  const loops = room <= 1 && more === 1 ? "a passing loop" : more === 1 ? "another passing loop" : `${more} more passing loops`;
   // (Or one taken off the track: its own card's Remove, or picked up.)
   return `This line has room for ${room} train${room === 1 ? "" : "s"}. Lay ${loops}, or take one off the track.`;
 }

@@ -52,8 +52,9 @@ describe("the boxed-in convoy (decision 4) is recognised by its shape, and only 
   it("two routed trains head on round an oval: not", () => {
     expect(atFirstStall(S.routedHeadOnRing)).toBe(false);
   });
+  // (No stall at all now: the hand-run one waits short of the points, `comesInto`.)
   it("a routed train head on with a hand-run one at a spur's points, nothing boxed in: not", () => {
-    expect(atFirstStall(S.routedMeetsHandRun)).toBe(false);
+    expect(atFirstStall(S.routedMeetsHandRun)).not.toBe(true);
   });
   it("two routed trains head on along one line (no hand-run train): not", () => {
     expect(atFirstStall(S.headOnTwoLines)).toBe(false);

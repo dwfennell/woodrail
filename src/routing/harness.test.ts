@@ -160,11 +160,17 @@ const OTHERS: Case[] = [
   },
   {
     scenario: S.threeTrainsOneLoop,
-    // (One train has no room (loops + 1): held, by design, where it stands in the others' way. Nothing turns back short
-    // of it any more (§16 Q3, `deadEndCap` is gone): the two it has room for stand, stuck, "too many trains".)
+    // (Room for all three: the loop and the line's two ends. Before, the room rule (loops + 1) held one, where it stood
+    // in the others' way, and the line stood still, "too many trains" (stalls-verify 2026-11-10).)
+    checks: { "turns back only at the buffers": endsOnly, "payoff: each train 15+ stops": arrivals(15), "never stuck": noStall },
+  },
+  {
+    scenario: S.fourTrainsOneLoop,
+    // (One train has no room (the loop and the line's two ends hold three): held, by design, where it stands in the
+    // others' way. Nothing turns back short of it (§16 Q3): those it has room for stand, stuck, "too many trains".)
     checks: {
       "turns back only at the buffers": endsOnly,
-      "the two it has room for stand stuck: too many trains": (r) => {
+      "those it has room for stand stuck: too many trains": (r) => {
         // (Room handed to the held one now and then (`unring`'s hand-over) changes which one is held: any may be.)
         expect(r.stalls.why.filter((w) => w === "too-many").length).toBeGreaterThanOrEqual(2);
         expect(Math.min(...r.stalls.stuck.filter((n) => n > 0))).toBeGreaterThan(60 * SIM_HZ);
@@ -172,9 +178,9 @@ const OTHERS: Case[] = [
     },
   },
   {
-    scenario: S.threeTrainsPutAway,
-    // (The player's fix: the held one put away at 2 minutes. The other two pass at the loop and deliver.)
-    checks: { "turns back only at the buffers": endsOnly, "payoff: the two deliver once it's put away (30+ stops)": (r) => expect(r.arrivals.reduce((a, b) => a + b)).toBeGreaterThanOrEqual(30) },
+    scenario: S.fourTrainsPutAway,
+    // (The player's fix: the held one put away at 2 minutes. The other three pass at the loop and deliver.)
+    checks: { "turns back only at the buffers": endsOnly, "payoff: the three deliver once it's put away (30+ stops)": (r) => expect(r.arrivals.reduce((a, b) => a + b)).toBeGreaterThanOrEqual(30) },
   },
   {
     scenario: S.headOnTwoLines,
@@ -311,16 +317,18 @@ const stuckSteadily = (n: number, s: number) => (r: Report) => {
 const nobodyGaveWay = (r: Report) => expect(r.gaveWay).toEqual({ any: 0 });
 const GIVE_WAY: Case[] = [
   {
-    // (Head on with nothing between them but the points the hand-run one stands on: no road out ahead for either.
-    // Before 2026-11-07 the hand-run one turned round, short of the end of its line.)
+    // (They met head on with nothing between them but the points the hand-run one stood on, held there by sections,
+    // and stood for good. Now the hand-run one asks for the way short of the points (`comesInto`), and waits clear of
+    // them while the routed one goes by: both keep working, turning only at the buffers.)
     scenario: S.routedMeetsHandRun,
     checks: {
-      "both stand, stuck in each other's way, the card's fix a passing loop": (r) => {
-        stuckSteadily(1, 200)(r);
-        expect(r.arrivals).toEqual([0, 0]);
+      "payoff: the routed train 10+ stops, the hand-run one 10+ runs to its end": (r) => {
+        expect(r.arrivals[0]).toBeGreaterThanOrEqual(10);
+        expect(r.turns[1].buffer).toBeGreaterThanOrEqual(10);
       },
-      "nobody gives way: no road out ahead": nobodyGaveWay,
-      "nobody turns back": (r) => expect(r.turns).toEqual(r.turns.map(() => ({ buffer: 0, "open-end": 0 }))),
+      "never stuck": noStall,
+      "nobody gives way: no need": nobodyGaveWay,
+      "turns back only at the buffers": endsOnly,
     },
   },
   {
@@ -597,9 +605,10 @@ describe("step 7: hand-run trains respect locks", () => {
     }
     const r = run.run(0);
     noBreaks(r);
-    // (It stood a few seconds, its nose STAND_SHORT + OVERLAP short of the points, as a routed train does.)
+    // (It stood a few seconds, clear of the points. Coming onto the routed train's way, it works its single track from
+    // short of the points (`comesInto`): sections hold it STAND_SHORT short of them, as they hold a line's train.)
     expect(waitedS).toBeGreaterThan(3);
-    expect(near).toBeGreaterThanOrEqual(STAND_SHORT + OVERLAP - 1);
+    expect(near).toBeGreaterThanOrEqual(STAND_SHORT - 1);
     // (And went on, the way the points lie, once the routed one was by: down the trunk.)
     expect(wentAt).toBeGreaterThan(0);
     expect(r.arrivals[0]).toBeGreaterThanOrEqual(1);
