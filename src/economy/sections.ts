@@ -2454,7 +2454,10 @@ export class Sections {
     const short = this.hasRoom(info, st.engine) && section !== undefined ? this.heldIn(info, section, st.engine) : null;
     if (short) for (const p of mine) short.delete(p);
     const way = this.wayOn(st, info, { pieceId: front.pieceId, entry }, front.pathIndex, short && short.size > 0 ? short : null);
-    if (!way) return true;
+    // (No slot on its way to its stop (a stop on a ring with no passing loop): a line-mate on that way coming at it head on
+    // is in its way all the same. Held for it here, short of the points ahead (it stands short of them, `edge`), never on
+    // them where they'd meet: the user's rule, points are never a place to wait.)
+    if (!way) return info.users.length < 2 || !this.headOnAlong(st, info, train, { pieceId: front.pieceId, entry });
     if (way.dest === DEAD_END) return this.deadEndWait(st, info, way);
     const ahead = new Set(way.steps.map((s) => s.pieceId));
     let along = info.loose.length > 0 || (info.oneWay && this.circling(st.engine)) ? this.alongOf(way.steps, info.topo) : null;
@@ -2532,6 +2535,26 @@ export class Sections {
   }
 
   /** A train in a section waits for `u` (a mutual wait is a stall: nothing lets either go, see stalls.ts). */
+  /**
+   * Its way to its stop meeting no slot (`wayOn` null): a line-mate on it, coming at it head on (not going its way ahead,
+   * `sameWayAhead`)? Then it's held for that one (`recoverWait`): true.
+   */
+  private headOnAlong(st: TrainState, info: LineInfo, train: Train, start: { pieceId: number; entry: number }): boolean {
+    const along = this.walkAlong(st, start, info.topo);
+    const mine = new Set(train.bogies.map((b) => b.pieceId));
+    for (const u of info.users) {
+      if (u === st.engine || info.loose.includes(u)) continue;
+      const t = this.sim.findCar(u)?.train;
+      if (!t || !t.bogies.some((b) => along.has(b.pieceId) && !mine.has(b.pieceId))) continue;
+      if (this.sameWayAhead(u, along)) continue;
+      // (Standing, turned away from it at the end of its way: not coming at it.)
+      if (this.host.drive(t) === 0) continue;
+      this.recoverWait(st, u, info);
+      return true;
+    }
+    return false;
+  }
+
   private recoverWait(st: TrainState, u: number, info?: LineInfo): boolean {
     // (A train the line has no room for stays where it is, held: the others treat it as the end of the line.)
     if (info && !this.hasRoom(info, st.engine)) {
