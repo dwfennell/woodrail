@@ -223,7 +223,8 @@ lines sharing the track) may stand in one end slot when both fit one behind the 
 own turn (`convoyHold`, its signal red to it), till the one behind has turned round behind it (§16 Q9) and gone. Only
 to get by: not where the follower's own stop is in the slot. A spare siding off plain points is a refuge now when one
 of the line's ends past it holds two of its trains (`convoyEndPast`): the one stepped aside comes out after the other
-and follows it in. 13 cases clear, none the other way: siding-spare and terminus-spare 2× (one and own, same and
+and follows it in. Not into a line end a signal guards, in it or at its mouth (`signalGuards`): the signal holds the
+one behind out of the block the one ahead stands in (fuzz seed 119 with signals stood for good so). 13 cases clear, none the other way: siding-spare and terminus-spare 2× (one and own, same and
 opposed), fuzz 7, 94, 189 (spare sidings), and 136, 149 (decision 4's): 22 known, and `reasons.ts` lists none.
 Still open here: the three-train spare cases (siding-spare 3× one same, terminus-spare and wye-spare 3× one): with
 three trains in three dead ends, one must follow into the spare behind a train standing there, and that one comes out

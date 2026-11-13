@@ -1583,7 +1583,7 @@ export class Sections {
     // (Routed trains working the track together: a line's, or lines' sharing it (`network`), each going its own way.)
     if (!info.users.includes(u) || !info.users.includes(engine) || info.loose.includes(u) || info.loose.includes(engine)) return false;
     const sl = info.topo.slots[slot];
-    if (sl.kind !== "end") return false;
+    if (sl.kind !== "end" || this.signalGuards(sl)) return false;
     // (Only to get by, turning there: not to come to a stop of its own in there, which the one ahead would stand on.)
     if (sl.pieces.has(this.host.target(engine))) return false;
     const a = this.sim.findCar(engine)?.train;
@@ -1626,7 +1626,7 @@ export class Sections {
       // (One standing aside in a refuge to let this one by: it comes out after it, and follows it in here to turn behind
       // it (it gets by only so, the refuge off plain points). Held for it now: else this one turns first, and it can't.)
       const vs = this.states.get(v);
-      if (vs && vs.lettingBy === st.engine && !sl.pieces.has(this.host.target(v)) && trainLength(t) + trainLength(train) + FOLLOW_ROOM <= sl.length) {
+      if (vs && vs.lettingBy === st.engine && !this.signalGuards(sl) && !sl.pieces.has(this.host.target(v)) && trainLength(t) + trainLength(train) + FOLLOW_ROOM <= sl.length) {
         coming = v;
         continue;
       }
@@ -3406,10 +3406,29 @@ export class Sections {
       const n = next(this.layout, at.pieceId, at.exit);
       if (!n) return false;
       const sl = topo.slotOf.get(n.pieceId);
-      if (sl !== undefined && topo.slots[sl].kind === "end") return topo.slots[sl].length >= 2 * length + FOLLOW_ROOM;
+      if (sl !== undefined && topo.slots[sl].kind === "end") return topo.slots[sl].length >= 2 * length + FOLLOW_ROOM && !this.signalGuards(topo.slots[sl]);
       const ways = waysFrom(this.layout, n.pieceId, n.entry);
       if (ways.length !== 1) return false;
       at = { pieceId: n.pieceId, exit: ways[0].exit };
+    }
+    return false;
+  }
+
+  /**
+   * Is there a signal on a joint of end slot `sl` (in it, or at its mouth)? Then no convoy into it (`followsInto`): the
+   * signal holds the one behind out of the block the one ahead stands in, and the one ahead would stand for it for good
+   * (fuzz seed 119 with signals).
+   */
+  private signalGuards(sl: Slot): boolean {
+    if (this.layout.signalCount === 0) return false;
+    for (const p of sl.pieces) {
+      const piece = this.layout.getPiece(p);
+      if (!piece) continue;
+      const n = getPieceDef(piece.type, piece.flipped).connectors.length;
+      for (let c = 0; c < n; c++) {
+        const ref = connectorRef(p, c);
+        if (this.layout.signalAt(ref) || this.layout.signalAt(this.layout.joinedConnector(ref))) return true;
+      }
     }
     return false;
   }

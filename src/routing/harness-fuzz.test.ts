@@ -42,12 +42,15 @@ const FAILS: Partial<Record<Invariant, string>> = {};
 // sections' slot wait though the booking core would book it a way on: holds too big, step 5's.)
 const FREE = "held by sections' slot wait though the booking core would let it go (redesign step 5: sections grant by booking)";
 // (2026-11-13, the user's (a): a train stands at a line end for a line-mate following it in to turn behind it
-// (`Sections.convoyHold`); the core, foreseeing nothing, would book it on: seed 7 went on, both lists.)
+// (`Sections.convoyHold`); the core, foreseeing nothing, would book it on. The full long fuzz against lever-regrant,
+// seed for seed: 7, 38, 66, 76, 116, 126, 149 and 165 went on, each its convoy hold (logged: the held engine and its
+// time). With signals none: no convoy into a line end a signal guards (`signalGuards`; seed 119 with signals, the one
+// behind held at the signal and the one ahead standing for it for good, and 52's stall).)
 const CONVOY = "held at a line end for a line-mate following it in to turn behind it (the user's (a)), the core foreseeing nothing";
 const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-11, the room counting a line's ends (3 trains on one loop run): the full long fuzz against main, seed for
   // seed: 37, 91, 112, 132, 134, 145, 186 and 188 came off (their third train no longer held), nothing went on.)
-  heldFree: { 7: CONVOY, 22: FREE, 34: FREE, 68: FREE, 69: FREE, 74: FREE, 104: FREE, 113: FREE, 127: FREE, 152: FREE, 183: FREE },
+  heldFree: { 7: CONVOY, 22: FREE, 34: FREE, 38: CONVOY, 66: CONVOY, 68: FREE, 69: FREE, 74: FREE, 76: CONVOY, 104: FREE, 113: FREE, 116: CONVOY, 126: CONVOY, 127: FREE, 149: CONVOY, 152: FREE, 165: CONVOY, 183: FREE },
 };
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-09, booking to the next signal (every signal of a pair a waiting point, sized per train): the full long
@@ -57,7 +60,7 @@ const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-13, a loop's last free road kept for a train coming the other way: 111, 126 and 165 run (no longer three
   // trains standing for good, the loop filled one way); 126 went on: a train held 5 s for the one coming at the loop,
   // which the core, foreseeing nothing, would book on.)
-  heldFree: { 7: CONVOY, 22: FREE, 34: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 126: FREE, 127: FREE, 136: FREE, 152: FREE },
+  heldFree: { 22: FREE, 34: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 126: FREE, 127: FREE, 136: FREE, 152: FREE },
   // (14, 30, 76 and 160 came off on the merged base, before step 3 (2026-11-07, the full long fuzz on both).)
   // (2026-11-11, the room counting a line's ends: 37 came off; 165 went on. On main 165 stood still from the start (1, 0
   // and 0 stops in 30 min, the third train held); now its three run (46, 44, 44 stops), now and then held by sections
