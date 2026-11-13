@@ -126,6 +126,28 @@ ring with 1 or 2 loops, a branch, a terminus); 77 known. A hand-run train meetin
 wye (was 169 s stuck); with the route it stands as before. The table at
 the end is this run's. The sections below are as first written, on f10b8ee.
 
+**Stepping aside into a spare siding or platform** (`claude/routing-zero-siding-move`, the user's A1):
+- **The rule, in the oracle too.** A routed train may turn at its own ends (one of its stops on the plain stretch back
+  from the end to the points; a line end beyond its stop counts) or at a spare dead end (a plain stretch with no
+  industry on it and no train's stop). Never at an industry's siding. The verdict is the spare-only oracle's. A case
+  live only through an industry siding stands, as the user chose: the table says "through an industry siding: n".
+  Running where the any-ends oracle says it can isn't held against the game: a route may need an industry's line end
+  to turn at.
+- **New tracks:** siding-spare, line1+siding-spare, terminus-spare (a plain second platform), wye-spare and
+  branch-spare. 484 cases.
+- **The game: refuges.** A line's refuges are spare end slots off its way, joined to it where trains going either way
+  can run in: off a wye, not off plain points (`bothWaysIn`). Each makes room for a train more.
+- **The game: the move.** A train held for one coming at it head on is granted a move into a free refuge instead. It
+  turns at the buffer there, waits for that one to pass, and goes on. Its card: "Letting the Red line by".
+- **Off plain points, not used.** There only trains heading one way can run in, so the same train would always be the
+  one to step aside and never reach its far stop. To get by, it would have to follow its line-mate into the line end
+  and turn behind it (§16 Q9), and the user's decision 4 keeps convoys into a dead end one train to a section. Those
+  13 cases (siding-spare ×4, terminus-spare ×5, wye-spare with 3 trains ×2, fuzz 136, 149) wait for the user's call.
+- **Also open:** branch-spare (a ring with no slots at all, so its line isn't managed) and fuzz 125.
+- **Counts:** 28 cases clear, most of them industry-siding cases now standing as the user chose; 75 known. Play-through
+  and bug map replays identical to main. The table at
+the end is this run's. The sections below are as first written, on f10b8ee.
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in

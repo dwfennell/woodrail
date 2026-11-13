@@ -22,7 +22,7 @@ export type Verdict = "live" | "dead" | "partial" | "unknown";
 /**
  * A disagreement:
  * - **stalls-live**: the oracle says every train can keep running, and the game said one stuck. ":siding": only by
- *   a train turning at an end that isn't one of its stops (into a siding, a platform, behind another: to let one by).
+ *   a train stepping aside into a spare dead end that isn't one of its stops, and turning there, to let one by.
  * - **starves-live**: the same, but a train just stood or crawled (under its floor of stops), said or not.
  * - **silent-dead**: the oracle says they can't all keep running, a train stood, and the game said nothing (not stuck,
  *   nor held by its line for want of room: that card says the line is full).
@@ -36,7 +36,7 @@ export type Mismatch = "stalls-live" | "stalls-live:siding" | "starves-live" | "
 export interface Judged {
   id: string;
   verdict: Verdict;
-  oracle: { best: number; n: number; states: number; own?: number; noSignals?: number; free?: number };
+  oracle: { best: number; n: number; states: number; own?: number; noSignals?: number; free?: number; anyEnds?: number };
   /** The game: stops per train (hand-run: −1), how far each ran (m), a stall said (and when, s), why each was stuck. */
   game: { stops: number[]; ran: number[]; stallAt: number; why: (string | null)[]; room: boolean[]; broke: string[]; heldFree: number };
   mismatches: Mismatch[];
@@ -65,13 +65,17 @@ export function judge(c: Case): Judged {
   const n = h.engines.length;
   const start = oTrains(h);
   const signals = layout.signalCount > 0;
-  const o: OracleResult = oracle(layout, start, "any", MAX_STATES, signals);
-  const noSig = signals && o.best < n ? oracle(layout, start, "any", MAX_STATES) : undefined;
+  // (The verdict under the user's rule A1 (2026-11-13): a routed train turns at its own stops' ends, or steps aside into
+  // a spare dead end (no industry, no stop) and turns there; never into an industry's siding. `anyEnds`: with every
+  // dead end allowed, for the table: a case live only that way stands, as the user chose.)
+  const o: OracleResult = oracle(layout, start, "spare", MAX_STATES, signals);
+  const anyEnds = o.best < n ? oracle(layout, start, "any", MAX_STATES, signals) : o;
+  const noSig = signals && o.best < n ? oracle(layout, start, "spare", MAX_STATES) : undefined;
   // (With hand-run trains: they take points as set (the verdict), or any way (`free`: no one throws them for a hand-run
   // train, but the game does to give way). The game must fall between: running where they could as set, and not
   // running where they couldn't any way.)
   const hand = start.some((t) => !t.stops);
-  const free = hand ? oracle(layout, start, "any", MAX_STATES, signals, true) : o;
+  const free = hand ? oracle(layout, start, "spare", MAX_STATES, signals, true) : o;
   const verdict: Verdict = o.capped ? "unknown" : o.best === n ? "live" : o.best === 0 ? "dead" : "partial";
 
   const tOracle = performance.now() - t0;
@@ -129,7 +133,9 @@ export function judge(c: Case): Judged {
     else if (below) mismatches.push("starves-live");
   } else if (verdict === "dead" || verdict === "partial") {
     if (below && !told) mismatches.push("silent-dead");
-    if (!below && !(free.best === n && !free.capped)) mismatches.push("beats-oracle");
+    // (Running is wrong only where no way could: not where it turns at an end its route needs that isn't spare (an
+    // industry's at the line's end), nor where hand-run trains were given way.)
+    if (!below && !(free.best === n && !free.capped) && !(anyEnds.best === n && !anyEnds.capped)) mismatches.push("beats-oracle");
   }
   if (onPoints) mismatches.push("waits-on-points");
   if (addSignalCard && noSig && noSig.best < n) mismatches.push("wrong-card");
@@ -138,7 +144,7 @@ export function judge(c: Case): Judged {
   return {
     id: c.id,
     verdict,
-    oracle: { best: o.best, n, states: o.states, own: own?.best, noSignals: noSig?.best, free: hand ? free.best : undefined },
+    oracle: { best: o.best, n, states: o.states, own: own?.best, noSignals: noSig?.best, free: hand ? free.best : undefined, anyEnds: anyEnds.best !== o.best ? anyEnds.best : undefined },
     game: { stops, ran: ran.map((x) => Math.round(x * 10) / 10), stallAt, why: report.stalls.why, room: h.engines.map((e) => h.sections.heldForRoom(e)), broke, heldFree: report.broke.heldFree.count },
     mismatches,
     seconds: ranFor,

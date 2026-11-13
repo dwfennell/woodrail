@@ -12,8 +12,9 @@
  *   on through points to the next such place.
  * - **Trains turn round only at the ends of lines:** a train reverses only with its front at the end of the track (a
  *   buffer next, or track that stops), or close behind a train standing at one (routing spec §16 Q9: that train is its
- *   end of the line). `ends`: "any" (any end of track, a siding's too), or "own" (a routed train only
- *   at an end whose last piece is one of its stops; a hand-run train at any).
+ *   end of the line). `ends`: "any" (any end of track, a siding's too), "own" (a routed train only at its own ends: one of
+ *   its stops on the plain track from the end back to the first points; a hand-run train at any), or "spare" (own, and
+ *   a spare dead end: no industry, no train's stop; the user's rule A1).
  * - Every switch may be set either way for each move of a routed train (the dispatcher holds every lever). A hand-run
  *   train (no stops) takes points as they're set: in the game no one throws them for it, but to give way (stalls.ts);
  *   `handFree`: it may take any way too (the bound the other way).
@@ -69,7 +70,7 @@ export function atEnd(layout: Layout, f: Elem): boolean {
  * joint the way it guards only with no other train in the block beyond (a plain block; a path signal's, with points in
  * it, only its way through). Elsewhere signals hold nothing.
  */
-export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own", maxStates = 400_000, signals = false, handFree = false): OracleResult {
+export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "spare", maxStates = 400_000, signals = false, handFree = false, behind = true): OracleResult {
   const n = start.length;
   const key = (ts: Elem[][]) => ts.map((t) => t.map((e) => `${e.p}.${e.en}.${e.ex}`).join(",")).join("|");
   const sw = new Map<number, boolean>();
@@ -79,12 +80,42 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own", max
     return v;
   };
   const restOk = (t: Elem[]) => t.every((e) => !swOf(e.p));
+  // (Its own end of the line: one of its stops on the plain track from the end back to the first points (it runs to the
+  // end beyond its stop and turns there, as on any line). The plain stretch an end is on, cached.)
+  const stretches = new Map<number, number[]>();
+  const stretchOf = (p: number): number[] => {
+    let st = stretches.get(p);
+    if (st) return st;
+    st = [];
+    const todo = [p];
+    const seen = new Set<number>();
+    while (todo.length > 0) {
+      const q = todo.pop()!;
+      if (seen.has(q) || swOf(q) || isBuffer(layout, q)) continue;
+      seen.add(q);
+      st.push(q);
+      const piece = layout.getPiece(q);
+      if (!piece) continue;
+      const def = getPieceDef(piece.type, piece.flipped);
+      for (let c = 0; c < def.connectors.length; c++) {
+        const n = next(layout, q, c);
+        if (n) todo.push(n.pieceId);
+      }
+    }
+    for (const q of st) stretches.set(q, st);
+    return st;
+  };
+  // (A spare dead end (the user, 2026-11-13, "A1"): an end whose plain stretch back to the points has no industry on it
+  // (no depot piece) and no train's stop, a siding or platform: a routed train may step aside into it and turn there.)
+  const allStops = new Set(start.flatMap((t) => t.stops ?? []));
+  const spareEnd = (p: number): boolean => stretchOf(p).every((q) => !allStops.has(q) && !(layout.getPiece(q)?.type.startsWith("depot") ?? false));
   /**
    * The end of the line ahead: the track's end, or (routing spec §16 Q9) another train standing at it, facing it, close
    * ahead with no points between: that train is this one's end of the line.
    */
   const endAhead = (k: number, ts: Elem[][], f: Elem): boolean => {
     if (atEnd(layout, f)) return true;
+    if (!behind) return false;
     const owner = new Map<number, number>();
     ts.forEach((t, j) => {
       if (j !== k) for (const e of t) owner.set(e.p, j);
@@ -113,7 +144,8 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own", max
     if (!atEnd(layout, f)) return true;
     const stops = start[k].stops;
     if (ends === "any" || !stops) return true;
-    return stops.includes(f.p);
+    if (stretchOf(f.p).some((q) => stops.includes(q))) return true;
+    return ends === "spare" && spareEnd(f.p);
   };
   /** Rest positions train k reaches by one move forward (through points, to the first place clear of them). */
   const forward = (k: number, ts: Elem[][]): Elem[][] => {

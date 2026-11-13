@@ -65,6 +65,8 @@ const PROBE_KEEP = 240;
 export const CHECK_TICKS = 12;
 /** How far ahead (pieces) a hand-run train coming onto a line's track works its single track from (`comesInto`). */
 const COMES_INTO = 3;
+/** No slots (a line with no refuges). */
+const NO_SLOTS: readonly number[] = [];
 /** Every switch as it lies: the one way a train with no route runs through it. */
 const LIES = () => true;
 /** How long (s) a line's train waits for a line-mate going its way before a signal is suggested (signals spec §7). */
@@ -244,6 +246,15 @@ interface TrainState {
   /** A dead end its way goes into, found free (−1: none), and when: going in, it's in there for others (`inDeadEnd`). */
   claim: number;
   claimAt: number;
+  /**
+   * Stepping aside (the user's A1, 2026-11-13): a spare siding or platform (`refuges`) it's sent into to let a train
+   * coming the other way by: the slot, the piece it aims for there, and the train it lets by. Its ways go there till
+   * it's in it; then it waits there, turned at the buffer, and goes on its way once that one has passed.
+   */
+  aside: { slot: number; piece: number; by: number } | null;
+  /** In a refuge, letting this train by (for its card): −1 for none; and that refuge's slot. */
+  lettingBy: number;
+  lettingSlot: number;
 }
 
 // --- Topology ---------------------------------------------------------------------------------------------------
@@ -620,6 +631,8 @@ export class Sections {
   private readonly states = new Map<number, TrainState>();
   private lineTick = -1;
   private readonly lineInfo = new Map<number, LineInfo>();
+  /** Refuges by topology and line (`refugesOf`). */
+  private readonly refugeCache = new WeakMap<Topology, Map<string, { way: ReadonlySet<number>; slots: readonly number[] }>>();
   /** The trains each line has room for (kept: see `line`). */
   private readonly admitted = new Map<number, Set<number>>();
   /** Per line: what `line` last worked out of its room (see there), and for what. */
@@ -807,7 +820,7 @@ export class Sections {
     if (net === 0 || train.turnback >= 0) return Infinity;
     let st = this.states.get(engine);
     if (!st) {
-      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo, ahead: new Set(), facedAt: -Infinity, faceHold: false, lastDead: null, edge: Infinity, nearAsked: -1, claim: -1, claimAt: -Infinity };
+      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo, ahead: new Set(), facedAt: -Infinity, faceHold: false, lastDead: null, edge: Infinity, nearAsked: -1, claim: -1, claimAt: -Infinity, aside: null, lettingBy: -1, lettingSlot: -1 };
       this.states.set(engine, st);
     }
     const topo = info.topo;
@@ -1141,8 +1154,8 @@ export class Sections {
   private wayOn(st: TrainState, info: LineInfo, start: { pieceId: number; entry: number }, firstPath = -1, short: ReadonlySet<number> | null = null, depth = 0): Way | null {
     const { layout } = this;
     const topo = info.topo;
-    let target = this.host.target(st.engine);
-    const keep = this.host.keep?.(st.engine);
+    let target = st.aside ? st.aside.piece : this.host.target(st.engine);
+    const keep = st.aside ? undefined : this.host.keep?.(st.engine);
     const loose = this.host.lineOf(st.engine) < 0;
     // (Past its stop on the way (a stop in a section is called at inside the move), its way goes on toward the one
     // after, as the router aims it, not as the points lie: 2026-11-06, a train at a mill in a section was taken on into
@@ -1151,7 +1164,7 @@ export class Sections {
     // on no line about, the way as they lie let it follow one going round a ring, as before. Making the two agree
     // there too waits for planning a train the way the traffic goes (the town-ring fuzz with a loop: 4 of 29 seeds
     // came to no stop).)
-    const aims = loose || !this.network().has(this.host.lineOf(st.engine)) ? null : (this.host.lap?.(st.engine) ?? null);
+    const aims = loose || st.aside || !this.network().has(this.host.lineOf(st.engine)) ? null : (this.host.lap?.(st.engine) ?? null);
     let aim = aims ? aims.indexOf(target) : -1;
     const steps: Step[] = [];
     const sections: number[] = [];
@@ -1818,6 +1831,9 @@ export class Sections {
   /** Ask for the move on from its slot: true if granted (or nothing to ask). */
   private ask(st: TrainState, info: LineInfo): boolean {
     const topo = info.topo;
+    // (In the refuge it stepped aside into: from here its ways go on toward its stops again. Out of it, it lets no one by.)
+    if (st.aside && st.slot === st.aside.slot) st.aside = null;
+    if (st.lettingBy !== -1 && !st.aside && st.slot !== st.lettingSlot) st.lettingBy = -1;
     if (st.exitPiece === -1) return true;
     // (At a waiting point whose signal the player holds at red: it asks for nothing past it, so it holds nothing
     // ahead; the sim stands it at the signal, and its card says why (signals spec §3.3, §6). Not a wait on a train.)
@@ -1855,6 +1871,7 @@ export class Sections {
       }
     }
     if (u !== -1 && !short) {
+      if (this.stepAside(st, info, u)) return true;
       this.hold(st, { kind: "section", engine: u });
       return false;
     }
@@ -1882,6 +1899,7 @@ export class Sections {
     // (No slot ahead on this way: not one of the line's ways; left alone.)
     if (!way) return true;
     if (way.dest === -1) {
+      if (this.stepAside(st, info, way.blockedBy)) return true;
       this.hold(st, { kind: "slot", engine: way.blockedBy });
       return false;
     }
@@ -1899,6 +1917,86 @@ export class Sections {
     }
     this.grant(st, way);
     return true;
+  }
+
+  /**
+   * Stepping aside (the user's A1, 2026-11-13): held for `by`, a train coming at it head on along its way, it's sent
+   * instead into a free refuge of its line (`refugesOf`: a spare siding or platform) its way runs past, turns at the
+   * buffer there, and waits for `by` to pass. Granted: true. Only where it can run in going the way it faces (a refuge
+   * off facing points), and the stretch to it is free.
+   */
+  private stepAside(st: TrainState, info: LineInfo, by: number): boolean {
+    if (by < 0 || st.aside || st.exitPiece < 0) return false;
+    const lineId = this.host.lineOf(st.engine);
+    const own = this.sim.findCar(st.engine)?.train;
+    const other = this.sim.findCar(by)?.train;
+    if (lineId < 0 || !own || !other || !this.headingAt(other, own)) return false;
+    for (const r of this.refugesOf(lineId, info.topo, trainLength(own))) {
+      if (this.slotUser(info, r, st.engine) !== -1) continue;
+      st.aside = { slot: r, piece: this.innerOf(info.topo.slots[r]), by };
+      const way = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
+      if (way && way.dest === r && way.sections.every((x) => this.sectionUser(info, x, st.engine) === -1)) {
+        this.grant(st, way);
+        st.lettingBy = by;
+        st.lettingSlot = r;
+        return true;
+      }
+      st.aside = null;
+    }
+    return false;
+  }
+
+  /** Does train `t` (driving), going on as the points lie, come onto a piece train `to` stands on, within `SEARCH` pieces? */
+  private headingAt(t: Train, to: Train): boolean {
+    const mine = new Set(to.bogies.map((b) => b.pieceId));
+    const f = this.front(t, this.host.drive(t) < 0);
+    const piece = this.layout.getPiece(f.pieceId);
+    if (!piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[f.pathIndex];
+    let at = { p: f.pieceId, exit: f.reversed ? path.from : (path.to ?? -1) };
+    for (let i = 0; i < SEARCH; i++) {
+      const n = next(this.layout, at.p, at.exit);
+      if (!n) return false;
+      if (mine.has(n.pieceId)) return true;
+      const w = waysFrom(this.layout, n.pieceId, n.entry, LIES)[0];
+      if (!w || w.exit < 0) return false;
+      at = { p: n.pieceId, exit: w.exit };
+    }
+    return false;
+  }
+
+  /**
+   * Can trains going either way along the line come into a refuge through its mouth piece (its end `into` toward the
+   * refuge)? A wye's leg, or a branch off a wye's straight across: from both its other ends. Not a siding off plain
+   * points: only those coming at the points from their stem can run in, and with no train following another into a line
+   * end (the user's decision 4) the same train would always be the one to step aside and never reach its far stop.
+   */
+  private bothWaysIn(mouth: number, into: number): boolean {
+    const piece = this.layout.getPiece(mouth);
+    if (!piece) return false;
+    const def = getPieceDef(piece.type, piece.flipped);
+    const from = new Set<number>();
+    for (const path of def.paths) {
+      if (path.to === into && path.from !== into) from.add(path.from);
+      if (path.from === into && path.to !== undefined && path.to !== null && path.to !== into) from.add(path.to);
+    }
+    return from.size >= 2;
+  }
+
+  /** A refuge's innermost piece (its buffer's neighbour, else any of its pieces): what a train stepping aside aims for. */
+  private innerOf(slot: Slot): number {
+    let any = -1;
+    for (const p of slot.pieces) {
+      any = p;
+      const piece = this.layout.getPiece(p);
+      if (!piece) continue;
+      const def = getPieceDef(piece.type, piece.flipped);
+      for (let c = 0; c < def.connectors.length; c++) {
+        const n = next(this.layout, p, c);
+        if (!n || this.layout.getPiece(n.pieceId)?.type.startsWith("buffer")) return p;
+      }
+    }
+    return any;
   }
 
   /**
@@ -2397,7 +2495,16 @@ export class Sections {
   }
 
   /** Why a train is held (null: it isn't). */
-  waitOf(engine: number): BlockWait | null {
+  /**
+   * The train it's letting by, stepped aside into a spare siding or platform for it (the user's A1, `stepAside`): for
+   * its card ("Letting the Red line by"). −1: none.
+   */
+  lettingBy(engine: number): number {
+    if (!this.enabled) return -1;
+    return this.states.get(engine)?.lettingBy ?? -1;
+  }
+
+    waitOf(engine: number): BlockWait | null {
     if (!this.enabled) return null;
     const w = this.states.get(engine)?.wait ?? null;
     // (Let in since it was held: no longer held for room, though it hasn't asked again yet.)
@@ -2540,10 +2647,13 @@ export class Sections {
         // sliding puzzle; stalls-verify 2026-11-10). Not with no loop: no train passes then. Nor with a loop pinned so
         // each road is one way, or one a train not on the line stands on: there the trains can't trade places so.)
         const ends = this.endsOn(lineId, topo, longest) >= 2 && [...own].every((l) => topo.loops[l].into.every((x) => x.length > 1)) ? 1 : 0;
+        // (Spare sidings and platforms off its way (the user's A1): each a place a train steps aside into to let one by,
+        // a train more.)
+        const refuges = this.refugesOf(lineId, topo, longest).length;
         const roomOf = (adm: ReadonlySet<number>) => {
           if (oneWay) return engines.length;
           const h = roadsHeld(adm);
-          return Math.max(1, loops - h.b.size + 1 + (loops >= 1 && h.gone === 0 ? ends : 0));
+          return Math.max(1, loops - h.b.size + 1 + (loops >= 1 && h.gone === 0 ? ends : 0) + refuges);
         };
         // (Passing loops to lay for all its trains, past those a train not on the line stands on; 0 if it has room
         // for them all once its own held trains are let in.)
@@ -2969,6 +3079,44 @@ export class Sections {
         }
     }
     return n;
+  }
+
+  /**
+   * A line's refuges (the user's A1, 2026-11-13): spare sidings and platforms off its way where a train of it can step
+   * aside to let another by. Line ends (end slots) not on its way, joined to it where trains going either way can run
+   * in (`bothWaysIn`), that its longest train fits, with no industry on them (no depot piece) and no line's stop: their
+   * slots. Worked out per topology and line way.
+   */
+  private refugesOf(lineId: number, topo: Topology, length: number): readonly number[] {
+    const way = this.loopCount.get(lineId)?.way;
+    if (!way) return NO_SLOTS;
+    const key = `${lineId}|${length}`;
+    const hit = this.refugeCache.get(topo)?.get(key);
+    if (hit && hit.way === way) return hit.slots;
+    const out: number[] = [];
+    for (let i = 0; i < topo.slots.length; i++) {
+      const sl = topo.slots[i];
+      if (sl.kind !== "end" || sl.length < length) continue;
+      let onWay = false;
+      let spare = true;
+      let joined = false;
+      for (const p of sl.pieces) {
+        if (way.has(p)) onWay = true;
+        if (this.layout.getPiece(p)?.type.startsWith("depot")) spare = false;
+        const piece = this.layout.getPiece(p);
+        if (!piece) continue;
+        const def = getPieceDef(piece.type, piece.flipped);
+        for (let c = 0; c < def.connectors.length; c++) {
+          const n = next(this.layout, p, c);
+          if (n && !sl.pieces.has(n.pieceId) && way.has(n.pieceId) && this.bothWaysIn(n.pieceId, n.entry)) joined = true;
+        }
+      }
+      if (!onWay && spare && joined) out.push(i);
+    }
+    let m = this.refugeCache.get(topo);
+    if (!m) this.refugeCache.set(topo, (m = new Map()));
+    m.set(key, { way, slots: out });
+    return out;
   }
 
   /** Is a loop on its line's way pinned so it's no passing place (see `findLoops`)? */

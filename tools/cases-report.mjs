@@ -18,7 +18,7 @@ const game = (r) => {
   return g.stallAt >= 0 ? `stall at ${g.stallAt} s (${g.why.map((w) => w ?? "–").join(", ")}); ${stops}` : stops;
 };
 const status = (r) => (r.mismatches.length === 0 ? (r.known ? "**fixed?**" : "pass") : r.known ? `known: ${r.mismatches.join(", ")}${r.reason ? ` (${r.reason})` : ""}` : `**FAIL**: ${r.mismatches.join(", ")}`);
-const verdict = (r) => `${r.verdict} (${r.oracle.best}/${r.oracle.n}${r.oracle.own !== undefined && r.oracle.own !== r.oracle.best ? `; own ends ${r.oracle.own}` : ""}${r.oracle.noSignals !== undefined ? `; no signals ${r.oracle.noSignals}` : ""})`;
+const verdict = (r) => `${r.verdict} (${r.oracle.best}/${r.oracle.n}${r.oracle.own !== undefined && r.oracle.own !== r.oracle.best ? `; own ends ${r.oracle.own}` : ""}${r.oracle.noSignals !== undefined ? `; no signals ${r.oracle.noSignals}` : ""}${r.oracle.anyEnds !== undefined ? `; through an industry siding ${r.oracle.anyEnds}` : ""})`;
 
 let out = "";
 const summary = {};

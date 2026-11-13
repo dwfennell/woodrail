@@ -34,6 +34,8 @@ export type TrainState =
   /** Waiting in a passing loop or at a line end for a train of its line on the single track ahead (sections); `line`
    * "": for a train not on its line. */
   | { kind: "line-wait"; line: string; parked?: boolean; other?: boolean; by?: number }
+  /** Stepped aside into a spare siding or platform to let `by` (another train, its line `line`) by (the user's A1). */
+  | { kind: "aside"; line: string; by: number }
   /**
    * Held: its line has more trains than passing loops (lay `more` more for `trains` trains). `spare`: a train not on
    * the line stands on each road of one of its loops; only moving it helps.
@@ -166,6 +168,11 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
       if (s.kind === "loop-signal") return { kind: "stuck", why: "loop-signal", by: s.by, mark: s.mark };
       return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop, by: s.by };
     }
+  // Stepped aside into a spare siding or platform, going in or waiting there, to let a train coming the other way by.
+  for (const car of train.cars) {
+    const by = car.kind === "engine" ? economy.sections.lettingBy(car.id) : -1;
+    if (by >= 0) return { kind: "aside", line: lineNameOf(sim, economy, by), by };
+  }
   // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
   if (train.speed < 1)
     for (const car of train.cars) {
@@ -349,6 +356,7 @@ export function blockerAt(sim: Sim, economy: Economy, car: number | undefined, p
 export function blockerOf(sim: Sim, economy: Economy, s: TrainState): Blocker | null {
   switch (s.kind) {
     case "line-wait":
+    case "aside":
     case "needs-loop":
     case "full-wait":
     case "held-up":
@@ -551,6 +559,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
     case "spacing":
       // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
+    case "aside":
+      return s.line ? `Letting the ${s.line} line by` : who && who.car >= 0 ? `Letting ${blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place)} by` : "Letting another train by";
     case "line-wait":
       if (s.line) return `Waiting for the ${s.line} train`;
       if (who && who.car >= 0) return `Waiting: ${inTheWay(who, place)}`;

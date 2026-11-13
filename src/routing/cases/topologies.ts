@@ -4,7 +4,7 @@
  */
 import { appendPiece, connectorRef, getPieceDef, pieceOfRef, type Layout, type PieceTypeId } from "../../track";
 import { chain, loopOn } from "../../economy/loop-fixtures";
-import { junction, ringTwoLoops, ringWithLoop } from "../scenarios";
+import { ringTwoLoops, ringWithLoop } from "../scenarios";
 import { next, waysFrom } from "../graph";
 
 const S: PieceTypeId = "straight-216";
@@ -104,7 +104,7 @@ function loopJoints(loop: { main: number[]; side: number[] }): { ends: number[];
 }
 
 /** ⊐ A ══ (mid) ══ [loop ══ ══]×k ══ B ⊏: a line with k passing loops, a mid stop near A, a stop on the first loop's side road. */
-function line(layout: Layout, k: number, opts: { mid?: boolean; loopStop?: boolean; siding?: boolean } = {}): Topo {
+function line(layout: Layout, k: number, opts: { mid?: boolean; loopStop?: boolean; siding?: boolean; spare?: boolean } = {}): Topo {
   const [a, w1, w2, w3] = chain(layout, [STOP, S, opts.mid ? STOP : S, S]);
   appendPiece(layout, BUFFER, false, connectorRef(a, 0));
   const way = [a, w1, w2, w3];
@@ -125,7 +125,8 @@ function line(layout: Layout, k: number, opts: { mid?: boolean; loopStop?: boole
   let far = -1;
   if (opts.siding) {
     const sw = appendPiece(layout, "switch", false, from);
-    const siding = chain(layout, [C, S, STOP], connectorRef(sw, 2), [true]);
+    // (An industry's siding (a depot at its end), or a spare one: plain track to its buffer.)
+    const siding = chain(layout, [C, S, opts.spare ? S : STOP], connectorRef(sw, 2), [true]);
     appendPiece(layout, BUFFER, false, connectorRef(siding[2], 1));
     far = siding[2];
     way.push(sw);
@@ -138,8 +139,8 @@ function line(layout: Layout, k: number, opts: { mid?: boolean; loopStop?: boole
   const stops: Topo["stops"] = { ends: [a, b] };
   if (opts.mid) stops.mid = [w2, b];
   if (loopStop >= 0) stops.loop = [a, loopStop];
-  if (far >= 0) stops.far = [a, far];
-  return { id: `line${k}${opts.siding ? "+siding" : ""}`, ring: false, loops: k, ...al, stops, loopEnds, inLoop };
+  if (far >= 0 && !opts.spare) stops.far = [a, far];
+  return { id: `line${k}${opts.siding ? "+siding" : ""}${opts.spare ? "-spare" : ""}`, ring: false, loops: k, ...al, stops, loopEnds, inLoop };
 }
 
 /** ▣A ══ ══ ══ (half round) ▣B ══ ══ ══ (half round): a plain ring of 16 pieces (room for four blocks). */
@@ -164,30 +165,45 @@ function ring2(layout: Layout): Topo {
  * The oval with a siding (scenarios.ts's `ovalWithSiding`, kept apart here): A ══ ══ (round) B ═ wye ═ (round) A, the
  * wye's stem ══ Mine ⊏, the wye set for the oval (its straight across), as a player lays it.
  */
-function ovalWithSiding(layout: Layout) {
+function ovalWithSiding(layout: Layout, spare = false) {
   const [a, , , , , , , b] = chain(layout, [STOP, S, S, C, C, C, C, STOP]);
   const wye = appendPiece(layout, "wye", false, connectorRef(b, 1), 2);
   chain(layout, ["straight-72", C, C, C, C], connectorRef(wye, 1));
   if (layout.joinedConnector(connectorRef(a, 0)) === -1) throw new Error("the oval doesn't close");
-  const [, mine] = chain(layout, [S, STOP], connectorRef(wye, 0));
+  const [, mine] = chain(layout, [S, spare ? S : STOP], connectorRef(wye, 0));
   appendPiece(layout, BUFFER, false, connectorRef(mine, 1));
   layout.setSwitchState(wye, 0b110);
   return { a, b, mine };
 }
 
 /** A ring with a branch line off it by a wye to a stop. */
-function branch(layout: Layout): Topo {
-  const o = ovalWithSiding(layout);
+function branch(layout: Layout, spare = false): Topo {
+  const o = ovalWithSiding(layout, spare);
   const way = walkMain(layout, o.a);
-  return { id: "branch", ring: true, loops: 0, ...along(layout, way, true), stops: { ends: [o.a, o.b], far: [o.a, o.mine] }, loopEnds: [], inLoop: [] };
+  return { id: spare ? "branch-spare" : "branch", ring: true, loops: 0, ...along(layout, way, true), stops: spare ? { ends: [o.a, o.b] } : { ends: [o.a, o.b], far: [o.a, o.mine] }, loopEnds: [], inLoop: [] };
 }
 
-/** A terminus: a trunk from a stop Y up to points, two platforms beyond (`switch`), or a wye's two ways. */
-function terminus(layout: Layout, type: "switch" | "wye"): Topo {
-  const j = junction(layout, type, 0, [1, 2]);
+/**
+ * A terminus: a trunk from a stop Y up to points, two platforms beyond (`switch`), or a wye's two ways (scenarios.ts's
+ * `junction`, kept here). The second platform, P, an industry's (a depot on it) or, `spare`, plain track.
+ */
+function terminus(layout: Layout, type: "switch" | "wye", spare = false): Topo {
+  const ids = chain(layout, [STOP, S, S, S]);
+  const y = ids[0];
+  appendPiece(layout, BUFFER, false, connectorRef(y, 0));
+  const sw = appendPiece(layout, type, false, connectorRef(ids[3], 1), 0);
+  const [x, p] = ([1, 2] as const).map((c, k) => {
+    const curved = type === "switch" && k === 1;
+    const stop = k === 1 && spare ? S : STOP;
+    const road = chain(layout, curved ? [C, S, stop, S, S] : [S, stop, S, S], connectorRef(sw, c), [curved]);
+    appendPiece(layout, BUFFER, false, connectorRef(road[road.length - 1], 1));
+    return road[road.length - 3];
+  });
   // (The main way: the trunk, the points and the way to platform X.)
-  const way = [...j.trunk, j.sw, ...walkFrom(layout, j.sw, 1)];
-  return { id: type === "switch" ? "terminus" : "wye", ring: false, loops: 0, ...along(layout, way, false), stops: { ends: [j.y, j.x], far: [j.y, j.p] }, loopEnds: [], inLoop: [] };
+  const way = [...ids, sw, ...walkFrom(layout, sw, 1)];
+  const stops: Topo["stops"] = { ends: [y, x] };
+  if (!spare) stops.far = [y, p];
+  return { id: `${type === "switch" ? "terminus" : "wye"}${spare ? "-spare" : ""}`, ring: false, loops: 0, ...along(layout, way, false), stops, loopEnds: [], inLoop: [] };
 }
 
 /** Double track with a crossover: ⊐ A1 ══ ══ X ══ ══ B1 ⊏ and ⊐ A2 ══ ══ X ══ ══ B2 ⊏ beside it. */
@@ -249,6 +265,12 @@ export const TOPOLOGIES: Record<string, (layout: Layout, stops: StopKind) => Top
   line3: (l, s) => line(l, 3, { mid: s === "mid", loopStop: s === "loop" }),
   siding: (l, s) => line(l, 0, { mid: s === "mid", siding: true }),
   "line1+siding": (l, s) => line(l, 1, { mid: s === "mid", loopStop: s === "loop", siding: true }),
+  // (Spare sidings and platforms: no industry on them, no train's stop. A train may step aside into one (the user's A1).)
+  "siding-spare": (l, s) => line(l, 0, { mid: s === "mid", siding: true, spare: true }),
+  "line1+siding-spare": (l, s) => line(l, 1, { mid: s === "mid", loopStop: s === "loop", siding: true, spare: true }),
+  "terminus-spare": (l) => terminus(l, "switch", true),
+  "wye-spare": (l) => terminus(l, "wye", true),
+  "branch-spare": (l) => branch(l, true),
   ring0: (l) => ring0(l),
   ring1: (l) => ring1(l),
   ring2: (l) => ring2(l),
