@@ -898,6 +898,10 @@ export class Sections {
     }
     // In a slot, with its move on from it granted.
     if (this.ownsAhead(st)) return Infinity;
+    // (Going to the end of a line end with a line-mate following it in: it stands short of the buffer, not turning till
+    // that one has turned behind it (`followsInto`): turned, it would meet it nose to nose.)
+    const hold = this.convoyHold(st, info, train, front);
+    if (hold !== null) return hold > STAND_SHORT ? Math.sqrt(2 * ACCELERATION * hold) : 0;
     if (st.beyond === Infinity) return Infinity;
     const room = lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s + st.beyond - CAR_SPECS[lead.kind].bogieInset;
     // (Not a waiting point's: it waits at the signal there. And only where the train fits in its slot: pulled up to the
@@ -961,6 +965,8 @@ export class Sections {
       if (u === st.engine) continue;
       const tu = this.sim.findCar(u)?.train;
       if (!tu || !tu.bogies.some((b) => slotPieces.has(b.pieceId))) continue;
+      // (Following a line-mate in to turn behind it (`followsInto`): up close behind it, as the sim keeps the gap.)
+      if (this.followsInto(info, st.slot, st.engine, u)) continue;
       const mineOn = train.bogies.map((b) => b.pieceId);
       const ahead = tu.bogies.some((b) => st.ahead.has(b.pieceId) && !mineOn.includes(b.pieceId));
       if (!ahead) continue;
@@ -1252,7 +1258,7 @@ export class Sections {
         const r = ends.regionOf.get(at.pieceId);
         if (r !== undefined && r !== lastRegion && !own?.bogies.some((b) => ends.regionOf.get(b.pieceId) === r)) {
           const u = this.inDeadEnd(r, st.engine, own);
-          if (u !== -1) return { steps, sections, through, dest: -1, outBy: -1, blockedBy: u, mouth: true };
+          if (u !== -1 && !this.followsIntoRegion(info, r, st.engine, u)) return { steps, sections, through, dest: -1, outBy: -1, blockedBy: u, mouth: true };
           // (Free: it's going in. Claimed while it asks again on its way there, so no other goes in meanwhile.)
           st.claim = r;
           st.claimAt = this.sim.ticks;
@@ -1286,7 +1292,10 @@ export class Sections {
           continue;
         }
         if (s.kind === "end") {
-          const u = this.slotUser(info, slot, st.engine);
+          let u = this.slotUser(info, slot, st.engine);
+          // (A line-mate going to the end of it, both fitting: it follows it in and turns behind it (§16 Q9, the user's
+          // (a), 2026-11-13).)
+          if (u !== -1 && depth === 0 && this.followsInto(info, slot, st.engine, u)) u = -1;
           // (Held there for want of room on the line: it won't move, so the section before it is a dead end, turned
           // back in.)
           if (u !== -1 && !this.hasRoom(info, u)) return deadEnd(u, s.pieces);
@@ -1552,6 +1561,104 @@ export class Sections {
     // (A line stood still for a parked train: every train of it says to move that, as moving it is what works. `more`
     // 0: it has room for them all, this one waits its turn; no loop to ask for.)
     return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: info.more, spare: info.spareCut, parked: info.parked, other: info.other, pinned: this.pinnedLoopOn(st.engine) };
+  }
+
+  /**
+   * May `engine`'s train follow line-mate `u` into end slot `slot` and turn behind it there (§16 Q9; the user's (a),
+   * 2026-11-13: a train may follow a line-mate into a line end and turn behind it)? `u` is in the slot or bound for it,
+   * going to its end (not turned to come out), no other train is in it or bound for it, and the two fit one behind the
+   * other. The one ahead holds off turning till the one behind has (`convoyHold`).
+   */
+  private followsInto(info: LineInfo, slot: number, engine: number, u: number): boolean {
+    if (!info.engines.includes(u) || !info.engines.includes(engine)) return false;
+    const sl = info.topo.slots[slot];
+    if (sl.kind !== "end") return false;
+    // (Only to get by, turning there: not to come to a stop of its own in there, which the one ahead would stand on.)
+    if (sl.pieces.has(this.host.target(engine))) return false;
+    const a = this.sim.findCar(engine)?.train;
+    const b = this.sim.findCar(u)?.train;
+    if (!a || !b || trainLength(a) + trainLength(b) + FOLLOW_ROOM > sl.length) return false;
+    if (!this.headsToEnd(b, sl)) return false;
+    for (const v of info.users) {
+      if (v === engine || v === u) continue;
+      const m = this.states.get(v)?.move;
+      if (m?.dest === slot) return false;
+      const t = this.sim.findCar(v)?.train;
+      if (t && t.bogies.some((x) => sl.pieces.has(x.pieceId))) return false;
+    }
+    return true;
+  }
+
+  /**
+   * The room (mm) a train going to the end of its end slot has short of the buffer while a line-mate is bound for the
+   * slot behind it, or stands close behind it not yet turned (`followsInto`): null if none is.
+   */
+  private convoyHold(st: TrainState, info: LineInfo, train: Train, front: Cursor): number | null {
+    if (st.slot < 0 || train.turnback >= 0) return null;
+    const sl = st.topo.slots[st.slot];
+    if (sl.kind !== "end" || !this.headsToEnd(train, sl)) return null;
+    let coming = -1;
+    for (const v of info.engines) {
+      if (v === st.engine) continue;
+      const m = this.states.get(v)?.move;
+      const t = this.sim.findCar(v)?.train;
+      if (!t || t.turnback >= 0) continue;
+      const bound = m?.dest === st.slot || (t.bogies.some((x) => sl.pieces.has(x.pieceId)) && this.headsToEnd(t, sl));
+      if (bound && this.followsInto(info, st.slot, v, st.engine)) coming = v;
+    }
+    if (coming === -1) return null;
+    // (What it waits for, on its card and for the wait chains: the one coming in behind it.)
+    if (!st.wait || !("engine" in st.wait) || st.wait.engine !== coming) this.hold(st, { kind: "slot", engine: coming });
+    // (To the end: the pieces on from its front to the buffer.)
+    const piece = this.layout.getPiece(front.pieceId);
+    if (!piece) return 0;
+    const path = getPieceDef(piece.type, piece.flipped).paths[front.pathIndex];
+    let d = lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s;
+    let at = front.pieceId;
+    let exit = front.reversed ? path.from : (path.to ?? -1);
+    for (let k = 0; k < SEARCH; k++) {
+      const n = next(this.layout, at, exit);
+      if (!n) break;
+      const ways = waysFrom(this.layout, n.pieceId, n.entry);
+      if (ways.length === 0 || ways[0].exit < 0) break;
+      d += lengthOfPath(this.layout, n.pieceId, ways[0].path);
+      at = n.pieceId;
+      exit = ways[0].exit;
+    }
+    const lead = this.host.drive(train) < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
+    return d - CAR_SPECS[lead.kind].bogieInset - STAND_SHORT;
+  }
+
+  /** `followsInto` for a dead-end region (rule 8): its end slot, by its pieces. */
+  private followsIntoRegion(info: LineInfo, r: number, engine: number, u: number): boolean {
+    const pieces = deadEndsOf(this.layout).mouths[r].pieces;
+    for (const p of pieces) {
+      const slot = info.topo.slotOf.get(p);
+      if (slot !== undefined && info.topo.slots[slot].kind === "end") return this.followsInto(info, slot, engine, u);
+    }
+    return false;
+  }
+
+  /** Is train `t` in or bound for end slot `sl`, its front going toward the slot's end (the line's end)? */
+  private headsToEnd(t: Train, sl: Slot): boolean {
+    const net = this.host.drive(t);
+    if (net === 0 || t.turnback >= 0) return false;
+    const f = this.front(t, net < 0);
+    const piece = this.layout.getPiece(f.pieceId);
+    if (!piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[f.pathIndex];
+    let at = f.pieceId;
+    let exit = f.reversed ? path.from : (path.to ?? -1);
+    for (let k = 0; k < SEARCH; k++) {
+      const n = next(this.layout, at, exit);
+      if (!n) return sl.pieces.has(at);
+      const ways = waysFrom(this.layout, n.pieceId, n.entry);
+      if (ways.length === 0 || ways[0].exit < 0) return sl.pieces.has(at) || sl.pieces.has(n.pieceId);
+      if (ways.length > 1) return false;
+      at = n.pieceId;
+      exit = ways[0].exit;
+    }
+    return false;
   }
 
   /**
@@ -2073,23 +2180,6 @@ export class Sections {
     return false;
   }
 
-  /**
-   * Can trains going either way along the line come into a refuge through its mouth piece (its end `into` toward the
-   * refuge)? A wye's leg, or a branch off a wye's straight across: from both its other ends. Not a siding off plain
-   * points: only those coming at the points from their stem can run in, and with no train following another into a line
-   * end (the user's decision 4) the same train would always be the one to step aside and never reach its far stop.
-   */
-  private bothWaysIn(mouth: number, into: number): boolean {
-    const piece = this.layout.getPiece(mouth);
-    if (!piece) return false;
-    const def = getPieceDef(piece.type, piece.flipped);
-    const from = new Set<number>();
-    for (const path of def.paths) {
-      if (path.to === into && path.from !== into) from.add(path.from);
-      if (path.from === into && path.to !== undefined && path.to !== null && path.to !== into) from.add(path.to);
-    }
-    return from.size >= 2;
-  }
 
   /** A refuge's innermost piece (its buffer's neighbour, else any of its pieces): what a train stepping aside aims for. */
   private innerOf(slot: Slot): number {
@@ -3222,7 +3312,7 @@ export class Sections {
         const def = getPieceDef(piece.type, piece.flipped);
         for (let c = 0; c < def.connectors.length; c++) {
           const n = next(this.layout, p, c);
-          if (n && !sl.pieces.has(n.pieceId) && way.has(n.pieceId) && this.bothWaysIn(n.pieceId, n.entry)) joined = true;
+          if (n && !sl.pieces.has(n.pieceId) && way.has(n.pieceId)) joined = true;
         }
       }
       if (!onWay && spare && joined) out.push(i);
