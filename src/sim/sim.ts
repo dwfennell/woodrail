@@ -76,6 +76,11 @@ const MARK_STAND = 6;
  * sections held it (issue #31: "the signal ahead of it is green").
  */
 const STAND_SLOP = 2;
+/**
+ * How far (mm) past a path signal's stop point a train held by sections must be meant to stand for the signal to need
+ * only its way up to there (`Sim.standsWithin`): one held at the signal itself (a waiting point's) waits there, red.
+ */
+const PAST_SIGNAL = 50;
 /** A block runs on through at most this many pieces (a loop with no signal in it ends somewhere). */
 const MAX_BLOCK = 64;
 /**
@@ -277,9 +282,9 @@ export class Sim {
   waitsAt: ((train: Train) => number) | null = null;
   /**
    * Optional: how far (mm) ahead of its front axle a train will stand, held short of a loop road's or line end's end by
-   * sections (Infinity: not held so). A path signal it stands at needs its way free only up to there when that's short
-   * of the block's first points: a pair inside a loop road (issue #31) stood red for a train that only had to pull up
-   * to the road's end, its tail left on the points behind.
+   * sections (Infinity: not held so). A path signal it stands at, its tail still on points behind, shows it clear with
+   * its way free only up to there when that's short of the block's first points: a pair inside a loop road (issue #31)
+   * stood red for a train that only had to pull up to the road's end, its tail left on the points behind.
    */
   standsWithin: ((train: Train) => number) | null = null;
   /** Optional top speed for a powered train (mm/s): a mode's faster engines. Null: every train runs at `ENGINE_SPEED`. */
@@ -2157,8 +2162,21 @@ export class Sim {
    * none locked for another's road). `by`: the train it waits for (on its way, or holding the points), or −1.
    * `locks`: also ask the router (else only the way's trains).
    */
-  private pathFor(train: Train, g: SignalAt, locks = true, dist = 0): { clear: boolean; by: number } {
-    const held = this.standsWithin?.(train) ?? Infinity;
+  /** Is any of this train's bogies on points or a crossing? */
+  private straddlesPoints(train: Train): boolean {
+    for (const b of train.bogies) {
+      const p = this.layout.getPiece(b.pieceId);
+      if (p && getPieceDef(p.type, p.flipped).paths.length > 1) return true;
+    }
+    return false;
+  }
+
+  private pathFor(train: Train, g: SignalAt, locks = true, dist = -1): { clear: boolean; by: number } {
+    // (Only for its aspect (`dist` given, by `redFor`): the router's ask (`pathSignalAt`) is for the way through the
+    // points, which a train held short of them doesn't ask for yet.)
+    // And only for a train still on points behind the signal: pulling up clears them for the trains that cross there
+    // (issue #31's tail on the loop's points); one clear of them waits at the signal as before.
+    const held = dist < 0 || !this.straddlesPoints(train) ? Infinity : (this.standsWithin?.(train) ?? Infinity);
     const cacheKey = held === Infinity ? `${train.id}:${g.key}:${locks ? 1 : 0}` : `${train.id}:${g.key}:${locks ? 1 : 0}:${Math.round(dist)}`;
     const hit = this.pathCache.get(cacheKey);
     if (hit) return hit;
@@ -2194,7 +2212,7 @@ export class Sim {
         const p = this.layout.getPiece(id)!;
         const def = getPieceDef(p.type, p.flipped);
         // (It stands short of these points: the way it runs, up to here, is all it needs free.)
-        if (points.length === 0 && def.paths.length > 1 && stand <= walked) break;
+        if (points.length === 0 && def.paths.length > 1 && stand > PAST_SIGNAL && stand <= walked) break;
         // (Points with a choice: a routed train's way is the router's, not as they lie.)
         if (this.pathLocks && def.isSwitch && !def.gated) {
           const way = this.pathLocks.way(train, id, indexOfRef(next));

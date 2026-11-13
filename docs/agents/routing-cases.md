@@ -164,13 +164,15 @@ grant (a move to a stretch that is a waiting point only the other way). The tabl
 the end is this run's. The sections below are as first written, on f10b8ee.
 
 **A path signal for a train held short of its slot's end** (`claude/routing-zero-in-loop`, on ring-follow): a train
-held by sections in a loop road or line end will stand short of the slot's end, before the next points. A path signal
-it comes to on the way there now needs only that stretch free, not the way past the points beyond
-(`Sim.standsWithin`, from `Sections.standsWithin`). A pair inside a short loop road (issue #31) stood red for a train
-that only had to pull up to the road's end: its tail stayed on the points behind, in the way of the train coming the
-other way into the other road, and the two waited on each other. All four `sig:inLoop` cases clear, and ring1
-`sig:blocks2` with them (its train at the signal before the loop now runs into the road ahead of it and stands there,
-so the one in the other road can leave): 35 known.
+held by sections in a loop road or line end it fits in will stand short of the slot's end, before the next points. When
+its tail is still on points behind, a path signal it comes to on the way there now shows it clear with only that
+stretch free, not the way past the points beyond (`Sim.standsWithin`, from `Sections.standsWithin`; the signal's
+aspect only: the router asks for the points beyond when the train does). A pair inside a short loop road (issue #31)
+stood red for a train that only had to pull up to the road's end: its tail stayed on the points behind, in the way of
+the train coming the other way into the other road, and the two waited on each other. All four `sig:inLoop` cases
+clear: 36 known. ring1 `sig:blocks2` cleared too while the rule held for any train held so, but at the cost of trains
+pulling up past signals off no points (the bug map signal-added-still-stuck lost 5 of 101 stops in 600 s), so it
+stays: there the train at the signal isn't on points.
 
 ## Results (on f10b8ee, before the fixes)
 
@@ -245,13 +247,13 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-484 cases; 35 mismatched.
+484 cases; 36 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
 | ring | 18 | 0 | – |
 | trains | 258 | 24 | waits-on-points 12, stalls-live:siding 14 |
-| signals | 104 | 0 | – |
+| signals | 104 | 1 | stalls-live 1 |
 | placement | 30 | 1 | waits-on-points 1 |
 | stops | 50 | 4 | stalls-live 4, waits-on-points 1 |
 | lengths | 6 | 2 | stalls-live 1, waits-on-points 1 |
@@ -543,7 +545,7 @@ and pass / known.
 | wye-spare 3×one opposed | live (3/3; own ends 2) | stall at 15 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live:siding (waiting on the user's call: with three trains the one aside in the spare end must wait for two to pass, the second behind it as a convoy (§16 Q9), which decision 4 keeps out) |
 | wye-spare 3×one same | live (3/3; own ends 2) | stall at 9 s (too-many, too-many, –); 0 / 1 / 0 | known: stalls-live:siding (waiting on the user's call: with three trains the one aside in the spare end must wait for two to pass, the second behind it as a convoy (§16 Q9), which decision 4 keeps out) |
 
-### signals (104 cases, 0 mismatched)
+### signals (104 cases, 1 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -562,38 +564,38 @@ and pass / known.
 | line1 2×one opposed sig:beforePoints | live (2/2) | 6 / 6 | pass |
 | line1 2×one opposed sig:blocks2 | live (2/2) | 6 / 6 | pass |
 | line1 2×one opposed sig:blocks3 | live (2/2) | 6 / 6 | pass |
-| line1 2×one opposed sig:inLoop | live (2/2) | 6 / 6 | **fixed?** |
+| line1 2×one opposed sig:inLoop | live (2/2) | 6 / 6 | pass |
 | line1 2×one opposed sig:loopEnds | live (2/2) | 6 / 6 | pass |
 | line1 2×one opposed sig:oneway3 | live (2/2) | 6 / 6 | pass |
 | line1 2×one opposed sig:pair | live (2/2) | 6 / 6 | pass |
 | line1 2×one same sig:beforePoints | live (2/2) | 6 / 7 | pass |
-| line1 2×one same sig:blocks2 | live (2/2) | 6 / 7 | pass |
-| line1 2×one same sig:blocks3 | live (2/2) | 6 / 7 | pass |
-| line1 2×one same sig:inLoop | live (2/2) | 6 / 7 | **fixed?** |
+| line1 2×one same sig:blocks2 | live (2/2) | 5 / 6 | pass |
+| line1 2×one same sig:blocks3 | live (2/2) | 5 / 6 | pass |
+| line1 2×one same sig:inLoop | live (2/2) | 6 / 7 | pass |
 | line1 2×one same sig:loopEnds | live (2/2) | 6 / 7 | pass |
 | line1 2×one same sig:oneway3 | live (2/2) | 6 / 7 | pass |
-| line1 2×one same sig:pair | live (2/2) | 6 / 7 | pass |
+| line1 2×one same sig:pair | live (2/2) | 5 / 6 | pass |
 | line1 2×own same sig:beforePoints | live (2/2) | 6 / 7 | pass |
-| line1 2×own same sig:blocks2 | live (2/2) | 6 / 7 | pass |
-| line1 2×own same sig:blocks3 | live (2/2) | 6 / 7 | pass |
-| line1 2×own same sig:inLoop | live (2/2) | 6 / 7 | **fixed?** |
+| line1 2×own same sig:blocks2 | live (2/2) | 5 / 6 | pass |
+| line1 2×own same sig:blocks3 | live (2/2) | 5 / 6 | pass |
+| line1 2×own same sig:inLoop | live (2/2) | 6 / 7 | pass |
 | line1 2×own same sig:loopEnds | live (2/2) | 6 / 7 | pass |
 | line1 2×own same sig:oneway3 | live (2/2) | 6 / 7 | pass |
-| line1 2×own same sig:pair | live (2/2) | 6 / 7 | pass |
+| line1 2×own same sig:pair | live (2/2) | 5 / 6 | pass |
 | line1 3×one opposed sig:beforePoints | live (3/3) | 4 / 4 / 5 | pass |
 | line1 3×one opposed sig:blocks2 | live (3/3) | 4 / 4 / 5 | pass |
 | line1 3×one opposed sig:blocks3 | live (3/3) | 4 / 4 / 5 | pass |
-| line1 3×one opposed sig:inLoop | live (3/3) | 4 / 4 / 5 | **fixed?** |
+| line1 3×one opposed sig:inLoop | live (3/3) | 4 / 4 / 5 | pass |
 | line1 3×one opposed sig:loopEnds | live (3/3) | 4 / 4 / 5 | pass |
 | line1 3×one opposed sig:oneway3 | live (3/3) | 4 / 4 / 5 | pass |
 | line1 3×one opposed sig:pair | live (3/3) | 4 / 4 / 5 | pass |
 | line1 3×one same sig:beforePoints | live (3/3) | 3 / 4 / 5 | pass |
-| line1 3×one same sig:blocks2 | live (3/3) | 3 / 4 / 5 | pass |
-| line1 3×one same sig:blocks3 | live (3/3) | 3 / 4 / 5 | pass |
+| line1 3×one same sig:blocks2 | live (3/3) | 3 / 4 / 4 | pass |
+| line1 3×one same sig:blocks3 | live (3/3) | 3 / 4 / 4 | pass |
 | line1 3×one same sig:inLoop | live (3/3) | 3 / 4 / 5 | pass |
 | line1 3×one same sig:loopEnds | live (3/3) | 3 / 4 / 5 | pass |
 | line1 3×one same sig:oneway3 | live (3/3) | 3 / 4 / 5 | pass |
-| line1 3×one same sig:pair | live (3/3) | 3 / 4 / 5 | pass |
+| line1 3×one same sig:pair | live (3/3) | 3 / 4 / 4 | pass |
 | ring0 2×one opposed sig:blocks2 | dead (0/2; no signals 0) | stall at 17 s (signals, signals); 0 / 0 | pass |
 | ring0 2×one opposed sig:blocks4 | dead (0/2; no signals 0) | stall at 15 s (signals, signals); 1 / 0 | pass |
 | ring0 2×one opposed sig:pair | dead (0/2; no signals 0) | stall at 13 s (signals, signals); 1 / 0 | pass |
@@ -644,7 +646,7 @@ and pass / known.
 | ring1 3×one opposed sig:oneway3 | dead (0/3; no signals 0) | stall at 11 s (in-way, in-way, –); 0 / 0 / 0 | pass |
 | ring1 3×one opposed sig:pair | dead (0/3; no signals 0) | stall at 7 s (in-way, in-way, –); 0 / 0 / 0 | pass |
 | ring1 3×one same sig:beforePoints | live (3/3) | 11 / 11 / 10 | pass |
-| ring1 3×one same sig:blocks2 | live (3/3) | 8 / 5 / 5 | **fixed?** |
+| ring1 3×one same sig:blocks2 | live (3/3) | stall at 27 s (signals, signals, signals); 1 / 1 / 0 | known: stalls-live |
 | ring1 3×one same sig:blocks3 | live (3/3) | 10 / 10 / 9 | pass |
 | ring1 3×one same sig:blocks4 | live (3/3) | 10 / 10 / 9 | pass |
 | ring1 3×one same sig:inLoop | live (3/3) | 11 / 11 / 10 | pass |
@@ -670,7 +672,7 @@ and pass / known.
 | line1 2×hand same tail | live (2/2) | stall at 22 s (in-way, in-way); 1.8 m / 1.6 m | pass |
 | line1 2×one opposed facing | live (2/2) | 6 / 6 | pass |
 | line1 2×one same points | live (2/2) | 6 / 7 | pass |
-| line1 2×one same straddle sig:blocks3 | live (2/2) | 6 / 7 | pass |
+| line1 2×one same straddle sig:blocks3 | live (2/2) | 5 / 6 | pass |
 | line1 2×one same tail | live (2/2) | 5 / 6 | pass |
 | ring0 2×hand opposed facing | dead (0/2) | stall at 9 s (in-way, in-way); 0.3 m / 0.3 m | pass |
 | ring0 2×hand same straddle sig:blocks3 | live (2/2) | 18 m / 17.9 m | pass |

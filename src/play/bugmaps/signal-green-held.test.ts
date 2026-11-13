@@ -26,8 +26,9 @@ function countTurns(world: World): () => number {
  *
  * Since trains book only to the next signal they can stand at (2026-11-09: every signal of a pair is a waiting point,
  * sized for the train), the ring doesn't form: the trains run, and none turns round. (The ring's cards, "stands at a
- * signal inside the passing loop", are no longer reached on this map: `loopSignalHold` still names the hold in the
- * saved position.)
+ * signal inside the passing loop", are no longer reached on this map.) And since a train held short of its loop road's
+ * end, its tail still on the points behind, has a path signal on the way there clear with only that stretch free
+ * (2026-11-13, `Sim.standsWithin`), the saved position's hold is gone a tick in: Teasel pulls up off the points.
  *
  * Sections stand a held train with its nose exactly at the signal's stop point; its last braking step, or the first tick
  * after a load, can leave it a hair past. The sim read that as passing the signal: it showed the path signal clear for
@@ -37,11 +38,12 @@ describe("issue #31: the user's map, a signal inside the passing loop", () => {
   it("the ring doesn't form: every routed train comes to its stops, none turning round", async () => {
     const { world } = await loadBugMap(MAP);
     const turns = countTurns(world);
-    // (The saved position, a tick in: Teasel at the signal inside the loop road, its tail on the loop's points.)
+    // (The saved position: Teasel at the signal inside the loop road, its tail on the loop's points. A tick in, the
+    // signal no longer holds it there: it pulls up to the road's end, off the points.)
     world.sim.tick();
     world.economy.tick();
     const inLoop = world.layout.signalAt(connectorRef(19, 0))!;
-    expect(loopSignalHold(world.layout, world.sim, inLoop.id)).toEqual({ trainId: world.sim.findCar(34)!.train.id, points: 173 });
+    expect(loopSignalHold(world.layout, world.sim, inLoop.id)).toBeNull();
     const r = replayBugMap(world, { seconds: 300, stopAtFirst: false });
     for (const engine of world.economy.lineIdOf.keys()) expect(r.arrivals.get(engine) ?? 0, `engine ${engine}`).toBeGreaterThanOrEqual(4);
     for (const [engine, s] of r.longestStand) expect(s, `engine ${engine}`).toBeLessThan(120);

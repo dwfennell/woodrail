@@ -878,7 +878,10 @@ export class Sections {
     if (st.beyond === Infinity) return Infinity;
     const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
     const room = lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s + st.beyond - CAR_SPECS[lead.kind].bogieInset;
-    this.stands.set(train.id, room);
+    // (Not a waiting point's: it waits at the signal there. And only where the train fits in its slot: pulled up to the
+    // end, it's off the points behind; one too long for it gains nothing by moving up.)
+    const sl = topo.slots[st.slot];
+    if (sl && sl.kind !== "signal" && trainLength(train) <= sl.length) this.stands.set(train.id, room);
     // (Or standing at a red signal short of its slot's end, one that's no waiting point (a pair in a line end): it asks
     // from there. A path signal shows clear only once the router has its way locked, which waits for this grant, so
     // asking only at the slot's end it stood at the signal for good, and the line's train waiting for its slot too
