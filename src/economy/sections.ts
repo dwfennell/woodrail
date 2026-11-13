@@ -906,6 +906,9 @@ export class Sections {
     // (Going to the end of a line end with a line-mate following it in: it stands short of the buffer, not turning till
     // that one has turned behind it (`followsInto`): turned, it would meet it nose to nose.)
     const hold = this.convoyHold(st, info, train, front);
+    // (Held so, at a signal on its way to the buffer: that signal shows red to it (`refreshGate`).)
+    if (hold !== null) this.convoyMarks.set(st.engine, { mark: this.markAhead(front), trainId: train.id });
+    else this.convoyMarks.delete(st.engine);
     // (Near enough the buffer that the one behind turns behind it (the sim's end of the line behind a train, within its
     // length and a little): it stands there.)
     if (hold !== null) return hold > CONVOY_NEAR ? Math.sqrt(2 * ACCELERATION * (hold - CONVOY_NEAR)) : 0;
@@ -1587,6 +1590,8 @@ export class Sections {
     const b = this.sim.findCar(u)?.train;
     if (!a || !b || trainLength(a) + trainLength(b) + FOLLOW_ROOM > sl.length) return false;
     if (!this.headsToEnd(b, sl)) return false;
+    // (Behind it, going the same way: in the slot already, it too goes to the end. One coming out meets it nose to nose.)
+    if (a.bogies.some((x) => sl.pieces.has(x.pieceId)) && !this.headsToEnd(a, sl)) return false;
     for (const v of info.users) {
       if (v === engine || v === u) continue;
       const m = this.states.get(v)?.move;
@@ -1679,6 +1684,29 @@ export class Sections {
     const lead = this.host.drive(train) < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
     return d - CAR_SPECS[lead.kind].bogieInset - STAND_SHORT;
   }
+
+  /** The first signal (its joint end) on the plain track on from a front to the end of the line, or −1. */
+  private markAhead(front: Cursor): number {
+    if (this.layout.signalCount === 0) return -1;
+    const piece = this.layout.getPiece(front.pieceId);
+    if (!piece) return -1;
+    const path = getPieceDef(piece.type, piece.flipped).paths[front.pathIndex];
+    let at = front.pieceId;
+    let exit = front.reversed ? path.from : (path.to ?? -1);
+    for (let k = 0; k < SEARCH && exit >= 0; k++) {
+      const ref = connectorRef(at, exit);
+      if (this.layout.signalAt(ref)) return ref;
+      const n = next(this.layout, at, exit);
+      if (!n) return -1;
+      const ways = waysFrom(this.layout, n.pieceId, n.entry);
+      if (ways.length !== 1) return -1;
+      at = n.pieceId;
+      exit = ways[0].exit;
+    }
+    return -1;
+  }
+  /** Trains `convoyHold` holds at a line end, by engine: the signal ahead of each (−1: none) and its train. */
+  private readonly convoyMarks = new Map<number, { mark: number; trainId: number }>();
 
   /** Is train `t`, turning round, doing so close behind `ahead` in end slot `sl` (in it, nearer its mouth)? */
   private endBehindOf(t: Train, sl: Slot, ahead: Train): boolean {
@@ -2573,6 +2601,7 @@ export class Sections {
         if (!t || t.derailed || !t.bogies.some((b) => sl.pieces.has(b.pieceId))) continue;
         now.set(mark, t.id);
       }
+    if (this.enabled && this.layout.signalCount > 0) for (const c of this.convoyMarks.values()) if (c.mark !== -1 && !now.has(c.mark)) now.set(c.mark, c.trainId);
     let same = now.size === this.gate.size;
     if (same) for (const [k, v] of now) if (this.gate.get(k) !== v) same = false;
     if (same) return;
