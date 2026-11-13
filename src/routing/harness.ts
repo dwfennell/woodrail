@@ -307,6 +307,7 @@ export class HarnessRun implements InvariantWorld {
     // (Sections' cap, and the router's: short of points it waits for, §3.3.)
     sim.speedCap = (train) => Math.min(this.sections.cap(train), this.router.speedCap(train));
     sim.waitsAt = (train) => this.router.waitsAt(train);
+    sim.standsWithin = (train) => this.sections.standsWithin(train);
     this.router = new Router({
       layout,
       sim,

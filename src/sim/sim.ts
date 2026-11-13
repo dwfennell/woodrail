@@ -275,6 +275,13 @@ export class Sim {
    * (`crossCap`): it isn't coming onto them till they're its, and a claim would stop the train they're set for.
    */
   waitsAt: ((train: Train) => number) | null = null;
+  /**
+   * Optional: how far (mm) ahead of its front axle a train will stand, held short of a loop road's or line end's end by
+   * sections (Infinity: not held so). A path signal it stands at needs its way free only up to there when that's short
+   * of the block's first points: a pair inside a loop road (issue #31) stood red for a train that only had to pull up
+   * to the road's end, its tail left on the points behind.
+   */
+  standsWithin: ((train: Train) => number) | null = null;
   /** Optional top speed for a powered train (mm/s): a mode's faster engines. Null: every train runs at `ENGINE_SPEED`. */
   topSpeed: ((train: Train) => number) | null = null;
   /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
@@ -2150,8 +2157,9 @@ export class Sim {
    * none locked for another's road). `by`: the train it waits for (on its way, or holding the points), or −1.
    * `locks`: also ask the router (else only the way's trains).
    */
-  private pathFor(train: Train, g: SignalAt, locks = true): { clear: boolean; by: number } {
-    const cacheKey = `${train.id}:${g.key}:${locks ? 1 : 0}`;
+  private pathFor(train: Train, g: SignalAt, locks = true, dist = 0): { clear: boolean; by: number } {
+    const held = this.standsWithin?.(train) ?? Infinity;
+    const cacheKey = held === Infinity ? `${train.id}:${g.key}:${locks ? 1 : 0}` : `${train.id}:${g.key}:${locks ? 1 : 0}:${Math.round(dist)}`;
     const hit = this.pathCache.get(cacheKey);
     if (hit) return hit;
     let r: { clear: boolean; by: number };
@@ -2170,6 +2178,10 @@ export class Sim {
       // (Up to its next clear point, as the router asks (routing §3.2): past the last points, plain track as long as it.)
       const length = trainLength(train);
       let plain = -1;
+      // (Held by sections short of its slot's end: how far past the signal it will stand (`dist`: at least how far its
+      // front axle is from it), and how far the way has run past it.)
+      const stand = held - dist;
+      let walked = 0;
       for (let n = 0; n < MAX_BLOCK && plain < length; n++) {
         const ref = connectorRef(at, exit);
         if (n > 0 && marks && this.marksAt.has(ref)) break;
@@ -2181,6 +2193,8 @@ export class Sim {
         if (!g.block.has(id)) break;
         const p = this.layout.getPiece(id)!;
         const def = getPieceDef(p.type, p.flipped);
+        // (It stands short of these points: the way it runs, up to here, is all it needs free.)
+        if (points.length === 0 && def.paths.length > 1 && stand <= walked) break;
         // (Points with a choice: a routed train's way is the router's, not as they lie.)
         if (this.pathLocks && def.isSwitch && !def.gated) {
           const way = this.pathLocks.way(train, id, indexOfRef(next));
@@ -2202,6 +2216,7 @@ export class Sim {
         if (def.signal) break;
         exit = pathExitConnector(def, pathStep.pathIndex, pathStep.reversed);
         if (exit === -1) break;
+        walked += pathLength(def.paths[pathStep.pathIndex].geom);
         at = id;
       }
       if (r.clear && locks && this.pathLocks && points.length > 0) {
@@ -2247,7 +2262,7 @@ export class Sim {
       return { by: -1 };
     }
     if (!g.junction) return this.aspects.get(g.key) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
-    const r = this.pathFor(train, g);
+    const r = this.pathFor(train, g, true, Math.max(0, dist));
     this.comingTo(g.key, r.clear, dist);
     return r.clear ? null : { by: r.by };
   }

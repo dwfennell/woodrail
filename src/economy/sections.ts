@@ -710,6 +710,15 @@ export class Sections {
   }
 
   /** The speed limit sections put on a powered train (Infinity: none). */
+  /**
+   * How far (mm) ahead of its front axle a train held in its slot will stand (short of the slot's end), as of its last
+   * limit; Infinity if it isn't held so. A path signal it comes to needs only that much of its way free (`Sim.standsWithin`).
+   */
+  standsWithin(train: Train): number {
+    return this.stands.get(train.id) ?? Infinity;
+  }
+  private readonly stands = new Map<number, number>();
+
   cap(train: Train): number {
     if (!this.enabled) return Infinity;
     if (!this.timing) return this.capWith(train);
@@ -817,6 +826,7 @@ export class Sections {
 
   /** Sections' limit for a train working a managed line's single track (its own, a line's sharing it, or on no line). */
   private capOf(train: Train, engine: number, info: LineInfo): number {
+    this.stands.delete(train.id);
     const net = this.host.drive(train);
     // (Turning back: the sim counts it down standing; a limit of 0 then would read as a crane holding it.)
     if (net === 0 || train.turnback >= 0) return Infinity;
@@ -868,6 +878,7 @@ export class Sections {
     if (st.beyond === Infinity) return Infinity;
     const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
     const room = lengthOfPath(this.layout, front.pieceId, front.pathIndex) - front.s + st.beyond - CAR_SPECS[lead.kind].bogieInset;
+    this.stands.set(train.id, room);
     // (Or standing at a red signal short of its slot's end, one that's no waiting point (a pair in a line end): it asks
     // from there. A path signal shows clear only once the router has its way locked, which waits for this grant, so
     // asking only at the slot's end it stood at the signal for good, and the line's train waiting for its slot too
