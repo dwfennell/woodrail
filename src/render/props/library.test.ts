@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { Kit } from "../../catalogue/kit";
 import { catalogueModel, loadModelSet, modelOf } from "../blender-models";
 import type { Materials } from "../materials";
-import { bake, isSlab, kitModelKey, PropLibrary } from "./library";
+import { bake, isSlab, kitModelKey, modelKey, PropLibrary } from "./library";
 
 /** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
 function stubMaterials(): Materials {
@@ -82,5 +82,39 @@ describe("a model let go of (its props drawn from a batch)", () => {
     expect(after).toEqual(before);
     expect(model.parts[0].geometry).not.toBe(old);
     expect(model.parts[0].geometry).toBe(model.parts[0].geometry);
+  });
+});
+
+describe("a row model in the library (towns in rows)", () => {
+  const colours = (m: { parts: { material: unknown }[] }) => new Set(m.parts.map((p) => `#${(p.material as MeshStandardMaterial).color.getHexString()}`));
+  const hex = (c: string) => `#${new Color(c).getHexString()}`;
+
+  it("wears its variant's body, roof and door, and no stand-in colour", async () => {
+    const { rowColours } = await import("../../props/rows");
+    const lib = new PropLibrary(stubMaterials());
+    for (const variant of [0, 9, 20]) {
+      const model = await lib.load(modelKey("row-pair-a", variant));
+      expect(model).not.toBeNull();
+      const seen = colours(model!);
+      const want = rowColours(variant);
+      for (const c of [want.body, want.roof, want.door, want.second]) expect(seen, `${variant} ${c}`).toContain(hex(c));
+      for (const slot of ["#ff00a0", "#ffa000", "#00ffa0", "#a000ff"]) expect(seen).not.toContain(slot);
+      // Frames and panes are the same in every town.
+      expect(seen).toContain("#f6ecd2");
+      expect(seen).toContain("#2a3640");
+    }
+  });
+
+  it("stacks its storeys from its own blocks, never more than it can have", async () => {
+    const lib = new PropLibrary(stubMaterials());
+    const one = await lib.load(modelKey("row-pair-a", 3));
+    const three = await lib.load(modelKey("row-pair-a", 3, 2));
+    expect(three!.height).toBeCloseTo(one!.height + 40, 0);
+    expect(three!.footprint.hw).toBeCloseTo(one!.footprint.hw, 0);
+    // A saved house that gained more than a slice may have: drawn at the most (its number isn't touched).
+    expect(modelKey("row-pair-a", 3, 4)).toBe(modelKey("row-pair-a", 3, 2));
+    expect(modelKey("row-flats", 0, 9)).toBe(modelKey("row-flats", 0, 3));
+    // Today's houses: as they were.
+    expect(modelKey("bldg-townhouse", 2, 4)).toBe("bldg-townhouse^4#2");
   });
 });
