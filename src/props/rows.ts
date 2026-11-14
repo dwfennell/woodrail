@@ -19,10 +19,18 @@ const ROW_DOORS = ["#2f6048", "#f3e7cb", "#3f6fb0", "#f3e7cb", "#f3e7cb", "#2f60
 export const ROW_ROOFS = ["#b9462f", "#4d5d6e", "#2f6048", "#7a5a48"] as const;
 
 /** The colours a row model's slots take for a prop's `variant`: a body (and its door) and a roof, the same in every town. */
-export function rowColours(variant: number): { body: string; roof: string; door: string } {
+export function rowColours(variant: number): { body: string; second: string; roof: string; door: string } {
   const v = Math.max(0, Math.floor(variant));
   const body = v % ROW_BODIES.length;
-  return { body: ROW_BODIES[body], roof: ROW_ROOFS[Math.floor(v / ROW_BODIES.length) % ROW_ROOFS.length], door: ROW_DOORS[body] };
+  // (The second house of a pair or a terrace: three on round the list, so the two never match.)
+  return { body: ROW_BODIES[body], second: ROW_BODIES[(body + 3) % ROW_BODIES.length], roof: ROW_ROOFS[Math.floor(v / ROW_BODIES.length) % ROW_ROOFS.length], door: ROW_DOORS[body] };
+}
+
+/** The stand-in colours a row model is made in (tools/blender/bldg_rows.py), and what each becomes for `variant`. */
+export function rowPaint(variant: number): (colour: string) => string {
+  const c = rowColours(variant);
+  const swap: Record<string, string> = { "#ff00a0": c.body, "#ffa000": c.second, "#00ffa0": c.roof, "#a000ff": c.door };
+  return (colour) => swap[colour] ?? colour;
 }
 
 /** The colours a town builds in (indices into `ROW_BODIES` and `ROW_ROOFS`): five bodies, two roofs, three from a city on. */
