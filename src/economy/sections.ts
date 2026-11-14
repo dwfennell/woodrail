@@ -957,8 +957,10 @@ export class Sections {
     // (Going to the end of a line end with a line-mate following it in: it stands short of the buffer, not turning till
     // that one has turned behind it (`followsInto`): turned, it would meet it nose to nose.)
     const hold = this.convoyHold(st, info, train, front);
-    // (Held so, at a signal on its way to the buffer: that signal shows red to it (`refreshGate`).)
-    if (hold !== null) this.convoyMarks.set(st.engine, { mark: this.markAhead(front), trainId: train.id });
+    // (Standing so, at a signal on its way to the buffer: that signal shows red to it (`refreshGate`). Only standing:
+    // with ground still to cover, a signal inside the line end short of where it stands held it there, too far from the
+    // buffer for the one behind to turn behind it (fuzz seed 52 with signals).)
+    if (hold !== null && hold <= CONVOY_NEAR) this.convoyMarks.set(st.engine, { mark: this.markAhead(front), trainId: train.id });
     else this.convoyMarks.delete(st.engine);
     // (Near enough the buffer that the one behind turns behind it (the sim's end of the line behind a train, within its
     // length and a little): it stands there.)
