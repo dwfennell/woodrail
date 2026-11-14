@@ -386,6 +386,8 @@ const EDGES = [
  * them, one whose front is at an end faces along them (toward the street or centre, whichever side that is).
  */
 function poseFor(land: Landscape, town: Town, b: Building, look: Look, asset: string, fit = 1): { x: number; z: number; heading: number } {
+  // (A row, towns in rows: on its lot's middle, its front on its street.)
+  if (isRow(asset)) return rowPose(land, town, b, asset);
   const { x, z, heading } = facing(land, town, b, look, asset);
   // The model's box (not its origin) on the lot's middle.
   const box = BOX[asset];

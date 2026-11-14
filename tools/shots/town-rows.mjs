@@ -17,7 +17,7 @@ const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config
 await server.listen();
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
-const VIEWS = { wide: [1700, 0.75, 0], street: [620, 0.5, 0.6] };
+const VIEWS = { wide: [1700, 0.75, 0], street: [620, 0.5, 0.6], ...(process.env.TOP ? { top: [1300, 0.03, 0] } : {}) };
 for (const [name, query] of [["now", ""], ["rows", "?rows"]].filter(([n]) => !only || n === only)) {
   const p = await b.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   p.on("pageerror", (e) => console.log("pageerror", e.message));
