@@ -291,6 +291,9 @@ export function buildOnLots(land: Landscape, town: Town, lots: readonly Lot[], b
   return [...slots];
 }
 
+/** Do `lots` lay street squares (road pieces, drawn apart from the land: the roads must be drawn again)? */
+export const laysStreets = (lots: readonly Lot[]): boolean => lots.some((l) => (l.streets?.length ?? 0) > 0);
+
 /** The buildings already standing that `lots` change (their models must be dressed again once they're built). */
 export function changedBuildings(lots: readonly Lot[]): number[] {
   return [...new Set(lots.flatMap((l) => (l.changes ?? []).map((c) => c.id)).filter((id) => id >= 0))];
