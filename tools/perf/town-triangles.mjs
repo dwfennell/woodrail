@@ -1,14 +1,15 @@
-// What a town's buildings cost to draw as it grows (`node tools/perf/town-triangles.mjs [--rows]`): the starter map's
+// What a town's buildings cost to draw as it grows (`node tools/perf/town-triangles.mjs`): the starter map's
 // Larkfield grown a level at a time (deliveries written in, as e2e:town-shape does: a harness shortcut), and at each
-// level its buildings and the triangles of their models (each prop's drawn model, summed). `--rows`: the dev server's
-// `?rows` (towns in rows: spec 2026-11-14-town-rows-design.md), to hold to 1.3 times the plain numbers.
+// level its buildings and the triangles of their models (each prop's drawn model, summed). Towns in rows (spec
+// 2026-11-14-town-rows-design.md) hold to 1.3 times what the towns before them cost: 37172, 53332, 79904, 98896,
+// 126076, 147372 at levels 0 to 5.
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const rows = process.argv.includes("--rows");
+const rows = true;
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5383, strictPort: false }, logLevel: "error" });
 await server.listen();
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
@@ -16,7 +17,7 @@ const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, arg
 const p = await b.newPage({ viewport: { width: 844, height: 600 }, deviceScaleFactor: 1 });
 p.on("pageerror", (e) => console.log("pageerror", e.message));
 await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
-await p.goto(`${server.resolvedUrls.local[0]}${rows ? "?rows" : ""}`);
+await p.goto(`${server.resolvedUrls.local[0]}`);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
 await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
 await p.waitForSelector(".new-game-sheet:not([hidden]) .new-game-start", { timeout: 60000 });

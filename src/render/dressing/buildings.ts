@@ -4,7 +4,6 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_ROAD, SURF_TOWN, type Landscape, type Shed, type Town } from "../../landscape";
 import { onFelt, STREET_FELT_HALF } from "./roads";
 import { rowOpenings } from "../../roads/grow-town";
-import { rowsOn } from "../../props/rows";
 import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
 import { addPart } from "../blender-models";
@@ -234,7 +233,7 @@ export function townLooks(seed: number, town: Town): Look[] {
  * themselves are catalogue models placed as props (see `src/props/towns.ts`); their doors are at the middle of their
  * fronts, facing the town centre. Returns nothing to cast contact shadows (props stand on their own).
  */
-export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher, rows = rowsOn()): { cx: number; cz: number; w: number; d: number }[] {
+export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher, rows = true): { cx: number; cz: number; w: number; d: number }[] {
   const looks = townLooks(land.seed, town);
   const doors: Point[] = town.buildings.map((bld, k) => {
     const fp = footprintOf(land, town, bld.cells, looks[k], bld.front);
@@ -301,7 +300,7 @@ function hippedRoof(w: number, d: number, h: number, top: number): BufferGeometr
  * The fixed station: platform with a yellow edge line, a canopy over both platform and track (trains run under the
  * roof, as with a wooden toy station) and a little beech station house.
  */
-export function buildStation(town: Town, mats: Materials, b: Batcher, rows = rowsOn()): void {
+export function buildStation(town: Town, mats: Materials, b: Batcher, rows = true): void {
   const place = stationPlace(town);
   const side = TRACK_WIDTH / 2;
   b.add(mats.blockWood, place(new RoundedBoxGeometry(196, 14, 38, 2, 2.5), 108, side + 21, 7));

@@ -1,7 +1,7 @@
-// Towns in rows beside today's (spec 2026-11-14-town-rows-design.md): the starter map's Larkfield grown a level at a
-// time (deliveries written in, as e2e:town-shape does), drawn on this machine's GPU at 1440×900 with the HUD hidden,
-// once as the game is and once with `?rows`. `node tools/shots/town-rows.mjs [<out dir>] [--only=rows|now] [--levels=0,3,5]`:
-// <out>/rows-<level>-<now|rows>-<wide|street>.jpg
+// Towns in rows (spec 2026-11-14-town-rows-design.md): the starter map's Larkfield grown a level at a time (deliveries
+// written in, as e2e:town-shape does), drawn on this machine's GPU at 1440×900 with the HUD hidden.
+// `node tools/shots/town-rows.mjs [<out dir>] [--levels=0,3,5]`: <out>/rows-<level>-rows-<wide|street>.jpg. (The towns
+// as they were before rows: docs/agents/shots/town-rows-*-now-*.jpg.)
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
@@ -18,7 +18,7 @@ await server.listen();
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
 const VIEWS = { wide: [1700, 0.75, 0], street: [620, 0.5, 0.6], ...(process.env.TOP ? { top: [1300, 0.03, 0] } : {}) };
-for (const [name, query] of [["now", ""], ["rows", "?rows"]].filter(([n]) => !only || n === only)) {
+for (const [name, query] of [["rows", ""]].filter(([n]) => !only || n === only)) {
   const p = await b.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   p.on("pageerror", (e) => console.log("pageerror", e.message));
   await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));

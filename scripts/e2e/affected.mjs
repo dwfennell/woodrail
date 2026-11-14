@@ -137,8 +137,7 @@ const TOWNS = ["town-drag", "town-shape", "school", "growth", "station-upgrade",
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
 export const RULES = [
-  // Towns in rows (dev only, `?rows`: spec 2026-11-14-town-rows-design.md): the row models, their colours, how a town
-  // is dressed in them. (Also run the two with E2E_ROWS=1: `E2E_ROWS=1 npm run e2e:town-shape`, `…e2e:town-drag`.)
+  // Towns in rows (spec 2026-11-14-town-rows-design.md): the row models, their colours, how a town is dressed in them.
   [["src/props/rows.ts", "src/catalogue/assets/rows.ts", "tools/blender/bldg_rows.py", "public/models/rows.glb"], ["town-shape", "town-drag"]],
   // The rack and the lookout halt: the pieces, the sim's rule, the engine, the stop, the card, the tray.
   [

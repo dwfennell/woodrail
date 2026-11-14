@@ -2,12 +2,9 @@ import { hashInts } from "../landscape/edges";
 
 /**
  * Towns in rows (spec 2026-11-14-town-rows-design.md): a town's houses and shops drawn as joined rows on pavement
- * tiles (the `row-*` models, tools/blender/bldg_rows.py), in a palette of the town's own. Dev only for now, behind
- * `rowsOn`: nothing here is used without it.
+ * tiles (the `row-*` models, tools/blender/bldg_rows.py), in a palette of the town's own. How every town is drawn and
+ * grows; the code that dresses a town takes `rows` (false: as towns were before, kept for tests that compare the two).
  */
-
-/** The dev server with `?rows` in the address. */
-export const rowsOn = (): boolean => import.meta.env.DEV && typeof location !== "undefined" && new URLSearchParams(location.search).has("rows");
 
 /** A row model's id (a catalogue asset in the `row` file). */
 export const isRow = (asset: string): boolean => asset.startsWith("row-");

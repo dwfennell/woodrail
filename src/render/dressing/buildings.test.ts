@@ -140,19 +140,20 @@ describe("town greens (QA: N7)", () => {
     const land = generateLandscape(SEEDS[0]);
     const town = land.towns.find((t) => t.buildings.some((b) => b.cells.length === 1 && !b.landmark))!;
     expect(townGreens(land, town)).toEqual([]);
+    // (The rows' paved openings aside: they have a test of their own.)
     const before = measuring();
-    buildTown(land, town, mats, before.b);
+    buildTown(land, town, mats, before.b, false);
     const house = town.buildings.find((b) => b.cells.length === 1 && !b.landmark)!;
     const cell = house.cells[0];
     releaseBuilding(land, house.id);
     expect(townGreens(land, town)).toEqual([cell]);
     const after = measuring();
-    buildTown(land, town, mats, after.b);
+    buildTown(land, town, mats, after.b, false);
     // A lawn and twelve flowers, within the square and no higher than a few mm above the ground.
     expect(after.count() - before.count()).toBe(13);
     const g = land.grid;
     const lawn = measuring();
-    buildTown(land, { ...town, cells: [cell], buildings: [] }, mats, lawn.b);
+    buildTown(land, { ...town, cells: [cell], buildings: [] }, mats, lawn.b, false);
     const box = lawn.bounds;
     expect(box.min.x).toBeGreaterThanOrEqual(g.centreX(g.colOf(cell)) - CELL / 2);
     expect(box.max.x).toBeLessThanOrEqual(g.centreX(g.colOf(cell)) + CELL / 2);
@@ -183,8 +184,13 @@ describe("row openings (towns in rows)", () => {
   it("an opening between two houses of a row is a small paved place; off, or once a street leaves through it, nothing", () => {
     const { land, town, house, cell } = rowWithMiddle();
     const g = land.grid;
-    const full = measuring();
-    buildTown(land, town, mats, full.b, true);
+    // (The town's other openings, before this one: what it's counted against.)
+    const count = (rows: boolean) => {
+      const m = measuring();
+      buildTown(land, { ...town, cells: [cell] }, mats, m.b, rows);
+      return m.count();
+    };
+    const others = count(true) - count(false);
     // The house gone, its square bare grass again: an opening in the row.
     town.buildings.splice(town.buildings.indexOf(house), 1);
     g.feature[cell] = 0;
@@ -194,7 +200,7 @@ describe("row openings (towns in rows)", () => {
     buildTown(land, { ...town, cells: [cell] }, mats, off.b, false);
     const on = measuring();
     buildTown(land, { ...town, cells: [cell] }, mats, on.b, true);
-    expect(on.count() - off.count()).toBe(1);
+    expect(on.count() - off.count()).toBe(others + 1);
     // Flat pavement and nothing standing on it: the player's track or a prop may go there (the dressing can't know).
     const slab = measuring();
     buildTown(land, { ...town, cells: [], buildings: town.buildings.filter((x) => x.cells.some((c) => Math.abs(g.colOf(c) - g.colOf(cell)) + Math.abs(g.rowOf(c) - g.rowOf(cell)) === 1)) }, mats, slab.b, true);
@@ -211,7 +217,7 @@ describe("row openings (towns in rows)", () => {
     buildTown(land, { ...town, cells: [cell] }, mats, street.b, true);
     const streetOff = measuring();
     buildTown(land, { ...town, cells: [cell] }, mats, streetOff.b, false);
-    expect(street.count()).toBe(streetOff.count());
+    expect(street.count() - streetOff.count()).toBe(others);
   });
 });
 
@@ -247,12 +253,12 @@ describe("the station house in the rows' style", () => {
     expect(rows.length).toBeGreaterThanOrEqual(now.length);
   });
 
-  it("is today's station with the switch off", () => {
+  it("is how a station is drawn unless told otherwise", () => {
     const land = generateLandscape(7);
     const a = measuring();
     const b = measuring();
     buildStation(land.towns[0], mats, a.b);
-    buildStation(land.towns[0], mats, b.b, false);
+    buildStation(land.towns[0], mats, b.b, true);
     expect(b.count()).toBe(a.count());
     expect(b.bounds).toEqual(a.bounds);
   });
