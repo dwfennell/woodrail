@@ -1,7 +1,7 @@
 import { Box3, type Mesh, type Object3D } from "three";
 import { describe, expect, it } from "vitest";
 import { loadModelSet } from "../render/blender-models";
-import { ROW_ASSETS, rowAssetIds } from "./rows";
+import { civicAssets, ROW_ASSETS, rowAssetIds } from "./rows";
 
 /** The row models as built (public/models/rows.glb, tools/blender/bldg_rows.py): all there, on their lots, cheap to draw. */
 const MODELS = await loadModelSet("rows", true);
@@ -44,5 +44,31 @@ describe("the row models", () => {
     expect(measure(MODELS.get(`${id}-floor`)!).box.min.y).toBeGreaterThan(2);
     // (A ground has no roof: lower than the whole model by a roof's rise.)
     expect(measure(MODELS.get(`${id}-ground`)!).box.max.y).toBeLessThan(whole.box.max.y - 5);
+  });
+});
+
+describe("the landmark and civic models", () => {
+  it.each(civicAssets())("$id is there, whole, on its lot, within its triangles", ({ id, squares, deep }) => {
+    expect(MODELS.has(id), id).toBe(true);
+    const whole = measure(MODELS.get(id)!);
+    expect(whole.box.max.x).toBeLessThanOrEqual(36.05);
+    expect(whole.box.min.x).toBeGreaterThanOrEqual(36 - 72 * deep - 0.05);
+    expect(whole.box.max.z - whole.box.min.z).toBeGreaterThan(72 * squares - 1.5);
+    expect(whole.box.max.z - whole.box.min.z).toBeLessThanOrEqual(72 * squares + 0.05);
+    expect(whole.box.min.y).toBeCloseTo(0, 1);
+    // Lower than twice its lot's width along the street, as the rows are (a tower, a lighthouse, a spire may stand to it).
+    expect(whole.box.max.y).toBeLessThanOrEqual(120);
+    for (const name of whole.materials) expect(SLOTS.includes(name) || name.startsWith("lacquer fixed #") || name === "wood", name).toBe(true);
+    // Its walls are its own colour in every town: no body slot.
+    expect(whole.materials.has("lacquer #ff00a0")).toBe(false);
+    expect(whole.triangles).toBeLessThanOrEqual(deep === 2 ? 6000 : squares === 2 ? 5000 : 3000);
+  });
+
+  it("a town can tell them apart from afar: each has a roof in the town's colours, or is a thing of its own", () => {
+    const plain = ["row-castle-gate-4", "row-lighthouse", "row-lighthouse-2", "row-kiosk", "row-kiosk-2"];
+    for (const { id } of civicAssets()) {
+      const m = measure(MODELS.get(id)!).materials;
+      if (!plain.includes(id)) expect(m.has("lacquer #00ffa0"), id).toBe(true);
+    }
   });
 });
