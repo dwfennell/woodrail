@@ -80,8 +80,61 @@ export const ROW_ASSETS = {
   four: { court: "row-court" },
 } as const;
 
-/** Every row model's id. */
+/** Every row house's and shop's id (each made four ways, to stack storeys from: see `stackOf`). */
 export const rowAssetIds = (): string[] => [...Object.values(ROW_ASSETS.one).flat(), ...Object.values(ROW_ASSETS.two), ...Object.values(ROW_ASSETS.four)];
+
+/**
+ * Landmarks and civic places in the style: the model each of today's becomes, by its lot's squares (1; 2 along the
+ * street; 4, a 2 x 2 block, the building on the street's two squares and its grounds behind). Each is made for its lot,
+ * tile and all, so none is ever drawn smaller than modelled.
+ */
+export const ROW_CIVIC: Readonly<Record<string, { readonly 1?: string; readonly 2?: string; readonly 4?: string }>> = {
+  "bldg-church": { 2: "row-church", 4: "row-church-4" },
+  "bldg-market-hall": { 2: "row-market-hall", 4: "row-market-hall-4" },
+  "bldg-library": { 1: "row-library-1", 2: "row-library" },
+  "bldg-town-hall": { 2: "row-town-hall", 4: "row-town-hall-4" },
+  "bldg-fire-station": { 1: "row-fire-station-1", 2: "row-fire-station" },
+  "bldg-police-station": { 1: "row-police-station-1", 2: "row-police-station" },
+  "bldg-hospital": { 1: "row-hospital-1", 2: "row-hospital", 4: "row-hospital-4" },
+  "bldg-station-clock": { 1: "row-clock-tower", 2: "row-clock-tower-2" },
+  "bldg-castle-gate": { 4: "row-castle-gate-4" },
+  "bldg-lighthouse": { 1: "row-lighthouse", 2: "row-lighthouse-2" },
+  "bldg-ice-cream-kiosk": { 1: "row-kiosk", 2: "row-kiosk-2" },
+  // (A cinema stands in the toy shop's model: on two squares it has one of its own.)
+  "bldg-toy-shop": { 2: "row-cinema" },
+};
+
+/** Every civic row model's id, with its lot: squares along the street, and squares deep. */
+export function civicAssets(): { id: string; squares: 1 | 2; deep: 1 | 2 }[] {
+  const out: { id: string; squares: 1 | 2; deep: 1 | 2 }[] = [];
+  for (const by of Object.values(ROW_CIVIC)) {
+    if (by[1]) out.push({ id: by[1], squares: 1, deep: 1 });
+    if (by[2]) out.push({ id: by[2], squares: 2, deep: 1 });
+    if (by[4]) out.push({ id: by[4], squares: 2, deep: 2 });
+  }
+  return out;
+}
+
+/**
+ * The civic row one of today's models becomes on a lot of `squares` (none: it has none for that lot). On a 2 x 2
+ * block, one made for two squares stands on the street's two.
+ */
+export function civicRow(old: string, squares: number): string | undefined {
+  const by = ROW_CIVIC[old];
+  if (!by) return undefined;
+  return squares >= 4 ? (by[4] ?? by[2]) : squares === 2 ? by[2] : by[1];
+}
+
+/** The squares of the lot a row model is made for: 1, 2 along the street, or 4 (a 2 x 2 block). */
+export function rowSquares(asset: string): 1 | 2 | 4 {
+  const civic = civicAssets().find((c) => c.id === asset);
+  if (civic) return civic.deep === 2 ? 4 : civic.squares;
+  if ((Object.values(ROW_ASSETS.four) as string[]).includes(asset)) return 4;
+  return (Object.values(ROW_ASSETS.two) as string[]).includes(asset) ? 2 : 1;
+}
+
+/** Is this row model one of the churches (a town has one)? */
+export const isChurch = (asset: string): boolean => asset === "bldg-church" || asset.startsWith("row-church");
 
 /** The plain houses a town picks its three one-square styles from. */
 export const ROW_HOUSES_1: readonly string[] = [...ROW_ASSETS.one.pair, ...ROW_ASSETS.one.wide, ...ROW_ASSETS.one.low];
