@@ -117,4 +117,13 @@ describe("a row model in the library (towns in rows)", () => {
     // Today's houses: as they were.
     expect(modelKey("bldg-townhouse", 2, 4)).toBe("bldg-townhouse^4#2");
   });
+
+  it("has its footprint from its stacked model too (a house that became a shop is drawn stacked from the start)", async () => {
+    const lib = new PropLibrary(stubMaterials());
+    expect(lib.footprint("row-shop")).toBeUndefined();
+    await lib.load(modelKey("row-shop", 1, 2));
+    // Its lot's tile: a square, so the player can pick it up and put it down.
+    expect(lib.footprint("row-shop")!.hw).toBeCloseTo(36, 0);
+    expect(lib.footprint("row-shop")!.hd).toBeCloseTo(36, 0);
+  });
 });

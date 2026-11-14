@@ -143,7 +143,9 @@ export class PropLibrary {
           model = { name: asset.name, ...bake(built, this.mats) };
           // (A plain model can be baked again, the same, if its geometry's been let go: see `release`.)
           if (!CLOCK_ASSETS.has(assetId)) this.rebakes.set(key, () => bake(build(), this.mats).parts);
-          if (!floors) this.footprints.set(assetId, model.footprint);
+          // (A row drawn stacked from the start, a house that became a shop, has no plain model loaded: its stack
+          // stands on the same tile.)
+          if (!floors || (row && !this.footprints.has(assetId))) this.footprints.set(assetId, model.footprint);
           // A clock: also baked bare of its hands (what's drawn, its hands by `ClockView`), and its hands on their own.
           const hands = CLOCK_ASSETS.has(assetId) ? clockHandsOf(built, this.mats) : null;
           if (hands) {

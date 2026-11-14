@@ -154,6 +154,9 @@ const TOWNS = ["town-drag", "moved-house", "town-shape", "school", "growth", "st
 export const RULES = [
   // (☰ Train dispatcher (beta): the dispatcher, its switch and its save.)
   [["src/routing/dispatcher.ts", "src/routing/stretch.ts", "tools/e2e/dispatcher.mjs"], ["dispatcher"]],
+  // Towns in rows (dev only, `?rows`: spec 2026-11-14-town-rows-design.md): the row models, their colours, how a town
+  // is dressed in them. (Also run the two with E2E_ROWS=1: `E2E_ROWS=1 npm run e2e:town-shape`, `…e2e:town-drag`.)
+  [["src/props/rows.ts", "src/catalogue/assets/rows.ts", "tools/blender/bldg_rows.py", "public/models/rows.glb"], ["town-shape", "town-drag"]],
   // The rack and the lookout halt: the pieces, the sim's rule, the engine, the stop, the card, the tray.
   [
     ["src/sim/sim.ts", "src/sim/cars.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/game/engines.ts", "src/game/engine-status.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts", "src/ui/piece-info.ts", "src/landscape/hill-shape.ts"],
