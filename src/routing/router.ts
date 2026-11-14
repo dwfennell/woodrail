@@ -1048,8 +1048,12 @@ export class Router {
     const { layout } = this.host;
     const net = this.host.drive(t);
     if (net === 0) return false;
-    const c: Cursor = { ...(net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };
-    if (net < 0) flipCursor(layout, c);
+    // (Turning round at the end of the line: it comes back out, its other end first (line1+siding 2× hand same: one
+    // turning at the siding's buffer wasn't coming at the points yet, and the other went onto them, to meet it there).)
+    const turning = t.turnback >= 0;
+    const back = turning ? net < 0 : net > 0;
+    const c: Cursor = { ...(back ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };
+    if (!back) flipCursor(layout, c);
     const piece = layout.getPiece(c.pieceId);
     if (!piece) return false;
     const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
