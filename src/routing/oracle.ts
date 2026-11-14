@@ -28,6 +28,8 @@ import { connectorRef, getPieceDef, type Layout } from "../track";
 import { blocksOf } from "../game/signal-place";
 import { next, waysFrom } from "./graph";
 import { pathLength } from "../track/path";
+import { driveOf, trainLength } from "../sim/train-cars";
+import type { Train } from "../sim";
 
 /** The gap (mm) two trains keep on a piece they share (the sim's, standing close behind: `STOP_GAP`). */
 const GAP = 10;
@@ -448,3 +450,57 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
   }
   return { states: N, best, bestSet, alone, capped, graph: keep ? { states, edges, best: bestComp } : undefined };
 }
+
+/** How many whole pieces the oracle gives a train: what it fills on 216 mm pieces, 2 at least. */
+export function piecesFor(t: Train): number {
+  return Math.max(2, Math.ceil(trainLength(t) / 216));
+}
+
+/** A train as the oracle sees it: the pieces it fills from its front (`piecesFor`), tail first, which way it drives (oracle.ts). */
+export function elemsOf(layout: Layout, t: Train, n = piecesFor(t)): Elem[] {
+  const d = driveOf(t) < 0 ? -1 : 1;
+  const lead = d > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+  const rev = d > 0 ? lead.reversed : !lead.reversed;
+  const pathOf = (p: number, c: number) => {
+    const piece = layout.getPiece(p)!;
+    const paths = getPieceDef(piece.type, piece.flipped).paths;
+    const used = t.bogies.find((b) => b.pieceId === p)?.pathIndex;
+    const ok = paths.map((q, i) => ({ q, i })).filter(({ q }) => q.from === c || q.to === c);
+    return (ok.find(({ i }) => i === used) ?? ok[0]).q;
+  };
+  const piece = layout.getPiece(lead.pieceId)!;
+  const path = getPieceDef(piece.type, piece.flipped).paths[lead.pathIndex];
+  const elems: Elem[] = [rev ? { p: lead.pieceId, en: path.to ?? -1, ex: path.from } : { p: lead.pieceId, en: path.from, ex: path.to ?? -1 }];
+  for (let i = 0; i < n + 1; i++) {
+    const f = elems[0];
+    const back = next(layout, f.p, f.en);
+    if (!back) break;
+    const q = pathOf(back.pieceId, back.entry);
+    elems.unshift({ p: back.pieceId, en: q.from === back.entry ? (q.to ?? -1) : q.from, ex: back.entry });
+  }
+  // (Off a buffer: the train's front is the piece before it.)
+  while (layout.getPiece(elems[elems.length - 1].p)!.type.startsWith("buffer")) elems.pop();
+  // (Its tail on a buffer it's just turned at: the oracle has no train on one; the pieces from its front back.)
+  while (elems.length > 1 && layout.getPiece(elems[0].p)!.type.startsWith("buffer")) elems.shift();
+  return elems.slice(-n);
+}
+
+/**
+ * A train as the oracle sees it by its real length: the pieces from its front back as far as their paths are as long as
+ * it is (a curve is shorter than a straight; the old count, `piecesFor`, took every piece as 216 mm).
+ */
+export function elemsByLength(layout: Layout, t: Train): Elem[] {
+  const L = trainLength(t);
+  const all = elemsOf(layout, t, 16);
+  const lenOf = (e: Elem) => {
+    const piece = layout.getPiece(e.p)!;
+    const def = getPieceDef(piece.type, piece.flipped);
+    const q = def.paths.find((x) => (x.from === e.en && x.to === e.ex) || (x.from === e.ex && x.to === e.en)) ?? def.paths[0];
+    return pathLength(q.geom);
+  };
+  let sum = 0;
+  let i = all.length;
+  while (i > 0 && sum < L) sum += lenOf(all[--i]);
+  return all.slice(i);
+}
+

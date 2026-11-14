@@ -116,3 +116,26 @@ function moveOf(plan: SwapPlan, a: number, b: number): PlannedMove | null {
   }
   return null;
 }
+
+/**
+ * `nextFrom`, run on while the moves it names are the same train's going forward: one longer move (it runs through
+ * without stopping at each piece the plan rests at). Ends at the train's target, so it calls there.
+ */
+export function runFrom(plan: SwapPlan, at: number, targets: readonly number[], order: readonly number[], most = 24): PlannedMove | null {
+  const m = nextFrom(plan, at, targets, order);
+  if (!m || m.turn) return m;
+  let s = plan.edges[at].find((x) => plan.states[x][m.k] === m.to) ?? -1;
+  let last = m;
+  for (let i = 0; i < most && s >= 0; i++) {
+    const tg = targets[m.k];
+    if (tg >= 0 && plan.states[s][m.k].e.some((x) => x.p === tg)) break;
+    const n = nextFrom(plan, s, targets, order);
+    if (!n || n.k !== m.k || n.turn) break;
+    const t = plan.edges[s].find((x) => plan.states[x][n.k] === n.to) ?? -1;
+    if (t < 0) break;
+    last = n;
+    s = t;
+  }
+  return last;
+}
+
