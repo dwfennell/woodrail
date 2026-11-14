@@ -20,6 +20,8 @@ import { driveOf, hasEngine, trainLength } from "./train-cars";
 
 export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
+/** How long (ticks) a call-on past a signal is remembered for the invariants (`Sim.calledOn`). */
+const CALL_ON_KEEP = 10 * SIM_HZ;
 /** A train stopped at the end of the line waits this long (2 s) before driving back. */
 export const TURNBACK_TICKS = 2 * SIM_HZ;
 /**
@@ -356,7 +358,13 @@ export class Sim {
    * end, `Signal.at`) with no move on past it granted, −1: none (the mark shows red then, so its green is the grant);
    * `version` changes whenever an answer would. Null: no sections.
    */
-  signalGate: { at(ref: number): number; version(): number } | null = null;
+  signalGate: { at(ref: number): number; version(): number; callOn?(ref: number, trainId: number): boolean } | null = null;
+  /**
+   * Call-ons (the user's yes, 2026-11-14): a signal passed at red by a line-mate let into the line end behind the train
+   * standing there, to turn behind it (`signalGate.callOn`): by `${signal key}:${train id}`, the tick. For the invariants
+   * (`calledOn`).
+   */
+  private readonly callOns = new Map<string, number>();
   /** Each signal's aspect as of this tick, by key (`signalKey`): true at clear (its block's free), false at red. */
   private readonly aspects = new Map<number, boolean>();
   /** Goes up whenever a signal's aspect changes, so the view redraws only then. */
@@ -2265,6 +2273,12 @@ export class Sim {
     return 0;
   }
 
+  /** Was this train called on past this signal lately (`callOns`)? */
+  calledOn(key: number, trainId: number): boolean {
+    const at = this.callOns.get(`${key}:${trainId}`);
+    return at !== undefined && this.ticks - at <= CALL_ON_KEEP;
+  }
+
   /** The red signal (its piece) a train is held by or braking for, or −1 (for the engine card and reports). */
   redSignalAhead(trainId: number): number {
     const t = this.byId.get(trainId);
@@ -2277,6 +2291,12 @@ export class Sim {
    * the train's own way (and it's noted as coming to it, for its aspect: `comingTo`).
    */
   private redFor(train: Train, g: SignalAt, dist: number): { by: number } | null {
+    // (Called on: let past it at red into the line end behind a line-mate standing there, to turn behind it.)
+    if (g.markId !== -1 && g.exit >= 0 && this.signalGate?.callOn?.(connectorRef(g.pieceId, g.exit), train.id)) {
+      if (this.callOns.size > 64) for (const [k, at] of this.callOns) if (this.ticks - at > CALL_ON_KEEP) this.callOns.delete(k);
+      this.callOns.set(`${g.key}:${train.id}`, this.ticks);
+      return null;
+    }
     // (A waiting point's train with no move past it granted: red for it, whatever the block (sections' wait names who).)
     if (g.junction && this.gatedFor(g) === train.id) {
       this.comingTo(g.key, false, dist);

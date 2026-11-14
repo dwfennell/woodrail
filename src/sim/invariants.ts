@@ -550,7 +550,8 @@ export class Invariants {
       // (Only a front that went on over that joint: a train that turned has a new front somewhere else.)
       if (!g || pieceOfRef(layout.joinedConnector(connectorRef(was.pieceId, exit))) !== t.bogies[0].pieceId) continue;
       this.signalPasses++;
-      const late = this.excused.delete(`${g.key}:${id}`);
+      // (Called on: let past at red into a line end behind a line-mate there, to turn behind it: the user's yes, 2026-11-14.)
+      const late = this.excused.delete(`${g.key}:${id}`) || sim.calledOn(g.key, id);
       const n = names.get(id);
       if (this.aspectsWas.get(g.key) === false) {
         if (late) this.redLate++;
