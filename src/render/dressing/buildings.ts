@@ -288,6 +288,12 @@ function green(land: Landscape, i: number, mats: Materials, b: Batcher): void {
   }
 }
 
+/**
+ * How long the station house's roof is flat on top, along the station (mm): the town's sign stands on it, its posts 28
+ * either side of the middle and 2.4 thick (`landscape-view.ts`).
+ */
+export const STATION_ROOF_FLAT = 64;
+
 /** A hipped roof `w` along x by `d`, `h` high about its middle, sloping in on all four sides to a flat top `top` of its size. */
 function hippedRoof(w: number, d: number, h: number, top: number): BufferGeometry {
   // (A four-sided frustum, a square turned to its sides, stretched to the roof's plan; flat-shaded.)
@@ -319,7 +325,7 @@ export function buildStation(town: Town, mats: Materials, b: Batcher, rows = tru
     // hipped roof (its flat top where the lid's was: the town's sign stands on it).
     b.add(mats.lacquer("#f3e7cb"), place(new RoundedBoxGeometry(70, 46, 30, 2, 2), 108, side + 58, 14 + 23));
     b.add(mats.lacquer(theme.canopy), place(new RoundedBoxGeometry(70.8, 7, 30.8, 1, 1), 108, side + 58, 14 + 3.5));
-    b.add(mats.lacquer(theme.roof), place(hippedRoof(82, 40, 9, 0.62), 108, side + 58, STATION_ROOF_TOP - 4.5));
+    b.add(mats.lacquer(theme.roof), place(hippedRoof(82, 40, 9, STATION_ROOF_FLAT / 82), 108, side + 58, STATION_ROOF_TOP - 4.5));
   } else {
     b.add(mats.blockWood, place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
     b.add(mats.lacquer(theme.roof), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));

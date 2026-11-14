@@ -52,6 +52,17 @@ describe("towns in rows: colours and assets", () => {
     }
   });
 
+  it("a row keeps clear what its building does, not its whole tile: track fits beside it as it did beside a house", async () => {
+    const { rowFootprint, civicAssets } = await import("./rows");
+    for (const id of [...rowAssetIds(), ...civicAssets().map((c) => c.id)]) {
+      const f = rowFootprint(id);
+      const lot = id === "row-court" || civicAssets().some((c) => c.id === id && c.squares === 2) || ["row-terrace", "row-bakery", "row-cafe", "row-post", "row-flats"].includes(id) ? 72 : 36;
+      // (8 mm in from each end of its lot, and no deeper than a house: 48 mm.)
+      expect(f.hd, id).toBeLessThanOrEqual(lot - 8);
+      expect(f.hw, id).toBeLessThanOrEqual(24);
+    }
+  });
+
   it("every house and shop a town builds today has a row", () => {
     for (const old of ["bldg-townhouse", "bldg-thatched-cottage", "bldg-timber-house", "bldg-bungalow", "bldg-brick-house", "bldg-narrow-house", "bldg-semi-detached", "bldg-villa", "bldg-terrace", "bldg-cottage-row", "bldg-corner-shop", "bldg-toy-shop", "bldg-apartment-block", "bldg-bakery", "bldg-cafe", "bldg-post-office"]) {
       expect(rowAssetIds()).toContain(rowFor(old));

@@ -143,6 +143,16 @@ export function rowSquares(asset: string): 1 | 2 | 4 {
   return (Object.values(ROW_ASSETS.two) as string[]).includes(asset) ? 2 : 1;
 }
 
+/**
+ * What a row model keeps clear around it (the game's footprint of a prop, in the model's frame: its street on +x):
+ * its building, not its tile. The pavement and garden of its lot are ground: track and props may come as near a row
+ * as they could a house standing on the same square.
+ */
+export function rowFootprint(asset: string): { cx: number; cz: number; hw: number; hd: number } {
+  const squares = rowSquares(asset);
+  return { cx: -1, cz: 0, hw: 24, hd: (squares === 1 ? 36 : 72) - 8 };
+}
+
 /** Is this row model one of the churches (a town has one)? */
 export const isChurch = (asset: string): boolean => asset === "bldg-church" || asset.startsWith("row-church");
 

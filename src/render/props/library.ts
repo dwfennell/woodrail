@@ -1,5 +1,5 @@
 import { Box3, BufferAttribute, Color, Group, Matrix4, Mesh, Quaternion, SRGBColorSpace, Vector3, type BufferGeometry, type Material, type Object3D } from "three";
-import { isRow, rowPaint } from "../../props/rows";
+import { isRow, rowFootprint, rowPaint } from "../../props/rows";
 import { Kit } from "../../catalogue/kit";
 import { loadAsset } from "../../catalogue/registry";
 import type { Footprint } from "../../props/placement";
@@ -140,7 +140,7 @@ export class PropLibrary {
           if (!CLOCK_ASSETS.has(assetId)) this.rebakes.set(key, () => bake(build(), this.mats).parts);
           // (A row drawn stacked from the start, a house that became a shop, has no plain model loaded: its stack
           // stands on the same tile.)
-          if (!floors || (row && !this.footprints.has(assetId))) this.footprints.set(assetId, model.footprint);
+          if (!floors || (row && !this.footprints.has(assetId))) this.footprints.set(assetId, row ? rowFootprint(assetId) : model.footprint);
           // A clock: also baked bare of its hands (what's drawn, its hands by `ClockView`), and its hands on their own.
           const hands = CLOCK_ASSETS.has(assetId) ? clockHandsOf(built, this.mats) : null;
           if (hands) {
