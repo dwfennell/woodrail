@@ -57,6 +57,12 @@ const FLOOR_RUN_M = 2;
 /** How far (m) a train may have run since it was put down and still stand on the first points it met as the player's doing. */
 const PUT_DOWN_RUN_M = 1;
 const MAX_STATES = 60_000;
+/**
+ * A run the swap planner takes a line in goes on this long (s), its floors counted in the second half: a round of a
+ * plan, one train moving at a time, can be some 140 s (the user's (a), 2026-11-14: a line the planner keeps delivering
+ * counts as live).
+ */
+const PLANNED_S = 600;
 
 export function judge(c: Case): Judged {
   const t0 = performance.now();
@@ -95,14 +101,22 @@ export function judge(c: Case): Judged {
   const cleared = h.engines.map(() => false);
   const step = 1;
   // (Once a stall is said, 20 s more show what follows (a wait on points, a break); then the outcome is known.)
-  let ranFor = seconds;
-  for (let s = 0; s < seconds; s += step) {
+  let ranFor = -1;
+  let until = seconds;
+  let planned = false;
+  // (Stops and metres at each second, for the floors' half way: the run may be lengthened once the planner takes it.)
+  const history: { stops: number[]; ran: number[] }[] = [];
+  for (let s = 0; s < until; s += step) {
     if (stallAt >= 0 && s > stallAt + 20) {
       ranFor = s;
       break;
     }
+    history.push({ stops: [...report.arrivals], ran: [...ran] });
     report = h.run(step);
-    if (!half && s >= seconds / 2 && stallAt < 0) half = { stops: [...report.arrivals], ran: [...ran] };
+    if (!planned && h.engines.some((e) => h.sections.swapping(e))) {
+      planned = true;
+      until = Math.max(until, PLANNED_S);
+    }
     h.engines.forEach((engine, k) => {
       const tr = h.sim.findCar(engine)?.train;
       if (!tr) return;
@@ -125,6 +139,8 @@ export function judge(c: Case): Judged {
   }
   const routed = h.engines.map((e) => h.routes.has(e));
   const stops = report.arrivals.map((a, k) => (routed[k] ? a : -1));
+  if (ranFor < 0) ranFor = until;
+  if (stallAt < 0) half = history[Math.floor(until / 2 / step)] ?? null;
   const mid = half ?? { stops: report.arrivals.map(() => 0), ran: ran.map(() => 0) };
   // (Under its floor: in the second half, or (the run cut short by a stall) said stuck or held for room now.)
   const belowAt = h.engines.map((e, k) =>

@@ -224,8 +224,9 @@ export class Stalls {
       const id = t.id;
       // (Waiting at the end of the line to turn round counts only when another train leaves it no room: `heldHow` "turn".)
       if (t.derailed || t.speed >= 1 || (t.turnback >= 0 && sim.heldHow(id) !== "turn") || drive(t) === 0) continue;
-      // (On a line the swap planner is taking through (or looking for a way through): waiting its turn, not stuck.)
-      if (this.sections.swapping(engineOf(t))) continue;
+      // (On a line the swap planner is taking through, looking for a way through or about to: waiting its turn, not
+      // stuck (`swapHolds`).)
+      if (this.sections.swapHolds(engineOf(t))) continue;
       standing.add(id);
       const by = this.waitOf(t);
       if (by !== null && by !== id) on.set(id, by);

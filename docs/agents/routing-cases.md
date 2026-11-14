@@ -273,10 +273,12 @@ dead, and one stands on points whatever it does (a train standing still sooner, 
 that were only passing points). 10 known. The long fuzz is as before seed for seed; its never-worse check lists fuzz 136
 (all hand-run it now runs, 2 → 140 stops; with the route two hand-run trains still meet head on in the line's end).
 
-**Where it stands (2026-11-14): 7 known, each with its reason in `reasons.ts`:**
-- five the swap planner runs (`swap-planner.ts`: the three-train spare cases), slowly: one train moving at a time, a
-  round about 140 s, under the judge's floor (and on the wye ones the stall said before the planner starts); the user's
-  (a), a line the planner keeps delivering counts as live, is next;
+**Where it stands (2026-11-14): 2 known, each with its reason in `reasons.ts`:**
+- (the five three-train spare cases the swap planner runs, `swap-planner.ts`: one train moving at a time, a round some
+  140 s. By the user's (a), 2026-11-14, a line the planner keeps delivering counts as live: no stall is said while the
+  planner has the line, is looking for a way or is about to (`Sections.swapHolds`), the deadlock invariant excuses a
+  train waiting its turn in a plan, and a case the planner takes runs 600 s, its floor in the second half: 4-10 stops a
+  train.)
 - fuzz 19: the room rule holds one of two trains on three ends with no spare, which the oracle could run; the user's
   yes to the planner overruling it there is next;
 - one waits on the call-on (ring1 3× one same sig:blocks2): a second train following into a block behind one at its
@@ -357,12 +359,12 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-484 cases; 7 mismatched.
+484 cases; 2 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
 | ring | 18 | 0 | – |
-| trains | 258 | 5 | starves-live 3, break:deadlock 2, stalls-live:siding 2 |
+| trains | 258 | 0 | – |
 | signals | 104 | 1 | stalls-live 1 |
 | placement | 30 | 0 | – |
 | stops | 50 | 0 | – |
@@ -392,7 +394,7 @@ and pass / known.
 | ring0 3×own same sig:blocks3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 | ring0 3×own same sig:oneway3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 
-### trains (258 cases, 5 mismatched)
+### trains (258 cases, 0 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -400,7 +402,7 @@ and pass / known.
 | branch 1×one | live (1/1) | 15 | pass |
 | branch 2×hand opposed | dead (0/2) | 17.2 m / 16.6 m | pass |
 | branch 2×hand same | live (2/2) | 18 m / 18 m | pass |
-| branch 2×mix opposed | partial (1/2; through an industry siding 2) | stall at 11 s (in-way, in-way); 1 / 0.6 m | pass |
+| branch 2×mix opposed | partial (1/2; through an industry siding 2) | stall at 11 s (in-way, in-way); 1 / 0.6 m | **fixed?** |
 | branch 2×mix same | live (2/2) | 15 / 18 m | pass |
 | branch 2×one opposed | partial (1/2; through an industry siding 2) | 15 / 13 | pass |
 | branch 2×one same | live (2/2) | 15 / 14 | pass |
@@ -414,7 +416,7 @@ and pass / known.
 | branch-spare 1×one | live (1/1) | 15 | pass |
 | branch-spare 2×hand opposed | dead (0/2) | 17.2 m / 16.6 m | pass |
 | branch-spare 2×hand same | live (2/2) | 18 m / 18 m | pass |
-| branch-spare 2×mix opposed | live (2/2; own ends 1) | stall at 11 s (in-way, in-way); 1 / 0.6 m | pass |
+| branch-spare 2×mix opposed | live (2/2; own ends 1) | stall at 11 s (in-way, in-way); 1 / 0.6 m | **fixed?** |
 | branch-spare 2×mix same | live (2/2) | 15 / 18 m | pass |
 | branch-spare 2×one opposed | live (2/2) | 15 / 13 | pass |
 | branch-spare 2×one same | live (2/2) | 15 / 14 | pass |
@@ -596,8 +598,8 @@ and pass / known.
 | siding-spare 2×own same | live (2/2) | 4 / 6 | pass |
 | siding-spare 3×mix opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 m / 0.4 m | pass |
 | siding-spare 3×mix same | partial (2/3) | stall at 21 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
-| siding-spare 3×one opposed | dead (0/3) | stall at 6 s (in-way, in-way, –); 0 / 0 / 1 | pass |
-| siding-spare 3×one same | live (3/3) | 2 / 1 / 2 | known: starves-live (the swap planner (swap-planner.ts) runs it, but slowly: three line ends off one set of points, trains trading places through a spare one, a round of the plan about 28 moves of about 5 s each (some 140 s), one train moving at a time; the judge asks a stop a train every 75 s and calls a train still for 60 s a deadlock. Waits on the user's call on how such a layout is judged) |
+| siding-spare 3×one opposed | dead (0/3) | stall at 14 s (in-way, in-way, –); 0 / 0 / 1 | pass |
+| siding-spare 3×one same | live (3/3) | 4 / 4 / 5 | pass |
 | terminus 1×hand | live (1/1) | 15.5 m | pass |
 | terminus 1×one | live (1/1) | 9 | pass |
 | terminus 2×hand opposed | dead (0/2) | 12.9 m / 11.7 m | pass |
@@ -624,8 +626,8 @@ and pass / known.
 | terminus-spare 2×own same | live (2/2) | 4 / 4 | pass |
 | terminus-spare 3×mix opposed | live (3/3; own ends 2) | stall at 28 s (in-way, in-way, in-way); 0 / 1 m / 0.8 m | pass |
 | terminus-spare 3×mix same | live (3/3; own ends 2) | stall at 9 s (in-way, in-way, in-way); 0 / 0.1 m / 0.1 m | pass |
-| terminus-spare 3×one opposed | live (3/3) | 1 / 1 / 1 | known: starves-live, break:deadlock (the swap planner (swap-planner.ts) runs it, but slowly: three line ends off one set of points, trains trading places through a spare one, a round of the plan about 28 moves of about 5 s each (some 140 s), one train moving at a time; the judge asks a stop a train every 75 s and calls a train still for 60 s a deadlock. Waits on the user's call on how such a layout is judged) |
-| terminus-spare 3×one same | live (3/3) | 1 / 2 / 1 | known: starves-live, break:deadlock (the swap planner (swap-planner.ts) runs it, but slowly: three line ends off one set of points, trains trading places through a spare one, a round of the plan about 28 moves of about 5 s each (some 140 s), one train moving at a time; the judge asks a stop a train every 75 s and calls a train still for 60 s a deadlock. Waits on the user's call on how such a layout is judged) |
+| terminus-spare 3×one opposed | live (3/3) | 7 / 7 / 7 | pass |
+| terminus-spare 3×one same | live (3/3) | 7 / 8 / 7 | pass |
 | wye 1×hand | live (1/1) | 16.1 m | pass |
 | wye 1×one | live (1/1) | 9 | pass |
 | wye 2×hand opposed | dead (0/2) | stall at 93 s (in-way, in-way); 6.9 m / 7.6 m | pass |
@@ -652,8 +654,8 @@ and pass / known.
 | wye-spare 2×own same | live (2/2) | 4 / 6 | pass |
 | wye-spare 3×mix opposed | live (3/3; own ends 2) | stall at 27 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
 | wye-spare 3×mix same | live (3/3; own ends 2) | stall at 9 s (in-way, in-way, in-way); 0 / 0.1 m / 0.1 m | pass |
-| wye-spare 3×one opposed | live (3/3; own ends 2) | stall at 15 s (too-many, –, –); 1 / 0 / 1 | known: stalls-live:siding (the swap planner (swap-planner.ts) runs it, but slowly: trains trading places through the wye's spare end, one train moving at a time, every train stopping about every 70 s (10 minutes run: 8-9 stops each); but the line's trains wait on each other some 5 s before the last of them stands still, so the stall is said (stalls.ts, 5 s) before the planner starts (every train held 3 s), and the judge's run ends 20 s on. Waits on the user's call on how such a layout is judged) |
-| wye-spare 3×one same | live (3/3; own ends 2) | stall at 31 s (too-many, too-many, –); 1 / 2 / 1 | known: stalls-live:siding (the swap planner (swap-planner.ts) runs it, but slowly: trains trading places through the wye's spare end, one train moving at a time, every train stopping about every 70 s (10 minutes run: 8-9 stops each); but the line's trains wait on each other some 5 s before the last of them stands still, so the stall is said (stalls.ts, 5 s) before the planner starts (every train held 3 s), and the judge's run ends 20 s on. Waits on the user's call on how such a layout is judged) |
+| wye-spare 3×one opposed | live (3/3) | 8 / 8 / 9 | pass |
+| wye-spare 3×one same | live (3/3) | 10 / 8 / 9 | pass |
 
 ### signals (104 cases, 1 mismatched)
 
@@ -756,7 +758,7 @@ and pass / known.
 | ring1 3×one opposed sig:oneway3 | dead (0/3; no signals 0) | stall at 11 s (in-way, in-way, –); 0 / 0 / 0 | pass |
 | ring1 3×one opposed sig:pair | dead (0/3; no signals 0) | stall at 7 s (in-way, in-way, –); 0 / 0 / 0 | pass |
 | ring1 3×one same sig:beforePoints | live (3/3) | 11 / 11 / 10 | pass |
-| ring1 3×one same sig:blocks2 | live (3/3) | stall at 27 s (signals, signals, signals); 1 / 1 / 0 | known: stalls-live (waits on the user's call-on question: two trains fill the loop's roads, the third waits at the signal into their block, and they wait to leave into the block it stands in; the oracle runs them by letting a second train follow into that block behind the one at its far signal (permissive working), which today's block signals don't) |
+| ring1 3×one same sig:blocks2 | live (3/3) | stall at 27 s (signals, signals, signals); 1 / 1 / 0 | known: stalls-live (two trains fill the loop's roads, the third waits at the signal into their block, and they wait to leave into the block it stands in; the oracle runs them by letting a second train follow into that block behind the one at its far signal (permissive working), which today's block signals don't. The user said yes (2026-11-14) to the narrow form: one extra train, behind one standing at the block's far signal, fitting clear of the entry signal and of points: its own branch, last) |
 | ring1 3×one same sig:blocks3 | live (3/3) | 10 / 10 / 9 | pass |
 | ring1 3×one same sig:blocks4 | live (3/3) | 10 / 10 / 9 | pass |
 | ring1 3×one same sig:inLoop | live (3/3) | 11 / 11 / 10 | pass |
@@ -776,7 +778,7 @@ and pass / known.
 | line0 2×one same points | dead (0/2) | stall at 13 s (too-many, –); 0 / 1 | pass |
 | line0 2×one same straddle sig:blocks3 | dead (0/2; no signals 0) | stall at 7 s (too-many, –); 0 / 0 | pass |
 | line0 2×one same tail | dead (0/2) | stall at 13 s (too-many, –); 0 / 1 | pass |
-| line1 2×hand opposed facing | dead (0/2) | stall at 10 s (in-way, in-way); 0.4 m / 0.4 m | pass |
+| line1 2×hand opposed facing | dead (0/2) | stall at 10 s (in-way, in-way); 0.4 m / 0.4 m | **fixed?** |
 | line1 2×hand same points | live (2/2) | stall at 17 s (in-way, in-way); 1.2 m / 1 m | pass |
 | line1 2×hand same straddle sig:blocks3 | dead (0/2; no signals 2) | stall at 19 s (signals, signals); 1.3 m / 1.2 m | pass |
 | line1 2×hand same tail | live (2/2) | stall at 22 s (in-way, in-way); 1.8 m / 1.6 m | pass |
@@ -870,7 +872,7 @@ and pass / known.
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
 | fuzz seed 7 | live (2/2) | 10 / 10 | pass |
-| fuzz seed 19 | live (2/2) | stall at 17 s (too-many, –); 0 / 0 | known: stalls-live (held by the line's room rule (too many trains for its loops: the card says lay a loop): two trains on three line ends, all of them stops, no spare; the oracle runs them, each turning at its own ends in turn, but the swap planner takes only a line with a spare end, leaving the room rule's hold standing where it holds (sections-qa's room cases). Overruling it so is the user's call) |
+| fuzz seed 19 | live (2/2) | stall at 17 s (too-many, –); 0 / 0 | known: stalls-live (held by the line's room rule (too many trains for its loops: the card says lay a loop): two trains on three line ends, all of them stops, no spare; the oracle runs them, each turning at its own ends in turn, but the swap planner takes only a line with a spare end. The user said yes (2026-11-14) to the planner overruling the room rule where the oracle runs all its trains: its own branch, next) |
 | fuzz seed 34 | live (3/3) | 7 / 7 / 7 | pass |
 | fuzz seed 37 | live (3/3) | 7 / 8 / 7 | pass |
 | fuzz seed 42 | dead (0/2) | stall at 6 s (in-way, in-way); 0 / 0 | pass |

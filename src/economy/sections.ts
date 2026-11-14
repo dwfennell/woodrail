@@ -2393,8 +2393,9 @@ export class Sections {
       if (!search) {
         if (!this.stalledForSwap(info)) return null;
         const tried = this.swapTried.get(lineId);
-        if (tried && tried.revision === this.layout.revision && this.sim.ticks - tried.at < SWAP_RETRY) return null;
-        this.swapTried.set(lineId, { revision: this.layout.revision, at: this.sim.ticks });
+        // (Again only a while after a search that found no plan: one that ran out, a new one from where they stand.)
+        if (tried && tried.failed && tried.revision === this.layout.revision && this.sim.ticks - tried.at < SWAP_RETRY) return null;
+        this.swapTried.set(lineId, { revision: this.layout.revision, at: this.sim.ticks, failed: false });
         const stops = this.host.stopPieces(lineId);
         const trains = info.engines.map((e) => {
           const t = this.sim.findCar(e)!.train;
@@ -2412,7 +2413,11 @@ export class Sections {
       if (!search.done) return null;
       this.swapSearches.delete(lineId);
       const plan = planOf(search.s, info.engines.length);
-      if (!plan) return null;
+      if (!plan) {
+        const tried = this.swapTried.get(lineId);
+        if (tried) tried.failed = true;
+        return null;
+      }
       sw = { plan, engines: [...info.engines], revision: this.layout.revision, at: 0, moves: [], targets: info.engines.map((e) => this.host.target(e)), served: info.engines.map(() => this.sim.ticks) };
       this.swaps.set(lineId, sw);
     }
@@ -2512,7 +2517,7 @@ export class Sections {
   }
 
   /** Have all a line's trains stood held for one another `SWAP_AFTER`, with none but its own on its track? */
-  private stalledForSwap(info: LineInfo): boolean {
+  private stalledForSwap(info: LineInfo, after = SWAP_AFTER): boolean {
     if (info.engines.length < 2 || info.loose.length > 0 || info.foreign.length > 0 || info.users.length !== info.engines.length) return false;
     // (Only with a spare end to trade places through (no industry on it, none of the line's stops: the plan's
     // `spareEnd`, the user's A1): else a line its room rule holds a train of is full as that says, the player's to fix
@@ -2524,7 +2529,7 @@ export class Sections {
     for (const e of info.engines) {
       const st = this.states.get(e);
       const t = this.sim.findCar(e)?.train;
-      if (!st || !t || !st.wait || st.waitSince < 0 || now - st.waitSince < SWAP_AFTER || t.speed >= 1) return false;
+      if (!st || !t || !st.wait || st.waitSince < 0 || now - st.waitSince < after || t.speed >= 1) return false;
     }
     return true;
   }
@@ -2635,6 +2640,22 @@ export class Sections {
     return lineId >= 0 && (this.swaps.has(lineId) || this.swapSearches.has(lineId));
   }
 
+  /**
+   * Is the swap planner taking this train's line through, looking for a way, or about to (every train of a line it can
+   * take standing in a wait, and it hasn't tried since the track changed, or not lately): a stall isn't said for it
+   * then (stalls.ts; the user's (a), 2026-11-14). Tried and no plan found, it's said as before.
+   */
+  swapHolds(engine: number): boolean {
+    if (!this.enabled) return false;
+    if (this.swapping(engine)) return true;
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0) return false;
+    const info = this.line(lineId);
+    if (!info.engines.includes(engine) || !this.stalledForSwap(info, 0)) return false;
+    const tried = this.swapTried.get(lineId);
+    return !(tried && tried.failed && tried.revision === this.layout.revision && this.sim.ticks - tried.at < SWAP_RETRY);
+  }
+
   /** May this train turn round nose to nose with one standing at the end of the line: the swap planner's turn. */
   turnsNose(train: Train): boolean {
     if (this.swaps.size === 0) return false;
@@ -2643,7 +2664,7 @@ export class Sections {
   }
 
   private readonly swaps = new Map<number, SwapState>();
-  private readonly swapTried = new Map<number, { revision: number; at: number }>();
+  private readonly swapTried = new Map<number, { revision: number; at: number; failed: boolean }>();
   private readonly swapSearches = new Map<number, { s: OracleSearch; revision: number; engines: string; tick: number; searched: boolean; done: boolean }>();
 
   /** A refuge's innermost piece (its buffer's neighbour, else any of its pieces): what a train stepping aside aims for. */
