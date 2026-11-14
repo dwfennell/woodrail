@@ -261,7 +261,13 @@ describe("towns in rows", () => {
     expect(g.road[ahead] !== 0 || g.surface[ahead] === 2).toBe(true);
     b.front = front;
     // No street near: toward the town's centre, along the axis it lies farther on.
-    const far = { id: 99999, cells: [g.index(g.colOf(b.cells[0]) + 40, g.rowOf(b.cells[0]))], floors: 1 as const, kind: "house" as const, roof: 0 };
-    if (far.cells[0] !== -1) expect(rowFront(w.landscape, town, far)).toBe(2);
+    // (A square of the map far from any street, east or west of the town's middle by more than it is north or south.)
+    const cell = Array.from({ length: g.cellCount }, (_, i) => i).find((i) => {
+      const near = [1, 2].some((reach) => dirs.some(([dc, dr]) => { const n = g.index(g.colOf(i) + dc * reach, g.rowOf(i) + dr * reach); return n !== -1 && (g.road[n] !== 0 || g.surface[n] === 2); }));
+      return !near && Math.abs(g.centreX(g.colOf(i)) - town.centre.x) > Math.abs(g.centreZ(g.rowOf(i)) - town.centre.z) + 72;
+    });
+    expect(cell).toBeDefined();
+    const far = { id: 99999, cells: [cell!], floors: 1 as const, kind: "house" as const, roof: 0 };
+    expect(rowFront(w.landscape, town, far)).toBe(g.centreX(g.colOf(cell!)) < town.centre.x ? 0 : 2);
   });
 });

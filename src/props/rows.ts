@@ -22,8 +22,7 @@ export const ROW_ROOFS = ["#b9462f", "#4d5d6e", "#2f6048", "#7a5a48"] as const;
 export function rowColours(variant: number): { body: string; second: string; roof: string; door: string } {
   const v = Math.max(0, Math.floor(variant));
   const body = v % ROW_BODIES.length;
-  // (The second house of a pair or a terrace: three on round the list, so the two never match.)
-  return { body: ROW_BODIES[body], second: ROW_BODIES[(body + 3) % ROW_BODIES.length], roof: ROW_ROOFS[Math.floor(v / ROW_BODIES.length) % ROW_ROOFS.length], door: ROW_DOORS[body] };
+  return { body: ROW_BODIES[body], second: ROW_BODIES[secondOf(body)], roof: ROW_ROOFS[Math.floor(v / ROW_BODIES.length) % ROW_ROOFS.length], door: ROW_DOORS[body] };
 }
 
 /** The stand-in colours a row model is made in (tools/blender/bldg_rows.py), and what each becomes for `variant`. */
@@ -51,15 +50,29 @@ export function townPalette(seed: number, townId: number, level: number): RowPal
   return { bodies: drawn(ROW_BODIES.length, 5, s), roofs: drawn(ROW_ROOFS.length, level >= 3 ? 3 : 2, s ^ 0x5eed) };
 }
 
+/** The second house's body colour for a body (a pair's, a terrace's: three on round the list, so the two never match). */
+const secondOf = (body: number): number => (body + 3) % ROW_BODIES.length;
+
 /**
- * A new slice's `variant`: from the town's palette by `hash` (its squares' and its town's), never the body colour of
- * a slice already standing beside it (`besides`: their variants) while the palette has another.
+ * A new slice's `variant`: from the town's palette by `hash` (its squares' and its town's). Never the body colour of
+ * a slice already standing beside it (`besides`: their variants) while the palette has another; and, where it can,
+ * neither of its colours either colour of a pair beside it (a pair's second house is a colour of its own).
  */
 export function rowVariant(palette: RowPalette, hash: number, besides: readonly number[]): number {
-  const taken = new Set(besides.map((v) => Math.floor(v) % ROW_BODIES.length));
+  const bodies = new Set(besides.map((v) => Math.floor(v) % ROW_BODIES.length));
+  const seconds = new Set([...bodies].map(secondOf));
   const h = hash >>> 0;
   let body = palette.bodies[h % palette.bodies.length];
-  for (let k = 1; k < palette.bodies.length && taken.has(body); k++) body = palette.bodies[(h + k) % palette.bodies.length];
+  let best = Infinity;
+  for (let k = 0; k < palette.bodies.length; k++) {
+    const c = palette.bodies[(h + k) % palette.bodies.length];
+    // (A body the same as a neighbour's is the worst; a second colour meeting one of theirs, less so.)
+    const clash = (bodies.has(c) ? 4 : 0) + (seconds.has(c) ? 1 : 0) + (bodies.has(secondOf(c)) || seconds.has(secondOf(c)) ? 1 : 0);
+    if (clash < best) {
+      best = clash;
+      body = c;
+    }
+  }
   const roof = palette.roofs[(h >>> 8) % palette.roofs.length];
   return body + ROW_BODIES.length * roof;
 }

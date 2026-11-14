@@ -45,6 +45,17 @@ describe("towns in rows: colours and assets", () => {
     }
   });
 
+  it("neither house of a pair takes a colour of the pair beside it", () => {
+    const p = townPalette(7, 1, 3);
+    for (let h = 0; h < 400; h++) {
+      const beside = rowVariant(p, h * 31 + 5, []);
+      const theirs = [rowColours(beside).body, rowColours(beside).second];
+      const mine = rowColours(rowVariant(p, h, [beside]));
+      expect(theirs, `${h}`).not.toContain(mine.body);
+      expect(theirs, `${h}`).not.toContain(mine.second);
+    }
+  });
+
   it("every house and shop a town builds today has a row", () => {
     for (const old of ["bldg-townhouse", "bldg-thatched-cottage", "bldg-timber-house", "bldg-bungalow", "bldg-brick-house", "bldg-narrow-house", "bldg-semi-detached", "bldg-villa", "bldg-terrace", "bldg-cottage-row", "bldg-corner-shop", "bldg-toy-shop", "bldg-apartment-block", "bldg-bakery", "bldg-cafe", "bldg-post-office"]) {
       expect(rowAssetIds()).toContain(rowFor(old));
