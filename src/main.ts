@@ -5115,6 +5115,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.flashBlocker(b.car, b.points);
   }
 
+  /**
+   * A sheet or card whose code couldn't be fetched when first opened (offline, or a tab older than the build now
+   * served: the old files are gone): say so, with a tap to reload, and report it. The next tap tries again.
+   */
+  function lazyFailed(e: unknown): void {
+    console.error("Woodrail: couldn't fetch part of the game", e);
+    crashes?.report("rejection", e);
+    hud.toast("Couldn't fetch that part of the game. Tap here to reload.", false, 6000, () => location.reload());
+  }
+
   // The paint shop's sheet (game/paint-shop.ts): an engine painted from its card.
   // (Its code is loaded the first time it opens.)
   const paintSheet = lazy(async () => new (await import("./ui/paint-sheet")).PaintSheet({
@@ -5147,7 +5157,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       scheduleSave("progress");
       return true;
     },
-  }));
+  }), lazyFailed);
 
   hud.onEngineCardShown = () => {
     // The paint shop (Game mode, once a town is a Town): 🎨 on the engine's card.
@@ -7263,7 +7273,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving });
   // (Its code is loaded the first time it's shown.)
-  const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m))) : null;
+  const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m)), lazyFailed) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
   const feedbackUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
@@ -7279,7 +7289,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       capture: () => game.capture(),
       info: () => ({ build: __BUILD_ID__ || "dev", badges: [...recentBreaks(), ...recentErrors()] }),
       toast: (m) => hud.toast(m),
-    }));
+    }), lazyFailed);
     hud.addFeedbackItem(() => {
       hud.hideCards();
       sheet.use((f) => f.show());
@@ -7508,6 +7518,13 @@ requestAnimationFrame(() =>
         console.error("Woodrail: couldn't load the models", e);
         return new Promise<void>((resolve) => offerRetry(() => resolve(models())));
       });
+    // (Zod and the save's schemas, not in the first download: wanted before the save is read, below. Each fetch
+    // retries; if they still can't be had, the same offer to try again.)
+    const schemas = (): Promise<void> =>
+      loadSaveSchemas().catch((e: unknown) => {
+        console.error("Woodrail: couldn't load the save's schemas", e);
+        return new Promise<void>((resolve) => offerRetry(() => resolve(schemas())));
+      });
     void loadModelSet("trains").then(() => loadBar.set("trains", 1), () => {});
     void loadModelSet("dressing", true).then(() => loadBar.set("dressing", 1), () => {});
     void Promise.all([
@@ -7515,8 +7532,7 @@ requestAnimationFrame(() =>
       loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (loadBar.set("thumbnails", 1), t)),
       models(),
       texturesKept,
-      // (Zod and the save's schemas, not in the first download: wanted before the save is read, below.)
-      loadSaveSchemas(),
+      schemas(),
     ]).then(async ([, thumbs]) => {
       // The cloud check, under way all this while: waited for only a little longer than the rest took.
       const cloudNotes = { ...takeCloudNote(), ...((await Promise.race([cloudStarted, sleep(CLOUD_WAIT_MS).then(() => ({}))])) as CloudNotes) };
