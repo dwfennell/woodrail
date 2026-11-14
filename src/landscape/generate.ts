@@ -1,6 +1,7 @@
 import { rng } from "../lib/rng";
 import type { Pose } from "../track";
 import { growTown } from "../roads/grow-town";
+import { rowsOn } from "../props/rows";
 import { coastNear, coastOf, SAND, shoreDistance, type Coast } from "./coast";
 import { BORDER_BAND, hashInts, regionStubs, STUB_DEPTH, type Region, type Stub } from "./edges";
 import {
@@ -493,7 +494,7 @@ const townSize = (town: Town): number => TOWN_START_MIN + (hashInts(Math.floor(t
  */
 function growInto(grid: LandscapeGrid, town: Town, n: number, canUse: (i: number) => boolean, toward: { x: number; z: number }[], random: () => number, nextId: number): number {
   let buildingId = nextId;
-  const steps = growTown(grid, { centre: town.centre, heading: town.station.heading, cells: town.cells, buildings: town.buildings }, n, { canUse, toward });
+  const steps = growTown(grid, { centre: town.centre, heading: town.station.heading, cells: town.cells, buildings: town.buildings }, n, { canUse, toward, rows: rowsOn() });
   const ids: number[] = [];
   for (const step of steps) {
     for (const [i, road] of step.streets) {
