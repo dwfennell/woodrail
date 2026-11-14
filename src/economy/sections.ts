@@ -2514,6 +2514,12 @@ export class Sections {
   /** Have all a line's trains stood held for one another `SWAP_AFTER`, with none but its own on its track? */
   private stalledForSwap(info: LineInfo): boolean {
     if (info.engines.length < 2 || info.loose.length > 0 || info.foreign.length > 0 || info.users.length !== info.engines.length) return false;
+    // (Only with a spare end to trade places through (no industry on it, none of the line's stops: the plan's
+    // `spareEnd`, the user's A1): else a line its room rule holds a train of is full as that says, the player's to fix
+    // (lay a loop: its card), and the held one stays held (sections-qa's room cases; fuzz seed 19 so, known).)
+    if (!this.hasSpareEnd(this.host.lineOf(info.engines[0]), info.topo)) return false;
+    // (Nor with signals laid: the plan doesn't heed them (a train held at a green one, the signal fuzz).)
+    if (this.layout.signalCount > 0) return false;
     const now = this.sim.ticks;
     for (const e of info.engines) {
       const st = this.states.get(e);
@@ -2522,6 +2528,26 @@ export class Sections {
     }
     return true;
   }
+
+  /** Has the line a spare end: a line end with no industry on it (no depot piece) and none of its stops (the plan's `spareEnd`)? */
+  private hasSpareEnd(lineId: number, topo: Topology): boolean {
+    const key = `${lineId}|${this.layout.revision}`;
+    let m = this.spareCache.get(topo);
+    const hit = m?.get(key);
+    if (hit !== undefined) return hit;
+    const stops = new Set(this.host.stopPieces(lineId));
+    let any = false;
+    for (const sl of topo.slots) {
+      if (sl.kind !== "end") continue;
+      let spare = true;
+      for (const p of sl.pieces) if (stops.has(p) || this.layout.getPiece(p)?.type.startsWith("depot")) spare = false;
+      if (spare) any = true;
+    }
+    if (!m) this.spareCache.set(topo, (m = new Map()));
+    m.set(key, any);
+    return any;
+  }
+  private readonly spareCache = new WeakMap<Topology, Map<string, boolean>>();
 
   /** A train as the plan has it: its pieces by its length, and how far short of its front piece's end it stands. */
   private planTrainOf(t: Train): PlanTrain {
