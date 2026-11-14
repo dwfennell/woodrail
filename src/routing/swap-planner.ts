@@ -44,20 +44,31 @@ export function planSwap(layout: Layout, trains: OTrain[], maxStates = PLAN_STAT
   return { states: o.graph.states, edges: o.graph.edges, keep: new Set(o.graph.best) };
 }
 
-/** The plan's state where every train covers the same pieces, the same way, as `now` (−1: none). */
-export function stateOf(plan: SwapPlan, now: readonly PlanTrain[]): number {
-  const sig = (t: PlanTrain) => t.e.map((x) => `${x.p}.${x.en}.${x.ex}`).join(" ");
-  const want = now.map(sig);
+/**
+ * The plan's state where every train's front is where it is now, on the same piece going the same way, or (`ahead[k]`)
+ * a piece on (the plan has a train's front a little further on than the game's lead bogie: it keeps a gap and an
+ * inset the plan doesn't), the nearest by how far short of its front piece's end each stands. −1: none.
+ */
+export function stateOf(plan: SwapPlan, now: readonly PlanTrain[], ahead?: readonly (Elem | null)[]): number {
+  const front = (t: PlanTrain) => t.e[t.e.length - 1];
+  const same = (a: Elem, b: Elem) => a.p === b.p && a.en === b.en && a.ex === b.ex;
   let best = -1;
-  let bestFs = Infinity;
+  let bestD = Infinity;
   for (let i = 0; i < plan.states.length; i++) {
     const s = plan.states[i];
-    if (s.length !== want.length || !s.every((t, k) => sig(t) === want[k])) continue;
-    // (Several close-up states on the same pieces: the one nearest how far short each stands.)
-    const d = s.reduce((acc, t, k) => acc + Math.abs(t.fs - now[k].fs), 0);
-    if (d < bestFs) {
+    if (s.length !== now.length) continue;
+    let d = 0;
+    let ok = true;
+    for (let k = 0; k < s.length && ok; k++) {
+      const pf = front(s[k]);
+      const gf = front(now[k]);
+      if (gf && same(pf, gf)) d += Math.abs(s[k].fs - now[k].fs);
+      else if (ahead?.[k] && same(pf, ahead[k]!)) d += 1000 + s[k].fs;
+      else ok = false;
+    }
+    if (ok && d < bestD) {
       best = i;
-      bestFs = d;
+      bestD = d;
     }
   }
   return best;

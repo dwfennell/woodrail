@@ -203,7 +203,8 @@ interface SwapWay {
   aim: number;
   follow: AvoidTest;
 }
-type SwapMove = PlannedMove & { engine: number; way: SwapWay | null };
+/** `began`: the tick the move was given (a turn is done once the train has turned since). */
+type SwapMove = PlannedMove & { engine: number; way: SwapWay | null; began: number };
 /** A line the swap planner has (`swapCap`). */
 interface SwapState {
   plan: SwapPlan;
@@ -2375,7 +2376,13 @@ export class Sections {
       // (Every train at rest first: then where they stand in the plan, and its next move.)
       if (sw.engines.some((e) => (this.sim.findCar(e)?.train.speed ?? 0) >= 1)) return train.speed >= 1 ? Infinity : 0;
       const now = sw.engines.map((e) => this.planTrainOf(this.sim.findCar(e)!.train));
-      const at = stateOf(sw.plan, now);
+      const ahead = now.map((t) => {
+        const f = t.e[t.e.length - 1];
+        const n = f && f.ex >= 0 ? next(this.layout, f.p, f.ex) : null;
+        const w = n ? waysFrom(this.layout, n.pieceId, n.entry, () => true)[0] : undefined;
+        return n && w ? { p: n.pieceId, en: n.entry, ex: w.exit } : null;
+      });
+      const at = stateOf(sw.plan, now, ahead);
       const order = sw.engines.map((_, k) => k).sort((a, b) => sw!.served[a] - sw!.served[b] || a - b);
       const m = at < 0 ? null : runFrom(sw.plan, at, sw.targets, order);
       if (!m) {
@@ -2383,7 +2390,7 @@ export class Sections {
         return null;
       }
       const mover = this.sim.findCar(sw.engines[m.k])!.train;
-      sw.move = { ...m, engine: sw.engines[m.k], way: m.turn ? null : this.swapWay(mover, m) };
+      sw.move = { ...m, engine: sw.engines[m.k], way: m.turn ? null : this.swapWay(mover, m), began: this.sim.ticks };
       if (!m.turn && !sw.move.way) {
         this.swaps.delete(lineId);
         return null;
@@ -2403,9 +2410,11 @@ export class Sections {
     if (mv.turn) {
       // (Turning round at the end of the line ahead (or behind a train standing at it: `turnsNose`): done once its front is
       // where the plan has it.)
+      // (Or turned since the move began, by the sim's own count (its front then a little short of the plan's).)
       const f = elemsByLength(this.layout, train);
       const tf = mv.to.e[mv.to.e.length - 1];
-      if (f.length > 0 && f[f.length - 1].p === tf.p && f[f.length - 1].ex === tf.ex) {
+      const turned = !!train.lastTurn && train.lastTurn.tick >= mv.began;
+      if ((f.length > 0 && f[f.length - 1].p === tf.p && f[f.length - 1].ex === tf.ex) || turned) {
         sw.move = null;
         return 0;
       }
