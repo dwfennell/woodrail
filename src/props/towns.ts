@@ -1,11 +1,13 @@
 import { rng } from "../lib/rng";
-import { CELL, FEAT_BUILDING, FEAT_NONE, SURF_GRASS, SURF_TOWN, type Building, type Landscape, type Town } from "../landscape";
+import { CELL, FEAT_BUILDING, FEAT_NONE, SURF_GRASS, SURF_ROAD, SURF_TOWN, type Building, type Landscape, type Town } from "../landscape";
+import { hashInts } from "../landscape/edges";
 import { footprintOf, townLooks, type Look } from "../render/dressing/buildings";
 import { COLOR_VARIANTS } from "../render/props/library";
 import type { PropStore } from "./store";
 import { landmarkOf } from "../game/landmarks";
 import { isPlace, placeOf } from "../game/places";
 import { scaleOf } from "../catalogue/scale";
+import { isRow, ROW_ASSETS, ROW_HOUSES_1, rowFor, rowsOn, rowVariant, townPalette } from "./rows";
 import { chanceOf, extraStyles, jitterOf, SPIRE_LEVEL, storeysFor, STYLES_BY_LEVEL } from "./storeys";
 
 /**
@@ -161,6 +163,83 @@ export interface TownDressing {
   level?: number;
   /** The model a building is dressed with already (undefined: none yet). */
   dressedAs?: (building: number) => string | undefined;
+  /** Towns in rows (props/rows.ts): houses and shops are slices that fill their lots, in the town's palette. */
+  rows?: boolean;
+  /** With `rows`: the colour variant a building's prop has already (undefined: none yet). */
+  variantOf?: (building: number) => number | undefined;
+}
+
+/** What a building's look and lot make it in a town in rows: the models to pick from (see `ROW_ASSETS`). */
+function rowsFor(look: Look, squares: number, corner: boolean, styles: readonly string[]): readonly string[] | undefined {
+  if (squares >= 4) return [ROW_ASSETS.four.court];
+  if (squares === 2) {
+    if (look === "church") return undefined;
+    if (look === "bakery" || look === "cafe" || look === "post") return [ROW_ASSETS.two[look]];
+    return [look === "shop" ? ROW_ASSETS.two.flats : ROW_ASSETS.two.terrace];
+  }
+  if (look === "house" || look === "terrace" || look === "church" || look === "school") return styles;
+  // A shop of any kind on one square: on a corner, the corner shop; the toy shop is a rare find (one in ten).
+  return corner ? ROW_ASSETS.one.corner : [...Array<string>(9).fill(ROW_ASSETS.one.shop[0]), ROW_ASSETS.one.shop[1]];
+}
+
+/**
+ * The grid edge a building in a row faces: its street (`front`); without one (an older save's building, or one put
+ * up off the streets), the nearest street square within two squares of it, else toward the station. A two-square
+ * lot's front is on its long side.
+ */
+export function rowFront(land: Landscape, town: Town, b: Building): 0 | 1 | 2 | 3 {
+  const g = land.grid;
+  const cols = b.cells.map((c) => g.colOf(c));
+  const rows = b.cells.map((c) => g.rowOf(c));
+  const wide = Math.max(...cols) - Math.min(...cols);
+  const tall = Math.max(...rows) - Math.min(...rows);
+  // (Edges 0 and 2 look along the columns, 1 and 3 along the rows.)
+  const fits = (e: number) => wide === tall || (wide > tall ? e % 2 === 1 : e % 2 === 0);
+  if (b.front !== undefined && fits(b.front)) return b.front;
+  for (const reach of [1, 2]) {
+    for (let e = 0; e < 4; e++) {
+      if (!fits(e)) continue;
+      for (const c of b.cells) {
+        const i = g.index(g.colOf(c) + EDGES[e].x * reach, g.rowOf(c) + EDGES[e].z * reach);
+        if (i !== -1 && !b.cells.includes(i) && (g.surface[i] === SURF_ROAD || g.road[i] !== 0)) return e as 0 | 1 | 2 | 3;
+      }
+    }
+  }
+  const cx = cols.reduce((a, c) => a + g.centreX(c), 0) / cols.length;
+  const cz = rows.reduce((a, r) => a + g.centreZ(r), 0) / rows.length;
+  const tx = town.centre.x - cx;
+  const tz = town.centre.z - cz;
+  const alongX = fits(0) && (!fits(1) || Math.abs(tx) >= Math.abs(tz));
+  return alongX ? (tx >= 0 ? 0 : 2) : tz >= 0 ? 1 : 3;
+}
+
+/** Where a row model stands: its lot's middle (a court's: its street squares' middle), its front on `rowFront`. */
+export function rowPose(land: Landscape, town: Town, b: Building, asset: string): { x: number; z: number; heading: number } {
+  const g = land.grid;
+  const f = EDGES[rowFront(land, town, b)];
+  let x = 0;
+  let z = 0;
+  for (const c of b.cells) {
+    x += g.centreX(g.colOf(c));
+    z += g.centreZ(g.rowOf(c));
+  }
+  x /= b.cells.length;
+  z /= b.cells.length;
+  const out = asset === ROW_ASSETS.four.court && b.cells.length >= 4 ? CELL / 2 : 0;
+  return { x: x + f.x * out, z: z + f.z * out, heading: Math.atan2(f.z, f.x) };
+}
+
+/** The buildings on the squares beside `b`'s (by id), from the grid. */
+function besideOf(land: Landscape, b: Building): number[] {
+  const g = land.grid;
+  const out = new Set<number>();
+  for (const c of b.cells) {
+    for (const e of EDGES) {
+      const i = g.index(g.colOf(c) + e.x, g.rowOf(c) + e.z);
+      if (i !== -1 && !b.cells.includes(i) && g.feature[i] === FEAT_BUILDING && g.owner[i] !== b.id) out.add(g.owner[i]);
+    }
+  }
+  return [...out];
 }
 
 /**
@@ -176,17 +255,23 @@ export function townProps(land: Landscape, town: Town, dressing: TownDressing = 
   const r = rng((Math.imul(land.seed, 71) + town.id * 613 + 29) >>> 0);
   const pick = <T>(list: readonly T[]) => list[Math.floor(r() * list.length)];
   // Three house styles per town, so its houses look like they belong together.
-  const styles = [...HOUSES_1].sort(() => r() - 0.5).slice(0, 3);
+  const rows = dressing.rows ?? false;
+  const styles = [...(rows ? ROW_HOUSES_1 : HOUSES_1)].sort(() => r() - 0.5).slice(0, 3);
+  // (In rows: the town's colours, and each building's as it's given one, for its neighbours to steer clear of.)
+  const palette = rows ? townPalette(land.seed, town.id, level) : null;
+  const variants = new Map<number, number>();
   const dressedAs = dressing.dressedAs ?? (() => undefined);
   let church = level < SPIRE_LEVEL || looks.some((l, k) => l === "church" && town.buildings[k].cells.length === 2) || town.buildings.some((b) => dressedAs(b.id) === "bldg-church");
   return town.buildings.map((b, k) => {
     const squares = b.cells.length >= 4 ? 4 : b.cells.length > 1 ? 2 : 1;
-    const own = (squares === 4 ? undefined : BY_LOOK[looks[k]][squares]) ?? (squares > 1 ? HOUSES_2 : styles);
+    const inRows = rows ? rowsFor(looks[k], squares, b.corner ?? false, styles) : undefined;
+    const own = inRows ?? (squares === 4 ? undefined : BY_LOOK[looks[k]][squares]) ?? (squares > 1 ? HOUSES_2 : styles);
     // A plain house's lot in a bigger town: more styles to build with (a building dressed already keeps its own).
-    const plain = own === HOUSES_2 || own === styles;
+    const plain = inRows ? looks[k] === "house" || looks[k] === "terrace" : own === HOUSES_2 || own === styles;
     const fresh = dressedAs(b.id) === undefined;
     // (Half the new buildings of a bigger town in its new styles, so they show: one draw either way.)
-    const extra = plain && fresh && level > 0 ? extraStyles(level, squares) : [];
+    // (In rows: the houses among them as their rows; the civic ones, a kiosk, a fire station, as they are for now.)
+    const extra = plain && fresh && level > 0 ? extraStyles(level, squares).map((a) => (rows ? (rowFor(a) ?? a) : a)) : [];
     // A landmark: its own model, the first of its list that's in the catalogue and fits its lot (others stand in).
     const mark = b.landmark ? (landmarkOf(b.landmark) ?? placeOf(b.landmark)) : undefined;
     // (On a smaller lot than it wants, still itself: drawn as large as fits there.)
@@ -201,7 +286,14 @@ export function townProps(land: Landscape, town: Town, dressing: TownDressing = 
       church = true;
     }
     const fit = marked ? fitScale(marked, squares, min)! / scaleOf(marked) : 1;
-    const variant = Math.floor(r() * (COLOR_VARIANTS + 1));
+    let variant = Math.floor(r() * (COLOR_VARIANTS + 1));
+    if (palette && isRow(asset)) {
+      // Its own colour, for good: the one its prop has; else from the palette, not the body of a slice beside it.
+      const beside = besideOf(land, b).map((id) => variants.get(id) ?? dressing.variantOf?.(id)).filter((v): v is number => v !== undefined);
+      variant = dressing.variantOf?.(b.id) ?? rowVariant(palette, hashInts(b.cells[0], town.id, 0x51ce), beside);
+      variants.set(b.id, variant);
+      return { asset, ...rowPose(land, town, b, asset), building: b.id, town: town.id, variant };
+    }
     return { asset, ...poseFor(land, town, b, looks[k], asset, fit), building: b.id, town: town.id, variant, ...(fit < 1 - 1e-6 ? { scale: fit } : {}) };
   });
 }
@@ -330,14 +422,20 @@ function facing(land: Landscape, town: Town, b: Building, look: Look, asset: str
  * Give every town building that has no prop yet its catalogue model: a new map's towns, towns on land just added, and
  * saves from before towns were props. Returns how many were added.
  */
-export function addTownProps(land: Landscape, props: PropStore, levelOf?: (town: number) => number): number {
+export function addTownProps(land: Landscape, props: PropStore, levelOf?: (town: number) => number, rows = rowsOn()): number {
+  if (rows) dressInRows(land, props);
   const have = new Map<number, string>();
-  for (const p of props.all()) if (p.building !== undefined) have.set(p.building, p.asset);
+  const variants = new Map<number, number>();
+  for (const p of props.all()) {
+    if (p.building === undefined) continue;
+    have.set(p.building, p.asset);
+    if (isRow(p.asset)) variants.set(p.building, p.variant ?? 0);
+  }
   let added = 0;
   for (const town of land.towns) {
     const wanted = town.buildings.some((b) => !have.has(b.id));
     if (!wanted) continue;
-    for (const t of townProps(land, town, { level: levelOf?.(town.id) ?? 0, dressedAs: (id) => have.get(id) })) {
+    for (const t of townProps(land, town, { level: levelOf?.(town.id) ?? 0, dressedAs: (id) => have.get(id), rows, variantOf: (id) => variants.get(id) })) {
       if (have.has(t.building)) continue;
       // On its square's ground: a town that has grown onto a hill stands its houses on the blocks.
       const cell = land.grid.cellAtWorld(t.x, t.z);
@@ -347,6 +445,36 @@ export function addTownProps(land: Landscape, props: PropStore, levelOf?: (town:
     }
   }
   return added;
+}
+
+/**
+ * Towns in rows: every town building still dressed with one of today's house or shop models becomes its row
+ * (`rowFor`; a shop on a corner, the corner shop), where it stands: the same prop (its id, its storeys, its colour
+ * number read as a row's), on its lot's middle, facing its street. Nothing on the map moves. Returns how many changed.
+ */
+export function dressInRows(land: Landscape, props: PropStore): number {
+  let changed = 0;
+  for (const p of [...props.all()]) {
+    if (p.building === undefined) continue;
+    let asset = rowFor(p.asset);
+    if (!asset) continue;
+    const found = findBuilding(land, p.building);
+    if (!found) continue;
+    const { town, building } = found;
+    const squares = building.cells.length >= 4 ? 4 : building.cells.length > 1 ? 2 : 1;
+    // (A model on a lot of another size than its row wants, a townhouse on two squares: the row its lot takes.)
+    const one = !(Object.values(ROW_ASSETS.two) as string[]).includes(asset);
+    if (squares === 4) asset = ROW_ASSETS.four.court;
+    else if (squares === 2 && one) asset = ROW_ASSETS.two.terrace;
+    else if (squares === 1 && !one) asset = asset === ROW_ASSETS.two.terrace ? ROW_ASSETS.one.pair[0] : ROW_ASSETS.one.shop[0];
+    else if (asset === ROW_ASSETS.one.shop[0] && building.corner) asset = ROW_ASSETS.one.corner[0];
+    const pose = rowPose(land, town, building, asset);
+    const cell = land.grid.cellAtWorld(pose.x, pose.z);
+    props.remove(p.id);
+    props.add(asset, { ...pose, y: cell >= 0 ? land.grid.groundY(cell) : p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) });
+    changed++;
+  }
+  return changed;
 }
 
 /**
