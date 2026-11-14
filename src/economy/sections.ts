@@ -2370,12 +2370,14 @@ export class Sections {
           const t = this.sim.findCar(e)!.train;
           return { elems: elemsByLength(this.layout, t), stops: [...stops], length: trainLength(t) };
         });
-        search = { s: swapSearch(this.layout, trains), revision: this.layout.revision, engines: info.engines.join(","), tick: -1, done: false };
+        search = { s: swapSearch(this.layout, trains), revision: this.layout.revision, engines: info.engines.join(","), tick: -1, searched: false, done: false };
         this.swapSearches.set(lineId, search);
       }
       if (search.tick !== this.sim.ticks) {
         search.tick = this.sim.ticks;
-        search.done = search.s.step(SWAP_SLICE);
+        // (Searched: then the answer, a slice a tick too.)
+        if (!search.searched) search.searched = search.s.step(SWAP_SLICE);
+        else search.done = search.s.finishStep(SWAP_SLICE * 40);
       }
       if (!search.done) return null;
       this.swapSearches.delete(lineId);
@@ -2586,7 +2588,7 @@ export class Sections {
 
   private readonly swaps = new Map<number, SwapState>();
   private readonly swapTried = new Map<number, { revision: number; at: number }>();
-  private readonly swapSearches = new Map<number, { s: OracleSearch; revision: number; engines: string; tick: number; done: boolean }>();
+  private readonly swapSearches = new Map<number, { s: OracleSearch; revision: number; engines: string; tick: number; searched: boolean; done: boolean }>();
 
   /** A refuge's innermost piece (its buffer's neighbour, else any of its pieces): what a train stepping aside aims for. */
   private innerOf(slot: Slot): number {

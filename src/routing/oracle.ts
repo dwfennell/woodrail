@@ -104,6 +104,8 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
  */
 export interface OracleSearch {
   step(n: number): boolean;
+  /** Up to about `n` steps of working out the answer once `step` is done; true once it's there. */
+  finishStep(n: number): boolean;
   finish(): OracleResult;
   /** States found so far. */
   readonly size: number;
@@ -407,24 +409,50 @@ export function createOracle(layout: Layout, start: OTrain[], ends: "any" | "own
     next0 = states.length;
     return true;
   };
-  const finish = (): OracleResult => {
-    if (next0 < states.length) capped = true;
-  // Strongly connected sets (Tarjan, iterative).
-  const N = states.length;
-  const index = new Int32Array(N).fill(-1);
-  const low = new Int32Array(N);
-  const onStack = new Uint8Array(N);
-  const stack: number[] = [];
-  const comps: number[][] = [];
-  let idx = 0;
-  for (let s = 0; s < N; s++) {
-    if (index[s] !== -1) continue;
-    const work: [number, number][] = [[s, 0]];
-    while (work.length > 0) {
-      const top = work[work.length - 1];
+  // The answer, a slice at a time too (`finishStep`): the strongly connected sets (Tarjan, iterative), then which trains
+  // deliver in each. Kept between slices.
+  let fin: {
+    N: number;
+    index: Int32Array;
+    low: Int32Array;
+    onStack: Uint8Array;
+    stack: number[];
+    comps: number[][];
+    idx: number;
+    s: number;
+    work: [number, number][];
+    c: number;
+    best: number;
+    bestSet: number[];
+    bestComp: number[];
+    alone: boolean[];
+    cur: { at: number; seen: Set<number | string>[] } | null;
+    result: OracleResult | null;
+  } | null = null;
+  /** Up to about `budget` steps of the answer; true once it's there (`finish` gives it). */
+  const finishStep = (budget: number): boolean => {
+    if (!fin) {
+      if (next0 < states.length) capped = true;
+      const N = states.length;
+      fin = { N, index: new Int32Array(N).fill(-1), low: new Int32Array(N), onStack: new Uint8Array(N), stack: [], comps: [], idx: 0, s: 0, work: [], c: 0, best: 0, bestSet: [], bestComp: [], alone: start.map(() => false), cur: null, result: null };
+    }
+    const f = fin;
+    if (f.result) return true;
+    let left = budget;
+    const { N, index, low, onStack, stack, comps } = f;
+    while (f.s < N || f.work.length > 0) {
+      if (left-- <= 0) return false;
+      if (f.work.length === 0) {
+        if (index[f.s] !== -1) {
+          f.s++;
+          continue;
+        }
+        f.work.push([f.s, 0]);
+      }
+      const top = f.work[f.work.length - 1];
       const [v, ei] = top;
       if (ei === 0 && index[v] === -1) {
-        index[v] = low[v] = idx++;
+        index[v] = low[v] = f.idx++;
         stack.push(v);
         onStack[v] = 1;
       }
@@ -433,12 +461,12 @@ export function createOracle(layout: Layout, start: OTrain[], ends: "any" | "own
         top[1]++;
         const w = es[ei];
         if (w >= N) continue;
-        if (index[w] === -1) work.push([w, 0]);
+        if (index[w] === -1) f.work.push([w, 0]);
         else if (onStack[w]) low[v] = Math.min(low[v], index[w]);
       } else {
-        work.pop();
-        if (work.length > 0) {
-          const u = work[work.length - 1][0];
+        f.work.pop();
+        if (f.work.length > 0) {
+          const u = f.work[f.work.length - 1][0];
           low[u] = Math.min(low[u], low[v]);
         }
         if (low[v] === index[v]) {
@@ -453,37 +481,45 @@ export function createOracle(layout: Layout, start: OTrain[], ends: "any" | "own
         }
       }
     }
-  }
-  let best = 0;
-  let bestSet: number[] = [];
-  let bestComp: number[] = [];
-  const alone = start.map(() => false);
-  for (const c of comps) {
-    if (c.length < 2) continue;
-    const delivers: number[] = [];
-    for (let k = 0; k < n; k++) {
-      const stops = start[k].stops;
-      if (stops) {
-        const need = new Set(stops);
-        const seen = new Set<number>();
-        for (const s of c) for (const e of states[s][k].e) if (need.has(e.p)) seen.add(e.p);
-        if (seen.size === need.size) delivers.push(k);
-      } else {
-        const pos = new Set(c.map((s) => key([states[s][k]])));
-        if (pos.size > 1) delivers.push(k);
+    for (; f.c < comps.length; f.c++) {
+      const c = comps[f.c];
+      if (c.length < 2) continue;
+      // (Each train's stops seen, or its places, gathered a slice of states at a time.)
+      if (!f.cur) f.cur = { at: 0, seen: start.map(() => new Set<number | string>()) };
+      const cur = f.cur;
+      for (; cur.at < c.length; cur.at++) {
+        if (left-- <= 0) return false;
+        const st = states[c[cur.at]];
+        for (let k = 0; k < n; k++) {
+          const stops = start[k].stops;
+          if (stops) {
+            for (const e of st[k].e) if (stops.includes(e.p)) cur.seen[k].add(e.p);
+          } else cur.seen[k].add(key([st[k]]));
+        }
+      }
+      f.cur = null;
+      const delivers: number[] = [];
+      for (let k = 0; k < n; k++) {
+        const stops = start[k].stops;
+        if (stops ? cur.seen[k].size === new Set(stops).size : cur.seen[k].size > 1) delivers.push(k);
+      }
+      for (const k of delivers) f.alone[k] = true;
+      if (delivers.length > f.best) {
+        f.best = delivers.length;
+        f.bestSet = delivers;
+        f.bestComp = c;
       }
     }
-    for (const k of delivers) alone[k] = true;
-    if (delivers.length > best) {
-      best = delivers.length;
-      bestSet = delivers;
-      bestComp = c;
-    }
-  }
-  return { states: N, best, bestSet, alone, capped, graph: keep ? { states, edges, best: bestComp } : undefined };
+    f.result = { states: N, best: f.best, bestSet: f.bestSet, alone: f.alone, capped, graph: keep ? { states, edges, best: f.bestComp } : undefined };
+    return true;
+  };
+  const finish = (): OracleResult => {
+    finishStep(Infinity);
+    return fin!.result!;
   };
   return {
     step,
+    finishStep,
     finish,
     get size() {
       return states.length;
