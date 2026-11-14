@@ -10,7 +10,8 @@
  * - **pinned:** pinned points thrown (but by the player's lever tap: a pin keeps routes off them), or found moved.
  * - **restore:** points nobody holds or stands on for a second not at their default (opt-in: the harness).
  * - **deadlock:** a lever-on train standing `maxStill` s with nothing to say why (stuck sanity); a wait (sections',
- *   the router's, a stall's) naming a train that isn't there; sections' safety net letting a wait go.
+ *   the router's, a stall's) naming a train that isn't there; sections' safety net letting a wait go. (Not one waiting its
+ *   turn in a swap plan: `Sections.swapHolds`, the user's (a).)
  * - **lockRun:** a train's front runs onto points locked for other trains only.
  * - **redRun:** a train's front axle crosses a signal's joint while it's red, unless it was past braking for it when it
  *   turned red (counted in `redLate`, not a break).
@@ -653,7 +654,7 @@ export class Invariants {
     const { sim, sections, router, stalls } = this.world;
     const net = this.world.drive(t);
     const stuck = stalls.stuckOf(engine);
-    const excused = this.opts.excused ? this.opts.excused(t, engine) : !!stuck || sections.heldForRoom(engine) || router.waitOf(engine)?.kind === "pinned";
+    const excused = this.opts.excused ? this.opts.excused(t, engine) : !!stuck || sections.heldForRoom(engine) || router.waitOf(engine)?.kind === "pinned" || sections.swapHolds(engine);
     if (net !== 0 && t.speed === 0 && !excused) {
       const was = m.still;
       m.still += this.every;

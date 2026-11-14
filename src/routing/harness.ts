@@ -628,7 +628,7 @@ export class HarnessRun implements InvariantWorld {
         this.report.stalls.stuck[k]++;
         this.report.stalls.why[k] = stuck.kind;
       }
-      if (net !== 0 && t.speed === 0 && !stuck && !this.sections.heldForRoom(engine) && this.router.waitOf(engine)?.kind !== "pinned") {
+      if (net !== 0 && t.speed === 0 && !stuck && !this.sections.heldForRoom(engine) && this.router.waitOf(engine)?.kind !== "pinned" && !this.sections.swapHolds(engine)) {
         const s = ++this.still[k];
         if (s > this.report.longestStill[k]) this.report.longestStill[k] = s;
       } else this.still[k] = 0;
