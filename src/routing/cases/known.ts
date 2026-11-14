@@ -4,5 +4,4 @@
  * proposed fix clears it: docs/agents/routing-cases.md.
  */
 export const KNOWN: Record<string, string[]> = {
-  "ring1 3×one same sig:blocks2": ["stalls-live"],
 };

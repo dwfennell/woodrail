@@ -273,7 +273,7 @@ dead, and one stands on points whatever it does (a train standing still sooner, 
 that were only passing points). 10 known. The long fuzz is as before seed for seed; its never-worse check lists fuzz 136
 (all hand-run it now runs, 2 → 140 stops; with the route two hand-run trains still meet head on in the line's end).
 
-**Where it stands (2026-11-14): 1 known, with its reason in `reasons.ts`:**
+**Where it stands (2026-11-14): 0 known.** The last ones and what took them off:
 - (the five three-train spare cases the swap planner runs, `swap-planner.ts`: one train moving at a time, a round some
   140 s. By the user's (a), 2026-11-14, a line the planner keeps delivering counts as live: no stall is said while the
   planner has the line, is looking for a way or is about to (`Sections.swapHolds`), the deadlock invariant excuses a
@@ -283,8 +283,13 @@ that were only passing points). 10 known. The long fuzz is as before seed for se
   2026-11-14, the planner overrules the room rule on a line of three ends or more with no passing loop where its search
   finds every train delivering: 19 and 21 stops in 300 s. Where it finds none the hold stands and the card says lay a
   loop; a plan with no train coming to a stop for 180 s is given up.)
-- one waits on the call-on (ring1 3× one same sig:blocks2): a second train following into a block behind one at its
-  far signal, which the user said yes to;
+- (ring1 3× one same sig:blocks2: two trains filled the loop's roads, the third stood at the far signal of the other
+  block, and each waited on the other. By the user's narrow permissive working, 2026-11-14, a train may follow into a
+  plain block behind the one train standing still at its far signal: one extra only, of the lines working that track,
+  both fitting in the block's waiting point with the gap, so clear of its entry signal and of points
+  (`Sections.permits`; the sim lets it past the entry signal by `callOnAt`). 7/8/6 stops in 150 s. It also needed path
+  signals worked out again when a move is granted (`Sections.gateVersion`): one regranted onto the free loop road while
+  every train stood kept its old red for good.)
 - (the three put down short of points they meet another on, line1 2× hand opposed facing and branch, branch-spare 2×
   mix opposed, are the player's doing by the user's rule of 2026-11-14, and judged so.)
 

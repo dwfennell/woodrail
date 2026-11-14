@@ -888,7 +888,7 @@ export class Sections {
     // (The track changed: where everything is, worked out afresh; a move on the old track is given up.)
     if (st.topo !== topo) {
       st.topo = topo;
-      st.move = null;
+      { st.move = null; this.movesVer++; }
       st.frontKey = -1;
     }
     const front = this.front(train, net < 0);
@@ -898,7 +898,7 @@ export class Sections {
     if (st.move && info.loose.includes(engine) && st.moveSw !== this.layout.switchesVersion) {
       st.moveSw = this.layout.switchesVersion;
       if (!this.liesAsMove(st.move, front.pieceId)) {
-        st.move = null;
+        { st.move = null; this.movesVer++; }
         st.askedAt = -Infinity;
         st.frontKey = -1;
       }
@@ -1034,6 +1034,10 @@ export class Sections {
       if (!tu || !tu.bogies.some((b) => slotPieces.has(b.pieceId))) continue;
       // (Following a line-mate in to turn behind it (`followsInto`): up close behind it, as the sim keeps the gap.)
       if (this.followsInto(info, st.slot, st.engine, u)) continue;
+      // (Following one standing at a waiting point's far signal in, the user's narrow permissive working (`permits`): up
+      // behind it, as the sim keeps the gap.)
+      const sl = st.topo.slots[st.slot];
+      if (sl.kind === "signal" && this.guardedIn(sl) && this.follows(info, st.engine, u) && this.permits(info, sl, st.engine, u)) continue;
       const mineOn = train.bogies.map((b) => b.pieceId);
       const ahead = tu.bogies.some((b) => st.ahead.has(b.pieceId) && !mineOn.includes(b.pieceId));
       if (!ahead) continue;
@@ -1129,11 +1133,11 @@ export class Sections {
       if (slot !== undefined) {
         // At its move's far slot: the move is over. (Its tail still in the section keeps others out:
         // they look at where trains stand, too.) Back in the slot it set out from (turned round): given up.
-        if (slot === m.dest || !this.onWay(m, front.pieceId)) st.move = null;
+        if (slot === m.dest || !this.onWay(m, front.pieceId)) { st.move = null; this.movesVer++; }
       } else {
         // In the section, off its way, or going the other way along it (turned round): given up; it asks afresh.
         const entry = front.reversed ? (path.to ?? -1) : path.from;
-        if (!m.steps.some((s) => s.pieceId === front.pieceId && s.entry === entry)) st.move = null;
+        if (!m.steps.some((s) => s.pieceId === front.pieceId && s.entry === entry)) { st.move = null; this.movesVer++; }
       }
     }
     st.ahead.clear();
@@ -1814,15 +1818,47 @@ export class Sections {
   }
 
   /**
-   * Do `engine`'s train and `u`'s fit one behind the other in a waiting point, with the sim's gap between them, and is
-   * there no signal where trains come into it? (One there guards a plain block, which lets one train in at a time: the
-   * one following would stand at it, on the points behind (ring1, blocks2).)
+   * Do `engine`'s train and `u`'s fit one behind the other in a waiting point, with the sim's gap between them? Where a
+   * signal guards the way in (a plain block, one train at a time), only as the user's narrow permissive working lets
+   * one follow (`permits`).
    */
-  private fitBehind(sl: Slot, engine: number, u: number): boolean {
-    for (const w of sl.ways ?? []) if (this.layout.signalAt(w.back) || this.layout.signalAt(this.layout.joinedConnector(w.back))) return false;
+  private fitBehind(info: LineInfo, sl: Slot, engine: number, u: number): boolean {
+    if (this.guardedIn(sl)) return this.permits(info, sl, engine, u) !== null;
     const a = this.sim.findCar(engine)?.train;
     const b = this.sim.findCar(u)?.train;
     return !!a && !!b && trainLength(a) + trainLength(b) + FOLLOW_ROOM <= sl.length;
+  }
+
+  /** Does a signal stand where trains come into waiting point `sl` (at its way in, either side of the joint)? */
+  private guardedIn(sl: Slot): boolean {
+    for (const w of sl.ways ?? []) if (this.layout.signalAt(w.back) || this.layout.signalAt(this.layout.joinedConnector(w.back))) return true;
+    return false;
+  }
+
+  /**
+   * The user's narrow permissive working (2026-11-14, (i)): may `engine`'s train follow `u`'s into waiting point `sl`,
+   * a signal guarding its way in (a plain block: one train at a time)? Only behind `u` standing still at the waiting
+   * point's far signal, held there, wholly in it and the one train in it; `engine` the one extra, no other in it or bound
+   * for it; both routed trains of the lines working this track (a line's, or lines' sharing it); and the two fitting in
+   * it one behind the other with the sim's gap: so clear of the signal at its way in and of points (a waiting point
+   * runs from its signal back to the next signal or points). The way `u` stands at (its way in, for `callOnAt`), or null.
+   */
+  private permits(info: LineInfo, sl: Slot, engine: number, u: number): SignalWay | null {
+    if (!info.users.includes(u) || !info.users.includes(engine) || info.loose.includes(u) || info.loose.includes(engine)) return null;
+    const a = this.sim.findCar(engine)?.train;
+    const b = this.sim.findCar(u)?.train;
+    if (!a || !b || Math.abs(b.speed) >= 1 || trainLength(a) + trainLength(b) + FOLLOW_ROOM > sl.length) return null;
+    if (!b.bogies.every((x) => sl.pieces.has(x.pieceId))) return null;
+    const at = this.sim.redSignalAhead(b.id);
+    const w = sl.ways?.find((x) => pieceOfRef(x.mark) === at);
+    if (!w) return null;
+    for (const t of this.sim.trains()) if (t !== a && t !== b && t.bogies.some((x) => sl.pieces.has(x.pieceId))) return null;
+    for (const v of info.users) {
+      if (v === engine || v === u) continue;
+      const m = this.states.get(v)?.move;
+      if (m && (m.dest === sl.id || m.through.includes(sl.id))) return null;
+    }
+    return w;
   }
 
   /** Does a train the line has no room for stand on this loop road? */
@@ -1850,7 +1886,7 @@ export class Sections {
       // (A signal's waiting point on a circuit all go round one way: it may follow one in there, as into a loop road,
       // where the two fit (ring1, three trains, a pair of signals: the one at the signal waits for a loop road the one
       // behind can only leave into the waiting point).)
-      if (sl.kind === "signal" && this.follows(info, engine, u) && this.fitBehind(sl, engine, u)) continue;
+      if (sl.kind === "signal" && this.follows(info, engine, u) && this.fitBehind(info, sl, engine, u)) continue;
       const m = this.states.get(u)?.move;
       if (m && (m.dest === slot || m.through.includes(slot))) return u;
       const t = this.sim.findCar(u)?.train;
@@ -2466,7 +2502,7 @@ export class Sections {
     if (sw.moves.length === 0) return train.speed >= 1 ? Infinity : 0;
     // (The plan has the line: no move of the line's own rules kept, so the router lets go points it held for one (a train
     // standing by the points held them against the one the plan sends over them).)
-    st.move = null;
+    { st.move = null; this.movesVer++; }
     const mv = sw.moves.find((x) => x.engine === st.engine);
     // (Not one of the moves: it stands where it is, for those moving.)
     if (!mv) {
@@ -3035,6 +3071,7 @@ export class Sections {
         aim = p;
         break;
       }
+    this.movesVer++;
     st.move = { sections: way.sections, through: way.through, dest: way.dest, outBy: way.outBy, steps: way.steps, follow: (pieceId, path) => keys.has(pieceId * 8 + path), aim, since: this.sim.ticks };
     st.wait = null;
     st.waitSince = -1;
@@ -3071,7 +3108,21 @@ export class Sections {
         if (lineId < 0) continue;
         const info = this.line(lineId);
         const sl = info.topo.slots[m.dest];
-        if (!sl || sl.kind !== "end") continue;
+        if (!sl) continue;
+        // (The user's narrow permissive working: into a waiting point behind the one train standing at its far signal,
+        // past the signal at its way in only (`permits`).)
+        if (sl.kind === "signal" && this.guardedIn(sl)) {
+          for (const u of info.users) {
+            if (u === st.engine || !this.follows(info, st.engine, u)) continue;
+            const w = this.permits(info, sl, st.engine, u);
+            if (w) {
+              this.callOns.set(st.trainId, { sl, m, refs: [w.back, this.layout.joinedConnector(w.back)] });
+              break;
+            }
+          }
+          continue;
+        }
+        if (sl.kind !== "end") continue;
         for (const u of info.users) {
           if (u === st.engine) continue;
           const b = this.sim.findCar(u)?.train;
@@ -3084,18 +3135,23 @@ export class Sections {
     }
     const c = this.callOns.get(trainId);
     if (!c) return false;
+    if (c.refs) return c.refs.includes(ref);
     const p = pieceOfRef(ref);
     const q = pieceOfRef(this.layout.joinedConnector(ref));
     return c.sl.pieces.has(p) || c.sl.pieces.has(q) || c.m.steps.some((x) => x.pieceId === p || x.pieceId === q);
   }
   private callOnTick = -1;
-  private readonly callOns = new Map<number, { sl: Slot; m: Move }>();
+  private readonly callOns = new Map<number, { sl: Slot; m: Move; refs?: number[] }>();
 
-  /** Goes up whenever `gateAt` would answer differently (the sim's aspects are worked out again only then). */
+  /** Goes up whenever `gateAt` would answer differently, or a move is granted or ends (the sim's aspects are worked out again only then). */
   gateVersion(): number {
     this.refreshGate();
-    return this.gateVer;
+    // (And whenever a move is granted or ends: the router's way over points for a path signal follows the grant
+    // (`Router.pathWay`), so a train's path is worked out again then, though no train moved. Before, a train regranted
+    // onto a free loop road while every train stood kept the red its old way showed, for good (ring1, blocks2).)
+    return this.gateVer + this.movesVer;
   }
+  private movesVer = 0;
 
   private refreshGate(): void {
     if (this.gateTick === this.sim.ticks) return;
@@ -3870,7 +3926,7 @@ export class Sections {
       // (Or a train not on the line running into its way: the slot it's going to, or a section it holds.)
       const intoZone = zoned && ((m.dest >= 0 && info.zone.slots.has(m.dest)) || m.sections.some((x) => info.zone.sections.has(x)) || m.through.some((x) => info.zone.slots.has(x)));
       if (!intoZone && !standing.some((t) => t !== own && t.bogies.some((b) => ahead.has(b.pieceId)))) continue;
-      st.move = null;
+      { st.move = null; this.movesVer++; }
       st.askedAt = -Infinity;
       st.frontKey = -1;
       this.cut++;
