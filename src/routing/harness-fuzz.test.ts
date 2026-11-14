@@ -45,7 +45,8 @@ const FREE = "held by sections' slot wait though the booking core would let it g
 // (`Sections.convoyHold`); the core, foreseeing nothing, would book it on. The full long fuzz against lever-regrant,
 // seed for seed: 7, 38, 66, 76, 116, 126, 149 and 165 went on, each its convoy hold (logged: the held engine and its
 // time). 152 came off (it no longer stands where the core would book it on). With signals: since the call-on (2026-11-14, the user's yes), a signal guarding a line end lets the one behind
-// in (`Sections.callOnAt`): 7 and 149 with signals went on, each its convoy hold.)
+// in (`Sections.callOnAt`): with signals 7, 38, 66, 76, 116, 149 and 165 went on (the full long fuzz, seed for
+// seed), the same convoy holds as without.)
 const CONVOY = "held at a line end for a line-mate following it in to turn behind it (the user's (a)), the core foreseeing nothing";
 /**
  * Seeds that stall with signals where they no longer do without: none. The convoys into a line end a signal guards
@@ -70,7 +71,7 @@ const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-13, a loop's last free road kept for a train coming the other way: 111, 126 and 165 run (no longer three
   // trains standing for good, the loop filled one way); 126 went on: a train held 5 s for the one coming at the loop,
   // which the core, foreseeing nothing, would book on.)
-  heldFree: { 7: CONVOY, 22: FREE, 34: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 126: FREE, 127: FREE, 136: FREE, 149: CONVOY, 152: FREE },
+  heldFree: { 7: CONVOY, 22: FREE, 34: FREE, 38: CONVOY, 66: CONVOY, 68: FREE, 69: FREE, 76: CONVOY, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 116: CONVOY, 126: FREE, 127: FREE, 136: FREE, 149: CONVOY, 152: FREE, 165: CONVOY },
   // (14, 30, 76 and 160 came off on the merged base, before step 3 (2026-11-07, the full long fuzz on both).)
   // (2026-11-11, the room counting a line's ends: 37 came off; 165 went on. On main 165 stood still from the start (1, 0
   // and 0 stops in 30 min, the third train held); now its three run (46, 44, 44 stops), now and then held by sections
