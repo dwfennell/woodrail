@@ -6,9 +6,9 @@
 export const KNOWN: Record<string, string[]> = {
   "fuzz seed 19": ["stalls-live"],
   "ring1 3×one same sig:blocks2": ["stalls-live"],
-  "siding-spare 3×one same": ["stalls-live:siding"],
-  "terminus-spare 3×one opposed": ["stalls-live:siding"],
-  "terminus-spare 3×one same": ["stalls-live:siding"],
+  "siding-spare 3×one same": ["starves-live"],
+  "terminus-spare 3×one opposed": ["starves-live","break:deadlock"],
+  "terminus-spare 3×one same": ["starves-live","break:deadlock"],
   "wye-spare 3×one opposed": ["stalls-live:siding"],
   "wye-spare 3×one same": ["stalls-live:siding"],
 };

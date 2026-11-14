@@ -287,6 +287,8 @@ export class Sim {
    * stood red for a train that only had to pull up to the road's end, its tail left on the points behind.
    */
   standsWithin: ((train: Train) => number) | null = null;
+  /** May this train turn round nose to nose with a train standing at the end of the line (`endOfLineBehind`)? Sections'. */
+  turnsNose: ((train: Train) => boolean) | null = null;
   /** Optional top speed for a powered train (mm/s): a mode's faster engines. Null: every train runs at `ENGINE_SPEED`. */
   topSpeed: ((train: Train) => number) | null = null;
   /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
@@ -1547,7 +1549,8 @@ export class Sim {
    */
   private endOfLineBehind(train: Train): void {
     const h = this.held.get(trainKey(train));
-    if (!h || h.how !== "follow" || h.tick !== this.ticks) return;
+    // (Close behind it, or met nose to nose with it: either way it stands at the end of the line, and this one turns.)
+    if (!h || (h.how !== "follow" && (h.how !== "nose" || !this.turnsNose?.(train))) || h.tick !== this.ticks) return;
     const b = this.trainByKey(h.by);
     // (Not a train on a lift or a turntable's deck: that's a ride, waited for, not the end of the line.)
     if (!b || b.derailed || b.speed > 0 || this.onLift(b) || (this.rides.size > 0 && this.riding(b))) return;
