@@ -44,31 +44,26 @@ const FREE = "held by sections' slot wait though the booking core would let it g
 // (2026-11-13, the user's (a): a train stands at a line end for a line-mate following it in to turn behind it
 // (`Sections.convoyHold`); the core, foreseeing nothing, would book it on. The full long fuzz against lever-regrant,
 // seed for seed: 7, 38, 66, 76, 116, 126, 149 and 165 went on, each its convoy hold (logged: the held engine and its
-// time). 152 came off (it no longer stands where the core would book it on). With signals none: no convoy into a line end a signal guards (`signalGuards`; seed 119 with signals, the one
-// behind held at the signal and the one ahead standing for it for good, and 52's stall).)
+// time). 152 came off (it no longer stands where the core would book it on). With signals: since the call-on (2026-11-14, the user's yes), a signal guarding a line end lets the one behind
+// in (`Sections.callOnAt`): with signals 7, 38, 66, 76, 116, 149 and 165 went on (the full long fuzz, seed for
+// seed), the same convoy holds as without.)
 // (2026-11-14, the swap planner overruling the room rule (fuzz 19): 19 went on, a train waiting its turn in the plan
 // at 22.5 s, the planner's first moves, which the core, planning nothing, would book on.)
 const SWAP = "waiting its turn in the swap planner's plan (the user's (a)), the core planning nothing";
 const CONVOY = "held at a line end for a line-mate following it in to turn behind it (the user's (a)), the core foreseeing nothing";
 /**
- * Seeds that stall with signals where they no longer do without (2026-11-13, the user's (a)): each a convoy into a line
- * end, which runs without signals and is kept out where a signal guards that end (`Sections.signalGuards`: the signal
- * would hold the one behind out of the block the one ahead stands in). They stalled with signals before (a)
- * just the same (the full long fuzz against lever-regrant, seed for seed); a call-on (a signal letting a line-mate in
- * behind a train at a line end) would take them off.
+ * Seeds that stall with signals where they no longer do without: 19 and 90 (below). The convoys into a line end a signal guards
+ * that stalled (7, 52, 93, 100, 105, 149, 151, 158, 189, 192, 197: the full long fuzz) run since the call-on (2026-11-14,
+ * the user's yes: `Sections.callOnAt`, a signal letting a line-mate in behind a train at a line end to turn behind it;
+ * 52, a signal inside the line end, since the leader is held at its signal only once it stands, `convoyHold`).
  */
-const SIGNAL_CONVOY = "a convoy into a line end a signal guards: none till a call-on lets the one behind in";
 /**
  * (2026-11-14, the swap planner overruling the room rule on a loopless line of three ends: 19 and 90 run without
  * signals now, every train delivering; with signals the planner stays off (`stalledForSwap`: no signals), so the room
  * rule still holds their extra train and they stall as they did before.)
  */
 const SIGNAL_ROOM = "the room rule holds a train; without signals the swap planner overrules it, with signals it stays off";
-const KNOWN_SIGNAL_STALLS: Record<number, string> = {
-  ...Object.fromEntries([7, 52, 93, 100, 105, 149, 151, 158, 189, 192, 197].map((n) => [n, SIGNAL_CONVOY])),
-  19: SIGNAL_ROOM,
-  90: SIGNAL_ROOM,
-};
+const KNOWN_SIGNAL_STALLS: Record<number, string> = { 19: SIGNAL_ROOM, 90: SIGNAL_ROOM };
 /** A report's seed, from its name ("fuzz seed 7 with signals"). */
 const seedOfName = (name: string): number => Number(/seed (\d+)/.exec(name)?.[1] ?? -1);
 
@@ -85,7 +80,7 @@ const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
   // (2026-11-13, a loop's last free road kept for a train coming the other way: 111, 126 and 165 run (no longer three
   // trains standing for good, the loop filled one way); 126 went on: a train held 5 s for the one coming at the loop,
   // which the core, foreseeing nothing, would book on.)
-  heldFree: { 22: FREE, 34: FREE, 68: FREE, 69: FREE, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 126: FREE, 127: FREE, 136: FREE, 152: FREE },
+  heldFree: { 7: CONVOY, 22: FREE, 34: FREE, 38: CONVOY, 66: CONVOY, 68: FREE, 69: FREE, 76: CONVOY, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 116: CONVOY, 126: FREE, 127: FREE, 136: FREE, 149: CONVOY, 152: FREE, 165: CONVOY },
   // (14, 30, 76 and 160 came off on the merged base, before step 3 (2026-11-07, the full long fuzz on both).)
   // (2026-11-11, the room counting a line's ends: 37 came off; 165 went on. On main 165 stood still from the start (1, 0
   // and 0 stops in 30 min, the third train held); now its three run (46, 44, 44 stops), now and then held by sections

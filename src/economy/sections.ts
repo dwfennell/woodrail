@@ -961,8 +961,10 @@ export class Sections {
     // (Going to the end of a line end with a line-mate following it in: it stands short of the buffer, not turning till
     // that one has turned behind it (`followsInto`): turned, it would meet it nose to nose.)
     const hold = this.convoyHold(st, info, train, front);
-    // (Held so, at a signal on its way to the buffer: that signal shows red to it (`refreshGate`).)
-    if (hold !== null) this.convoyMarks.set(st.engine, { mark: this.markAhead(front), trainId: train.id });
+    // (Standing so, at a signal on its way to the buffer: that signal shows red to it (`refreshGate`). Only standing:
+    // with ground still to cover, a signal inside the line end short of where it stands held it there, too far from the
+    // buffer for the one behind to turn behind it (fuzz seed 52 with signals).)
+    if (hold !== null && hold <= CONVOY_NEAR) this.convoyMarks.set(st.engine, { mark: this.markAhead(front), trainId: train.id });
     else this.convoyMarks.delete(st.engine);
     // (Near enough the buffer that the one behind turns behind it (the sim's end of the line behind a train, within its
     // length and a little): it stands there.)
@@ -1647,7 +1649,8 @@ export class Sections {
     // (Routed trains working the track together: a line's, or lines' sharing it (`network`), each going its own way.)
     if (!info.users.includes(u) || !info.users.includes(engine) || info.loose.includes(u) || info.loose.includes(engine)) return false;
     const sl = info.topo.slots[slot];
-    if (sl.kind !== "end" || this.signalGuards(sl)) return false;
+    // (A signal guarding it lets the one behind in, called on: `callOnAt`.)
+    if (sl.kind !== "end") return false;
     // (Only to get by, turning there: not to come to a stop of its own in there, which the one ahead would stand on.)
     if (sl.pieces.has(this.host.target(engine))) return false;
     const a = this.sim.findCar(engine)?.train;
@@ -1690,7 +1693,7 @@ export class Sections {
       // (One standing aside in a refuge to let this one by: it comes out after it, and follows it in here to turn behind
       // it (it gets by only so, the refuge off plain points). Held for it now: else this one turns first, and it can't.)
       const vs = this.states.get(v);
-      if (vs && vs.lettingBy === st.engine && !this.signalGuards(sl) && !sl.pieces.has(this.host.target(v)) && trainLength(t) + trainLength(train) + FOLLOW_ROOM <= sl.length) {
+      if (vs && vs.lettingBy === st.engine && !sl.pieces.has(this.host.target(v)) && trainLength(t) + trainLength(train) + FOLLOW_ROOM <= sl.length) {
         coming = v;
         continue;
       }
@@ -3049,6 +3052,45 @@ export class Sections {
     return this.gate.get(ref) ?? -1;
   }
 
+  /**
+   * Is train `trainId` called on past the signal at `ref` (a connector at its mark's way out)? Its move granted into a line
+   * end behind a line-mate there that it follows in to turn behind (`followsInto`, the user's (a)), the signal on its way
+   * in or in that line end: the signal holds it out of the block the one ahead stands in, and the one ahead would stand
+   * for it for good (the user's yes to a call-on, 2026-11-14; the 11 signal fuzz seeds).
+   */
+  callOnAt(ref: number, trainId: number): boolean {
+    if (!this.enabled || this.layout.signalCount === 0) return false;
+    // (Who's called on, worked out once a tick: the sim asks for each train at each red signal in sight.)
+    if (this.callOnTick !== this.sim.ticks) {
+      this.callOnTick = this.sim.ticks;
+      this.callOns.clear();
+      for (const st of this.states.values()) {
+        const m = st.move;
+        if (!m || m.dest < 0) continue;
+        const lineId = this.host.lineOf(st.engine);
+        if (lineId < 0) continue;
+        const info = this.line(lineId);
+        const sl = info.topo.slots[m.dest];
+        if (!sl || sl.kind !== "end") continue;
+        for (const u of info.users) {
+          if (u === st.engine) continue;
+          const b = this.sim.findCar(u)?.train;
+          if (b && b.bogies.some((x) => sl.pieces.has(x.pieceId)) && this.followsInto(info, m.dest, st.engine, u)) {
+            this.callOns.set(st.trainId, { sl, m });
+            break;
+          }
+        }
+      }
+    }
+    const c = this.callOns.get(trainId);
+    if (!c) return false;
+    const p = pieceOfRef(ref);
+    const q = pieceOfRef(this.layout.joinedConnector(ref));
+    return c.sl.pieces.has(p) || c.sl.pieces.has(q) || c.m.steps.some((x) => x.pieceId === p || x.pieceId === q);
+  }
+  private callOnTick = -1;
+  private readonly callOns = new Map<number, { sl: Slot; m: Move }>();
+
   /** Goes up whenever `gateAt` would answer differently (the sim's aspects are worked out again only then). */
   gateVersion(): number {
     this.refreshGate();
@@ -4001,29 +4043,10 @@ export class Sections {
       seen.add(key);
       const sl = topo.slotOf.get(n.pieceId);
       if (sl !== undefined && topo.slots[sl].kind === "end") {
-        if (topo.slots[sl].length >= 2 * length + FOLLOW_ROOM && !this.signalGuards(topo.slots[sl])) return true;
+        if (topo.slots[sl].length >= 2 * length + FOLLOW_ROOM) return true;
         continue;
       }
       for (const w of waysFrom(this.layout, n.pieceId, n.entry)) stack.push({ pieceId: n.pieceId, exit: w.exit, k: at.k + 1 });
-    }
-    return false;
-  }
-
-  /**
-   * Is there a signal on a joint of end slot `sl` (in it, or at its mouth)? Then no convoy into it (`followsInto`): the
-   * signal holds the one behind out of the block the one ahead stands in, and the one ahead would stand for it for good
-   * (fuzz seed 119 with signals).
-   */
-  private signalGuards(sl: Slot): boolean {
-    if (this.layout.signalCount === 0) return false;
-    for (const p of sl.pieces) {
-      const piece = this.layout.getPiece(p);
-      if (!piece) continue;
-      const n = getPieceDef(piece.type, piece.flipped).connectors.length;
-      for (let c = 0; c < n; c++) {
-        const ref = connectorRef(p, c);
-        if (this.layout.signalAt(ref) || this.layout.signalAt(this.layout.joinedConnector(ref))) return true;
-      }
     }
     return false;
   }
