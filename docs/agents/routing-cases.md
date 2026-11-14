@@ -271,6 +271,15 @@ dead, and one stands on points whatever it does (a train standing still sooner, 
 that were only passing points). 10 known. The long fuzz is as before seed for seed; its never-worse check lists fuzz 136
 (all hand-run it now runs, 2 → 140 stops; with the route two hand-run trains still meet head on in the line's end).
 
+**Where it stands (2026-11-14): 10 known, each with its reason in `reasons.ts`, none a fault to fix in today's rules:**
+- six wait for booking ahead in the reservation core (the three-train spare cases, fuzz 19): trading places through a
+  spare line end needs swaps planned several moves ahead (`claude/routing-zero-spare3`, parked);
+- one waits on the user's call-on question (ring1 3× one same sig:blocks2): a second train following into a block
+  behind one at its far signal, as the 11 signal fuzz seeds kept out of convoys do;
+- three are how the trains were put down: two hand-run ones across a loop's points facing each other over a road too
+  short to clear (line1 facing), and a hand-run one put down on the wye heading at a routed one a piece away (branch
+  and branch-spare 2× mix opposed): one stands on points whatever the other does.
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
@@ -387,7 +396,7 @@ and pass / known.
 | branch 1×one | live (1/1) | 15 | pass |
 | branch 2×hand opposed | dead (0/2) | 17.2 m / 16.6 m | pass |
 | branch 2×hand same | live (2/2) | 18 m / 18 m | pass |
-| branch 2×mix opposed | partial (1/2; through an industry siding 2) | stall at 11 s (in-way, in-way); 1 / 0.6 m | known: waits-on-points |
+| branch 2×mix opposed | partial (1/2; through an industry siding 2) | stall at 11 s (in-way, in-way); 1 / 0.6 m | known: waits-on-points (the hand-run train put down with its front on the wye, heading round the ring at the routed train put down a piece away coming at it: its tail clears the wye only once its front is well onto the next piece, where the routed train already is, so it stands on the wye whatever the routed one does (stopping at once it still meets it there)) |
 | branch 2×mix same | live (2/2) | 15 / 18 m | pass |
 | branch 2×one opposed | partial (1/2; through an industry siding 2) | 15 / 13 | pass |
 | branch 2×one same | live (2/2) | 15 / 14 | pass |
@@ -401,7 +410,7 @@ and pass / known.
 | branch-spare 1×one | live (1/1) | 15 | pass |
 | branch-spare 2×hand opposed | dead (0/2) | 17.2 m / 16.6 m | pass |
 | branch-spare 2×hand same | live (2/2) | 18 m / 18 m | pass |
-| branch-spare 2×mix opposed | live (2/2; own ends 1) | stall at 11 s (in-way, in-way); 1 / 0.6 m | known: waits-on-points |
+| branch-spare 2×mix opposed | live (2/2; own ends 1) | stall at 11 s (in-way, in-way); 1 / 0.6 m | known: waits-on-points (the hand-run train put down with its front on the wye, heading round the ring at the routed train put down a piece away coming at it: its tail clears the wye only once its front is well onto the next piece, where the routed train already is, so it stands on the wye whatever the routed one does (stopping at once it still meets it there)) |
 | branch-spare 2×mix same | live (2/2) | 15 / 18 m | pass |
 | branch-spare 2×one opposed | live (2/2) | 15 / 13 | pass |
 | branch-spare 2×one same | live (2/2) | 15 / 14 | pass |
@@ -743,7 +752,7 @@ and pass / known.
 | ring1 3×one opposed sig:oneway3 | dead (0/3; no signals 0) | stall at 11 s (in-way, in-way, –); 0 / 0 / 0 | pass |
 | ring1 3×one opposed sig:pair | dead (0/3; no signals 0) | stall at 7 s (in-way, in-way, –); 0 / 0 / 0 | pass |
 | ring1 3×one same sig:beforePoints | live (3/3) | 11 / 11 / 10 | pass |
-| ring1 3×one same sig:blocks2 | live (3/3) | stall at 27 s (signals, signals, signals); 1 / 1 / 0 | known: stalls-live |
+| ring1 3×one same sig:blocks2 | live (3/3) | stall at 27 s (signals, signals, signals); 1 / 1 / 0 | known: stalls-live (waits on the user's call-on question: two trains fill the loop's roads, the third waits at the signal into their block, and they wait to leave into the block it stands in; the oracle runs them by letting a second train follow into that block behind the one at its far signal (permissive working), which today's block signals don't) |
 | ring1 3×one same sig:blocks3 | live (3/3) | 10 / 10 / 9 | pass |
 | ring1 3×one same sig:blocks4 | live (3/3) | 10 / 10 / 9 | pass |
 | ring1 3×one same sig:inLoop | live (3/3) | 11 / 11 / 10 | pass |
