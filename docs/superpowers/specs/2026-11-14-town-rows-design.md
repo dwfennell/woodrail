@@ -134,7 +134,8 @@ taken in, so rows fill.
 **Rows are three squares.** Today every third lot along a street is held back for a side street (`GAP_EVERY = 3`), so
 a row is two squares and then a hole. Here the opening is every fourth square: three lots, then an opening. The fill
 rules below never build on an opening while any other lot is free, as now. An opening no side street has taken is
-drawn as a small paved place with a tree and a bench, not as bare grass, so a street has no holes at any size.
+drawn as flat pavement, not as bare grass, so a street has no holes at any size. (Flat, with nothing standing on it:
+as built, the dressing can't see the player's track or props, which may be on that square.)
 
 1. **Join a row first.** A new building takes a lot that touches an existing building on the same side of the same
    street, if there is one within reach. Among those, the one nearest the station.

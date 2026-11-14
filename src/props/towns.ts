@@ -463,6 +463,8 @@ export function dressInRows(land: Landscape, props: PropStore): number {
     const found = findBuilding(land, p.building);
     if (!found) continue;
     const { town, building } = found;
+    // (A landmark or a place in a shop's model, a bank in the post office's: its own, as it is.)
+    if (building.landmark) continue;
     const squares = building.cells.length >= 4 ? 4 : building.cells.length > 1 ? 2 : 1;
     // (A model on a lot of another size than its row wants, a townhouse on two squares: the row its lot takes.)
     const one = !(Object.values(ROW_ASSETS.two) as string[]).includes(asset);

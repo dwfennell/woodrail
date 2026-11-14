@@ -249,28 +249,13 @@ export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batch
 }
 
 /**
- * An opening in a row (`rowOpenings`): the rows' pavement carried across it, a round tree in its middle and a bench
- * toward its street. Static, as the town's furniture is; a side street laid through it later takes its place.
+ * An opening in a row (`rowOpenings`): the rows' pavement carried across it, flat, so the street has no hole. Nothing
+ * stands on it: the player's track or a prop may be there (this dressing sees only the map's squares), and a side
+ * street laid through it later takes its place.
  */
 function pavedPlace(land: Landscape, i: number, mats: Materials, b: Batcher): void {
   const g = land.grid;
-  const x = g.centreX(g.colOf(i));
-  const z = g.centreZ(g.rowOf(i));
-  const y = g.groundY(i);
-  b.add(mats.lacquer("#d8d0bf"), new RoundedBoxGeometry(CELL, 2.4, CELL, 2, 0.6).translate(x, y + 1.2, z));
-  b.add(mats.naturalWood, new CylinderGeometry(1.2, 2.2, 10, 8).translate(x, y + 7.4, z));
-  b.add(mats.lacquer("#4b9a4f"), new SphereGeometry(8, 10, 7).scale(1, 0.9, 1).translate(x, y + 18, z));
-  // The bench: on the side its street is, along it.
-  const sides = [[1, 0], [0, 1], [-1, 0], [0, -1]] as const;
-  const e = sides.find(([dc, dr]) => {
-    const j = g.index(g.colOf(i) + dc, g.rowOf(i) + dr);
-    return j !== -1 && g.surface[j] === SURF_ROAD;
-  }) ?? sides[0];
-  const bx = x + e[0] * 22;
-  const bz = z + e[1] * 22;
-  const long = e[0] !== 0 ? [5, 18] : [18, 5];
-  b.add(mats.lacquer("#2f6048"), new RoundedBoxGeometry(long[0], 1.4, long[1], 2, 0.4).translate(bx, y + 2.4 + 4.2, bz));
-  for (const s of [-1, 1]) b.add(mats.lacquer("#26272a"), new BoxGeometry(e[0] !== 0 ? 4 : 1.2, 3.6, e[0] !== 0 ? 1.2 : 4).translate(bx + (e[0] !== 0 ? 0 : s * 7), y + 2.4 + 1.8, bz + (e[0] !== 0 ? s * 7 : 0)));
+  b.add(mats.lacquer("#d8d0bf"), new RoundedBoxGeometry(CELL, 2.4, CELL, 2, 0.6).translate(g.centreX(g.colOf(i)), g.groundY(i) + 1.2, g.centreZ(g.rowOf(i))));
 }
 
 /** A town's greens: its squares with nothing on them (a house moved away, or not yet built on). */

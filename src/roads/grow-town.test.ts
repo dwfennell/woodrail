@@ -180,8 +180,8 @@ describe("growTown in rows (towns in rows: rows fill before the town spreads)", 
     const { g, town, canUse } = openSite();
     const steps = growTown(g, town, 30, { canUse });
     expect(steps.map((s) => `${s.cells.join("+")}>${s.front}${s.corner ? "c" : ""}/${s.streets.map(([i, r]) => `${i}:${r}`).join(",")}/${s.changes.map((c) => `${c.id}${c.kind ?? ""}${c.floors ?? ""}`).join(",")}`).join(" ")).toMatchInlineSnapshot(`"325+324>3/417:1,418:1,419:1,293:1,294:1,295:1/ 263>1// 262>1// 449+448>3// 326>3/292:1,416:1/ 327>3/264:65,295:66,233:65,296:1,295:131/-2shop 265>1c// 232>0//-4shop 234>2/297:1/ 328>3//-7shop 266>1/202:65,298:1/ 323>3//-9shop 231>2/261:65,292:130,230:65/ 260>0//-3shop 259>3/229:1,230:2,228:1,199:65,230:67/-32 197>1/227:1/-11shop 450>3// 451>3/420:1/-17shop 452>3/389:65,420:66,421:1,420:131/ 390>1c/422:1/-13shop 291>0//-22 447>3// 446>3/385:65,416:130,415:1,416:131/ 445>3/414:1/-22shop 383>1/413:1/ 384>0c//-25shop 329>3//-12 235>0/267:65,298:66,236:65/-26shop 268>2// 391>1/205:65,237:1,236:195/-27shop"`);
-    const b = openSite(40, 30);
-    expect(growTown(b.g, b.town, 20, { canUse: b.canUse }).map((s) => s.cells.join("+")).join(" ")).toMatchInlineSnapshot(`""`);
+    const b = openSite(10, 8);
+    expect(growTown(b.g, b.town, 20, { canUse: b.canUse }).map((s) => s.cells.join("+")).join(" ")).toMatchInlineSnapshot(`"351+350 352 291 292 354 349 348 347 285 286 293 294 295 355 227 226 164 133 135+166 167"`);
   });
 
   it("the first six buildings stand together: each joins a row or faces one, none alone", () => {

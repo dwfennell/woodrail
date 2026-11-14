@@ -211,7 +211,8 @@ export const saveSchema = z.object({
         y: z.number().finite(),
         building: z.number().int().min(0).optional(),
         town: z.number().int().min(0).optional(),
-        variant: z.number().int().min(0).max(8).optional(),
+        // (Up to 31: a row's body and roof colours in one number, towns in rows; today's hue shifts are 0 to 3.)
+        variant: z.number().int().min(0).max(31).optional(),
         scale: z.number().min(0.5).max(1).optional(),
         /** A town house's storeys more than its model (its town grew: `props/storeys.ts`). */
         storeys: z.number().int().min(0).max(8).optional(),
