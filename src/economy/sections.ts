@@ -3011,27 +3011,36 @@ export class Sections {
    */
   callOnAt(ref: number, trainId: number): boolean {
     if (!this.enabled || this.layout.signalCount === 0) return false;
-    const t = this.sim.getTrain(trainId);
-    if (!t) return false;
-    const engine = engineOf(t);
-    const st = this.states.get(engine);
-    const m = st?.move;
-    if (!st || !m || m.dest < 0) return false;
-    const lineId = this.host.lineOf(engine);
-    if (lineId < 0) return false;
-    const info = this.line(lineId);
-    const sl = info.topo.slots[m.dest];
-    if (!sl || sl.kind !== "end") return false;
+    // (Who's called on, worked out once a tick: the sim asks for each train at each red signal in sight.)
+    if (this.callOnTick !== this.sim.ticks) {
+      this.callOnTick = this.sim.ticks;
+      this.callOns.clear();
+      for (const st of this.states.values()) {
+        const m = st.move;
+        if (!m || m.dest < 0) continue;
+        const lineId = this.host.lineOf(st.engine);
+        if (lineId < 0) continue;
+        const info = this.line(lineId);
+        const sl = info.topo.slots[m.dest];
+        if (!sl || sl.kind !== "end") continue;
+        for (const u of info.users) {
+          if (u === st.engine) continue;
+          const b = this.sim.findCar(u)?.train;
+          if (b && b.bogies.some((x) => sl.pieces.has(x.pieceId)) && this.followsInto(info, m.dest, st.engine, u)) {
+            this.callOns.set(st.trainId, { sl, m });
+            break;
+          }
+        }
+      }
+    }
+    const c = this.callOns.get(trainId);
+    if (!c) return false;
     const p = pieceOfRef(ref);
     const q = pieceOfRef(this.layout.joinedConnector(ref));
-    if (!sl.pieces.has(p) && !sl.pieces.has(q) && !m.steps.some((x) => x.pieceId === p || x.pieceId === q)) return false;
-    for (const u of info.users) {
-      if (u === engine) continue;
-      const b = this.sim.findCar(u)?.train;
-      if (b && b.bogies.some((x) => sl.pieces.has(x.pieceId)) && this.followsInto(info, m.dest, engine, u)) return true;
-    }
-    return false;
+    return c.sl.pieces.has(p) || c.sl.pieces.has(q) || c.m.steps.some((x) => x.pieceId === p || x.pieceId === q);
   }
+  private callOnTick = -1;
+  private readonly callOns = new Map<number, { sl: Slot; m: Move }>();
 
   /** Goes up whenever `gateAt` would answer differently (the sim's aspects are worked out again only then). */
   gateVersion(): number {
