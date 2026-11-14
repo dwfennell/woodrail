@@ -3,6 +3,8 @@ import { rng } from "../../lib/rng";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_ROAD, SURF_TOWN, type Landscape, type Shed, type Town } from "../../landscape";
 import { onFelt, STREET_FELT_HALF } from "./roads";
+import { rowOpenings } from "../../roads/grow-town";
+import { rowsOn } from "../../props/rows";
 import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
 import { addPart } from "../blender-models";
@@ -232,7 +234,7 @@ export function townLooks(seed: number, town: Town): Look[] {
  * themselves are catalogue models placed as props (see `src/props/towns.ts`); their doors are at the middle of their
  * fronts, facing the town centre. Returns nothing to cast contact shadows (props stand on their own).
  */
-export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher): { cx: number; cz: number; w: number; d: number }[] {
+export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher, rows = rowsOn()): { cx: number; cz: number; w: number; d: number }[] {
   const looks = townLooks(land.seed, town);
   const doors: Point[] = town.buildings.map((bld, k) => {
     const fp = footprintOf(land, town, bld.cells, looks[k], bld.front);
@@ -241,7 +243,34 @@ export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batch
   });
   for (const p of townFurniture(land, town, doors)) furniture(b, mats, p);
   for (const i of townGreens(land, town)) green(land, i, mats, b);
+  // Towns in rows: an opening in a row that no side street has taken is a small paved place, so a street has no holes.
+  if (rows) for (const i of rowOpenings(land.grid, { centre: town.centre, heading: town.station.heading, cells: town.cells, buildings: town.buildings })) pavedPlace(land, i, mats, b);
   return [];
+}
+
+/**
+ * An opening in a row (`rowOpenings`): the rows' pavement carried across it, a round tree in its middle and a bench
+ * toward its street. Static, as the town's furniture is; a side street laid through it later takes its place.
+ */
+function pavedPlace(land: Landscape, i: number, mats: Materials, b: Batcher): void {
+  const g = land.grid;
+  const x = g.centreX(g.colOf(i));
+  const z = g.centreZ(g.rowOf(i));
+  const y = g.groundY(i);
+  b.add(mats.lacquer("#d8d0bf"), new RoundedBoxGeometry(CELL, 2.4, CELL, 2, 0.6).translate(x, y + 1.2, z));
+  b.add(mats.naturalWood, new CylinderGeometry(1.2, 2.2, 10, 8).translate(x, y + 7.4, z));
+  b.add(mats.lacquer("#4b9a4f"), new SphereGeometry(8, 10, 7).scale(1, 0.9, 1).translate(x, y + 18, z));
+  // The bench: on the side its street is, along it.
+  const sides = [[1, 0], [0, 1], [-1, 0], [0, -1]] as const;
+  const e = sides.find(([dc, dr]) => {
+    const j = g.index(g.colOf(i) + dc, g.rowOf(i) + dr);
+    return j !== -1 && g.surface[j] === SURF_ROAD;
+  }) ?? sides[0];
+  const bx = x + e[0] * 22;
+  const bz = z + e[1] * 22;
+  const long = e[0] !== 0 ? [5, 18] : [18, 5];
+  b.add(mats.lacquer("#2f6048"), new RoundedBoxGeometry(long[0], 1.4, long[1], 2, 0.4).translate(bx, y + 2.4 + 4.2, bz));
+  for (const s of [-1, 1]) b.add(mats.lacquer("#26272a"), new BoxGeometry(e[0] !== 0 ? 4 : 1.2, 3.6, e[0] !== 0 ? 1.2 : 4).translate(bx + (e[0] !== 0 ? 0 : s * 7), y + 2.4 + 1.8, bz + (e[0] !== 0 ? s * 7 : 0)));
 }
 
 /** A town's greens: its squares with nothing on them (a house moved away, or not yet built on). */

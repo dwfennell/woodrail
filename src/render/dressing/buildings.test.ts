@@ -159,3 +159,54 @@ describe("town greens (QA: N7)", () => {
     expect(box.max.y - g.groundY(cell)).toBeLessThan(5);
   });
 });
+
+describe("row openings (towns in rows)", () => {
+  /** A town with a house in the middle of a row, and that house's square. */
+  function rowWithMiddle() {
+    for (const seed of SEEDS) {
+      const land = generateLandscape(seed);
+      const g = land.grid;
+      for (const town of land.towns) {
+        const frontAt = new Map<number, number | undefined>();
+        for (const b of town.buildings) for (const c of b.cells) frontAt.set(c, b.front);
+        for (const b of town.buildings) {
+          if (b.cells.length !== 1 || b.front === undefined || b.landmark) continue;
+          const c = b.cells[0];
+          const along = b.front % 2 === 0 ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]];
+          if (along.every(([dc, dr]) => frontAt.get(g.index(g.colOf(c) + dc, g.rowOf(c) + dr)) === b.front)) return { land, town, house: b, cell: c };
+        }
+      }
+    }
+    throw new Error("no town with three houses in a row in these seeds");
+  }
+
+  it("an opening between two houses of a row is a small paved place; off, or once a street leaves through it, nothing", () => {
+    const { land, town, house, cell } = rowWithMiddle();
+    const g = land.grid;
+    const full = measuring();
+    buildTown(land, town, mats, full.b, true);
+    // The house gone, its square bare grass again: an opening in the row.
+    town.buildings.splice(town.buildings.indexOf(house), 1);
+    g.feature[cell] = 0;
+    g.owner[cell] = -1;
+    g.surface[cell] = 0;
+    const off = measuring();
+    buildTown(land, { ...town, cells: [cell] }, mats, off.b, false);
+    const on = measuring();
+    buildTown(land, { ...town, cells: [cell] }, mats, on.b, true);
+    expect(on.count() - off.count()).toBeGreaterThanOrEqual(4);
+    // Within its square, a tree's height at most.
+    const place = measuring();
+    buildTown(land, { ...town, cells: [], station: town.station }, mats, place.b, true);
+    const none = measuring();
+    buildTown(land, { ...town, cells: [], station: town.station }, mats, none.b, false);
+    expect(place.count() - none.count()).toBe(on.count() - off.count());
+    // A street through it: an opening no more.
+    g.surface[cell] = SURF_ROAD;
+    const street = measuring();
+    buildTown(land, { ...town, cells: [cell] }, mats, street.b, true);
+    const streetOff = measuring();
+    buildTown(land, { ...town, cells: [cell] }, mats, streetOff.b, false);
+    expect(street.count()).toBe(streetOff.count());
+  });
+});
