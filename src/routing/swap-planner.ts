@@ -133,9 +133,15 @@ function moveOf(plan: SwapPlan, a: number, b: number): PlannedMove | null {
  * without stopping at each piece the plan rests at). Ends at the train's target, so it calls there.
  */
 export function runFrom(plan: SwapPlan, at: number, targets: readonly number[], order: readonly number[], most = 24): PlannedMove | null {
+  return runFromAt(plan, at, targets, order, most)?.m ?? null;
+}
+
+/** `runFrom`, and the state its move leads to. */
+export function runFromAt(plan: SwapPlan, at: number, targets: readonly number[], order: readonly number[], most = 24): { m: PlannedMove; s: number } | null {
   const m = nextFrom(plan, at, targets, order);
-  if (!m || m.turn) return m;
+  if (!m) return null;
   let s = plan.edges[at].find((x) => plan.states[x][m.k] === m.to) ?? -1;
+  if (m.turn) return { m, s };
   let last = m;
   for (let i = 0; i < most && s >= 0; i++) {
     const tg = targets[m.k];
@@ -147,6 +153,5 @@ export function runFrom(plan: SwapPlan, at: number, targets: readonly number[], 
     last = n;
     s = t;
   }
-  return last;
+  return { m: last, s };
 }
-

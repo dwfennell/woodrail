@@ -6,7 +6,7 @@ import type { AvoidTest } from "../routing/router";
 import { deadEndsOf, mouthWay } from "../routing/dead-ends";
 import { engineOf, trainLength } from "../sim/train-cars";
 import { elemsByLength } from "../routing/oracle";
-import { planSwap, runFrom, stateOf, type PlannedMove, type PlanTrain, type SwapPlan } from "../routing/swap-planner";
+import { planSwap, runFromAt, stateOf, type PlannedMove, type PlanTrain, type SwapPlan } from "../routing/swap-planner";
 
 /**
  * Sections and slots: trains that wait for each other on single track (token working; a line's own, and lines sharing
@@ -196,6 +196,8 @@ const FOLLOW_ROOM = 150;
 const SWAP_AFTER = 3 * SIM_HZ;
 /** After a search that found no plan, how long (ticks) before the next (the track unchanged). */
 const SWAP_RETRY = 30 * SIM_HZ;
+/** How often (ticks) a planned line looks for its next moves. */
+const SWAP_LOOK = SIM_HZ / 4;
 /** A planned move's way (`swapWay`): its pieces and their lengths from the train's front, its aim and follow test. */
 interface SwapWay {
   pieces: number[];
@@ -204,14 +206,14 @@ interface SwapWay {
   follow: AvoidTest;
 }
 /** `began`: the tick the move was given (a turn is done once the train has turned since). */
-type SwapMove = PlannedMove & { engine: number; way: SwapWay | null; began: number };
+type SwapMove = PlannedMove & { engine: number; way: SwapWay | null; began: number; touches: Set<number> };
 /** A line the swap planner has (`swapCap`). */
 interface SwapState {
   plan: SwapPlan;
   engines: number[];
   revision: number;
   at: number;
-  move: SwapMove | null;
+  moves: SwapMove[];
   targets: number[];
   served: number[];
 }
@@ -2361,7 +2363,7 @@ export class Sections {
       });
       const plan = planSwap(this.layout, trains);
       if (!plan) return null;
-      sw = { plan, engines: [...info.engines], revision: this.layout.revision, at: 0, move: null, targets: info.engines.map((e) => this.host.target(e)), served: info.engines.map(() => this.sim.ticks) };
+      sw = { plan, engines: [...info.engines], revision: this.layout.revision, at: 0, moves: [], targets: info.engines.map((e) => this.host.target(e)), served: info.engines.map(() => this.sim.ticks) };
       this.swaps.set(lineId, sw);
     }
     // (A train come to its stop since: served now; the order goes by who's waited longest.)
@@ -2372,52 +2374,40 @@ export class Sections {
         sw.served[k] = this.sim.ticks;
       }
     }
-    if (!sw.move) {
-      // (Every train at rest first: then where they stand in the plan, and its next move.)
-      if (sw.engines.some((e) => (this.sim.findCar(e)?.train.speed ?? 0) >= 1)) return train.speed >= 1 ? Infinity : 0;
-      const now = sw.engines.map((e) => this.planTrainOf(this.sim.findCar(e)!.train));
-      const ahead = now.map((t) => {
-        const f = t.e[t.e.length - 1];
-        const n = f && f.ex >= 0 ? next(this.layout, f.p, f.ex) : null;
-        const w = n ? waysFrom(this.layout, n.pieceId, n.entry, () => true)[0] : undefined;
-        return n && w ? { p: n.pieceId, en: n.entry, ex: w.exit } : null;
-      });
-      const at = stateOf(sw.plan, now, ahead);
-      const order = sw.engines.map((_, k) => k).sort((a, b) => sw!.served[a] - sw!.served[b] || a - b);
-      const m = at < 0 ? null : runFrom(sw.plan, at, sw.targets, order);
-      if (!m) {
-        this.swaps.delete(lineId);
-        return null;
-      }
-      const mover = this.sim.findCar(sw.engines[m.k])!.train;
-      sw.move = { ...m, engine: sw.engines[m.k], way: m.turn ? null : this.swapWay(mover, m), began: this.sim.ticks };
-      if (!m.turn && !sw.move.way) {
+    // (Those not moving at rest: where they'd all be once the moves under way are done, and the next moves for those
+    // free to go. A look a quarter second at most.)
+    if (sw.moves.length < sw.engines.length && this.sim.ticks - sw.at >= SWAP_LOOK) {
+      sw.at = this.sim.ticks;
+      const idle = sw.engines.filter((e) => !sw!.moves.some((m) => m.engine === e));
+      if (idle.every((e) => (this.sim.findCar(e)?.train.speed ?? 0) < 1) && !this.startSwapMoves(sw) && sw.moves.length === 0) {
         this.swaps.delete(lineId);
         return null;
       }
     }
-    const mv = sw.move;
+    if (sw.moves.length === 0) return train.speed >= 1 ? Infinity : 0;
     // (The plan has the line: no move of the line's own rules kept, so the router lets go points it held for one (a train
     // standing by the points held them against the one the plan sends over them).)
     st.move = null;
-    // (Not its move: it stands where it is, for the one moving.)
-    if (mv.engine !== st.engine) {
-      if (!st.wait || !("engine" in st.wait) || st.wait.engine !== mv.engine) this.hold(st, { kind: "slot", engine: mv.engine });
+    const mv = sw.moves.find((x) => x.engine === st.engine);
+    // (Not one of the moves: it stands where it is, for those moving.)
+    if (!mv) {
+      const by = sw.moves[0].engine;
+      if (!st.wait || !("engine" in st.wait) || st.wait.engine !== by) this.hold(st, { kind: "slot", engine: by });
       return 0;
     }
     st.wait = null;
     st.waitSince = -1;
+    const done = () => {
+      sw!.moves.splice(sw!.moves.indexOf(mv), 1);
+      return 0;
+    };
     if (mv.turn) {
       // (Turning round at the end of the line ahead (or behind a train standing at it: `turnsNose`): done once its front is
-      // where the plan has it.)
-      // (Or turned since the move began, by the sim's own count (its front then a little short of the plan's).)
+      // where the plan has it, or it has turned since the move began, by the sim's own count.)
       const f = elemsByLength(this.layout, train);
       const tf = mv.to.e[mv.to.e.length - 1];
       const turned = !!train.lastTurn && train.lastTurn.tick >= mv.began;
-      if ((f.length > 0 && f[f.length - 1].p === tf.p && f[f.length - 1].ex === tf.ex) || turned) {
-        sw.move = null;
-        return 0;
-      }
+      if ((f.length > 0 && f[f.length - 1].p === tf.p && f[f.length - 1].ex === tf.ex) || turned) return done();
       return Infinity;
     }
     // (Running to where it rests: its front at the plan's front piece's end, short by the plan's `fs`.)
@@ -2429,11 +2419,46 @@ export class Sections {
     // (Short of the piece's end as a held train stands (`STAND_SHORT`): its car's nose clear of the points beyond.)
     d -= mv.to.fs + CAR_SPECS[lead.kind].bogieInset + STAND_SHORT;
     if (i < 0) d = 0;
-    if (train.speed < 1 && (d <= 3 || this.sim.heldBy(train.id) !== null)) {
-      sw.move = null;
-      return 0;
-    }
+    if (train.speed < 1 && (d <= 3 || this.sim.heldBy(train.id) !== null)) return done();
     return d > 0 ? Math.sqrt(2 * ACCELERATION * d) : 0;
+  }
+
+  /**
+   * The plan's next moves from where the line's trains stand: the first (`runFrom`), and with it those after it of other
+   * trains on track none of them touches (where they stand, the way they run, where they rest), so they go together; the
+   * order they'd go in then makes no odds. False: no state for where they stand, or no move.
+   */
+  private startSwapMoves(sw: SwapState): boolean {
+    // (A train moving counts as where its move rests it.)
+    const now = sw.engines.map((e) => sw.moves.find((m) => m.engine === e)?.to ?? this.planTrainOf(this.sim.findCar(e)!.train));
+    const ahead = now.map((t) => {
+      const f = t.e[t.e.length - 1];
+      const n = f && f.ex >= 0 ? next(this.layout, f.p, f.ex) : null;
+      const w = n ? waysFrom(this.layout, n.pieceId, n.entry, () => true)[0] : undefined;
+      return n && w ? { p: n.pieceId, en: n.entry, ex: w.exit } : null;
+    });
+    let at = stateOf(sw.plan, now, ahead);
+    if (at < 0) return false;
+    const order = sw.engines.map((_, k) => k).sort((a, b) => sw.served[a] - sw.served[b] || a - b);
+    const used = new Set<number>();
+    for (const x of sw.moves) for (const p of x.touches) used.add(p);
+    const before = sw.moves.length;
+    for (let n = 0; n < sw.engines.length; n++) {
+      const r = runFromAt(sw.plan, at, sw.targets, order);
+      const m = r?.m;
+      if (!r || !m || sw.moves.some((x) => x.k === m.k)) break;
+      const mover = this.sim.findCar(sw.engines[m.k])!.train;
+      const way = m.turn ? null : this.swapWay(mover, m);
+      if (!m.turn && !way) break;
+      const touches = new Set<number>([...mover.bogies.map((b) => b.pieceId), ...m.to.e.map((x) => x.p), ...(way?.pieces ?? [])]);
+      if ((n > 0 || before > 0) && [...touches].some((p) => used.has(p))) break;
+      for (const p of touches) used.add(p);
+      sw.moves.push({ ...m, engine: sw.engines[m.k], way, began: this.sim.ticks, touches });
+      // (On from the state that move leads to, for the next one.)
+      if (r.s < 0) break;
+      at = r.s;
+    }
+    return sw.moves.length > before || before > 0;
   }
 
   /** Have all a line's trains stood held for one another `SWAP_AFTER`, with none but its own on its track? */
@@ -2521,8 +2546,7 @@ export class Sections {
   private swapMoveOf(engine: number): SwapMove | null {
     if (this.swaps.size === 0) return null;
     const lineId = this.host.lineOf(engine);
-    const m = lineId < 0 ? null : (this.swaps.get(lineId)?.move ?? null);
-    return m && m.engine === engine ? m : null;
+    return lineId < 0 ? null : (this.swaps.get(lineId)?.moves.find((m) => m.engine === engine) ?? null);
   }
 
   /** May this train turn round nose to nose with one standing at the end of the line: the swap planner's turn. */
