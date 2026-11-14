@@ -2567,6 +2567,16 @@ export class Sections {
     return lineId < 0 ? null : (this.swaps.get(lineId)?.moves.find((m) => m.engine === engine) ?? null);
   }
 
+  /**
+   * Is the swap planner looking for a way through for this engine's line, or taking it through one? Then its trains
+   * aren't stuck (`Stalls`): they wait their turn in the plan.
+   */
+  swapping(engine: number): boolean {
+    if (this.swaps.size === 0 && this.swapSearches.size === 0) return false;
+    const lineId = this.host.lineOf(engine);
+    return lineId >= 0 && (this.swaps.has(lineId) || this.swapSearches.has(lineId));
+  }
+
   /** May this train turn round nose to nose with one standing at the end of the line: the swap planner's turn. */
   turnsNose(train: Train): boolean {
     if (this.swaps.size === 0) return false;
