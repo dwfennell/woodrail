@@ -2,6 +2,7 @@ import { FEAT_BUILDING, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_ROAD, SURF_TOWN, 
 import { plotSlotOf, type LandEditor } from "../landscape/edit";
 import { rng } from "../lib/rng";
 import { growTown } from "../roads/grow-town";
+import { rowsOn } from "../props/rows";
 
 /**
  * Squares a new building stands on (one, two side by side along a street, or a 2×2 block with a side on one), the grid edge its front door faces (none:
@@ -61,6 +62,8 @@ export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: num
       canUse: (i) => editor.checkLot([i], false) === null,
       toward: land.towns.filter((t) => t !== town).map((t) => t.centre),
       wide: options.wide,
+      // (Towns in rows, the dev switch: rows fill before the town spreads.)
+      rows: rowsOn(),
     });
     for (const step of steps) {
       // Each step builds on the ones before: the first that the editor refuses as a whole ends the run.
