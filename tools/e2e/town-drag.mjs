@@ -123,9 +123,9 @@ const town = (house) =>
   }, house);
 
 // 1. A new game, Larkfield grown to a town (its houses up a storey or two).
-// (`E2E_ROWS=1`: towns in rows, the dev switch `?rows`: the same drags on a town of row houses.)
-const ROWS = process.env.E2E_ROWS === "1";
-await p.goto(`${PAGE}${ROWS ? "?rows" : ""}`);
+// (Towns are in rows: the drags are on a town of row houses.)
+const ROWS = true;
+await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
 await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });

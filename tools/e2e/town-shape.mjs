@@ -13,11 +13,10 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-// `E2E_ROWS=1` (or `--rows`): towns in rows, the dev switch `?rows` (spec 2026-11-14-town-rows-design.md): the same
-// growth, and at each level what rows are for: every row house fronts a street, four in five touch a neighbour along
-// their street from a village on, none is taller than twice its width.
-const ROWS = process.env.E2E_ROWS === "1" || process.argv.includes("--rows");
-const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? (ROWS ? "e2e-out/town-shape-rows" : "e2e-out/town-shape");
+// Towns grow in rows (spec 2026-11-14-town-rows-design.md): at each level, what rows are for: every row house fronts a
+// street, four in five touch a neighbour along their street from a village on, none is taller than twice its width.
+const ROWS = true;
+const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out/town-shape";
 mkdirSync(OUT, { recursive: true });
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5384, strictPort: false }, logLevel: "error" });
 await server.listen();
@@ -38,7 +37,7 @@ const check = (what, ok, detail = "") => {
 };
 const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
 
-await p.goto(`${PAGE}${ROWS ? "?rows" : ""}`);
+await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
 await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });

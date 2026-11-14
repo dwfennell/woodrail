@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildStarterWorld, createWorld } from "../game/world";
 import { FEAT_BUILDING, FEAT_NONE, SURF_TOWN } from "../landscape";
 import { deserializeWorld, serializeWorld, type SaveData } from "../persist/save";
+import { rowSquares } from "./rows";
 import { addTownProps, buildingCells, findBuilding, releaseBuilding, townProps } from "./towns";
 
 describe("towns built from catalogue models", () => {
@@ -18,8 +19,7 @@ describe("towns built from catalogue models", () => {
       const g = w.landscape.grid;
       expect([g.cellAtWorld(p!.x - 1, p!.z - 1), g.cellAtWorld(p!.x + 1, p!.z + 1)].some((c) => b.cells.includes(c))).toBe(true);
       // Two-square buildings get two-square models.
-      const two = ["bldg-terrace", "bldg-semi-detached", "bldg-villa", "bldg-cottage-row", "bldg-church", "bldg-post-office", "bldg-cafe", "bldg-apartment-block", "bldg-bakery"];
-      if (b.cells.length > 1) expect(two, p!.asset).toContain(p!.asset);
+      if (b.cells.length > 1) expect(rowSquares(p!.asset), p!.asset).toBeGreaterThanOrEqual(2);
     }
   });
 
@@ -88,24 +88,52 @@ describe("buildings facing their street", () => {
 });
 
 describe("towns in rows", () => {
-  const rowsWorld = (seed = 4242) => {
+  /** A world whose towns are dressed as they were before rows (an old save's props). */
+  const oldWorld = (seed = 4242) => {
     const w = createWorld(seed);
+    for (const p of [...w.props.all()]) if (p.building !== undefined) w.props.remove(p.id);
+    addTownProps(w.landscape, w.props, undefined, false);
+    return w;
+  };
+  const rowsWorld = (seed = 4242) => {
+    const w = oldWorld(seed);
     const before = [...w.props.all()].map((p) => ({ ...p }));
     addTownProps(w.landscape, w.props, undefined, true);
     return { w, before };
   };
-  const KEPT = /^(bldg-church|bldg-ice-cream-kiosk|bldg-fire-station|bldg-police-station|bldg-town-hall|bldg-hospital|bldg-school|bldg-market-hall|bldg-library|bldg-college|scene-)/;
+  it("dressed the old way (as an old save's towns are), a town has no rows", () => {
+    const w = oldWorld();
+    const town = [...w.props.all()].filter((p) => p.building !== undefined);
+    expect(town.length).toBeGreaterThan(10);
+    expect(town.some((p) => p.asset.startsWith("row-"))).toBe(false);
+  });
 
-  it("off, a town is dressed as it always was", () => {
-    const a = createWorld(4242);
-    const b = createWorld(4242);
-    // Its houses taken away and dressed again, the switch off: the same models, places and colours.
-    const strip = <T extends { id: number }>(p: T): T => ({ ...p, id: 0 });
-    for (const p of [...b.props.all()]) if (p.building !== undefined) b.props.remove(p.id);
-    expect(addTownProps(b.landscape, b.props, undefined, false)).toBeGreaterThan(10);
-    const town = (w: typeof a) => [...w.props.all()].filter((p) => p.building !== undefined).map(strip).sort((x, y) => x.building! - y.building!);
-    expect(town(b)).toEqual(town(a));
-    expect([...b.props.all()].some((p) => p.asset.startsWith("row-"))).toBe(false);
+  it("a save from before rows loads with its towns in rows: every building on its squares, its storeys kept; and saves and loads the same again", () => {
+    const w = oldWorld();
+    // (Some of its houses grown, as a played game's are.)
+    const houses = [...w.props.all()].filter((p) => p.building !== undefined);
+    houses.slice(0, 6).forEach((p, k) => w.props.setStoreys(p.id, 1 + (k % 2)));
+    const old = new Map([...w.props.all()].filter((p) => p.building !== undefined).map((p) => [p.building!, { ...p }]));
+    expect([...old.values()].some((p) => p.asset.startsWith("row-"))).toBe(false);
+    const back = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))) as SaveData);
+    expect(back.ok, back.ok ? "" : JSON.stringify(back)).toBe(true);
+    if (!back.ok) return;
+    const now = [...back.value.props.all()].filter((p) => p.building !== undefined);
+    expect(now).toHaveLength(old.size);
+    const g = back.value.landscape.grid;
+    let rows = 0;
+    for (const p of now) {
+      const was = old.get(p.building!)!;
+      expect(p.storeys, `building ${p.building}`).toBe(was.storeys);
+      const { building } = findBuilding(back.value.landscape, p.building!)!;
+      expect([g.cellAtWorld(p.x - 1, p.z - 1), g.cellAtWorld(p.x + 1, p.z + 1)].some((c) => building.cells.includes(c)) || building.cells.length >= 4, `building ${p.building}`).toBe(true);
+      if (p.asset.startsWith("row-")) rows++;
+      else expect(p.asset, `building ${p.building}`).toBe(was.asset);
+    }
+    expect(rows).toBeGreaterThan(old.size * 0.8);
+    // Again: the same props.
+    const again = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(back.value))) as SaveData);
+    expect(again.ok && [...again.value.props.all()]).toEqual([...back.value.props.all()]);
   });
 
   it("a game in rows saves and loads again, every house in its colour", () => {
@@ -182,9 +210,10 @@ describe("towns in rows", () => {
       expect(p, `prop ${old.id}`).toBeDefined();
       expect(p.building).toBe(old.building);
       expect(p.storeys).toBe(old.storeys);
-      if (!rowFor(old.asset)) {
+      if (!p.asset.startsWith("row-")) {
+        // (Park furniture, and a model with no row for its lot: as it was.)
         expect(p).toEqual(old);
-        expect(old.asset).toMatch(KEPT);
+        expect(rowFor(old.asset)).toBeUndefined();
         continue;
       }
       rows++;
@@ -203,7 +232,7 @@ describe("towns in rows", () => {
         const ahead = g.cellAtWorld(p.x + Math.cos(p.heading) * 72, p.z + Math.sin(p.heading) * 72);
         expect(g.road[ahead] !== 0 || g.surface[ahead] === 2, `building ${building.id} of ${town.name}`).toBe(true);
       }
-      if (building.cells.length === 2) expect(["row-terrace", "row-bakery", "row-cafe", "row-post", "row-flats"]).toContain(p.asset);
+      if (building.cells.length === 2) expect(rowSquares(p.asset), p.asset).toBe(2);
     }
     expect(rows).toBeGreaterThan(10);
     // Again: nothing more to do.

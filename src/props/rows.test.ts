@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { ROW_ASSETS, ROW_BODIES, ROW_ROOFS, rowAssetIds, rowColours, rowFor, rowsOn, rowVariant, townPalette } from "./rows";
+import { ROW_ASSETS, ROW_BODIES, ROW_ROOFS, rowAssetIds, rowColours, rowFor, rowVariant, townPalette } from "./rows";
 import { stacks } from "./storeys";
 
 describe("towns in rows: colours and assets", () => {
-  it("is off without ?rows", () => {
-    expect(rowsOn()).toBe(false);
-  });
-
   it("a variant names one body and one roof, the same in every town", () => {
     const seen = new Set<string>();
     for (let v = 0; v < ROW_BODIES.length * ROW_ROOFS.length; v++) {

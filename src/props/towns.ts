@@ -7,7 +7,7 @@ import type { PropStore } from "./store";
 import { landmarkOf } from "../game/landmarks";
 import { isPlace, placeOf } from "../game/places";
 import { scaleOf } from "../catalogue/scale";
-import { civicRow, isChurch, isRow, ROW_ASSETS, ROW_HOUSES_1, rowFor, rowsOn, rowSquares, rowVariant, townPalette } from "./rows";
+import { civicRow, isChurch, isRow, ROW_ASSETS, ROW_HOUSES_1, rowFor, rowSquares, rowVariant, townPalette } from "./rows";
 import { chanceOf, extraStyles, jitterOf, SPIRE_LEVEL, storeysFor, STYLES_BY_LEVEL } from "./storeys";
 
 /**
@@ -435,7 +435,7 @@ function facing(land: Landscape, town: Town, b: Building, look: Look, asset: str
  * Give every town building that has no prop yet its catalogue model: a new map's towns, towns on land just added, and
  * saves from before towns were props. Returns how many were added.
  */
-export function addTownProps(land: Landscape, props: PropStore, levelOf?: (town: number) => number, rows = rowsOn()): number {
+export function addTownProps(land: Landscape, props: PropStore, levelOf?: (town: number) => number, rows = true): number {
   if (rows) dressInRows(land, props);
   const have = new Map<number, string>();
   const variants = new Map<number, number>();

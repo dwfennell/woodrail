@@ -186,6 +186,15 @@ Built behind a dev-only switch until every town model is in the new style (house
 station), so no player sees a mixed town. Then the switch goes and the old town models leave town dressing (they stay
 in the catalogue for Sandbox props already placed). The wiki's pictures are drawn again (`npm run wiki:pictures`).
 
+**Done 2026-11-14:** the switch is gone; towns are in rows. Landmarks and civic places are `row-*` models made for
+their lots (plan `2026-11-14-town-rows-landmarks-and-rollout.md`); the station's house is in the style.
+
+**Changed from decision 5 (2026-11-14):** a new map's towns are still laid out by the old fill order at generation, and
+grow in rows from then on. Laying them out in rows at generation moved what is placed after the towns (the starter
+map's ruined farm by 360 mm), and the balance sweep on the starter map went from 1 of 41 seeds missing a band to 3
+(research stall 12.8 to 17.2 min on average). Kept as it was, a seed and a map's code make the world they always made
+and the sweep is unchanged. To lay new towns out in rows too: `rows: true` in `growTowns` (`src/landscape/generate.ts`).
+
 ### 9. Testing
 
 - `e2e:town-shape` grows Larkfield a level at a time, as now, and checks what this is for: at every level each
