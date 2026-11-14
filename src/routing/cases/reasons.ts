@@ -12,20 +12,12 @@ const SWAP_ROUNDS =
 const ROOM_RULE =
   "held by the line's room rule (too many trains for its loops: the card says lay a loop): two trains on three line ends, all of them stops, no spare; the oracle runs them, each turning at its own ends in turn, but the swap planner takes only a line with a spare end, leaving the room rule's hold standing where it holds (sections-qa's room cases). Overruling it so is the user's call";
 
-const PUT_DOWN_ON_POINTS =
-  "put down by the player across a loop's points at both ends, facing each other over a road too short for either to clear them: dead, and one stands on points whatever it does; each brakes from its starting speed a few cm before they meet, past the judge's never-moved allowance. A train that stood still sooner stopped running trains on the bug maps too, for trains only passing the points";
-
-const PUT_DOWN_ON_WYE =
-  "the hand-run train put down with its front on the wye, heading round the ring at the routed train put down a piece away coming at it: its tail clears the wye only once its front is well onto the next piece, where the routed train already is, so it stands on the wye whatever the routed one does (stopping at once it still meets it there)";
 const CALL_ON =
   "waits on the user's call-on question: two trains fill the loop's roads, the third waits at the signal into their block, and they wait to leave into the block it stands in; the oracle runs them by letting a second train follow into that block behind the one at its far signal (permissive working), which today's block signals don't";
 
 export const REASONS: Record<string, string> = {
   "fuzz seed 19": ROOM_RULE,
-  "branch 2×mix opposed": PUT_DOWN_ON_WYE,
-  "branch-spare 2×mix opposed": PUT_DOWN_ON_WYE,
   "ring1 3×one same sig:blocks2": CALL_ON,
-  "line1 2×hand opposed facing": PUT_DOWN_ON_POINTS,
   "siding-spare 3×one same": SWAP_ROUNDS,
   "terminus-spare 3×one opposed": SWAP_ROUNDS,
   "terminus-spare 3×one same": SWAP_ROUNDS,

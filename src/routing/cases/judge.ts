@@ -54,6 +54,8 @@ const isSwitch = (layout: Layout, p: number) => {
 /** In the run's second half (still running, not just at the start): stops a routed train must make, metres a hand-run one must run. */
 const FLOOR_STOPS = 1;
 const FLOOR_RUN_M = 2;
+/** How far (m) a train may have run since it was put down and still stand on the first points it met as the player's doing. */
+const PUT_DOWN_RUN_M = 1;
 const MAX_STATES = 60_000;
 
 export function judge(c: Case): Judged {
@@ -86,6 +88,11 @@ export function judge(c: Case): Judged {
   let addSignalCard = false;
   let onPoints = false;
   let report = h.run(0);
+  // (The first points each train met since it was put down, and whether it has got clear of them: standing on them
+  // still, never clear, having run no more than `PUT_DOWN_RUN_M`, it was put down where it meets another on them before
+  // it can clear them: the player's doing (the user, 2026-11-14), not a wait on points.)
+  const firstPoints = h.engines.map(() => new Set<number>());
+  const cleared = h.engines.map(() => false);
   const step = 1;
   // (Once a stall is said, 20 s more show what follows (a wait on points, a break); then the outcome is known.)
   let ranFor = seconds;
@@ -100,13 +107,19 @@ export function judge(c: Case): Judged {
       const tr = h.sim.findCar(engine)?.train;
       if (!tr) return;
       ran[k] += (Math.abs(tr.speed) * step) / 1000;
+      const onSw = tr.bogies.map((b) => b.pieceId).filter((p) => isSwitch(layout, p));
+      if (!cleared[k]) {
+        if (firstPoints[k].size === 0) for (const p of onSw) firstPoints[k].add(p);
+        else if (!onSw.some((p) => firstPoints[k].has(p))) cleared[k] = true;
+      }
+      const putDown = !cleared[k] && ran[k] <= PUT_DOWN_RUN_M && onSw.every((p) => firstPoints[k].has(p));
       const st = h.stalls.stuckOf(engine);
       // (The "Add a signal" card: too many trains for the signals, not two facing each other between them.)
       if (st?.kind === "signals" && !st.headOn) addSignalCard = true;
       if (st) {
         if (stallAt < 0) stallAt = s + step;
-        // (Not one put down there that never moved: "standing on points at the start" is the player's doing.)
-        if (Math.abs(tr.speed) < 1 && ran[k] > 0.3 && tr.bogies.some((b) => isSwitch(layout, b.pieceId))) onPoints = true;
+        // (Not one put down short of points it meets another on before it can clear them (`putDown`): the player's doing.)
+        if (Math.abs(tr.speed) < 1 && onSw.length > 0 && !putDown) onPoints = true;
       }
     });
   }
