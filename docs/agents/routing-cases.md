@@ -593,7 +593,7 @@ and pass / known.
 | siding-spare 3×mix opposed | dead (0/3) | stall at 6 s (in-way, in-way, in-way); 0 / 0 m / 0.4 m | pass |
 | siding-spare 3×mix same | partial (2/3) | stall at 21 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
 | siding-spare 3×one opposed | dead (0/3) | stall at 6 s (in-way, in-way, –); 0 / 0 / 1 | pass |
-| siding-spare 3×one same | live (3/3) | 2 / 1 / 2 | known: starves-live (waits for the swap planner (swap-planner.ts, routing-zero 2026-11-14): three line ends off one set of points, trains trading places through a spare one, need the right train sent into the spare at the right moment, moves ahead; one move at a time the rules hold, and stall. Booking track ahead (the redesign's step 5) wouldn't do it: reservations don't prevent too many trains on too few places (redesign §1.4)) |
+| siding-spare 3×one same | live (3/3) | 2 / 1 / 2 | known: starves-live (the swap planner (swap-planner.ts) runs it, but slowly: three line ends off one set of points, trains trading places through a spare one, a round of the plan about 28 moves of about 5 s each (some 140 s), one train moving at a time; the judge asks a stop a train every 75 s and calls a train still for 60 s a deadlock. Waits on the user's call on how such a layout is judged) |
 | terminus 1×hand | live (1/1) | 15.5 m | pass |
 | terminus 1×one | live (1/1) | 9 | pass |
 | terminus 2×hand opposed | dead (0/2) | 12.9 m / 11.7 m | pass |
@@ -620,8 +620,8 @@ and pass / known.
 | terminus-spare 2×own same | live (2/2) | 4 / 4 | pass |
 | terminus-spare 3×mix opposed | live (3/3; own ends 2) | stall at 28 s (in-way, in-way, in-way); 0 / 1 m / 0.8 m | pass |
 | terminus-spare 3×mix same | live (3/3; own ends 2) | stall at 9 s (in-way, in-way, in-way); 0 / 0.1 m / 0.1 m | pass |
-| terminus-spare 3×one opposed | live (3/3) | 1 / 1 / 1 | known: starves-live, break:deadlock (waits for the swap planner (swap-planner.ts, routing-zero 2026-11-14): three line ends off one set of points, trains trading places through a spare one, need the right train sent into the spare at the right moment, moves ahead; one move at a time the rules hold, and stall. Booking track ahead (the redesign's step 5) wouldn't do it: reservations don't prevent too many trains on too few places (redesign §1.4)) |
-| terminus-spare 3×one same | live (3/3) | 1 / 2 / 1 | known: starves-live, break:deadlock (waits for the swap planner (swap-planner.ts, routing-zero 2026-11-14): three line ends off one set of points, trains trading places through a spare one, need the right train sent into the spare at the right moment, moves ahead; one move at a time the rules hold, and stall. Booking track ahead (the redesign's step 5) wouldn't do it: reservations don't prevent too many trains on too few places (redesign §1.4)) |
+| terminus-spare 3×one opposed | live (3/3) | 1 / 1 / 1 | known: starves-live, break:deadlock (the swap planner (swap-planner.ts) runs it, but slowly: three line ends off one set of points, trains trading places through a spare one, a round of the plan about 28 moves of about 5 s each (some 140 s), one train moving at a time; the judge asks a stop a train every 75 s and calls a train still for 60 s a deadlock. Waits on the user's call on how such a layout is judged) |
+| terminus-spare 3×one same | live (3/3) | 1 / 2 / 1 | known: starves-live, break:deadlock (the swap planner (swap-planner.ts) runs it, but slowly: three line ends off one set of points, trains trading places through a spare one, a round of the plan about 28 moves of about 5 s each (some 140 s), one train moving at a time; the judge asks a stop a train every 75 s and calls a train still for 60 s a deadlock. Waits on the user's call on how such a layout is judged) |
 | wye 1×hand | live (1/1) | 16.1 m | pass |
 | wye 1×one | live (1/1) | 9 | pass |
 | wye 2×hand opposed | dead (0/2) | stall at 93 s (in-way, in-way); 6.9 m / 7.6 m | pass |
@@ -648,8 +648,8 @@ and pass / known.
 | wye-spare 2×own same | live (2/2) | 4 / 6 | pass |
 | wye-spare 3×mix opposed | live (3/3; own ends 2) | stall at 27 s (in-way, in-way, in-way); 0 / 1.2 m / 0.8 m | pass |
 | wye-spare 3×mix same | live (3/3; own ends 2) | stall at 9 s (in-way, in-way, in-way); 0 / 0.1 m / 0.1 m | pass |
-| wye-spare 3×one opposed | live (3/3; own ends 2) | stall at 15 s (too-many, too-many, –); 0 / 0 / 1 | known: stalls-live:siding (waits for the swap planner (swap-planner.ts, routing-zero 2026-11-14): three line ends off one set of points, trains trading places through a spare one, need the right train sent into the spare at the right moment, moves ahead; one move at a time the rules hold, and stall. Booking track ahead (the redesign's step 5) wouldn't do it: reservations don't prevent too many trains on too few places (redesign §1.4)) |
-| wye-spare 3×one same | live (3/3; own ends 2) | stall at 31 s (too-many, too-many, –); 1 / 2 / 1 | known: stalls-live:siding (waits for the swap planner (swap-planner.ts, routing-zero 2026-11-14): three line ends off one set of points, trains trading places through a spare one, need the right train sent into the spare at the right moment, moves ahead; one move at a time the rules hold, and stall. Booking track ahead (the redesign's step 5) wouldn't do it: reservations don't prevent too many trains on too few places (redesign §1.4)) |
+| wye-spare 3×one opposed | live (3/3; own ends 2) | stall at 15 s (too-many, –, –); 1 / 0 / 1 | known: stalls-live:siding (the swap planner (swap-planner.ts, routing-zero 2026-11-14) doesn't take it yet: trains trading places through the wye's spare end need the right train sent into the spare at the right moment, moves ahead, and one move at a time the rules hold, and stall; the planner can't yet find the game's state among the oracle's (same: it plans, then stalls again a round on; opposed: one train stands where no state matches). Booking track ahead (the redesign's step 5) wouldn't do it: reservations don't prevent too many trains on too few places (redesign §1.4)) |
+| wye-spare 3×one same | live (3/3; own ends 2) | stall at 31 s (too-many, too-many, –); 1 / 2 / 1 | known: stalls-live:siding (the swap planner (swap-planner.ts, routing-zero 2026-11-14) doesn't take it yet: trains trading places through the wye's spare end need the right train sent into the spare at the right moment, moves ahead, and one move at a time the rules hold, and stall; the planner can't yet find the game's state among the oracle's (same: it plans, then stalls again a round on; opposed: one train stands where no state matches). Booking track ahead (the redesign's step 5) wouldn't do it: reservations don't prevent too many trains on too few places (redesign §1.4)) |
 
 ### signals (104 cases, 1 mismatched)
 
@@ -866,7 +866,7 @@ and pass / known.
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
 | fuzz seed 7 | live (2/2) | 10 / 10 | pass |
-| fuzz seed 19 | live (2/2) | 9 / 10 | **fixed?** |
+| fuzz seed 19 | live (2/2) | 9 / 10 | pass |
 | fuzz seed 34 | live (3/3) | 7 / 7 / 7 | pass |
 | fuzz seed 37 | live (3/3) | 7 / 8 / 7 | pass |
 | fuzz seed 42 | dead (0/2) | stall at 6 s (in-way, in-way); 0 / 0 | pass |

@@ -3,8 +3,8 @@
  * and the table. By case id. (The user's (a), 2026-11-13, a train may follow a line-mate into a line end and turn behind
  * it, took decision 4's convoy cases off this list.)
  */
-const SWAP_PLANNER =
-  "the swap planner (swap-planner.ts, routing-zero 2026-11-14) doesn't take it yet: trains trading places through the wye's spare end need the right train sent into the spare at the right moment, moves ahead, and one move at a time the rules hold, and stall; the planner can't yet find the game's state among the oracle's (same: it plans, then stalls again a round on; opposed: one train stands where no state matches). Booking track ahead (the redesign's step 5) wouldn't do it: reservations don't prevent too many trains on too few places (redesign §1.4)";
+const SWAP_WYE =
+  "the swap planner (swap-planner.ts) runs it, but slowly: trains trading places through the wye's spare end, one train moving at a time, every train stopping about every 70 s (10 minutes run: 8-9 stops each); but the line's trains wait on each other some 5 s before the last of them stands still, so the stall is said (stalls.ts, 5 s) before the planner starts (every train held 3 s), and the judge's run ends 20 s on. Waits on the user's call on how such a layout is judged";
 
 const SWAP_ROUNDS =
   "the swap planner (swap-planner.ts) runs it, but slowly: three line ends off one set of points, trains trading places through a spare one, a round of the plan about 28 moves of about 5 s each (some 140 s), one train moving at a time; the judge asks a stop a train every 75 s and calls a train still for 60 s a deadlock. Waits on the user's call on how such a layout is judged";
@@ -25,6 +25,6 @@ export const REASONS: Record<string, string> = {
   "siding-spare 3×one same": SWAP_ROUNDS,
   "terminus-spare 3×one opposed": SWAP_ROUNDS,
   "terminus-spare 3×one same": SWAP_ROUNDS,
-  "wye-spare 3×one opposed": SWAP_PLANNER,
-  "wye-spare 3×one same": SWAP_PLANNER,
+  "wye-spare 3×one opposed": SWAP_WYE,
+  "wye-spare 3×one same": SWAP_WYE,
 };

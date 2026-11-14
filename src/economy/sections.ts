@@ -297,6 +297,11 @@ interface TrainState {
   /** In a refuge, letting this train by (for its card): −1 for none; and that refuge's slot. */
   lettingBy: number;
   lettingSlot: number;
+  /** When it was sent in (ticks), and the slot the train it lets by stood in then: that one has passed once it's left it. */
+  lettingAt?: number;
+  lettingFrom?: number;
+  /** Standing there for it now (`waitsAside`), its wait that train. */
+  asideHeld?: boolean;
 }
 
 // --- Topology ---------------------------------------------------------------------------------------------------
@@ -935,6 +940,20 @@ export class Sections {
     }
     // In a slot, with its move on from it granted.
     if (this.ownsAhead(st)) return Infinity;
+    // (Stepped aside and turned at the refuge's buffer: it stands there till the train it lets by has passed, gone on
+    // from where it waited. Come up to the points first, it held the refuge's way in as well as its way out: wye-spare
+    // 3×one opposed, the one it let by waiting for a third that came up the other leg, and none could ever move again.)
+    // (Waiting for that train, as a hold: the planner sees the line stalled when it is (`stalledForSwap`).)
+    if (this.waitsAside(st, train)) {
+      if (!st.asideHeld) this.hold(st, { kind: "slot", engine: st.lettingBy });
+      st.asideHeld = true;
+      return 0;
+    }
+    if (st.asideHeld) {
+      st.asideHeld = false;
+      st.wait = null;
+      st.waitSince = -1;
+    }
     // (Going to the end of a line end with a line-mate following it in: it stands short of the buffer, not turning till
     // that one has turned behind it (`followsInto`): turned, it would meet it nose to nose.)
     const hold = this.convoyHold(st, info, train, front);
@@ -2310,11 +2329,22 @@ export class Sections {
         this.grant(st, way);
         st.lettingBy = by;
         st.lettingSlot = r;
+        st.lettingAt = this.sim.ticks;
+        st.lettingFrom = this.states.get(by)?.slot ?? -1;
         return true;
       }
       st.aside = null;
     }
     return false;
+  }
+
+  /** In the refuge it stepped aside into, turned at its buffer, the train it lets by not yet gone on from where it waited. */
+  private waitsAside(st: TrainState, train: Train): boolean {
+    if (st.lettingBy === -1 || st.slot !== st.lettingSlot || st.lettingAt === undefined) return false;
+    if (!train.lastTurn || train.lastTurn.tick < st.lettingAt) return false;
+    const by = this.states.get(st.lettingBy);
+    if (!by || !this.sim.findCar(st.lettingBy)) return false;
+    return by.slot === st.lettingFrom && by.slot !== -1;
   }
 
   /** Does train `t` (driving), going on as the points lie, come onto a piece train `to` stands on, within `SEARCH` pieces? */
