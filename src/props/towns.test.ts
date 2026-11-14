@@ -120,21 +120,55 @@ describe("towns in rows", () => {
     expect(back.ok && [...back.value.props.all()].filter((p) => p.asset.startsWith("row-"))).toEqual(rows);
   });
 
-  it("a landmark or a place that wears a shop's model stays as it is", async () => {
+  it("a place in a shop's model becomes that shop's row where its lot is the row's, at its full size", async () => {
     const { dressInRows } = await import("./towns");
     const w = createWorld(4242);
     const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.cells.length === 2))!;
     const b = town.buildings.find((x) => x.cells.length === 2)!;
     const old = [...w.props.all()].find((p) => p.building === b.id)!;
-    // A bank: a landmark in the post office's model, drawn a little small on its lot.
+    // A bank: a place in the post office's model, drawn a little small on its lot.
     b.landmark = "bank";
     w.props.remove(old.id);
     const bank = w.props.add("bldg-post-office", { x: old.x, z: old.z, heading: old.heading, y: old.y }, old.id, { building: b.id, town: town.id, scale: 0.8 });
-    const before = { ...bank };
     dressInRows(w.landscape, w.props);
-    expect(w.props.get(bank.id)).toEqual(before);
-    // …and the houses round it became rows.
-    expect([...w.props.all()].some((p) => p.town === town.id && p.asset.startsWith("row-"))).toBe(true);
+    const now = w.props.get(bank.id)!;
+    expect(now.asset).toBe("row-post");
+    expect(now.scale).toBeUndefined();
+    expect(now.building).toBe(b.id);
+  });
+
+  it("a saved landmark becomes the model made for its lot; one with none for its lot stays as it is", async () => {
+    const { dressInRows } = await import("./towns");
+    const w = createWorld(4242);
+    const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.cells.length === 2) && t.buildings.some((b) => b.cells.length === 1))!;
+    const dress = (squares: number, asset: string, landmark: string) => {
+      const b = town.buildings.find((x) => x.cells.length === squares && !x.landmark)!;
+      const old = [...w.props.all()].find((p) => p.building === b.id)!;
+      b.landmark = landmark;
+      w.props.remove(old.id);
+      return w.props.add(asset, { x: old.x, z: old.z, heading: old.heading, y: old.y }, old.id, { building: b.id, town: town.id });
+    };
+    const fire = dress(2, "bldg-fire-station", "fire-station");
+    // (A town hall has no model for one square: it never goes up on one. Were a save to hold one, it stays.)
+    const hall = dress(1, "bldg-town-hall", "town-hall");
+    dressInRows(w.landscape, w.props);
+    expect(w.props.get(fire.id)!.asset).toBe("row-fire-station");
+    expect(w.props.get(hall.id)!.asset).toBe("bldg-town-hall");
+  });
+
+  it("in rows a town's market goes up as the market hall made for its lot", () => {
+    const w = createWorld(4242);
+    const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.cells.length === 2))!;
+    const b = town.buildings.find((x) => x.cells.length === 2)!;
+    b.landmark = "market";
+    const p = townProps(w.landscape, town, { level: 2, rows: true }).find((t) => t.building === b.id)!;
+    expect(p.asset).toBe("row-market-hall");
+    expect(p.scale).toBeUndefined();
+    // On its lot's middle, as a row is.
+    const g = w.landscape.grid;
+    const mid = (f: (c: number) => number) => b.cells.reduce((sum, c) => sum + f(c), 0) / b.cells.length;
+    expect(p.x).toBeCloseTo(mid((c) => g.centreX(g.colOf(c))), 3);
+    expect(p.z).toBeCloseTo(mid((c) => g.centreZ(g.rowOf(c))), 3);
   });
 
   it("every house and shop becomes its row, the same prop on the same squares, on its lot's middle", async () => {

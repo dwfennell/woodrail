@@ -49,7 +49,33 @@ describe("towns in rows: colours and assets", () => {
     for (const old of ["bldg-townhouse", "bldg-thatched-cottage", "bldg-timber-house", "bldg-bungalow", "bldg-brick-house", "bldg-narrow-house", "bldg-semi-detached", "bldg-villa", "bldg-terrace", "bldg-cottage-row", "bldg-corner-shop", "bldg-toy-shop", "bldg-apartment-block", "bldg-bakery", "bldg-cafe", "bldg-post-office"]) {
       expect(rowAssetIds()).toContain(rowFor(old));
     }
-    for (const kept of ["bldg-church", "bldg-town-hall", "bldg-fire-station", "bldg-ice-cream-kiosk"]) expect(rowFor(kept)).toBeUndefined();
+  });
+
+  it("every landmark, place and civic style a town can put up has a model made for its lot", async () => {
+    const { LANDMARKS } = await import("../game/landmarks");
+    const { PLACES } = await import("../game/places");
+    const { STYLES_BY_LEVEL } = await import("./storeys");
+    const { fitScale, PLACE_MIN_FIT } = await import("./towns");
+    const { civicRow, civicAssets, rowSquares } = await import("./rows");
+    const made = new Set([...rowAssetIds(), ...civicAssets().map((c) => c.id)]);
+    const want: [string, number, number][] = [["bldg-church", 2, 1], ["bldg-church", 4, 1]];
+    for (const m of LANDMARKS) for (const [n, list] of [[1, m.models.one], [2, m.models.two], [4, [...(m.models.four ?? []), ...m.models.two]]] as const) for (const a of list) want.push([a, n, 1]);
+    for (const m of PLACES) for (const [n, list] of [[1, m.models.one], [2, m.models.two], [4, [...(m.models.four ?? []), ...m.models.two]]] as const) for (const a of list) want.push([a, n, PLACE_MIN_FIT]);
+    for (const st of STYLES_BY_LEVEL) for (const [n, list] of [[1, st.one], [2, st.two], [4, st.four]] as const) for (const a of list) want.push([a, n, 1]);
+    let civic = 0;
+    for (const [asset, squares, min] of want) {
+      // (Park furniture, `scene-*`, stays as it is; a model that doesn't fit a lot never goes up on it.)
+      if (!asset.startsWith("bldg-") || fitScale(asset, squares, min) === null) continue;
+      const row = civicRow(asset, squares) ?? rowFor(asset);
+      expect(row, `${asset} on ${squares}`).toBeDefined();
+      expect(made, `${asset} on ${squares}`).toContain(row);
+      if (civicRow(asset, squares)) civic++;
+      // Made for that lot (on a block, one for two squares may stand on the street's two).
+      const lot = rowSquares(row!);
+      if (civicRow(asset, squares)) expect(lot === squares || (squares === 4 && lot === 2), `${row} on ${squares}`).toBe(true);
+    }
+    expect(civic).toBeGreaterThan(20);
+    expect(civicAssets()).toHaveLength(23);
   });
 
   it("every row can gain storeys", () => {
