@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { BLUEPRINTS, BRANCHES, describeNeed, describePrice, needTag } from "./blueprints";
 import { Progress } from "./progress";
-import { built, ready, seenOf, TECHS, techOf, unlocksOf } from "./tech";
+import { ready, seenOf, TECHS, techOf, unlocksOf } from "./tech";
 import { queueOf } from "./research";
 import { ruleOf, THING_RULES } from "./things";
+
+/** The rows once planned and never built, trimmed from the tree (2026-11-09): ideas on the design pages now. */
+const TRIMMED = ["trade", "monorail", "racecourse", "zoo", "ski", "rocket", "launch"];
 
 describe("the blueprint catalogue", () => {
   it("has unique ids, real branches and real prerequisites, and no loops", () => {
@@ -24,21 +27,14 @@ describe("the blueprint catalogue", () => {
     for (const b of BLUEPRINTS) visit(b.id, []);
   });
 
-  it("what's built needs only what's built, can be reached, and brings something; what's planned brings nothing yet", () => {
-    for (const b of BLUEPRINTS.filter(built)) {
-      for (const n of b.needs) expect(built(techOf(n)!), `${b.id} needs planned ${n}`).toBe(true);
-      expect(b.requires.some((r) => r.kind === "place"), `${b.id} can't be checked`).toBe(false);
+  it("every row needs only rows, brings something, and every thing's blueprint is a row (only what's in the game)", () => {
+    for (const b of BLUEPRINTS) {
+      for (const n of b.needs) expect(techOf(n), `${b.id} needs ${n}`).toBeDefined();
       expect(unlocksOf(b.id).length + (b.feature ? 1 : 0), b.id).toBeGreaterThan(0);
     }
-    for (const rule of Object.values(THING_RULES)) if (rule!.tech) expect(built(techOf(rule!.tech)!), rule!.label).toBe(true);
-  });
-
-  it("nothing planned can be learned, however much is done", () => {
-    const p = Progress.fresh();
-    for (const b of BLUEPRINTS) if (built(b)) p.learned.add(b.id);
-    p.riders = 10_000;
-    p.bestLevel = 4;
-    for (const b of BLUEPRINTS.filter((x) => !built(x))) expect(ready(p, b.id), b.id).toBe(false);
+    for (const rule of Object.values(THING_RULES)) if (rule!.tech) expect(techOf(rule!.tech), rule!.label).toBeDefined();
+    // (The rows once planned and never built are gone from the tree: tree trim, 2026-11-09.)
+    for (const id of TRIMMED) expect(techOf(id), id).toBeUndefined();
   });
 
   it("quarries wait for mills and a school beside a city (no school or library blueprint any more)", () => {
@@ -65,12 +61,44 @@ describe("the blueprint catalogue", () => {
     expect(seen.get("dining")).toBe("shown");
   });
 
-  it("no key blueprint is coming soon (but the ending's, the goal to aim for): Town hall and Park stay hidden till built", () => {
-    const planned = BLUEPRINTS.filter((b) => b.key && !built(b) && b.plan !== "ending").map((b) => b.id);
-    expect(planned).toEqual([]);
+  it("Town hall and Park stay hidden till something next to them is learned", () => {
     const seen = seenOf(Progress.fresh());
     expect(seen.get("town-hall")).toBe("unseen");
     expect(seen.get("park")).not.toBe("shown");
+  });
+
+  it("every branch has a row (none left empty by the trim)", () => {
+    for (const b of BRANCHES) expect(BLUEPRINTS.some((x) => x.branch === b.id), b.id).toBe(true);
+  });
+
+  it("an old save naming the trimmed rows loads: they're dropped from learned, the queue, set-aside and early goods; the rest kept", () => {
+    const data = {
+      owned: [],
+      learned: ["switches", "trade", "harbours", "rocket"],
+      coins: 120,
+      research: {
+        current: "rocket",
+        next: "trade",
+        later: ["zoo", "tank", "monorail", "racecourse"],
+        got: [["planks", 3]],
+        study: 4,
+        held: [["ski", { got: [["planks", 2]], study: 1 }], ["bridges", { got: [["planks", 1]], study: 0 }]],
+        early: [["launch", [["planks", 5]]], ["junctions", [["planks", 2]]]],
+      },
+    };
+    const p = Progress.fromJSON(JSON.parse(JSON.stringify(data)));
+    expect([...p.learned].sort()).toEqual(["harbours", "switches"]);
+    expect(p.coins).toBe(120);
+    const r = p.research;
+    expect(queueOf(r).filter((id) => TRIMMED.includes(id))).toEqual([]);
+    expect(r.current === null || !TRIMMED.includes(r.current)).toBe(true);
+    expect(queueOf(r)).toContain("tank");
+    expect([...r.held.keys()]).toEqual(["bridges"]);
+    expect([...r.early.keys()]).toEqual(["junctions"]);
+    // And it saves and loads again as it is, naming none of them.
+    const again = JSON.stringify(Progress.fromJSON(JSON.parse(JSON.stringify(p.toJSON()))).toJSON());
+    for (const id of TRIMMED) expect(again.includes(`"${id}"`), id).toBe(false);
+    expect(again).toBe(JSON.stringify(p.toJSON()));
   });
 
   it("an old save's risers and loops come back as bridges and junctions", () => {

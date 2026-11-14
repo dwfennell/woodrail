@@ -1,4 +1,4 @@
-import type { GameMode } from "../game/modes";
+import { MODES, type GameMode } from "../game/modes";
 import { describeRailway, KnownCodes, type CurrentCode } from "./cloud-known";
 import { newCode, parseCode } from "./sync-code";
 
@@ -46,7 +46,6 @@ export interface Merger {
   /** The merged values of `keys[mode]`, from the base (as both last had them) and each side's. */
   merge(mode: GameMode, base: Keys, local: Keys, remote: Keys, later: "local" | "remote"): Keys;
 }
-const MODES: readonly GameMode[] = ["sandbox", "game"];
 
 export interface RemoteMeta {
   /** When the game made the bundle (ms). */

@@ -67,13 +67,6 @@ export function smileLine(town: Town, smiles: number): string {
   return `${smiles} ${smiles === 1 ? "smile" : "smiles"}: ${town.name} needs ${cut}% fewer goods to grow${smiles >= MAX_SMILES ? " (the most)" : ""}.`;
 }
 
-/** "10🪵 6🪨" */
-export function goodsText(goods: Bag, icon: (k: string) => string): string {
-  return kindsOf(goods)
-    .map((k) => `${goods[k]}${icon(k)}`)
-    .join(" ");
-}
-
 /** The town level's name for a "when it's a city" note. */
 const levelName = (n: number): string => townLevel(n).name.toLowerCase();
 

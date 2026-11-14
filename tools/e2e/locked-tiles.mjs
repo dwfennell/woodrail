@@ -5,8 +5,8 @@
 //    picks nothing up and makes nothing; its "Show in Research" opens the Research picker on Switches, whose Research
 //    button then starts it (the payoff: the player's next step, by taps). A tap elsewhere puts the note away. Hover with
 //    a mouse (1440×900) shows the same words in the tooltip.
-// 3. 844×390 (a phone on its side): a town's card in two columns, its ✕ at the top right, its ledger whole (no scroll),
-//    and its Automatic switch works by a tap.
+// 3. 844×390 (a phone on its side): a town's card with its tabs across the top, its ✕ at the top right, the Grow tab in
+//    two columns and whole (no scroll), and on its Station tab the Automatic switch works by a tap.
 //
 // Setup shortcuts (named, not what's under test): Roads learned by `woodrail.learn` (the game's own learned()), for the tabs' fit only.
 // Starts its own dev server (on 5431, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium.
@@ -255,20 +255,27 @@ for (const viewport of [{ width: 844, height: 390 }, { width: 740, height: 360 }
     const c = document.querySelector(".depot-card");
     const r = c.getBoundingClientRect();
     const x = c.querySelector(":scope > .close").getBoundingClientRect();
-    const main = c.querySelector(".ledger-main").getBoundingClientRect();
-    const auto = [...c.querySelectorAll(".card-row button")].find((b) => b.textContent.includes("Automatic")).getBoundingClientRect();
-    return { w: Math.round(r.width), h: Math.round(r.height), left: r.left, scroll: c.scrollHeight - c.clientHeight, x: { top: x.top - r.top, right: r.right - x.right, w: x.width, h: x.height }, main: { left: main.left - r.left, bottom: main.bottom - r.top }, auto: { left: auto.left - r.left } };
+    const tabs = c.querySelector(".town-tabs").getBoundingClientRect();
+    const pane = c.querySelector(".town-pane:not([hidden])");
+    const goods = pane.querySelector(".ledger-goods").getBoundingClientRect();
+    const rest = [...pane.children].filter((e) => !e.classList.contains("ledger-goods") && !e.classList.contains("town-next")).map((e) => e.getBoundingClientRect()).filter((q) => q.width > 0);
+    const tabH = Math.min(...[...c.querySelectorAll(".town-tab")].map((t) => t.getBoundingClientRect().height));
+    return { w: Math.round(r.width), h: Math.round(r.height), left: r.left, scroll: c.scrollHeight - c.clientHeight, x: { top: x.top - r.top, right: r.right - x.right, w: x.width, h: x.height }, tabs: { w: tabs.width, tabH }, goods: { left: goods.left - r.left, right: goods.right - r.left }, rest: rest.map((q) => Math.round(q.left - r.left)), pane: pane.dataset.pane };
   });
   const tag = `${viewport.width}×${viewport.height}`;
   check(`${tag}: the town card's ✕ at its top right, 44 px`, card.x.top <= 4 && card.x.right <= 4 && card.x.w >= 44 && card.x.h >= 44, JSON.stringify(card.x));
-  check(`${tag}: two columns (ledger left, Automatic right)`, card.main.left < 30 && card.auto.left > card.w / 2 - 10, JSON.stringify(card));
-  check(`${tag}: the ledger shows whole, no scroll`, card.scroll <= 1 && card.main.bottom <= card.h, JSON.stringify(card));
+  check(`${tag}: its tabs across the card, each 44 px tall`, card.tabs.w >= card.w - 40 && card.tabs.tabH >= 44, JSON.stringify(card.tabs));
+  // (A starter hamlet's Grow has only its goods; anything more, what holds it back or what it buys, goes at the right.)
+  check(`${tag}: Grow's goods in the left column, anything else at the right`, card.pane === "grow" && card.goods.left < 30 && card.goods.right < card.w * 0.6 && card.rest.every((l) => l > card.w / 2 - 20), JSON.stringify(card));
+  check(`${tag}: the Grow tab shows whole, no scroll`, card.scroll <= 1, JSON.stringify(card));
   check(`${tag}: the card keeps right of 40% of the screen`, card.left >= viewport.width * 0.4 - 1, String(card.left));
   await shot(p, `4-town-card-${tag}`);
+  // The station's Automatic switch: on its Station tab.
+  await tapOn(p, ".town-tab", "Station");
   const was = await p.evaluate((id) => window.woodrail.economy.allDepots().find((d) => d.id === id).auto, town);
   await tapOn(p, ".depot-card .card-row button", "Automatic");
   const now = await p.evaluate((id) => window.woodrail.economy.allDepots().find((d) => d.id === id).auto, town);
-  check(`${tag}: Automatic switches by a tap`, now === !was, `${was} → ${now}`);
+  check(`${tag}: Automatic, on the Station tab, switches by a tap`, now === !was, `${was} → ${now}`);
   await ctx.close();
 }
 

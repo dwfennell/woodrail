@@ -10,7 +10,8 @@
  * - **pinned:** pinned points thrown (but by the player's lever tap: a pin keeps routes off them), or found moved.
  * - **restore:** points nobody holds or stands on for a second not at their default (opt-in: the harness).
  * - **deadlock:** a lever-on train standing `maxStill` s with nothing to say why (stuck sanity); a wait (sections',
- *   the router's, a stall's) naming a train that isn't there; sections' safety net letting a wait go.
+ *   the router's, a stall's) naming a train that isn't there; sections' safety net letting a wait go. (Not one waiting its
+ *   turn in a swap plan: `Sections.swapHolds`, the user's (a).)
  * - **lockRun:** a train's front runs onto points locked for other trains only.
  * - **redRun:** a train's front axle crosses a signal's joint while it's red, unless it was past braking for it when it
  *   turned red (counted in `redLate`, not a break).
@@ -550,7 +551,8 @@ export class Invariants {
       // (Only a front that went on over that joint: a train that turned has a new front somewhere else.)
       if (!g || pieceOfRef(layout.joinedConnector(connectorRef(was.pieceId, exit))) !== t.bogies[0].pieceId) continue;
       this.signalPasses++;
-      const late = this.excused.delete(`${g.key}:${id}`);
+      // (Called on: let past at red into a line end behind a line-mate there, to turn behind it: the user's yes, 2026-11-14.)
+      const late = this.excused.delete(`${g.key}:${id}`) || sim.calledOn(g.key, id);
       const n = names.get(id);
       if (this.aspectsWas.get(g.key) === false) {
         if (late) this.redLate++;
@@ -652,7 +654,7 @@ export class Invariants {
     const { sim, sections, router, stalls } = this.world;
     const net = this.world.drive(t);
     const stuck = stalls.stuckOf(engine);
-    const excused = this.opts.excused ? this.opts.excused(t, engine) : !!stuck || sections.heldForRoom(engine) || router.waitOf(engine)?.kind === "pinned";
+    const excused = this.opts.excused ? this.opts.excused(t, engine) : !!stuck || sections.heldForRoom(engine) || router.waitOf(engine)?.kind === "pinned" || sections.swapHolds(engine);
     if (net !== 0 && t.speed === 0 && !excused) {
       const was = m.still;
       m.still += this.every;
@@ -750,8 +752,14 @@ export class Invariants {
     let wrong: boolean;
     if (followed.length === 1) wrong = followed[0].option !== taken.option;
     else {
-      const costs: number[] = [];
-      const best = planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs);
+      let costs: number[] = [];
+      // (Round its line's lap where a way goes so, as the router plans it: sections' `lapRule`.)
+      const lap = sections.lapRule?.(engine);
+      let best = lap ? planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs, undefined, lap) : -1;
+      if (best === -1) {
+        costs = [];
+        best = planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs);
+      }
       if (best === -1 || best === taken.option) return;
       // (Or the way its line kept, costing nearly the best: stickiness, via points' §3.5.)
       const aim = held?.aim ?? target;

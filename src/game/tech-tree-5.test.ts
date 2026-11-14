@@ -57,7 +57,7 @@ describe("Stone viaduct", () => {
 
   it("is researched (tier 3, after Bridges and Quarries) and made with stone; on the Bridges shelf", () => {
     const row = BLUEPRINTS.find((b) => b.id === "viaduct")!;
-    expect(row.plan).toBeUndefined();
+    expect(row).toBeDefined();
     expect(row.tier).toBe(3);
     expect(row.needs).toEqual(["bridges", "quarries"]);
     expect(THING_RULES["piece:viaduct"]).toMatchObject({ tech: "viaduct", cost: { stone: 4 } });
@@ -75,7 +75,7 @@ describe("Lift bridge", () => {
 
   it("is researched (tier 3, after Bridges and Harbours), made with iron, a Railway kit", () => {
     const row = BLUEPRINTS.find((b) => b.id === "lift-bridge")!;
-    expect(row.plan).toBeUndefined();
+    expect(row).toBeDefined();
     expect(row.needs).toEqual(["bridges", "harbours"]);
     expect(THING_RULES["piece:kit-lift-bridge"]).toMatchObject({ tech: "lift-bridge", cost: { iron: 2 } });
     expect(GAME_TRACK_KITS.items.map(trayKey)).toContain("piece:kit-lift-bridge");

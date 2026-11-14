@@ -51,7 +51,7 @@ function oval(cars: CarKind[], office: boolean) {
 
 describe("the Sorting van: its blueprint and wagon", () => {
   it("is built: Trains t2 after Post office, mostly coins; it brings the sorting van, dearer than a mail van", () => {
-    expect(bp("mail").plan).toBeUndefined();
+    expect(bp("mail")).toBeDefined();
     expect(bp("mail")).toMatchObject({ label: "Sorting van", needs: [POST_TECH], tier: 2, research: { goods: { planks: 6 }, coins: 140 } });
     expect(THING_RULES["car:sortvan"]).toMatchObject({ tech: "mail", cost: { planks: 5 } });
     expect(THING_RULES["car:sortvan"]!.cost!.planks!).toBeGreaterThan(THING_RULES["car:mailvan"]!.cost!.planks!);

@@ -46,7 +46,7 @@ describe("the radio", () => {
 
   it("is a blueprint after Electricity alone, its mast made at the workshop", () => {
     const b = BLUEPRINTS.find((x) => x.id === "radio")!;
-    expect([b.plan, b.needs]).toEqual([undefined, ["electricity"]]);
+    expect(b.needs).toEqual(["electricity"]);
     expect(THING_RULES[`prop:${RADIO_MAST}`]?.tech).toBe("radio");
   });
 });

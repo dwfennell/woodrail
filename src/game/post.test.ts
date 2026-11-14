@@ -53,7 +53,7 @@ function loop(cars: CarKind[], every: number | null = mailSeconds(2)) {
 
 describe("Post office: the blueprint, its things and its goods", () => {
   it("is built: tier 2 after Train routes, a town first; it brings the post office and the mail van", () => {
-    expect(bp(POST_TECH).plan).toBeUndefined();
+    expect(bp(POST_TECH)).toBeDefined();
     expect(bp(POST_TECH)).toMatchObject({ needs: ["routes"], tier: 2, research: { goods: { planks: 10 }, coins: 120 } });
     expect(bp(POST_TECH).requires).toEqual([{ kind: "level", level: 2 }]);
     expect(THING_RULES["piece:depot-postoffice"]).toMatchObject({ tech: POST_TECH, cost: { planks: 8 }, coins: 180 });

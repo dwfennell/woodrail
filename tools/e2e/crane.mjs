@@ -156,6 +156,8 @@ const at = await p.evaluate(async () => {
 check("setup: the line and the two trains", !at.error, JSON.stringify(at));
 
 // 1. Derailed: the crane sets out by itself, the card says so, and the train is put back on.
+// (The goals bar's box before anything's off the rails: Re-rail mustn't change it.)
+const goalsBefore = await p.evaluate(() => document.querySelector(".goals")?.getBoundingClientRect().toJSON() ?? null);
 await p.evaluate((goods) => {
   const w = window.woodrail;
   w.sim.trackChanged([w.sim.findCar(goods).train.bogies[0].pieceId]);
@@ -171,8 +173,14 @@ const chip = await p.evaluate(() => {
   const text = document.querySelector(".goals-now");
   return b && goals ? { chip: r(b).toJSON(), goals: r(goals).toJSON() } : null;
 });
-// (Under it, and the goals bar still reaching the chip's right edge: not cut short to make room beside it.)
-check("1. the Re-rail chip shows under the goals bar, which keeps its width", !!chip && chip.chip.top >= chip.goals.bottom - 1 && chip.chip.right <= 390 && Math.abs(chip.goals.right - chip.chip.right) < 3, JSON.stringify(chip));
+// (Under its foot, clear of it, whatever the goal's height (one line or two), and the goals bar the width it was before
+// the chip showed: not cut short to make room beside it. Its width is its goal's own (a two-line goal is balanced), so
+// it needn't reach the chip's right edge.)
+check(
+  "1. the Re-rail chip shows under the goals bar, which keeps its width",
+  !!chip && !!goalsBefore && chip.chip.top >= chip.goals.bottom && chip.chip.right <= 390 && chip.chip.right >= chip.goals.right - 1 && Math.abs(chip.goals.width - goalsBefore.width) < 1 && Math.abs(chip.goals.bottom - goalsBefore.bottom) < 1,
+  JSON.stringify({ ...chip, goalsBefore }),
+);
 // (The crane train's card: a tap on a derailed car puts it back at once, the quick way, as before.)
 await openCard(at.crane);
 const craneSays = await status();

@@ -53,7 +53,7 @@ const bp = (id: string) => BLUEPRINTS.find((b) => b.id === id)!;
 
 describe("Juice works", () => {
   it("is built: a row with no plan after Orchards, mostly coins, and the juice works it brings", () => {
-    expect(bp("juice").plan).toBeUndefined();
+    expect(bp("juice")).toBeDefined();
     expect(bp("juice")).toMatchObject({ needs: ["orchard"], tier: 2, research: { goods: { planks: 8 }, coins: 120 } });
     expect(THING_RULES["piece:depot-juicer"]).toMatchObject({ tech: "juice", coins: 200 });
     expect(RECIPES.juicer).toMatchObject({ takes: ["fruit"], gives: ["juice"], cycle: { uses: { fruit: 1 }, makes: { juice: 1 } } });
@@ -95,7 +95,7 @@ describe("goods towns always buy at full pay", () => {
 
 describe("Creamery", () => {
   it("is built: after Dairy farm, mostly coins, the creamery it brings makes cheese of milk", () => {
-    expect(bp("creamery").plan).toBeUndefined();
+    expect(bp("creamery")).toBeDefined();
     expect(bp("creamery")).toMatchObject({ needs: ["dairy"], tier: 2, research: { goods: { planks: 10 }, coins: 140 } });
     expect(THING_RULES["piece:depot-creamery"]).toMatchObject({ tech: "creamery", coins: 240 });
     expect(RECIPES.creamery).toMatchObject({ takes: ["milk"], gives: ["cheese"], cycle: { uses: { milk: 1 }, makes: { cheese: 1 } } });
@@ -112,7 +112,7 @@ describe("Creamery", () => {
 
 describe("Cold van", () => {
   it("is built: after Creamery, a wagon of its own (4 planks) that carries cheese", () => {
-    expect(bp("reefer").plan).toBeUndefined();
+    expect(bp("reefer")).toBeDefined();
     expect(bp("reefer")).toMatchObject({ needs: ["creamery"], tier: 2, research: { goods: { planks: 4 }, coins: 100 } });
     expect(THING_RULES["car:reefer"]).toMatchObject({ tech: "reefer", cost: { planks: 4 } });
     expect(CAR_KINDS.filter((k) => canCarry(k, "cheese"))).toEqual(["van", "reefer"]);
@@ -130,7 +130,7 @@ describe("Cold van", () => {
 
 describe("Ice cream factory", () => {
   it("is built: tier 3 after the Cold van and Orchards, two goods from two chains make ice cream", () => {
-    expect(bp("ice-cream").plan).toBeUndefined();
+    expect(bp("ice-cream")).toBeDefined();
     expect(bp("ice-cream")).toMatchObject({ needs: ["reefer", "orchard"], tier: 3, research: { goods: { planks: 10 }, coins: 200 } });
     expect(THING_RULES["piece:depot-icecream"]).toMatchObject({ tech: "ice-cream", coins: 360 });
     expect(RECIPES.icecream).toMatchObject({ takes: ["milk", "fruit"], gives: ["icecream"], cycle: { uses: { milk: 1, fruit: 1 }, makes: { icecream: 1 } } });
@@ -163,7 +163,7 @@ describe("Ice cream factory", () => {
 
 describe("Brickworks", () => {
   it("is built: tier 3 after Quarries and Mines, stone and coal fired into bricks", () => {
-    expect(bp("brickworks").plan).toBeUndefined();
+    expect(bp("brickworks")).toBeDefined();
     expect(bp("brickworks")).toMatchObject({ needs: ["quarries", "mines"], tier: 3, research: { goods: { planks: 12 }, coins: 180 } });
     expect(THING_RULES["piece:depot-brickworks"]).toMatchObject({ tech: "brickworks", coins: 320 });
     expect(RECIPES.brickworks).toMatchObject({ takes: ["stone", "coal"], gives: ["bricks"], cycle: { uses: { stone: 1, coal: 1 }, makes: { bricks: 1 } } });
@@ -186,7 +186,7 @@ describe("Brickworks", () => {
 // catch), and the university.
 describe("Car carrier", () => {
   it("is built: tier 3 after the Foundry, a wagon of its own (planks and iron) that carries cars and nothing else", () => {
-    expect(bp("car-carrier").plan).toBeUndefined();
+    expect(bp("car-carrier")).toBeDefined();
     expect(bp("car-carrier")).toMatchObject({ needs: ["foundry"], tier: 3, research: { goods: { planks: 6 }, coins: 160 } });
     expect(THING_RULES["car:carrier"]).toMatchObject({ tech: "car-carrier", cost: { planks: 3, iron: 2 } });
     expect(CARRIES.carrier).toEqual(["autos"]);
@@ -196,7 +196,7 @@ describe("Car carrier", () => {
 
 describe("Car factory", () => {
   it("is built: tier 3 after the Car carrier, once towns have had 20 iron; iron and planks make cars", () => {
-    expect(bp("car-factory").plan).toBeUndefined();
+    expect(bp("car-factory")).toBeDefined();
     expect(bp("car-factory")).toMatchObject({ needs: ["car-carrier"], tier: 3, research: { goods: { planks: 12 }, coins: 220 } });
     expect(bp("car-factory").requires).toContainEqual({ kind: "delivered", good: "iron", n: 20 });
     expect(THING_RULES["piece:depot-carworks"]).toMatchObject({ tech: "car-factory", coins: 420, cost: { planks: 12, iron: 4 } });
@@ -232,7 +232,7 @@ describe("Car factory", () => {
 
 describe("Fishing boats", () => {
   it("is built: tier 3 after Harbours, mostly coins; fish ride in vans or cold vans, and towns buy them at full pay", () => {
-    expect(bp("fishing").plan).toBeUndefined();
+    expect(bp("fishing")).toBeDefined();
     expect(bp("fishing")).toMatchObject({ needs: ["harbours"], tier: 3, research: { goods: { planks: 8 }, coins: 160 } });
     expect(CAR_KINDS.filter((k) => canCarry(k, "fish"))).toEqual(["van", "reefer"]);
     expect(FULL_PAY.has("fish")).toBe(true);
@@ -277,7 +277,7 @@ describe("Fishing boats", () => {
 
 describe("University", () => {
   it("is built: tier 3 after the College and 20 blueprints, mostly coins", () => {
-    expect(bp("university").plan).toBeUndefined();
+    expect(bp("university")).toBeDefined();
     expect(bp("university")).toMatchObject({ needs: ["college"], tier: 3, research: { goods: { planks: 14 }, coins: 300 } });
     expect(bp("university").requires).toContainEqual({ kind: "count", stat: "blueprints", n: 20 });
   });

@@ -1,0 +1,13 @@
+diff --git a/src/economy/sections.ts b/src/economy/sections.ts
+index b521951..d4cfaa1 100644
+--- a/src/economy/sections.ts
++++ b/src/economy/sections.ts
+@@ -2414,7 +2414,7 @@ export class Sections {
+         // follow, `follows`): room for all of them, however many loops (the user, 2026-11-02: a line of 3 on a ring with
+         // one loop was held "too many", though they could just follow round). Else a train more than its loops.)
+         oneWay = this.oneWayRound([...engines, ...peers, ...loose]);
+-        const roomOf = (adm: ReadonlySet<number>) => (oneWay ? engines.length : Math.max(1, loops - roadsHeld(adm).b.size + 1));
++        const roomOf = (adm: ReadonlySet<number>) => (oneWay ? engines.length : Math.max(1, loops - roadsHeld(adm).b.size + (loops >= 1 ? 2 : 1)));
+         // (Let in first those whose holding would block most: one in a section holds the single track; one at a line end
+         // holds its stop; one standing on a loop's road costs only that loop, and is let in last.)
+         const where = (e: number): number => {

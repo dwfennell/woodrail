@@ -167,7 +167,17 @@ export const planStats = { searches: 0, states: 0, choices: 0, hits: 0 };
  * offer only the road they're set to (`waysFrom`). Equal costs go to the earlier way out of each piece, as `wayToward`
  * breaks ties.
  */
-export function plan(layout: Layout, start: PlanState, target: number, costs: PlanCosts = ROUTE_COSTS, pinned?: PinnedTest): Plan | null {
+/**
+ * A line's lap (the user's lap rule, 2026-11-13): on a ring with no passing loop that several of its trains go round, the
+ * way round they all go. `against(piece, exit)`: running out of this ring piece by this end goes round the other way (a
+ * way into a dead end off the ring is never against it: a train turns there). `id` keys the plans it gives.
+ */
+export interface Lap {
+  id: string;
+  against(pieceId: number, exit: number): boolean;
+}
+
+export function plan(layout: Layout, start: PlanState, target: number, costs: PlanCosts = ROUTE_COSTS, pinned?: PinnedTest, lap?: Lap): Plan | null {
   planStats.searches++;
   if (start.pieceId === target) return { cost: 0, steps: [] };
   const best = new Map<number, number>();
@@ -196,6 +206,7 @@ export function plan(layout: Layout, start: PlanState, target: number, costs: Pl
     }
     const factor = state.lead ? 1 : costs.push;
     for (const w of waysFrom(layout, state.pieceId, state.entry, pinned)) {
+      if (lap?.against(state.pieceId, w.exit)) continue;
       const n = next(layout, state.pieceId, w.exit);
       let to: PlanState | null;
       let c: number;
@@ -284,14 +295,15 @@ export function planChoice(
   costs: PlanCosts = ROUTE_COSTS,
   out?: number[],
   pinned?: PinnedTest,
+  lap?: Lap,
 ): number {
   let best = -1;
   let bestC = Infinity;
   for (const w of ways) {
     const n = next(layout, pieceId, w.exit);
     let c = Infinity;
-    if (n) {
-      const rest = n.pieceId === target ? { cost: 0 } : plan(layout, { pieceId: n.pieceId, entry: n.entry, lead }, target, costs, pinned);
+    if (n && !lap?.against(pieceId, w.exit)) {
+      const rest = n.pieceId === target ? { cost: 0 } : plan(layout, { pieceId: n.pieceId, entry: n.entry, lead }, target, costs, pinned, lap);
       if (rest) c = costs.through(layout, pieceId, w.path) * (lead ? 1 : costs.push) + rest.cost;
     }
     if (out) out[w.option] = c;
@@ -423,12 +435,18 @@ export function planWay(
   pinned?: PinnedTest,
   keep?: Keep | number,
   out?: { cost: number; best?: number },
+  lap?: Lap,
 ): number {
   let best: number;
   let costs: number[];
-  if (pinned) {
+  // (Round its line's lap where a way goes so (`Lap`); where none does, as if it had none.)
+  const lapped = lap && !pinned ? lapChoice(layout, pieceId, entry, ways, target, lap) : null;
+  if (lapped && lapped.best !== -1) {
+    best = lapped.best;
+    costs = lapped.costs;
+  } else if (pinned) {
     costs = [];
-    best = planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, costs, pinned);
+    best = planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, costs, pinned, lap);
   } else {
     const cache = cacheOf(layout);
     const key = pieceId * MAX_CONNECTORS + entry;
@@ -471,10 +489,26 @@ export function planWay(
   return choice;
 }
 
+/** `planWay`'s choice round a lap, cached with the layout's choices by the lap's id. */
+function lapChoice(layout: Layout, pieceId: number, entry: number, ways: readonly { option: number; path: number; exit: number }[], target: number, lap: Lap): { best: number; costs: number[] } {
+  const cache = cacheOf(layout);
+  let byLap = cache.lapChoices.get(lap.id);
+  if (!byLap) cache.lapChoices.set(lap.id, (byLap = new Map()));
+  const key = (target * 1_000_003 + pieceId) * MAX_CONNECTORS + entry;
+  let c = byLap.get(key);
+  if (c === undefined) {
+    planStats.choices++;
+    const o: number[] = [];
+    byLap.set(key, (c = { best: planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, o, undefined, lap), costs: o }));
+  } else planStats.hits++;
+  return c;
+}
+
 /** Per layout: `planWay`'s choices, for the track, pins and decks as `key` says. */
 interface ChoiceCache {
   key: string;
   choices: Map<number, Map<number, { best: number; costs: number[] }>>;
+  lapChoices: Map<string, Map<number, { best: number; costs: number[] }>>;
   switchesAt: number;
   piecesAt: number;
   decks: number[];
@@ -484,7 +518,7 @@ const caches = new WeakMap<Layout, ChoiceCache>();
 /** The layout's choice cache, emptied if the track, the pins or the decks have changed since it was filled. */
 function cacheOf(layout: Layout): ChoiceCache {
   let c = caches.get(layout);
-  if (!c) caches.set(layout, (c = { key: "", choices: new Map(), switchesAt: -1, piecesAt: -1, decks: [] }));
+  if (!c) caches.set(layout, (c = { key: "", choices: new Map(), lapChoices: new Map(), switchesAt: -1, piecesAt: -1, decks: [] }));
   // (Only when a switch has moved, or pieces come or gone, is the key worked out again: pins and decks are few.)
   if (c.switchesAt === layout.switchesVersion && c.piecesAt === layout.piecesVersion && c.key.startsWith(`${layout.revision}:${layout.jointsVersion}:`)) return c;
   if (c.piecesAt !== layout.piecesVersion) {
@@ -502,6 +536,7 @@ function cacheOf(layout: Layout): ChoiceCache {
   if (key !== c.key) {
     c.key = key;
     c.choices.clear();
+    c.lapChoices.clear();
   }
   return c;
 }

@@ -9,7 +9,6 @@ import { buyTreat, placeRow, startPlace, stopPlace } from "./place-row";
 import { inSeason, MAX_SMILES, PLACES, placeOf, planDone, townPlaces, townSmiles, treatPrice, TREATS, visitorFactor } from "./places";
 import { fareFor, visitorsFor } from "./passengers";
 import { Progress } from "./progress";
-import { built } from "./tech";
 import { growthOf, statusOf, TownLife, type TownLifeHost } from "./town-life";
 import { townLevel, townStatus, wantsWith } from "./towns";
 import { buildStarterWorld, type World } from "./world";
@@ -59,7 +58,6 @@ describe("the places table", () => {
       }
       const row = BLUEPRINTS.find((b) => b.id === p.tech);
       expect(row, p.id).toBeDefined();
-      expect(built(row!), p.id).toBe(true);
       expect(["civic", "leisure"]).toContain(row!.branch);
     }
   });

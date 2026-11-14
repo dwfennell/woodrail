@@ -51,11 +51,6 @@ function runningAs(world: World, carId: number): EngineKind {
   return onSparks(world, carId) && !powerOf(world).engineOn(world, carId) ? STEAM : engineOf(world, carId);
 }
 
-/** Is this electric engine short of power (running at steam speed)? False for any other engine. */
-export function shortOfPower(world: World, carId: number): boolean {
-  return onSparks(world, carId) && !powerOf(world).engineOn(world, carId);
-}
-
 /** Does this train stand for want of power: a metro train while no power station has coal? */
 function metroStands(world: World, train: Train): boolean {
   return train.cars.some((c) => c.kind === "engine" && world.sim.lookOf(c.id) === "metro") && !powered(world);

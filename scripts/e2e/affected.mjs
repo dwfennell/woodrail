@@ -23,6 +23,7 @@ export const SUITES = {
   cloud: { script: "e2e:cloud", groups: true, minutes: 20 },
   tutorial: { script: "e2e:tutorial" },
   joints: { script: "e2e:joints", groups: true },
+  rotate: { script: "e2e:rotate", groups: true, minutes: 6 },
   ramps: { script: "e2e:ramps", groups: true },
   tray: { script: "e2e:tray", groups: true },
   decks: { script: "e2e:decks" },
@@ -115,16 +116,16 @@ export function estimate(want) {
 export const SMOKE = ["touch:sandbox-shelves,map-taps,toast-through,trap,train-card,game-shelves", "click:desktop"];
 
 /** Paths that can't change what an e2e sees. */
-export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore", "scripts/e2e/lib/diff-kind.mjs", "scripts/**/*.test.mjs"];
+export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/routing/cases/**", "tools/cases-*.mjs", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore", "scripts/e2e/lib/diff-kind.mjs", "scripts/**/*.test.mjs"];
 
 // Touch's groups that plan, run or show routes and lines.
-const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way";
+const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way,split";
 // Touch's groups for the tech tree's track pieces (scripts/e2e/track-pieces.mjs).
-const TOUCH_PIECES = "touch:slips,double-three-way,turntable-taps";
+const TOUCH_PIECES = "touch:slips,double-three-way,split,turntable-taps";
 // Touch's groups that press, hold, drag and drop pieces and trains: what a change to input or picking can break.
 const TOUCH_INPUT = "touch:sandbox-shelves,game-shelves,map-taps,select-drag,redrawn,flick,lever-pins,under-car,toast-through,trap,place-facing,front-join,tight-curves";
 // Touch's groups that lay track, throw points and run trains over it: what a change to the track or the editor can break.
-const TOUCH_TRACK = "touch:map-taps,select-drag,flick,lever-pins,under-car,wye,place-facing,front-join,tight-curves,follow,stuck,slips,double-three-way,turntable-taps";
+const TOUCH_TRACK = "touch:map-taps,select-drag,flick,lever-pins,under-car,wye,place-facing,front-join,tight-curves,follow,stuck,slips,double-three-way,split,turntable-taps";
 // Touch's groups that run trains (the sim's levers, points held, trains stopped, cards): with TOUCH_ROUTES, what a
 // change to the sim can break.
 const TOUCH_TRAINS = "touch:select-drag,lever-pins,under-car,wye,train-card,blocker,stuck,stuck-lines";
@@ -257,7 +258,8 @@ export const RULES = [
   ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
   ["src/ui/store-rows.ts", ["warehouse"]],
-  ["src/ui/town-ledger.ts", [...TOWNS]],
+  // A town's card (its tabs, Next up, the Projects pane): the suites that open one and tap on it.
+  [["src/ui/town-ledger.ts", "src/game/town-next.ts"], [...TOWNS, "civic", "post", "grand", "locked", "station-touches"]],
   // The town name board (its good and count): drawn as towns grow, beside their cards.
   ["src/render/town-sign.ts", ["growth", "civic", "locked"]],
   ["src/ui/piece-info.ts", ["names", "feature-tips"]],
@@ -267,6 +269,8 @@ export const RULES = [
   // (interaction.ts: every press, hold, drag and drop; its wagon drop onto a train's ends is front-join. The route
   // groups' taps go through it too, and run when routing changes, and nightly.)
   ["src/game/interaction.ts", [TOUCH_INPUT, CLICK_INPUT]],
+  // Turning a held piece: Turn's eighths, the finer 15° steps (Shift+R, a two-finger twist).
+  [["src/game/headings.ts", "src/game/interaction.ts", "src/ui/hud.ts", "src/game/touch-camera.ts"], ["rotate"]],
   [["src/game/touch-*", "src/game/drag-rule.ts", "src/game/drop.ts", "src/game/put-away.ts", "src/game/place-facing.ts"], [TOUCH_INPUT, CLICK_INPUT, "names"]],
   [["src/game/camera-director.ts"], [...SMOKE, "touch:select-drag,tight-curves,routes", "tutorial"]],
   [["src/game/draw-*", "src/game/erase.ts", "src/game/track-rules.ts", "src/game/lift-notice.ts"], ["draw", "joints", "ramps", "touch:select-drag,flick", "low-bridge"]],

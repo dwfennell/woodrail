@@ -20,7 +20,7 @@ import { economyChecks } from "../game/dev-checks";
 import { INVARIANTS, type Invariant, type Invariants } from "../sim/invariants";
 import { inUse, Progress } from "../game/progress";
 import { cardView, firstTimeGift, learnGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
-import { built, techOf, TECHS, unlocksOf } from "../game/tech";
+import { techOf, TECHS, unlocksOf } from "../game/tech";
 import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, wants as researchWants, pick as pickResearch, setSpeed, studying, tick as researchTick } from "../game/research";
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
@@ -292,10 +292,10 @@ export function towardChains(learned: ReadonlySet<string>, made: ReadonlySet<Car
   const lacking: CargoKind[] = [];
   for (const id of ids) {
     const t = techOf(id);
-    if (!t || !built(t) || learned.has(id)) continue;
+    if (!t || learned.has(id)) continue;
     for (const k of Object.keys(t.research.goods) as CargoKind[]) if (!made.has(k) && !lacking.includes(k)) lacking.push(k);
   }
-  for (const k of lacking) for (const t of TECHS) if (built(t) && !learned.has(t.id) && goodsUnlocked(t.id).includes(k)) walk(t.id);
+  for (const k of lacking) for (const t of TECHS) if (!learned.has(t.id) && goodsUnlocked(t.id).includes(k)) walk(t.id);
   return out;
 }
 

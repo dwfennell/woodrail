@@ -69,12 +69,11 @@ describe("the user's map, small (2026-11-05): a routed train behind a hand-run o
   // Clover follows to the points and waits for the yard's line end. Willow comes back to the points, which lie for the
   // branch Clover holds: each waited on the other for good, said stuck, though the mill spur on the points' other road
   // was free. Now Willow gives way by the spur: the points are thrown for it, and back to the player's way after.
-  // Known (2026-11-07): Willow then comes back out of the spur and stands with its front on the points, held by sections
-  // for Clover at the forest yard, whose only way out is over them: nose to nose, said stuck. Willow is on no line, and
-  // sections don't hold such a train at its stretch's end short of the points (routing spec §5 rule 9; the routing
-  // redesign's step 6, every train reserving). Till then a turn round got them out; nothing turns mid-line now.)
+  // (From 2026-11-07 to 11-11, Willow then came back out of the spur and stood with its front on the points, held by
+  // sections for Clover at the forest yard, whose only way out is over them: nose to nose, said stuck. Now Willow asks
+  // for the way short of the points it comes onto the line by (`Sections.comesInto`) and waits in the spur.)
   for (const ahead of [0, 1, 2])
-    it(`Willow ${2 - ahead} pieces nearer the points: Willow takes the spur, Clover gets to the forest yard; then they jam on the points (known)`, () => {
+    it(`Willow ${2 - ahead} pieces nearer the points: Willow takes the spur, Clover gets to the forest yard and keeps working; no jam on the points`, () => {
       const m = spurWorld();
       const { w, branch, sw } = m;
       const before = w.economy.router.defaultOf(sw);
@@ -82,9 +81,8 @@ describe("the user's map, small (2026-11-05): a routed train behind a hand-run o
       train(w, branch[ahead], true, CARS, 150);
       routeOn(w, clover, [{ depotId: m.depots.sawmill.id, action: "drop" }, { depotId: m.depots.forest.id, action: "pick" }, { depotId: m.depots.sawmill.id, action: "drop" }], 1);
       const r = runFor(w, 180, clover);
-      expect(r.stops).toBeGreaterThanOrEqual(1);
-      // (The jam on the points, known: a fix flips this. Nobody turns to get out of it.)
-      expect(r.stuck).toBeGreaterThan(60);
+      expect(r.stops).toBeGreaterThanOrEqual(4);
+      expect(r.stuck).toBe(0);
       expect(w.economy.stalls.gaveWay).toBeGreaterThanOrEqual(1);
       expect(w.economy.router.gaveWayThrows).toBeGreaterThanOrEqual(1);
       // (The player's way at the points is still theirs.)
@@ -179,6 +177,9 @@ const KNOWN: Record<number, string> = {
   23: ON_WYE,
   26: ON_WYE,
   30: ON_WYE,
+  // (2026-11-13, a hand-run train waits short of points with another hand-run one coming at them: all hand-run, the two
+  // put down facing each other on the ring now pass by the wye; with the route they stand as before, nose to nose on it.)
+  6: "the two put down facing each other on the ring: with the route, nose to nose on the wye, as before (all hand-run they now pass)",
 };
 /** Of those: laid a loop, they never stall. */
 const LOOP_FIXES = [19, 22];
@@ -188,17 +189,18 @@ const LOOP_FIXES = [19, 22];
  * move one or give it a route). The same with a loop laid, and with the route.
  */
 const FACING = "the two trains put down facing each other on the ring: nose to nose, nothing turns";
-const KNOWN_HAND: Record<number, string> = { 6: FACING, 13: FACING, 15: `${HEAD_ON}, all hand-run too`, 21: FACING, 24: FACING, 29: FACING };
+const KNOWN_HAND: Record<number, string> = { 13: FACING, 15: `${HEAD_ON}, all hand-run too`, 21: FACING, 24: FACING, 29: FACING };
 /**
  * With a passing loop laid (`loop`), seeds that still stall (2026-11-05), both one class: the hand-run train goes round
  * the ring non-stop, and the routed one, in the loop, waits for it, its way round to its stop running against it (they'd
- * meet head on); seed 8 for 22 s, then it gets by, seed 9 said stuck after `STARVED_S`. Planning it the way round the
+ * meet head on); seed 9 said stuck after `STARVED_S` (seed 8, 22 s then by, no longer since 2026-11-13: a lever thrown
+ * under a hand-run train's move lets it go, `Sections.liesAsMove`). Planning it the way round the
  * traffic already goes would help: a follow-up.
  */
 const AGAINST = "its way round the ring runs against a hand-run train going round non-stop";
 /** With a loop laid, since 2026-11-07 (nothing turns mid-line), also: as `ON_WYE` and `HEAD_ON` above, head on round the ring, and `KNOWN_HAND`'s but 29 (the loop lets them pass). */
 const RING_HEAD_ON = "head on round the ring, the routed train one way and the hand-run one the other";
-const KNOWN_LOOP: Record<number, string> = { 4: ON_WYE, 8: AGAINST, 9: AGAINST, 12: RING_HEAD_ON, 28: RING_HEAD_ON, 6: FACING, 13: FACING, 15: KNOWN_HAND[15], 21: FACING, 24: FACING };
+const KNOWN_LOOP: Record<number, string> = { 4: ON_WYE, 9: AGAINST, 12: RING_HEAD_ON, 28: RING_HEAD_ON, 6: FACING, 13: FACING, 15: KNOWN_HAND[15], 21: FACING, 24: FACING };
 
 describe(`a route never makes it worse, with depots: ${SEEDS} town-ring layouts × 180 s`, () => {
   const deal = (seed: number, routed: boolean, loop = false) => {

@@ -626,6 +626,8 @@ export class Economy {
     sim.speedCap = (train) => this.capFor(train);
     // (A train the router holds short of points claims nothing there: routing spec §13 step 7.)
     sim.waitsAt = (train) => this.router.waitsAt(train);
+    sim.standsWithin = (train) => this.sections.standsWithin(train);
+    sim.turnsNose = (train) => this.sections.turnsNose(train);
     this.sections = new Sections(layout, sim, {
       lineOf: (engine) => {
         const id = this.lineIdOf.get(engine);
@@ -683,6 +685,7 @@ export class Economy {
       // train ahead.)
       goal: (engine) => this.goalOf(engine, 0),
       then: (engine) => this.goalOf(engine, 1),
+      lapRule: (engine) => this.sections.lapRule(engine),
       owner: (engine) => this.ownerOf(engine),
       drive: (train) => this.drive(train),
       granted: (engine) => this.sections.steerHint(engine),
@@ -695,7 +698,7 @@ export class Economy {
     sim.pathLocks = { locks: (t, points, choice) => router.pathLocks(t, points, choice), way: (t, id, entry) => router.pathWay(t, id, entry), version: () => router.locksVersion };
     // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
     const sections = this.sections;
-    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion() };
+    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.router.waitingOn(engine),
@@ -1574,11 +1577,6 @@ export class Economy {
       addTo(road, kind, 1);
       this.roadGot.set(townId, road);
     }
-  }
-
-  /** How many of each good wait in station `depotId`'s van yard (or ride its van), as a bag (empty: none). */
-  vanGoods(depotId: number): Bag {
-    return this.vanYard.get(depotId) ?? {};
   }
 
   /** Unload one unit from a car onto a depot's input pile (crane work). */
@@ -2873,9 +2871,6 @@ export class Economy {
    * `LIFT_LOADS` times as many a crane move: two wagons' worth while the one crane works. Not saved: set again as the
    * game's research is (`applyCranes`).
    */
-  get warehouseLift(): boolean {
-    return this.liftLoad;
-  }
   setWarehouseLift(on: boolean): void {
     if (on === this.liftLoad) return;
     this.liftLoad = on;

@@ -37,6 +37,21 @@ export function achievementPips(done: number, of: number, started: boolean): str
   return s;
 }
 
+/**
+ * An achievement not started: the towns it could be built in, each a row (its name, level stamped, what it can do); a
+ * tap opens that town's card on the project. The player picks the city: the game never picks one for them.
+ */
+function cityList(v: AchievementView): string {
+  if (v.cities.length === 0) return "";
+  const rows = v.cities
+    .map(
+      (c) =>
+        `<button class="ach-city${c.ready ? " ready" : ""}${c.star ? "" : " later"}" data-id="${v.id}" data-town="${c.townId}"><i class="${c.ready ? "town-peg" : "town-hole"}" aria-hidden="true"></i><span class="ach-city-words"><b>${escapeHtml(c.name)} <span class="ach-city-level">${escapeHtml(c.level)}</span></b><span class="ach-city-note">${escapeHtml(c.note)}</span></span><span class="ach-city-go" aria-hidden="true">›</span></button>`,
+    )
+    .join("");
+  return `<div class="ach-cities"><p class="ach-cities-k">${v.cities.some((c) => c.star) ? "Build it in" : "Nearest to City ★"}</p>${rows}</div>`;
+}
+
 /** A small screen (a phone, either way up): the card starts folded up. */
 const SMALL_SCREEN = "(max-width: 640px), (max-height: 520px)";
 /** Where the open Journal is a bottom sheet (keep in step with style.css). */
@@ -68,6 +83,8 @@ export interface GoalsPanelHandlers {
   tipDone?(id: string): void;
   /** An achievement's Show me: fly to its grand project's site (or, not started, to a City ★ to start it from). */
   showGrand?(id: string): void;
+  /** An achievement's "Build it in" row: that town's card, on the project (its Start ringed) or on Grow. */
+  showGrandIn?(id: string, townId: number): void;
 }
 
 /** A tip shown on the Goals tab (`FeatureTip`, src/game/feature-tips.ts): a new system and how to use it. */
@@ -235,6 +252,13 @@ export class GoalsPanel {
     this.achPane.hidden = true;
     this.achPane.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
+      const city = t.closest<HTMLElement>(".ach-city");
+      if (city) {
+        e.stopPropagation();
+        if (window.matchMedia(SHEET).matches) this.setOpen(false);
+        handlers.showGrandIn?.(city.dataset.id!, Number(city.dataset.town));
+        return;
+      }
       const show = t.closest<HTMLElement>(".ach-show");
       if (show) {
         e.stopPropagation();
@@ -369,7 +393,7 @@ export class GoalsPanel {
 
   /** The grand projects as achievements (null: no tab yet). Cheap when unchanged: called with every goals check. */
   setAchievements(views: readonly AchievementView[] | null): void {
-    const key = views ? views.map((v) => `${v.id}:${v.done}:${v.line}`).join("|") : "";
+    const key = views ? views.map((v) => `${v.id}:${v.done}:${v.line}:${v.cities.map((c) => `${c.townId}${c.level}${c.note}`).join(",")}`).join("|") : "";
     if (key === this.achKey) return;
     this.achKey = key;
     this.ach = views;
@@ -398,7 +422,7 @@ export class GoalsPanel {
               const cls = i < v.done ? "done" : i === v.done && v.town ? "now" : "";
               return `<li class="${cls}"><b>${i < v.done ? "✓ " : ""}${escapeHtml(st.name)}</b> <span class="ach-goods">${goods}</span></li>`;
             })
-            .join("")}</ol><button class="chip text ach-show" data-id="${v.id}">${v.town ? "Show me the site" : "Show me a City ★"}</button>`
+            .join("")}</ol>${v.town ? `<button class="chip text ach-show" data-id="${v.id}">Show me the site</button>` : cityList(v)}`
         : "";
       return `<div class="ach-item${v.earned ? " got" : ""}${open ? " open" : ""}"><button class="ach-row" data-id="${v.id}" aria-expanded="${open}"><span class="ach-icon" aria-hidden="true">${v.icon}</span><span class="ach-main"><b class="ach-name">${escapeHtml(v.name)}${v.earned ? ' <span class="ach-earned">✓ Earned</span>' : ""}</b><span class="ach-pips" title="${v.done} of ${v.of} stages">${achievementPips(v.done, v.of, !!v.town)}</span><span class="ach-reward">🎁 ${escapeHtml(v.reward)}</span><span class="ach-line">${escapeHtml(v.line)}</span></span></button>${stages}</div>`;
     });

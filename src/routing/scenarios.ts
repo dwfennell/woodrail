@@ -308,29 +308,40 @@ export const crossoverRing: Scenario = {
   },
 };
 
+/**
+ * Three trains on a line with one passing loop: the line's two ends wait a train each, so there's room for all three
+ * (stalls-verify 2026-11-10; before, the room rule (loops + 1) held one and the line stood still, "too many trains").
+ */
+const threeOn = (l: ReturnType<typeof lineWithLoop>): TrainSpec[] => [
+  { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 0, line: 1, cars: CARS },
+  { pieceId: l.e1, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+  { pieceId: l.loop.main[0], stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
+];
+
 export const threeTrainsOneLoop: Scenario = {
   name: "three trains on a line with one loop",
   seconds: 600,
+  build: (layout) => ({ trains: threeOn(lineWithLoop(layout)) }),
+};
+
+/** The same, and a fourth at the B end: a train too many (room for three), so one is held. */
+export const fourTrainsOneLoop: Scenario = {
+  name: "four trains on a line with one loop",
+  seconds: 600,
   build: (layout) => {
     const l = lineWithLoop(layout);
-    return {
-      trains: [
-        { pieceId: l.w1, reversed: true, stops: [l.a, l.b], next: 0, line: 1, cars: CARS },
-        { pieceId: l.e1, stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
-        { pieceId: l.loop.main[0], stops: [l.a, l.b], next: 1, line: 1, cars: CARS },
-      ],
-    };
+    return { trains: [...threeOn(l), { pieceId: l.e2, reversed: true, stops: [l.a, l.b], next: 1, line: 1, cars: CARS }] };
   },
 };
 
 /**
- * The same three trains, and the player's fix once they're stuck (stalls.ts: too many trains for the line): the held
- * one put away (its card's Remove), at 2 minutes. The other two then pass at the loop and deliver.
+ * The four trains, and the player's fix once they're stuck (stalls.ts: too many trains for the line): the held one put
+ * away (its card's Remove), at 2 minutes. The other three then pass at the loop and deliver.
  */
-export const threeTrainsPutAway: Scenario = {
-  ...threeTrainsOneLoop,
-  name: "three trains on a line with one loop, the held one put away",
-  build: (layout) => ({ ...threeTrainsOneLoop.build(layout), events: [{ at: 120, do: (run) => run.putAway(run.engines.findIndex((e) => run.sections.heldForRoom(e))) }] }),
+export const fourTrainsPutAway: Scenario = {
+  ...fourTrainsOneLoop,
+  name: "four trains on a line with one loop, the held one put away",
+  build: (layout) => ({ ...fourTrainsOneLoop.build(layout), events: [{ at: 120, do: (run) => run.putAway(run.engines.findIndex((e) => run.sections.heldForRoom(e))) }] }),
 };
 
 /**
@@ -756,7 +767,8 @@ export const OTHERS: readonly Scenario[] = [
   balloonBehindOpenRoad,
   crossoverRing,
   threeTrainsOneLoop,
-  threeTrainsPutAway,
+  fourTrainsOneLoop,
+  fourTrainsPutAway,
   headOnTwoLines,
   facingInLineEnd,
   leverDuringLock,
@@ -770,9 +782,10 @@ export const OTHERS: readonly Scenario[] = [
  * The user's 2026-11-05 deadlock, small: a line with a station spur (`junction`: Forest yard ⊐ Y ══ ══ ══ ══ points, the
  * straight road on to a buffer, the curved one ══ Sawmill ⊏). Clover is routed Sawmill → Forest yard (a single-train line);
  * Willow, four cars, has no route ("goes anywhere") and shuttles along the straight as the points lie. They met head on
- * on the trunk and stood for good, each "in the way" of the other. From 2026-11-05 Willow turned round to give way; since
- * 2026-11-07 nothing turns a train round short of the end of its line (the user, firm), so they stand, said stuck, the
- * card's fix a passing loop: a true deadlock, no road out ahead of either.
+ * on the trunk and stood for good, each "in the way" of the other. From 2026-11-05 Willow turned round to give way; from
+ * 2026-11-07 nothing turns a train round short of the end of its line (the user, firm), so they stood, said stuck, Willow
+ * held by sections with its front on the points. Since 2026-11-11 Willow asks for the way short of the points
+ * (`Sections.comesInto`) and waits clear of them while Clover goes by: both keep working.
  */
 export const routedMeetsHandRun: Scenario = {
   name: "a routed train meets a hand-run one head on by a station spur",
@@ -931,9 +944,9 @@ export const boxedOnLoopLine: Scenario = {
  * Boxed in past a passing loop (fuzz seed 125, small: its layout by hand). `⊐ A ══ ══ (loop) ══ ══ (loop) ══ ══ (siding
  * points) ══ ══ B ⊐`. The routed train runs A ⇄ B; two hand-run ones shuttle. It comes to stand on the single line past
  * the second loop, bound for B, a hand-run train boxed in by B on its stop: each waits on the other. Neither has a way
- * round, and the loop is behind the routed train: no road out ahead, so they stand, said stuck. (From 9158a7a9 till
- * 2026-11-07 the routed one turned back to the loop to let the boxed one out; nothing turns a train round short of the
- * end of its line now.)
+ * round, and the loop is behind the routed train. (From 9158a7a9 till 2026-11-07 the routed one turned back to the loop
+ * to let the boxed one out; then they stood, said stuck. Since 2026-11-13, the user's (a): it steps aside into the
+ * spare siding, lets the boxed one out, and comes out to turn at A, behind the train there if one is.)
  */
 export const boxedPastLoop: Scenario = {
   name: "boxed in past a passing loop",

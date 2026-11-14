@@ -115,6 +115,9 @@ const bootOnce = async (page) => {
   await page.waitForFunction(() => !!window.woodrail && [...document.querySelectorAll("button")].some((b) => /let.s play/i.test(b.textContent ?? "")), null, { timeout: 180000 });
   await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
   await page.waitForFunction(() => document.querySelector(".tray-draw") !== null && window.woodrail.layout.pieceCount > 0, null, { timeout: 60000 });
+  // The loading screen gone (it covers the page, pointer and all, till its toys' entry has played: a busy start, as
+  // with more pieces to carve, holds it up past the tray's coming): a player can't press anything before then either.
+  await page.waitForFunction(() => !!document.querySelector("#loading.done") || !document.querySelector("#loading"), null, { timeout: 120000 });
   // A new player's opening camera move (if any) has finished, so it doesn't undo the test's framing.
   await page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
 };
@@ -1744,6 +1747,8 @@ async function terraceQA() {
   await q.waitForFunction(() => !!window.woodrail && [...document.querySelectorAll("button")].some((b) => /let.s play/i.test(b.textContent ?? "")), null, { timeout: 180000 });
   await q.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
   await q.waitForFunction(() => document.querySelector(".tray-draw") !== null && window.woodrail.layout.pieceCount > 0, null, { timeout: 120000 });
+  // (The loading screen gone: see `bootOnce`.)
+  await q.waitForFunction(() => !!document.querySelector("#loading.done") || !document.querySelector("#loading"), null, { timeout: 120000 });
   await q.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 }).catch(() => {});
   await settled(q);
   await q.evaluate(() => {

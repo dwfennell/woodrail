@@ -43,7 +43,7 @@
 import { CAR_SPECS, flipCursor, SIM_HZ, underByEnds, walkTrack, type Train } from "../sim";
 import { connectorRef, getPieceDef, indexOfRef, junction, pathExitConnector, pathLength, pieceOfRef, routeFrom, type PieceDef } from "../track";
 import { BookingTable } from "./bookings";
-import { CHECK_TICKS, topologyOf, trainLength, type Topology } from "../economy/sections";
+import { CHECK_TICKS, ROAD_MARGIN, topologyOf, trainLength, type Topology } from "../economy/sections";
 import type { InvariantWorld } from "../sim/invariants";
 import { waysFrom } from "./graph";
 import { planChoice, planWay, ROUTE_COSTS } from "./plan";
@@ -265,7 +265,7 @@ export class ReservationShadow {
       const nextSlot = joined === -1 ? -1 : (topo.slotOf.get(pieceOfRef(joined)) ?? -1);
       if (nextSlot !== slotId) {
         const slot = topo.slots[slotId];
-        if (slot.kind !== "signal" || slot.mark === ref) return this.joinFree(ref, key, walk);
+        if (slot.kind !== "signal" || (slot.ways?.some((w) => w.mark === ref) && slot.length >= walk.length + ROAD_MARGIN)) return this.joinFree(ref, key, walk);
       }
     }
     // (A signal held at red, or set Always red: the booking can't pass it, unless this is its waiting point's end.)

@@ -307,6 +307,8 @@ export class HarnessRun implements InvariantWorld {
     // (Sections' cap, and the router's: short of points it waits for, §3.3.)
     sim.speedCap = (train) => Math.min(this.sections.cap(train), this.router.speedCap(train));
     sim.waitsAt = (train) => this.router.waitsAt(train);
+    sim.standsWithin = (train) => this.sections.standsWithin(train);
+    sim.turnsNose = (train) => this.sections.turnsNose(train);
     this.router = new Router({
       layout,
       sim,
@@ -314,6 +316,7 @@ export class HarnessRun implements InvariantWorld {
       // (As the economy's: where it's heading, the stop after once at one, or a via point on the way; `then` aims on.)
       goal: (engine) => this.goal(engine, 0),
       then: (engine) => this.goal(engine, 1),
+      lapRule: (engine) => this.sections.lapRule(engine),
       owner: (engine) => this.owner(engine),
       drive,
       granted: (engine) => this.sections.steerHint(engine),
@@ -326,7 +329,7 @@ export class HarnessRun implements InvariantWorld {
     sim.pathLocks = { locks: (t, points, choice) => router.pathLocks(t, points, choice), way: (t, id, entry) => router.pathWay(t, id, entry), version: () => router.locksVersion };
     // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
     const sections = this.sections;
-    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion() };
+    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
       routeWait: (engine) => this.router.waitingOn(engine),
@@ -625,7 +628,7 @@ export class HarnessRun implements InvariantWorld {
         this.report.stalls.stuck[k]++;
         this.report.stalls.why[k] = stuck.kind;
       }
-      if (net !== 0 && t.speed === 0 && !stuck && !this.sections.heldForRoom(engine) && this.router.waitOf(engine)?.kind !== "pinned") {
+      if (net !== 0 && t.speed === 0 && !stuck && !this.sections.heldForRoom(engine) && this.router.waitOf(engine)?.kind !== "pinned" && !this.sections.swapHolds(engine)) {
         const s = ++this.still[k];
         if (s > this.report.longestStill[k]) this.report.longestStill[k] = s;
       } else this.still[k] = 0;

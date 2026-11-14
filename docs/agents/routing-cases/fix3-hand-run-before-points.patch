@@ -1,0 +1,44 @@
+diff --git a/src/economy/sections.ts b/src/economy/sections.ts
+index b521951..fffb709 100644
+--- a/src/economy/sections.ts
++++ b/src/economy/sections.ts
+@@ -1896,6 +1896,30 @@ export class Sections {
+    * for that road stood for good (`ringLinesBothWays`). Not for one that waits, by way of others or not, for this one,
+    * nor one whose way runs into the slot this one stands in: then this one must go first.
+    */
++  /**
++   * Scratch (stalls-verify exp3): a train on no line whose way just ahead (3 pieces, any way at points) comes into the
++   * line's regions: it works the line's single track from before the points, not from on them.
++   */
++  private comesInto(t: Train, topo: Topology, regions: ReadonlySet<number>): boolean {
++    const net = this.host.drive(t);
++    const front = this.front(t, net < 0);
++    const piece = this.layout.getPiece(front.pieceId);
++    if (!piece) return false;
++    const path = getPieceDef(piece.type, piece.flipped).paths[front.pathIndex];
++    let at: { p: number; exit: number }[] = [{ p: front.pieceId, exit: front.reversed ? path.from : (path.to ?? -1) }];
++    for (let i = 0; i < 3 && at.length > 0; i++) {
++      const nx: { p: number; exit: number }[] = [];
++      for (const a of at) {
++        const n = next(this.layout, a.p, a.exit);
++        if (!n) continue;
++        if (regions.has(regionOf(topo, n.pieceId) ?? NaN)) return true;
++        for (const w of waysFrom(this.layout, n.pieceId, n.entry)) if (w.exit >= 0) nx.push({ p: n.pieceId, exit: w.exit });
++      }
++      at = nx;
++    }
++    return false;
++  }
++
+   private firstCome(st: TrainState, info: LineInfo, way: Way): number {
+     if (!this.fair) return -1;
+     // (Only between trains on passing loops' roads, for a loop road: what one going round non-stop takes each time.)
+@@ -2339,7 +2363,7 @@ export class Sections {
+       for (const t of this.sim.trains()) {
+         if (t.derailed || this.host.drive(t) === 0 || !t.cars.some((c) => c.kind === "engine")) continue;
+         if (t.cars.some((c) => c.kind === "engine" && this.host.lineOf(c.id) >= 0)) continue;
+-        if (!t.bogies.some((b) => regions.has(regionOf(topo, b.pieceId) ?? NaN))) continue;
++        if (!t.bogies.some((b) => regions.has(regionOf(topo, b.pieceId) ?? NaN)) && !this.comesInto(t, topo, regions)) continue;
+         loose.push(engineOf(t));
+         looseTrains.push(t);
+       }

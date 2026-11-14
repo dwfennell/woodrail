@@ -136,14 +136,13 @@ footer { font-size: 13px; color: var(--muted); }
   <header>
     <span class="eyebrow">Woodrail · Game mode · Blueprints and roadmap</span>
     <h1>The blueprint tree</h1>
-    <p class="lede">Everything a Game-mode railway could grow into, from the first switch to the rocket: track, trains, industry, food, crafting, learning, the town hall and the football stadium. It doubles as our roadmap. What isn't built yet would show in the game as "coming soon". It's a rough plan: nothing is committed until we build it, and costs are first guesses for tuning.</p>
+    <p class="lede">Everything a Game-mode railway can grow into, from the first switch to the observatory: track, trains, industry, food, crafting, learning, the town hall and the football stadium. Only what's in the game is here; ideas not built yet live on the design pages. Costs are tuned as we play.</p>
     <div class="legend" aria-label="What things cost">
       <span><span class="chip planks"><i></i>planks</span></span>
       <span><span class="chip coins"><i></i>coins</span></span>
       <span><span class="chip goods"><i></i>goods</span> delivered or spent</span>
       <span><span class="chip feat"><i></i>achieved</span> something you've done</span>
       <span><span class="chip place"><i></i>a building</span> in one of your towns</span>
-      <span><span class="stamp game">In game</span><span class="stamp changed">Changing</span><span class="stamp next">Next</span><span class="stamp soon">Coming soon</span><span class="stamp later">Someday</span></span>
     </div>
   </header>
 
@@ -151,7 +150,6 @@ footer { font-size: 13px; color: var(--muted); }
     <div class="section-head"><h2 id="w">The web</h2><span class="sub">Arrows run from a blueprint to what it opens, within each branch. "+ Name" on a tag is a need from another branch. Point at a blueprint to see its lines; click it for details and its whole path.</span></div>
     <div class="controls">
       <div class="ctl-row" role="group" aria-label="View"><span class="label">View</span><button class="pill" data-view="all" aria-pressed="true">Everything</button><button class="pill" data-view="player" aria-pressed="false">As a new player sees it</button><button class="pill" id="all-lines" aria-pressed="false">Show lines between branches</button></div>
-      <div class="ctl-row" role="group" aria-label="Status"><span class="label">Status</span><button class="pill" data-status="all" aria-pressed="true">All</button><button class="pill" data-status="game" aria-pressed="false">In game</button><button class="pill" data-status="next" aria-pressed="false">Next</button><button class="pill" data-status="soon" aria-pressed="false">Coming soon</button><button class="pill" data-status="later" aria-pressed="false">Someday</button></div>
       <div class="ctl-row" role="group" aria-label="Branch" id="branches"><span class="label">Branch</span></div>
     </div>
     <div class="web-scroll"><div class="web" id="web" role="group" aria-label="Blueprint web"></div></div>
@@ -175,9 +173,8 @@ footer { font-size: 13px; color: var(--muted); }
     <div class="section-head"><h2 id="nt">How it works</h2></div>
     <ul class="notes">
       <li><b>Learning:</b> towns offer blueprints as they grow (village: track, town: industries, city: advanced). Pick one free or take a crate. The rest wait on the board at their own price. Schools have ideas, colleges twice as often.</li>
-      <li><b>A web, not a line:</b> many blueprints need two or three others, so different railways reach the same place by different roads. A stadium needs a sports field and busy stations; the airport needs electricity and trade; the rocket needs five lines.</li>
+      <li><b>A web, not a line:</b> many blueprints need two or three others, so different railways reach the same place by different roads. A stadium needs a sports field and busy stations; a grand project needs several.</li>
       <li><b>Discovery:</b> a new player sees the key blueprints. The rest show as "?" until something next to them is learned, and the University shows everything left.</li>
-      <li><b>Coming soon:</b> in the game, blueprints we haven't built would show on the board as "coming soon" tags, so players can see where the railway is going.</li>
       <li><b>Each one shows:</b> a blueprint brings a building, car or piece you haven't seen, and most change how you play. Many need a model from the asset session; the dashed ones (school, library) go up in towns by themselves.</li>
     </ul>
   </section>
@@ -332,7 +329,6 @@ for (const el of web.querySelectorAll(".node")) el.addEventListener("click", () 
 const group = (sel, set) => { const btns = document.querySelectorAll(sel); for (const b of btns) b.addEventListener("click", () => { for (const c of btns) c.setAttribute("aria-pressed", String(c === b)); set(b); paint(); }); };
 document.getElementById("all-lines").addEventListener("click", (e) => { const on = web.classList.toggle("all-lines"); e.currentTarget.setAttribute("aria-pressed", String(on)); });
 group("[data-view]", (b) => web.classList.toggle("player", b.dataset.view === "player"));
-group("[data-status]", (b) => (statusF = b.dataset.status));
 group("#branches [data-branch]", (b) => (branchF = b.dataset.branch));
 show("routes");
 focus = null;
@@ -340,10 +336,6 @@ paint();
 
 const LANES = [
   ["In the game", ["game", "changed"], "var(--green)", "Playable on main today (some to be reworked)."],
-  ["Next", ["next"], "var(--yellow)", "Specialties, crafting benches, signals, engines and upgrades."],
-  ["Coming soon", ["soon"], "var(--red)", "Phase C (mines, iron, power) and Phase D (harbours, trade), with the first food and town buildings."],
-  ["Someday", ["later"], "var(--muted)", "Going wide: sports, leisure, civic, air, and the big track pieces."],
-  ["The ending", ["ending"], "var(--ink)", "The rocket."],
 ];
 document.getElementById("roadmap").innerHTML = LANES.map(([name, sts, color, about]) => {
   const items = N.filter((n) => sts.includes(n.status));

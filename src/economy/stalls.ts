@@ -2,6 +2,8 @@ import { loopSignalHold } from "./loop-signal";
 import { trainKey, type Sim, type Train } from "../sim";
 import { CHECK_TICKS, type Sections } from "./sections";
 import { driveOf, engineOf } from "../sim/train-cars";
+import { getPieceDef } from "../track";
+import { next, waysFrom } from "../routing/graph";
 
 /**
  * Stalls: trains stuck for good, said on their cards (routing spec §16 Q3). Nothing turns a train back short of the end
@@ -69,9 +71,11 @@ export type Stuck =
   | { kind: "parked"; by: number }
   /**
    * In a ring of waits through signals (signals spec §6): each stands at a red signal with a train in the block (or on
-   * the way) beyond. Too many trains for the signals placed: adding a signal, or putting a train away, helps.
+   * the way) beyond. Too many trains for the signals placed: adding a signal, or putting a train away, helps. `headOn`:
+   * two of its trains face each other (one waits on a train whose front comes toward it), where no signal helps: moving
+   * one does, or (`loop`: another line's train, or one on no line) a passing loop there.
    */
-  | { kind: "signals"; by: number }
+  | { kind: "signals"; by: number; headOn?: { loop: boolean } }
   /**
    * In a ring of waits where a train (`by`) stands at a signal inside a passing loop's road, its tail over the loop's
    * points (`loopSignalHold`, issue #31): no train gets into the loop past it. Moving that signal (`mark`) to the loop
@@ -130,6 +134,48 @@ export class Stalls {
     sim.onTurnedRound?.((id) => this.waiting.delete(id));
   }
 
+  /** Does a train in this ring of waits wait on one that comes toward it (the first of it met ahead is its front)? */
+  private headOn(chain: readonly number[], on: ReadonlyMap<number, number>): boolean {
+    for (const id of chain) {
+      const by = on.get(id);
+      const a = by === undefined ? undefined : this.sim.getTrain(id);
+      const b = by === undefined ? undefined : this.sim.getTrain(by);
+      if (a && b && this.faces(a, b)) return true;
+    }
+    return false;
+  }
+
+  /** Where a train's front is and the end of its piece it drives out by. */
+  private frontOf(t: Train): { p: number; exit: number } | null {
+    const d = driveOf(t);
+    if (d === 0) return null;
+    const lead = d > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+    const piece = this.sim.layout.getPiece(lead.pieceId);
+    if (!piece) return null;
+    const path = getPieceDef(piece.type, piece.flipped).paths[lead.pathIndex];
+    const rev = d > 0 ? lead.reversed : !lead.reversed;
+    return { p: lead.pieceId, exit: rev ? path.from : (path.to ?? -1) };
+  }
+
+  /** Along the way `a` drives (points as set), is the first piece of `b` met `b`'s front, driving out toward `a`? */
+  private faces(a: Train, b: Train): boolean {
+    const fa = this.frontOf(a);
+    const fb = this.frontOf(b);
+    if (!fa || !fb) return false;
+    const mine = new Set(a.bogies.map((x) => x.pieceId));
+    const theirs = new Set(b.bogies.map((x) => x.pieceId));
+    let at = fa;
+    for (let i = 0; i < 64; i++) {
+      const n = next(this.sim.layout, at.p, at.exit);
+      if (!n || mine.has(n.pieceId)) return false;
+      if (theirs.has(n.pieceId)) return n.pieceId === fb.p && fb.exit === n.entry;
+      const way = waysFrom(this.sim.layout, n.pieceId, n.entry, () => true)[0];
+      if (!way || way.exit < 0) return false;
+      at = { p: n.pieceId, exit: way.exit };
+    }
+    return false;
+  }
+
   /** Why this engine's train is stuck (null: it isn't). */
   stuckOf(engine: number): Stuck | null {
     if (this.stuck.size === 0) return null;
@@ -178,6 +224,9 @@ export class Stalls {
       const id = t.id;
       // (Waiting at the end of the line to turn round counts only when another train leaves it no room: `heldHow` "turn".)
       if (t.derailed || t.speed >= 1 || (t.turnback >= 0 && sim.heldHow(id) !== "turn") || drive(t) === 0) continue;
+      // (On a line the swap planner is taking through, looking for a way through or about to: waiting its turn, not
+      // stuck (`swapHolds`).)
+      if (this.sections.swapHolds(engineOf(t))) continue;
       standing.add(id);
       const by = this.waitOf(t);
       if (by !== null && by !== id) on.set(id, by);
@@ -233,6 +282,8 @@ export class Stalls {
       // ring with a red signal in it: too many trains for the signals.)
       const inLoop = why === "ring" ? this.loopSignalIn(chain) : null;
       const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal");
+      // (Two of its trains facing each other: no signal lets them pass; moving one is the fix, or a passing loop there.)
+      const headOn = signals && this.headOn(chain, on);
       for (const id of chain) {
         const t = sim.getTrain(id)!;
         // (The held train itself is waiting by rule: its card already says the line is full.)
@@ -240,7 +291,7 @@ export class Stalls {
         const by = sim.getTrain(on.get(id)!);
         const engine = this.lineEngine(t);
         if (engine < 0 || !by) continue;
-        found.set(engine, inLoop ? { kind: "loop-signal", ...inLoop } : signals ? { kind: "signals", by: nameOf(by) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
+        found.set(engine, inLoop ? { kind: "loop-signal", ...inLoop } : signals ? { kind: "signals", by: nameOf(by), ...(headOn ? { headOn: { loop: this.loopFixes(engine, by) } } : {}) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
     }
     // (Rings that have held `YIELD_S`: one of their trains gives way, where one can. Its ring's trains aren't stuck.)

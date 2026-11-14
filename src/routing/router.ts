@@ -14,11 +14,11 @@
  * back. A lever tap on points only hand-run trains hold moves them at once (§16 Q1).
  */
 import { connectorRef, getPieceDef, junction, leverPoints, masksFoul, overlaps, pairLeverState, pathLength, pointsStateFor, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, CoverIndex, engineOf, flipCursor, trainKey, trainOn, UnderCache, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, CAR_SPECS, CoverIndex, engineOf, flipCursor, stopDistance, trainKey, trainOn, UnderCache, type Cursor, type Sim, type Train } from "../sim";
 import { BookingTable } from "./bookings";
 import { STAND_SHORT } from "../economy/sections";
 import { next, walkOn, waysFrom, type PinnedTest } from "./graph";
-import { planWay, WayMemory } from "./plan";
+import { planWay, WayMemory, type Lap } from "./plan";
 import { mouthWay } from "./dead-ends";
 import { trainLength } from "../sim/train-cars";
 
@@ -99,6 +99,8 @@ export interface RouterHost {
   goal(engine: number): number;
   /** The piece it's aimed at after `goal` (a via's next aim; −1: none): its look ahead goes on past a via point to it. */
   then?(engine: number): number;
+  /** The lap its line's plans keep to (sections' `lapFor`: the user's lap rule), if any. */
+  lapRule?(engine: number): Lap | undefined;
   /** Whose kept ways it keeps (stickiness, `WayMemory`): its line's (by default its own). */
   owner?(engine: number): number;
   /** A train's net drive toward its front (sign only matters; 0: not driven). */
@@ -242,6 +244,9 @@ export class Router {
   private readonly underStamps = new Map<number, number>();
   /** Asks refused because another train's car was over the points or crossing on a road that fouls (`fouledUnder`). */
   refusedUnder = 0;
+
+  /** The engine `walk` is walking for (`steerTrains`), for its line's lap. */
+  private engineOfWalk = -1;
 
   constructor(private readonly host: RouterHost) {
     this.bookings = new BookingTable(host.layout);
@@ -543,6 +548,7 @@ export class Router {
       h ??= this.holdingOf(engine);
       this.looks++;
       const target = grant?.aim ?? goal;
+      this.engineOfWalk = engine;
       const want = this.walk(layout, train, net > 0, target, grant?.follow, h, this.host.owner?.(engine) ?? engine, grant ? -1 : (this.host.then?.(engine) ?? -1));
       // (Pinned points against its way end the walk: it asks for those before them, and waits at them.)
       const pin = want.length > 0 && want[want.length - 1].pinned ? want.pop()! : null;
@@ -655,6 +661,17 @@ export class Router {
         by = under;
         this.refusedUnder++;
         break;
+      }
+      // (Points are never a place to wait (the user's rule): a routed train sections don't hold (on track they don't
+      // manage: no slot on it, ring1 with loops too short for its trains) isn't sent onto points with a train coming at
+      // them on the single track beyond, the way it would take. It waits short of them, as a hand-run one does (`askHand`).)
+      if (!mine && !this.host.granted(engine) && isPoints(layout, w.pieceId)) {
+        const out = waysFrom(layout, w.pieceId, w.entry).find((x) => x.option === w.state);
+        const coming = out ? this.comingAt(w, trainId, out.exit) : -1;
+        if (coming !== -1) {
+          by = coming;
+          break;
+        }
       }
     }
     if (!stop) return null;
@@ -872,7 +889,7 @@ export class Router {
     let at = c.pieceId;
     const v = train.speed;
     const lead = forward ? train.cars[0] : train.cars[train.cars.length - 1];
-    const reach = (v * v) / (2 * ACCELERATION) + HAND_LOOK + CAR_SPECS[lead.kind].bogieInset;
+    const reach = stopDistance(v) + HAND_LOOK + CAR_SPECS[lead.kind].bogieInset;
     let d = pathLength(path.geom) - c.s;
     this.alongIds.push(c.pieceId);
     this.alongAt.push(d);
@@ -958,6 +975,18 @@ export class Router {
         this.refusedUnder++;
         return { stop: w, by: under };
       }
+      // (Points are never a place to wait: not onto points with a train coming at them on the single track beyond, as
+      // they lie, to the next points or the line's end. It waits short of them, and the two meet off the points.)
+      if (!mine && isPoints(this.host.layout, w.pieceId)) {
+        const coming = this.comingAt(w, trainId);
+        if (coming !== -1) {
+          for (let j = i; j < want.length; j++) {
+            const l = h.held.get(want[j].pieceId);
+            if (l && !l.entered) this.release(engine, h, want[j].pieceId);
+          }
+          return { stop: w, by: coming };
+        }
+      }
       const lock = this.locks.get(w.pieceId);
       const other = lock ? [...lock.holders].find((e) => e !== engine) : undefined;
       if (lock && other !== undefined) {
@@ -983,6 +1012,63 @@ export class Router {
       this.pending.delete(w.pieceId);
     }
     return null;
+  }
+
+  /**
+   * A hand-run train (its engine, or its first car) on the single track beyond points `w` as they lie (to the next
+   * points, a crossing or the line's end), heading back toward them; −1 for none. For a hand-run train about to come onto them
+   * (`askHand`): it waits short of them for that one, never on them.
+   */
+  private comingAt(w: Want, trainId: number, exit?: number): number {
+    const { layout, sim } = this.host;
+    const ways = waysFrom(layout, w.pieceId, w.entry, () => true);
+    // (Given its way out (a routed train's): any train coming at it there counts, routed or not.)
+    const any = exit !== undefined;
+    if (any) ways.splice(0, ways.length, { option: w.state, path: -1, exit });
+    let at = { p: w.pieceId, exit: ways[0]?.exit ?? -1 };
+    for (let k = 0; k < WALK; k++) {
+      const n = next(layout, at.p, at.exit);
+      if (!n || layout.getPiece(n.pieceId)?.type.startsWith("buffer")) return -1;
+      const t = trainOn(sim, (p) => p === n.pieceId, { except: trainId, onRails: true });
+      // (Only another hand-run train: a routed one's moves are sections' to grant, and they keep a hand-run train coming
+      // onto its line short of the points (`Sections.comesInto`); this one gives way to it as before.)
+      if (t) return this.headsAt(t, w.pieceId, ways[0]?.exit ?? -1, !any) && (any || !t.cars.some((c) => this.host.routed.has(c.id))) ? engineOf(t) : -1;
+      const on = waysFrom(layout, n.pieceId, n.entry, () => true);
+      if (on.length !== 1 || isPoints(layout, n.pieceId) || on[0].exit < 0) return -1;
+      at = { p: n.pieceId, exit: on[0].exit };
+    }
+    return -1;
+  }
+
+  /**
+   * Does train `t` (driving) come to piece `pieceId` by its end `end` (head on into one leaving by it), going on as the
+   * points lie, within `WALK` pieces of its front? (Not one going away round a ring and back to them from behind.)
+   */
+  private headsAt(t: Train, pieceId: number, end: number, turning = false): boolean {
+    const { layout } = this.host;
+    const net = this.host.drive(t);
+    if (net === 0) return false;
+    // (Turning round at the end of the line: it comes back out, its other end first (line1+siding 2× hand same: one
+    // turning at the siding's buffer wasn't coming at the points yet, and the other went onto them, to meet it there).)
+    // (Only for a hand-run train asking (`askHand`): a routed one sections don't hold waiting so for a hand-run train
+    // turning at a siding's end stood for good with it (fuzz seed 136, a route never makes it worse).)
+    const back = turning && t.turnback >= 0 ? net < 0 : net > 0;
+    const c: Cursor = { ...(back ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };
+    if (!back) flipCursor(layout, c);
+    const piece = layout.getPiece(c.pieceId);
+    if (!piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
+    let at = { p: c.pieceId, exit: c.reversed ? path.from : (path.to ?? -1) };
+    for (let k = 0; k < WALK; k++) {
+      if (at.p === pieceId) return false;
+      const n = next(layout, at.p, at.exit);
+      if (!n) return false;
+      if (n.pieceId === pieceId) return n.entry === end;
+      const on = waysFrom(layout, n.pieceId, n.entry, () => true);
+      if (!on[0] || on[0].exit < 0) return false;
+      at = { p: n.pieceId, exit: on[0].exit };
+    }
+    return false;
   }
 
   /**
@@ -1195,7 +1281,7 @@ export class Router {
     let at = c.pieceId;
     const v = train.speed;
     const sim = this.host.sim;
-    let set = (v * v) / (2 * ACCELERATION) + SET_LOOK;
+    let set = stopDistance(v) + SET_LOOK;
     // (How far the next piece is from the front; and the plain track run since the last points asked for.)
     let d = pathLength(path.geom) - c.s;
     this.alongIds.push(c.pieceId);
@@ -1246,17 +1332,21 @@ export class Router {
       // (A crossing, or points it trails through, with another train's car over them on a road that fouls its own:
       // asked for, so it's refused and waits short of them, step 3.)
       else if (ways.length === 1 && this.crossingFouled(n.pieceId, n.entry, ways[0].path, train.id)) want.push({ pieceId: n.pieceId, state: 0, ways: 1, entry: n.entry, d, path: ways[0].path });
+      // (Points it trails through, with a train coming at them on the single track beyond, for a routed train sections
+      // don't hold: asked for, so it's refused and waits short of them, never on them (`ask`; ring1 with loops too short).)
+      else if (ways.length === 1 && isPoints(layout, n.pieceId) && !this.host.granted(this.engineOfWalk) && this.comingAt({ pieceId: n.pieceId, state: ways[0].option, ways: 1, entry: n.entry, d }, train.id, ways[0].exit) !== -1) want.push({ pieceId: n.pieceId, state: ways[0].option, ways: 1, entry: n.entry, d });
       let w = ways[0];
       if (ways.length > 1) {
         const followed = follow ? ways.filter((x) => follow(n.pieceId, x.path)) : [];
         // (Its line's way kept where two cost nearly the same: stickiness, remembered as it's set.)
         const cost = this.costOut;
-        let best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost);
+        const lap = this.host.lapRule?.(this.engineOfWalk);
+        let best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost, lap);
         // (No way on leads there: nothing set, and nothing further asked for.)
         if (best === -1) break;
         // (Coming out of a dead end: a road no train faces it on, if one still gets there (routing spec §5 rule 8), as
         // sections granted it.)
-        if (followed.length !== 1) {
+        if (followed.length !== 1 && !lap) {
           const out = mouthWay(layout, this.host.sim, train, n.pieceId, n.entry, ways, best, (x) => planWay(layout, n.pieceId, n.entry, [{ option: 0, path: x.path, exit: x.exit }], target) !== -1);
           if (out !== best) {
             const o = { cost: Infinity };

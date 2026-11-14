@@ -89,7 +89,7 @@ describe("the goods chains' goods", () => {
 
 describe("the goods chains' blueprints", () => {
   it("are built rows, after the first City, mostly coins; the late ones at a College or a University", () => {
-    for (const id of ["sugar", "jam", "chocolate", "paint", "toys"]) expect(bp(id).plan, id).toBeUndefined();
+    for (const id of ["sugar", "jam", "chocolate", "paint", "toys"]) expect(bp(id), id).toBeDefined();
     expect(bp("sugar")).toMatchObject({ branch: "food", tier: 2, needs: ["farming"] });
     expect(bp("sugar").requires).toContainEqual({ kind: "level", level: 3 });
     expect(bp("jam")).toMatchObject({ branch: "food", tier: 2, needs: ["juice", "sugar"] });

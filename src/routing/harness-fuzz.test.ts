@@ -37,18 +37,56 @@ const FAILS: Partial<Record<Invariant, string>> = {};
  */
 // (From the long fuzz on 2026-11-07, 200 seeds × 1800 s: the old invariants held on every seed; oneOwner and netActed
 // broke on none. Each break here comes within the first 30 s of its seed, so a run of 30 s or more sees it.)
-const GREEN = "held by sections (a slot or section wait) standing at a signal that shows clear (#31; redesign step 4: signals show the table)";
 // (midTurn's 11 seeds came off with step 1: nothing turns a train round mid-line now.)
 // (heldFree, added with step 2b: from the full `npm run fuzz:long` (200 seeds × 1800 s), 2026-11-07. Each a train held by
 // sections' slot wait though the booking core would book it a way on: holds too big, step 5's.)
 const FREE = "held by sections' slot wait though the booking core would let it go (redesign step 5: sections grant by booking)";
+// (2026-11-13, the user's (a): a train stands at a line end for a line-mate following it in to turn behind it
+// (`Sections.convoyHold`); the core, foreseeing nothing, would book it on. The full long fuzz against lever-regrant,
+// seed for seed: 7, 38, 66, 76, 116, 126, 149 and 165 went on, each its convoy hold (logged: the held engine and its
+// time). 152 came off (it no longer stands where the core would book it on). With signals: since the call-on (2026-11-14, the user's yes), a signal guarding a line end lets the one behind
+// in (`Sections.callOnAt`): with signals 7, 38, 66, 76, 116, 149 and 165 went on (the full long fuzz, seed for
+// seed), the same convoy holds as without.)
+// (2026-11-14, the swap planner overruling the room rule (fuzz 19): 19 went on, a train waiting its turn in the plan
+// at 22.5 s, the planner's first moves, which the core, planning nothing, would book on.)
+const SWAP = "waiting its turn in the swap planner's plan (the user's (a)), the core planning nothing";
+const CONVOY = "held at a line end for a line-mate following it in to turn behind it (the user's (a)), the core foreseeing nothing";
+/**
+ * Seeds that stall with signals where they no longer do without: 19 and 90 (below). The convoys into a line end a signal guards
+ * that stalled (7, 52, 93, 100, 105, 149, 151, 158, 189, 192, 197: the full long fuzz) run since the call-on (2026-11-14,
+ * the user's yes: `Sections.callOnAt`, a signal letting a line-mate in behind a train at a line end to turn behind it;
+ * 52, a signal inside the line end, since the leader is held at its signal only once it stands, `convoyHold`).
+ */
+/**
+ * (2026-11-14, the swap planner overruling the room rule on a loopless line of three ends: 19 and 90 run without
+ * signals now, every train delivering; with signals the planner stays off (`stalledForSwap`: no signals), so the room
+ * rule still holds their extra train and they stall as they did before.)
+ */
+const SIGNAL_ROOM = "the room rule holds a train; without signals the swap planner overrules it, with signals it stays off";
+const KNOWN_SIGNAL_STALLS: Record<number, string> = { 19: SIGNAL_ROOM, 90: SIGNAL_ROOM };
+/** A report's seed, from its name ("fuzz seed 7 with signals"). */
+const seedOfName = (name: string): number => Number(/seed (\d+)/.exec(name)?.[1] ?? -1);
+
 const KNOWN_NEW: Partial<Record<Invariant, Record<number, string>>> = {
-  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 183: FREE, 186: FREE, 188: FREE },
+  // (2026-11-11, the room counting a line's ends (3 trains on one loop run): the full long fuzz against main, seed for
+  // seed: 37, 91, 112, 132, 134, 145, 186 and 188 came off (their third train no longer held), nothing went on.)
+  heldFree: { 7: CONVOY, 19: SWAP, 22: FREE, 34: FREE, 38: CONVOY, 66: CONVOY, 68: FREE, 69: FREE, 74: FREE, 76: CONVOY, 104: FREE, 113: FREE, 116: CONVOY, 126: CONVOY, 127: FREE, 149: CONVOY, 165: CONVOY, 183: FREE },
 };
 const KNOWN_NEW_SIGNALS: Partial<Record<Invariant, Record<number, string>>> = {
-  heldFree: { 22: FREE, 34: FREE, 37: FREE, 68: FREE, 69: FREE, 74: FREE, 77: FREE, 89: FREE, 91: FREE, 104: FREE, 112: FREE, 113: FREE, 127: FREE, 132: FREE, 134: FREE, 145: FREE, 152: FREE, 186: FREE, 188: FREE },
+  // (2026-11-09, booking to the next signal (every signal of a pair a waiting point, sized per train): the full long
+  // fuzz, against main seed for seed: 74 came off, 165 went on. The same 53 seeds stalled; nothing else moved.)
+  // (2026-11-11, the room counting a line's ends: 37, 91, 112, 132, 134, 145, 165, 186 and 188 came off; 136 went on,
+  // a seed that stands still on main too, its three trains in a ring of signals, before and after.)
+  // (2026-11-13, a loop's last free road kept for a train coming the other way: 111, 126 and 165 run (no longer three
+  // trains standing for good, the loop filled one way); 126 went on: a train held 5 s for the one coming at the loop,
+  // which the core, foreseeing nothing, would book on.)
+  heldFree: { 7: CONVOY, 22: FREE, 34: FREE, 38: CONVOY, 66: CONVOY, 68: FREE, 69: FREE, 76: CONVOY, 77: FREE, 89: FREE, 104: FREE, 113: FREE, 116: CONVOY, 126: FREE, 127: FREE, 136: FREE, 149: CONVOY, 152: FREE, 165: CONVOY },
   // (14, 30, 76 and 160 came off on the merged base, before step 3 (2026-11-07, the full long fuzz on both).)
-  greenHeld: { 37: GREEN, 66: GREEN, 69: GREEN, 105: GREEN, 119: GREEN, 174: GREEN, 192: GREEN },
+  // (2026-11-11, the room counting a line's ends: 37 came off; 165 went on. On main 165 stood still from the start (1, 0
+  // and 0 stops in 30 min, the third train held); now its three run (46, 44, 44 stops), now and then held by sections
+  // at a signal showing clear.)
+  // (2026-11-13, a train held at its slot's end shows that slot's own signal red (a loop road's, a line end's, not
+  // only a waiting point's): 66, 69, 105, 119, 165, 174 and 192 came off, the list with them.)
 };
 
 /** Of these runs (seeds FIRST + k), those that broke `inv` and aren't known to; and the known ones that ran and didn't. */
@@ -130,8 +168,10 @@ describe(`routing fuzz with signals: ${SEEDS} seeds${FIRST !== 1 ? ` from ${FIRS
       expect(fixed, "known breaks that no longer break (take them off)").toEqual([]);
     }, timeout);
   it("a stall only with a signal ring (or where the seed stalls without signals)", () => {
-    const odd = run().filter((r) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals" && w !== "loop-signal"));
-    expect(odd.map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
+    const odd = (r: { plain: Report; marked: Report }) => r.marked.stalls.begun > 0 && r.plain.stalls.begun === 0 && r.marked.stalls.why.some((w) => w !== null && w !== "signals" && w !== "loop-signal");
+    const known = (r: { marked: Report }) => seedOfName(r.marked.name) in KNOWN_SIGNAL_STALLS;
+    expect(run().filter((r) => odd(r) && !known(r)).map((r) => `${r.marked.name}: ${r.marked.stalls.why.join("/")}`)).toEqual([]);
+    expect(run().filter((r) => known(r) && !odd(r)).map((r) => r.marked.name), "known ones that no longer stall so (take them off)").toEqual([]);
   }, timeout);
 });
 
@@ -263,4 +303,9 @@ const KNOWN_WORSE: Record<string, string> = {
   // to with the route against 4 all hand-run, which is when each got stuck, not a stall the route made. Was all
   // hand-run 186 stops, routed 224, while a hand-run train turned round to give way.)
   "fuzz seed 77": "two hand-run trains head on in a line's end in both runs: a true deadlock, nothing turns",
+  // (2026-11-14: two hand-run trains put down one behind the other in the line's end past its last points; the one ahead
+  // turns at the buffer and meets the other head on, with the routed train waiting behind them, as before. The all
+  // hand-run run jammed so too (2 stops) till a train turning at a line's end counted as coming back at its points (the
+  // router's `headsAt`): now it runs (140), and the routed run, unchanged at 2, reads as made worse.)
+  "fuzz seed 136": "two hand-run trains head on in a line's end with the route, a true deadlock; all hand-run, they now miss each other",
 };

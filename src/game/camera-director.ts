@@ -127,32 +127,37 @@ export function fitToRect(
   };
   const goalW = Math.max(1, rect.right - rect.left - 2 * margin);
   const goalH = Math.max(1, rect.bottom - rect.top - 2 * margin);
-  for (let round = 0; round < 6; round++) {
+  const box = { x0: 0, x1: 0, y0: 0, y1: 0 };
+  const measure = () => {
     place();
-    let x0 = Infinity;
-    let x1 = -Infinity;
-    let y0 = Infinity;
-    let y1 = -Infinity;
+    box.x0 = box.y0 = Infinity;
+    box.x1 = box.y1 = -Infinity;
     for (const p of points) {
       v.copy(p).project(cam);
       const x = ((v.x + 1) / 2) * width;
       const y = ((1 - v.y) / 2) * height;
-      x0 = Math.min(x0, x);
-      x1 = Math.max(x1, x);
-      y0 = Math.min(y0, y);
-      y1 = Math.max(y1, y);
+      box.x0 = Math.min(box.x0, x);
+      box.x1 = Math.max(box.x1, x);
+      box.y0 = Math.min(box.y0, y);
+      box.y1 = Math.max(box.y1, y);
     }
+  };
+  const ground = (sx: number, sy: number): Vector3 | null => {
+    v.set((sx / width) * 2 - 1, 1 - (sy / height) * 2, 0.5).unproject(cam).sub(cam.position);
+    if (v.y >= -1e-9) return null;
+    return cam.position.clone().addScaledVector(v, -cam.position.y / v.y);
+  };
+  for (let round = 0; round < 6; round++) {
     // Zoom so the spread fills the room (on screen, size goes as one over distance)...
     // (Within the distances it may be glided to: the move into the room is worked out at the distance it ends at. A
     // lone point has no spread, so its fit closes right in, and a shift made there was lost when moved back: QA.)
-    distance = Math.min(maxDistance, Math.max(minDistance, distance * Math.max((x1 - x0) / goalW, (y1 - y0) / goalH, 0.05)));
-    // ...and move so its middle is the room's: by the ground under the two, as seen from here.
-    const ground = (sx: number, sy: number): Vector3 | null => {
-      v.set((sx / width) * 2 - 1, 1 - (sy / height) * 2, 0.5).unproject(cam).sub(cam.position);
-      if (v.y >= -1e-9) return null;
-      return cam.position.clone().addScaledVector(v, -cam.position.y / v.y);
-    };
-    const from = ground((x0 + x1) / 2, (y0 + y1) / 2);
+    measure();
+    distance = Math.min(maxDistance, Math.max(minDistance, distance * Math.max((box.x1 - box.x0) / goalW, (box.y1 - box.y0) / goalH, 0.05)));
+    // ...and move so its middle is the room's: by the ground under the two, as seen from there. (Measured again at the
+    // new distance: a move worked out at the old one was off by as much as the zoom changed, which in a thin room far
+    // from the screen's middle, a phone's band above a tall card, left the route 13-70 px under it: QA, route-ux F5.)
+    measure();
+    const from = ground((box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2);
     const to = ground((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
     if (from && to) target.add(from.sub(to)).setY(0);
   }
@@ -360,7 +365,7 @@ export class CameraDirector {
     this.zoomGoal = -1;
     // (In the room: the target in the middle of what the map shows, above a card, not behind it.)
     const goal = opts.inRoom ? this.aimed(target, to, new Vector3()) : target.clone();
-    this.shot = { fromTarget: c.target.clone(), toTarget: this.onMat(goal), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track, inRoom: opts.inRoom, fresh: true };
+    this.shot = { fromTarget: c.target.clone(), toTarget: this.onMat(goal, this.seenBounds(goal, to)), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track, inRoom: opts.inRoom, fresh: true };
   }
 
   /** Frame a point of interest of the given radius, keeping the viewing direction. Never zooms out. */
@@ -393,11 +398,35 @@ export class CameraDirector {
     this.onMat(this.zoomAnchor.copy(anchor ?? c.target));
   }
 
-  /** Move a point onto the area the camera may look at (in place). */
-  private onMat(p: Vector3): Vector3 {
-    p.x = Math.min(this.bounds.x1, Math.max(this.bounds.x0, p.x));
-    p.z = Math.min(this.bounds.z1, Math.max(this.bounds.z0, p.z));
+  /** Move a point onto the area the camera may look at (in place); `b` for the bounds as seen from a view (`seenBounds`). */
+  private onMat(p: Vector3, b: ViewBounds = this.bounds): Vector3 {
+    p.x = Math.min(b.x1, Math.max(b.x0, p.x));
+    p.z = Math.min(b.z1, Math.max(b.z0, p.z));
     return p;
+  }
+
+  private readonly seen: ViewBounds = { x0: 0, z0: 0, x1: 0, z1: 0 };
+  private readonly seenSph = new Spherical();
+  private readonly seenAim = new Vector3();
+  /**
+   * The bounds for the point looked at from `s` about `target`, widened (never narrowed) so the ground in the room's
+   * middle (the map above an open card) may be anywhere the bounds allow, not only the point behind the card the camera
+   * looks at. QA (e2e route-ux F5): at 360x740 a train's full card leaves a 99 px room at the top; a route near the
+   * land's edge needed the look-at point 600 mm past the bound, it was clamped, and the route stayed under the card.
+   * With no room, or a room centred on the screen, they're the bounds. A few microseconds: no allocation.
+   */
+  private seenBounds(target: Vector3, s: Spherical): ViewBounds {
+    const b = this.bounds;
+    const a = this.currentRoom() ? this.aimed(target, s, this.seenAim) : this.seenAim.copy(target);
+    // (Looking at `a` shows `target` in the room's middle: the bounds go as far the same way.)
+    const dx = a.x - target.x;
+    const dz = a.z - target.z;
+    const o = this.seen;
+    o.x0 = Math.min(b.x0, b.x0 + dx);
+    o.x1 = Math.max(b.x1, b.x1 + dx);
+    o.z0 = Math.min(b.z0, b.z0 + dz);
+    o.z1 = Math.max(b.z1, b.z1 + dz);
+    return o;
   }
 
   /**
@@ -436,7 +465,7 @@ export class CameraDirector {
     if (this.shot) {
       const s = this.shot;
       if (s.track && !s.track(s.toTarget)) s.track = undefined;
-      this.onMat(s.toTarget);
+      this.onMat(s.toTarget, this.seenBounds(s.toTarget, s.to));
       // (By the time that's passed, not the frame's step capped at a tenth of a second: on a device that draws a frame
       // every few seconds a 0.9 s glide took a frame a tenth, crawling on for half a minute, QA. A long frame lands it.)
       // Its first step is capped all the same: the time before it is the frame that started it (a slow tap's handler,
@@ -477,7 +506,10 @@ export class CameraDirector {
     } else if (this.followed && this.shot) {
       // Keep the glide's destination on the moving train.
       const p = this.followed();
-      if (p) this.onMat(this.shot.inRoom ? this.aimed(p, this.shot.to, this.shot.toTarget) : this.shot.toTarget.copy(p));
+      if (p) {
+        const t = this.shot.inRoom ? this.aimed(p, this.shot.to, this.shot.toTarget) : this.shot.toTarget.copy(p);
+        this.onMat(t, this.seenBounds(t, this.shot.to));
+      }
     }
 
     if (this.edgePointer) {
@@ -514,7 +546,7 @@ export class CameraDirector {
   /** Pull the view back within bounds: target over the mat, distance and tilt within limits. */
   constrain(): void {
     const c = this.controls;
-    clampTarget(c.target, this.camera.position, this.bounds);
+    clampTarget(c.target, this.camera.position, this.seenBounds(c.target, this.seenSph.setFromVector3(this.tmp.subVectors(this.camera.position, c.target))));
     clampView(c.target, this.camera.position, c.minDistance, c.maxDistance, c.maxPolarAngle);
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { techOf, TECHS, built } from "./tech";
+import { techOf, TECHS } from "./tech";
 import { Progress } from "./progress";
 import { canResearch, chainBlock, chainOf, coinsShort, costOf, deliver, dequeue, lacking, lacks, missingNeeds, nowTarget, pick, QUEUE_MAX, queueOf, queuePlace, repairQueue, simElapsed, startNow, type StudyClock, STUDY_HALL, STUDY_SECONDS, studyLeft, studying, studyTime, tick, toggleQueue } from "./research";
 
@@ -21,8 +21,8 @@ describe("research costs", () => {
     expect(costOf("mills")).toEqual({ goods: { planks: 6, grain: 6 }, coins: 40 });
     expect(costOf("goods-engine")).toEqual({ goods: { planks: 6, flour: 6 }, coins: 80 });
     expect(costOf("electricity")).toEqual({ goods: { iron: 10, coal: 10 }, coins: 240 });
-    // Every built blueprint has goods to research it with.
-    for (const t of TECHS.filter((x) => built(x))) expect(Object.keys(t.research.goods).length, t.id).toBeGreaterThan(0);
+    // Every blueprint has goods to research it with.
+    for (const t of TECHS) expect(Object.keys(t.research.goods).length, t.id).toBeGreaterThan(0);
   });
 
   it("study takes 20, 45 or 90 s by tier", () => {

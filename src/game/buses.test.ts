@@ -46,7 +46,7 @@ function setup(learned = true) {
 
 describe("buses (roads spec D6)", () => {
   it("is on the board: after Delivery vans and Halts, 3 planks and 120 coins; the bus stop is free once learned", () => {
-    expect([techOf("buses")!.plan, techOf("buses")!.needs, techOf("buses")!.research]).toEqual([undefined, ["vans", "halts"], { goods: { planks: 3 }, coins: 120 }]);
+    expect([techOf("buses")!.needs, techOf("buses")!.research]).toEqual([["vans", "halts"], { goods: { planks: 3 }, coins: 120 }]);
     expect(THING_RULES["prop:scene-bus-stop"]).toMatchObject({ tech: "buses", free: true });
   });
 

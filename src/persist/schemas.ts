@@ -9,11 +9,32 @@ import type * as SaveSchemas from "./save-schema";
 let loaded: typeof SaveSchemas | null = null;
 let loading: Promise<void> | null = null;
 
-/** Load the save's schemas (once). */
-export function loadSaveSchemas(): Promise<void> {
-  return (loading ??= import("./save-schema").then((m) => {
-    loaded = m;
-  }));
+/** Fetch attempts before giving up, and the wait before the first retry (doubling after), as the models' files. */
+const ATTEMPTS = 4;
+const FIRST_RETRY_MS = 500;
+
+/**
+ * Load the save's schemas (once), retrying a failed fetch with backoff. Rejects if they can't be had (a v1.1.4 player's
+ * loading screen hung for good on one failed fetch); a failure is forgotten, so asking again tries again.
+ */
+export function loadSaveSchemas(fetch: () => Promise<typeof SaveSchemas> = () => import("./save-schema"), retryMs = FIRST_RETRY_MS): Promise<void> {
+  loading ??= (async () => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        loaded = await fetch();
+        return;
+      } catch (e) {
+        if (attempt >= ATTEMPTS) throw e;
+        console.warn(`Woodrail: fetching the save's schemas failed (attempt ${attempt} of ${ATTEMPTS}), retrying`, e);
+        await new Promise((r) => setTimeout(r, retryMs * 2 ** (attempt - 1)));
+      }
+    }
+  })();
+  const p = loading;
+  p.catch(() => {
+    if (loading === p) loading = null;
+  });
+  return p;
 }
 
 /** The save's schemas: loaded (`loadSaveSchemas`) before any save is read. */

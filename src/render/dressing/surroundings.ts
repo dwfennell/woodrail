@@ -66,17 +66,6 @@ export function disposeSceneryPart(p: SceneryPart): void {
   p.shadow?.dispose();
 }
 
-/**
- * The scenery around the land: bevelled blocks beside it, plain ones beyond (big ones for the distant "mountains"),
- * trees and hamlets. Only the near hills cast shadows, through merged stand-ins.
- */
-export function buildSurroundings(s: Surroundings, mats: Materials, land: Rect): Group {
-  const part = sceneryPart(s, mats);
-  const group = buildScenery([part], mats, land);
-  disposeSceneryPart(part);
-  return group;
-}
-
 /** Draw some scenery parts together, in a few draws for all of them (merging their houses and shadows). */
 export function buildScenery(parts: readonly SceneryPart[], mats: Materials, land: Rect): Group {
   const group = new Group();

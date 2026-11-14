@@ -157,18 +157,23 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     }
   });
 
-  it("the room rule: a line takes one train more than its passing loops; the extra one is held, saying how many loops to lay", () => {
+  it("the room rule: a line takes two trains more than its passing loops (its two ends wait a train each); the extra one is held, saying how many loops to lay", () => {
     const l = line(1);
-    const es = trains(l, [{ piece: l.east[1], back: true, next: 1 }]);
+    const es = trains(l, [{ piece: l.east[1], back: true, next: 1 }, { piece: l.loops[0].main[0], back: false, next: 0 }]);
     const r = runner(l.w, es);
-    const extra = es[2];
+    r.run(5);
+    // (One of the four is held, and stays held: never given a move.)
+    const held = es.filter((e) => l.economy.sectionWait(e)?.kind === "room");
+    expect(held.length).toBe(1);
+    const extra = held[0];
     let moved = false;
     for (let i = 0; i < 2 * 60 * SIM_HZ; i++) {
       r.step();
       if (l.economy.sections.stateOf(extra)?.move) moved = true;
     }
     expect(moved).toBe(false);
-    expect(l.economy.sectionWait(extra)).toEqual({ kind: "room", lineId: l.economy.lineIdOf.get(extra), trains: 3, loops: 1, more: 1, spare: false, parked: false, other: false, pinned: false });
+    expect(l.economy.sectionWait(extra)).toEqual({ kind: "room", lineId: l.economy.lineIdOf.get(extra), trains: 4, loops: 1, more: 1, spare: false, parked: false, other: false, pinned: false });
+    expect(r.meetings).toEqual([]);
     // No passing loop at all: the second train is held, one loop to lay.
     const plain = line(0);
     const two = trains(plain);
@@ -177,6 +182,34 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     expect(two.map((e) => plain.economy.sectionWait(e)?.kind ?? null)).toContain("room");
     expect(plain.economy.sectionWait(two[1])).toMatchObject({ kind: "room", loops: 0, more: 1 });
     expect(r2.meetings).toEqual([]);
+  });
+
+  // (stalls-verify 2026-11-10: the room rule had a line room for a train more than its loops, so the third of three on
+  // one loop was held and the line stood still, its card asking for a second loop it didn't need. The line's two ends
+  // wait a train each: 4 places for 3 trains, the free one moving round. The fuzz's seeds 34, 37, 91, 112, 132, 134,
+  // 145, 186 and 188 were this.)
+  it("three trains on one passing loop: none held, all three deliver, and no card asks for a loop", () => {
+    for (const l of [line(1), line(1, { station: true })]) {
+      // (A west, heading for X; B east, heading for Y; the third in the loop, heading for X.)
+      const es = trains(l, [{ piece: l.loops[0].main[0], back: false, next: 0 }]);
+      const r = runner(l.w, es);
+      const cards = new Set<string>();
+      let held = 0;
+      for (let i = 0; i < 10 * 60 * SIM_HZ; i++) {
+        r.step();
+        if (i % 30 !== 0) continue;
+        for (const e of es) {
+          if (l.economy.sectionWait(e)?.kind === "room") held++;
+          cards.add(engineStatus(l.sim, l.economy, e, () => "Larkfield"));
+        }
+      }
+      expect(held).toBe(0);
+      for (const e of es) expect(r.arrivals.get(e)!, `train ${e}`).toBeGreaterThan(10);
+      expect(r.meetings).toEqual([]);
+      expect(l.economy.sections.released).toBe(0);
+      expect(l.economy.stalls.count).toBe(0);
+      expect([...cards].filter((c) => /passing loop|Stuck/.test(c))).toEqual([]);
+    }
   });
 
   it("no circular wait with a loop per extra train: arrivals keep rising, never meeting, nothing let go", () => {
@@ -253,10 +286,11 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
 
   it("an under-built line: the trains it has room for wait short of the one held, stuck, saying so; put away, they run", () => {
     const cases: [Line, { piece: number; back: boolean; next: number }[], CarKind[] | undefined][] = [];
+    // (A loop and the line's two ends: room for 3, so a fourth is held.)
     const bare = line(1);
-    cases.push([bare, [{ piece: bare.east[1], back: true, next: 1 }], undefined]);
+    cases.push([bare, [{ piece: bare.east[1], back: true, next: 1 }, { piece: bare.loops[0].main[0], back: false, next: 0 }], undefined]);
     const station = line(1, { station: true });
-    cases.push([station, [{ piece: station.east[1], back: true, next: 1 }], undefined]);
+    cases.push([station, [{ piece: station.east[1], back: true, next: 1 }, { piece: station.loops[0].main[0], back: false, next: 0 }], undefined]);
     cases.push([line(0), [], undefined]);
     const plain3 = line(0);
     cases.push([plain3, [{ piece: plain3.east[1], back: true, next: 1 }], undefined]);
@@ -267,7 +301,9 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
       r.run(5 * 60);
       const held = es.filter((e) => l.economy.sectionWait(e)?.kind === "room");
       const running = es.filter((e) => !held.includes(e));
-      expect(held.length).toBe(es.length - 1 - l.loops.filter(() => !cars).length);
+      // (Room: a train more than its loops, and one more for its ends once it has a loop.)
+      const loops = l.loops.filter(() => !cars).length;
+      expect(held.length).toBe(es.length - 1 - loops - (loops > 0 ? 1 : 0));
       // (Routing §16 Q3: none turns back short of it. Each it's in the way of stands, its card saying the line has too
       // many trains; the held one's says how many loops to lay.)
       for (const e of running) {
@@ -321,13 +357,15 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     // (Or, since routing redesign step 3, short of the loop's points while the other's last car is still over them.)
     const t2 = texts(two, trains(two), 120);
     expect(t2.has("Waiting for the Red line train") || t2.has("Waiting for the train on the Red line to pass the points"), [...t2].join(" | ")).toBe(true);
-    const three = line(1);
-    const seen3 = texts(three, trains(three, [{ piece: three.east[1], back: true, next: 1 }]), 60);
-    expect(seen3).toContain("Waiting: lay 1 more passing loop for 3 trains, or remove a train");
+    const four = line(1);
+    const seen4 = texts(four, trains(four, [{ piece: four.east[1], back: true, next: 1 }, { piece: four.loops[0].main[0], back: false, next: 0 }]), 60);
+    expect(seen4).toContain("Waiting: lay 1 more passing loop for 4 trains, or remove a train");
     // (The held one in the others' way: they're stuck, and say so.)
-    expect(seen3).toContain("Stuck: this line has a train too many. Add a passing loop, or remove a train");
+    expect(seen4).toContain("Stuck: this line has a train too many. Add a passing loop, or remove a train");
+    // (No loop: one loop runs 3, with the line's ends; never "2 more".)
     const plain = line(0);
     const seen = texts(plain, trains(plain, [{ piece: plain.east[1], back: true, next: 1 }]), 60);
-    expect(seen).toContain("Waiting: lay 2 more passing loops for 3 trains, or remove a train");
+    expect(seen).toContain("Waiting: lay 1 more passing loop for 3 trains, or remove a train");
+    expect([...seen].filter((c) => /lay [2-9] more/.test(c))).toEqual([]);
   });
 });

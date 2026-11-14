@@ -323,7 +323,7 @@ describe("milestone stickers", () => {
       const rule = THING_RULES[`piece:depot-${role}` as keyof typeof THING_RULES];
       expect(rule, role).toBeTruthy();
       const tech = (rule as { tech?: string }).tech;
-      expect(tech && !BLUEPRINTS.find((b) => b.id === tech)?.plan, role).toBe(true);
+      expect(tech && !!BLUEPRINTS.find((b) => b.id === tech), role).toBe(true);
     }
     expect(earn(t, w)).not.toContain("all-industries");
     // (Setup: the depots put down straight, away from the starter's; site rules are the tray's, not this check's.)

@@ -53,7 +53,7 @@ function line(cars: CarKind[]) {
 describe("the circus train", () => {
   it("is earned, never bought: learning Circus gives two cages once, and the workshop and cards never offer one", () => {
     const b = BLUEPRINTS.find((x) => x.id === "circus")!;
-    expect(b.plan).toBeUndefined();
+    expect(b).toBeDefined();
     expect(BLUEPRINTS.some((x) => x.id === "circus-train")).toBe(false);
     expect(isGift("car:cage")).toBe(true);
     expect(THING_RULES["car:cage"]?.tech).toBe("circus");

@@ -1,4 +1,4 @@
-// The tech tree's track pieces on a phone, by touch (e2e:touch groups `slips`, `double-three-way`, `turntable-taps`;
+// The tech tree's track pieces on a phone, by touch (e2e:touch groups `slips`, `double-three-way`, `split`, `turntable-taps`;
 // docs/superpowers/specs/2026-10-31-tech-tree.md T3, T4, T5). Sandbox, 390×844, as touch.mjs opens it:
 // - slips: a double slip dragged out of the Switch shelf, a leg laid off each end; its lever tapped, a train runs onto
 //   its curve to the other line; tapped back, the train runs straight across; then a single slip the same way.
@@ -365,6 +365,168 @@ export async function doubleThreeWayGroup(f, check) {
   // The left lever again: straight on.
   const straight = await tapLever(f, h, id, 0, spot);
   check("double-three-way: the left lever tapped again sets it straight on", straight.was === 1 && straight.now === 0, JSON.stringify(straight));
+}
+
+/**
+ * Group `split`: a split (one line in, two out a double track's width apart) dragged out of the Switch shelf by touch;
+ * a leg off its single end, and a double straight laid against its two-track end that joins both its lines at once,
+ * with a leg off each; its lever tapped by touch sends a train onto the other line and back through the single end,
+ * tapped back, onto the straight line and back; then 0 frames drawn while it stands idle. Pictures (E2E_SHOTS, or
+ * `SPLIT_SHOTS` for docs/agents/shots): the tile, the piece laid, a train on each branch.
+ */
+export async function splitGroup(f, check) {
+  const { p } = f;
+  const h = helpers(f.ctx, p);
+  const { mkdirSync } = await import("node:fs");
+  const out = process.env.E2E_SHOTS ?? "e2e-out/touch";
+  mkdirSync(out, { recursive: true });
+  // (For a picture: the view framed close on the piece, from a little above, as a player would look at it.)
+  const frameClose = async (mm = 260) => {
+    await p.evaluate(
+      async ({ x, z, mm }) => {
+        const w = window.woodrail;
+        const { frameDistance } = await import("/src/game/camera-director.ts");
+        w.director.glideTo(w.controls.target.clone().set(x, 0, z), frameDistance(mm, w.camera.fov, w.camera.aspect), { phi: 0.8, duration: 0.2 });
+      },
+      { ...spot, mm },
+    );
+    await h.still();
+    await h.settled();
+  };
+  const shot = (name, opts = {}) => p.screenshot({ path: `${out}/split-${name}.jpg`, type: "jpeg", quality: 85, ...opts }).catch(() => {});
+  await p.keyboard.press("Escape");
+  const type = "split";
+  const LEG = ["straight-216", "straight-216", "buffer-turnback"];
+  const spot = await roomFor(p, type, ["double-straight", "straight-216", "buffer-turnback"]);
+  if (!spot) throw new Error("split: no open ground for it and its legs");
+  await h.still();
+  await h.settled();
+  // The tile on its shelf: its real picture, its name, not locked (Sandbox).
+  const shelf = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Switch"));
+  if (shelf < 0) throw new Error("no Switch shelf");
+  await f.tapOn(`.scroller .tray-group:nth-child(${shelf + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  await p.evaluate(() => document.querySelector('.scroller .tray-item[data-key="piece:split"]')?.scrollIntoView({ inline: "center" }));
+  // (Its picture is drawn in the background: the drawn icon stands in for it till then.)
+  await p.waitForFunction(() => { const e = document.querySelector('.scroller .tray-item[data-key="piece:split"]'); return e && e.querySelector("img") && !e.querySelector(".thumb-icon"); }, null, { timeout: 120000, polling: 500 }).catch(() => {});
+  const tile = await p.evaluate(() => {
+    const e = document.querySelector('.scroller .tray-item[data-key="piece:split"]');
+    return e ? { label: e.querySelector(".label")?.textContent ?? "", picture: !!e.querySelector("img") && !e.querySelector(".thumb-icon"), locked: e.classList.contains("locked") } : null;
+  });
+  check("split: the Switch shelf has the Split, its real picture, not locked", !!tile && tile.label === "Split" && tile.picture && !tile.locked, JSON.stringify(tile));
+  await frames(p);
+  await shot("tile", { clip: await p.evaluate(() => { const r = document.querySelector(".tray").getBoundingClientRect(); return { x: 0, y: Math.max(0, r.y - 8), width: window.innerWidth, height: Math.min(window.innerHeight - Math.max(0, r.y - 8), r.height + 16) }; }) });
+  await p.keyboard.press("Escape");
+  if (await p.evaluate(() => document.querySelector(".tray").classList.contains("in-group"))) await f.tapOn(".scroller .tray-back");
+  const id = await dragOut(f, h, `piece:${type}`, type, spot);
+  check("split: dragged out of the Switch shelf by touch, a split is laid", id >= 0);
+  if (id < 0) return;
+  const kinds = await p.evaluate((id) => {
+    const w = window.woodrail;
+    return [0, 1, 2].map((c) => w.layout.worldConnector(id * 8 + c, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" }).kind);
+  }, id);
+  check("split: one hole at its single end, two pegs at its two-track end", JSON.stringify(kinds) === JSON.stringify(["socket", "peg", "peg"]), JSON.stringify(kinds));
+  await frameClose(180);
+  await shot("laid");
+  // Harness shortcut (setup): a leg off the single end; a double straight against the two-track end (one piece meeting
+  // both its lines), a leg off each of its far ends. Laid through the editor as dropping them would.
+  const [leg0] = await layLegsFrom(p, id, [0], LEG);
+  const dbl = await p.evaluate(
+    async ([id]) => {
+      const w = window.woodrail;
+      const T = await import("/src/track/index.ts");
+      const q = w.layout.getPiece(id);
+      const scratch = new T.Layout();
+      const sw = scratch.addPiece(q.type, q.pose, q.y, q.flipped);
+      // (Flipped, its other line is to the right: the double straight's first line then meets that one.)
+      const d = T.appendPiece(scratch, "double-straight", false, T.connectorRef(sw, q.flipped ? 2 : 1), 0);
+      const s = scratch.getPiece(d);
+      const [placed] = w.editor().placeRun([{ type: "double-straight", pose: s.pose, y: s.y, flipped: false }]);
+      w.invalidate();
+      return placed;
+    },
+    [id],
+  );
+  const farLegs = await layLegsFrom(p, dbl, [1, 3], ["straight-216", "buffer-turnback"]);
+  const joins = await p.evaluate(([id, dbl]) => {
+    const l = window.woodrail.layout;
+    return { split: [0, 1, 2].map((c) => l.joinedConnector(id * 8 + c) !== -1), double: [0, 1, 2, 3].map((c) => l.joinedConnector(dbl * 8 + c) !== -1) };
+  }, [id, dbl]);
+  check("split: joined at both ends (its single end, and both its lines to one double straight)", joins.split.every(Boolean) && joins.double.every(Boolean), JSON.stringify(joins));
+  if (!joins.split.every(Boolean)) return;
+  // The legs the train is run to: the single end's, and each branch's (the double straight and the leg past its line;
+  // which line it came onto is the split's road it took, checked with it).
+  const flipped = await p.evaluate((id) => window.woodrail.layout.getPiece(id).flipped, id);
+  const straightLine = [dbl, ...(flipped ? farLegs[1] : farLegs[0])];
+  const otherLine = [dbl, ...(flipped ? farLegs[0] : farLegs[1])];
+  const legs = [leg0, straightLine, otherLine];
+  const engine = await trainOn(p, leg0[1]);
+  if (engine < 0) throw new Error("split: no room for a train");
+  // Its lever tapped by touch: over to the other line.
+  const t1 = await tapLever(f, h, id, 0, spot);
+  check("split: a touch tap on its lever sets it over to the other line", t1.was === 0 && t1.now === 1, JSON.stringify(t1));
+  const over = await runTo(p, id, legs, engine, 2);
+  check("split: the train runs from the single end onto the other line", over.there && over.roads.includes(1) && !over.roads.includes(0) && over.under === 0, JSON.stringify(over));
+  await frameClose();
+  await shot("branch-over");
+  const back1 = await runTo(p, id, legs, engine, 0);
+  check("split: …and back from the other line through the single end", back1.there && back1.roads.includes(1) && back1.under === 0, JSON.stringify(back1));
+  // Tapped back: straight on.
+  const t0 = await tapLever(f, h, id, 0, spot);
+  check("split: tapped again, it is set straight on", t0.was === 1 && t0.now === 0, JSON.stringify(t0));
+  const ahead = await runTo(p, id, legs, engine, 1);
+  check("split: the train runs from the single end straight on", ahead.there && ahead.roads.includes(0) && !ahead.roads.includes(1) && ahead.under === 0, JSON.stringify(ahead));
+  await frameClose();
+  await shot("branch-straight");
+  const back0 = await runTo(p, id, legs, engine, 0);
+  check("split: …and back from the straight line through the single end", back0.there && back0.roads.includes(0) && back0.under === 0, JSON.stringify(back0));
+  // Idle: nothing drawn while it all stands still.
+  await p.evaluate(() => Promise.race([window.woodrail.settled(30), new Promise((r) => setTimeout(r, 60000))]));
+  const idle = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const n = w.framesDrawn;
+    await new Promise((r) => setTimeout(r, 3000));
+    return w.framesDrawn - n;
+  });
+  check("split: 0 frames drawn while it stands idle", idle === 0, `${idle} frames in 3 s`);
+}
+
+/**
+ * Harness shortcut (setup, as `layLegs`): a leg (`legTypes`) off each of `ends` of piece `id`, laid through the editor
+ * as dropping them would. The first two pieces of each leg.
+ */
+function layLegsFrom(p, id, ends, legTypes) {
+  return p.evaluate(
+    async ([id, ends, legTypes]) => {
+      const w = window.woodrail;
+      const T = await import("/src/track/index.ts");
+      const q = w.layout.getPiece(id);
+      const scratch = new T.Layout();
+      const sw = scratch.addPiece(q.type, q.pose, q.y, q.flipped);
+      const lay = (ref, type) => {
+        const end = scratch.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+        for (const flipped of [false, true]) {
+          const via = T.getPieceDef(type, flipped).connectors.findIndex((c) => c.kind !== end.kind);
+          if (via !== -1) return { id: T.appendPiece(scratch, type, flipped, ref, via), via, flipped };
+        }
+        throw new Error(`no way to lay ${type}`);
+      };
+      const out = [];
+      for (const c of ends) {
+        const run = [];
+        let ref = T.connectorRef(sw, c);
+        for (const type of legTypes) {
+          const l = lay(ref, type);
+          const s = scratch.getPiece(l.id);
+          run.push({ type, pose: s.pose, y: s.y, flipped: l.flipped });
+          ref = T.connectorRef(l.id, 1 - l.via);
+        }
+        out.push(w.editor().placeRun(run).slice(0, 2));
+      }
+      w.invalidate();
+      return out;
+    },
+    [id, ends, legTypes],
+  );
 }
 
 /** Group `turntable-taps`. */

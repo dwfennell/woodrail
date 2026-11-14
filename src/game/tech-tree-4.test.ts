@@ -26,7 +26,7 @@ function reader(withRoom = true): Progress {
 describe("the Reading room", () => {
   it("is a Learning blueprint after College, tier 2, mostly coins", () => {
     const t = techOf(READING_ROOM)!;
-    expect(t.plan).toBeUndefined();
+    expect(t).toBeDefined();
     expect([t.branch, t.tier, t.needs]).toEqual(["learning", 2, ["college"]]);
     expect(t.research).toEqual({ goods: { planks: 6 }, coins: 120 });
     expect(t.school).toBeUndefined();
@@ -115,7 +115,7 @@ describe("Signal boxes and the Telegraph", () => {
   it("Signals and routes leads on: Signal boxes (the box and lever frame), then the Telegraph (its poles)", () => {
     expect(techOf("signal-boxes")).toMatchObject({ branch: "track", tier: 2, needs: ["routes"] });
     expect(techOf("telegraph")).toMatchObject({ tier: 2, needs: ["signal-boxes"] });
-    expect(techOf("telegraph")!.plan).toBeUndefined();
+    expect(techOf("telegraph")!).toBeDefined();
     expect(unlocksOf("signal-boxes").sort()).toEqual(["prop:bldg-signal-box", "prop:mech-lever-frame"]);
     expect(unlocksOf("telegraph")).toEqual(["prop:mech-telegraph-pole"]);
     expect(unlocksOf("scenery")).not.toContain("prop:bldg-signal-box");
@@ -189,7 +189,7 @@ describe("second tiers: Mines II, Foundry II, Joinery, Tool works", () => {
   it("each follows its industry, 1.5× as fast, with a machine in its yard", () => {
     for (const [id, after, role, machine] of TIERS) {
       expect(techOf(id)!.needs, id).toEqual([after]);
-      expect(techOf(id)!.plan, id).toBeUndefined();
+      expect(techOf(id)!, id).toBeDefined();
       const p = Progress.fresh();
       expect(boostOf(p, role)).toBe(1);
       expect(machinesFor(p, role)).toEqual([]);

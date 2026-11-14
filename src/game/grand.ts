@@ -44,6 +44,8 @@ export interface Grand {
   readonly coins: number;
   /** The reward, in a line, said before you start (🎁). */
   readonly reward: string;
+  /** The reward in a few words, on its row on a city's card ("Every town grows a step"). */
+  readonly short: string;
   /** Its day: the toast when it's done. */
   readonly day: string;
   /** Drawn at this share of its model's size on the map (the models are big: a city's biggest thing). */
@@ -91,6 +93,7 @@ export const GRANDS: readonly Grand[] = [
     ],
     coins: 400,
     reward: "Every town grows a step: a level, or a quarter of a city's next star",
+    short: "Every town grows a step",
     day: "The Great Exhibition opens! Flags and bunting in every town, and every town grows",
     scale: 0.8,
   },
@@ -107,6 +110,7 @@ export const GRANDS: readonly Grand[] = [
     ],
     coins: 450,
     reward: "Every town grows on a tenth fewer goods, and pilgrims come to its city (1.5× riders)",
+    short: "Every town grows on fewer goods",
     day: "The Cathedral's bells ring! A wedding at its door, bunting in every town, and every town needs a tenth fewer goods to grow",
     scale: 0.7,
   },
@@ -122,6 +126,7 @@ export const GRANDS: readonly Grand[] = [
     ],
     coins: 300,
     reward: "The Royal Train is yours: an engine and two saloons in the toy box. Its riders pay double",
+    short: "A royal train for your toy box",
     day: "The Royal Train is finished! Claret and gold, in your toy box now: its riders pay double",
     scale: 1,
   },
@@ -137,6 +142,7 @@ export const GRANDS: readonly Grand[] = [
     ],
     coins: 500,
     reward: "A hub: its three roads stop three trains at once, and riders on lines through it pay a quarter more",
+    short: "A hub station: riders pay more",
     day: "Grand Central opens! Every line's trains meet under its clock, and riders through it pay a quarter more",
     scale: 1,
     kits: ["kit-grand-central-1", "kit-grand-central-2", "kit-grand-central-3", "kit-grand-central-3"],
@@ -153,6 +159,7 @@ export const GRANDS: readonly Grand[] = [
     ],
     coins: 350,
     reward: `Fair week every July (3× riders to its city), and ${WHEEL_COINS} coins a month in tickets`,
+    short: "A fair each July, and tickets",
     day: "The World's Fair wheel turns! Fair week every July, and its tickets pay every month",
     scale: 0.85,
   },
@@ -379,6 +386,7 @@ export interface GrandTile {
   name: string;
   icon: string;
   reward: string;
+  short: string;
   state: GrandState;
   coins: number;
   /** What its button or note says. */
@@ -414,7 +422,7 @@ export function grandRow(world: Pick<World, "economy">, p: Progress, town: Town,
   return GRANDS.map((g) => {
     const state = grandState(world, p, town, level, g);
     const plan = world.economy.grandPlans.get(g.id);
-    const tile: GrandTile = { id: g.id, name: g.name, icon: g.icon, reward: g.reward, state, coins: g.coins, note: NOTES[state](g) };
+    const tile: GrandTile = { id: g.id, name: g.name, icon: g.icon, reward: g.reward, short: g.short, state, coins: g.coins, note: NOTES[state](g) };
     if (state === "building" && plan) {
       const s = g.stages[plan.stage];
       tile.stage = { n: plan.stage + 1, of: g.stages.length, name: s.name, goods: s.goods, got: { ...plan.got }, ...(s.riders ? { riders: { want: s.riders, got: plan.riders ?? 0 } } : {}) };
@@ -545,6 +553,30 @@ export function giveExhibition(world: Pick<World, "economy">, land: Landscape, s
 
 // ---- the Journal's Achievements tab ------------------------------------------------------------------------------
 
+/** A town as the Achievements tab sees it: its level, and its goods toward the next. */
+export interface TownStanding {
+  town: Town;
+  level: number;
+  /** Its level's name ("City ★"). */
+  name: string;
+  have: number;
+  need: number;
+}
+
+/** A town a project could be built in, on its achievement's list ("Build it in"): a tap opens its card there. */
+export interface AchievementCity {
+  townId: number;
+  name: string;
+  /** Its level's name, stamped ("City ★"). */
+  level: string;
+  /** What it can do: "Ready: start it for 400 🪙", "Building the Cathedral: one at a time", "41 of 60 goods to City ★". */
+  note: string;
+  /** It can start it now (a peg, listed first). */
+  ready: boolean;
+  /** A City ★ (its card opens on Projects; otherwise on Grow). */
+  star: boolean;
+}
+
 export interface AchievementView {
   id: GrandId;
   name: string;
@@ -556,12 +588,48 @@ export interface AchievementView {
   earned: boolean;
   /** Where it is (its city's name), once started. */
   town: string | null;
-  /** What's next: "Stage 2 of 4: The iron hall", "Build it in a City ★" … */
+  /** What's next: "Stage 2 of 4: The iron hall", "Pick a City ★ to build it in" … */
   line: string;
+  /** Not started: the City ★s it could be built in, ready ones first, then the Cities nearly one (with no City ★, the towns nearest to one; at most 4). */
+  cities: AchievementCity[];
 }
 
-/** The Achievements tab: every grand project, its stages done, and where it's built. */
-export function achievements(world: Pick<World, "economy" | "landscape">, anyCityStar: boolean): AchievementView[] {
+/** How many towns a project's "Build it in" list shows at most. */
+export const CITY_ROWS = 4;
+
+/** Each town's row for project `g` (not started): what it can do with it, by `grandState`. */
+function cityRows(world: Pick<World, "economy">, p: Progress, g: Grand, towns: readonly TownStanding[]): AchievementCity[] {
+  const stars = towns.filter((t) => t.level >= GRAND_LEVEL);
+  const rows = stars.map((t): AchievementCity & { order: number } => {
+    const state = grandState(world, p, t.town, t.level, g);
+    const busy = [...world.economy.grandPlans.entries()].find(([id, plan]) => plan.townId === t.town.id && !grandDone(id, plan));
+    const note =
+      state === "build"
+        ? `Ready: start it for ${g.coins} 🪙`
+        : state === "short"
+          ? `Needs ${g.coins} 🪙 (you have ${Math.floor(p.coins)})`
+          : state === "saving"
+            ? "Research first: it's waiting for coins"
+            : state === "busy" && busy
+              ? `Building the ${grandOf(busy[0])?.name ?? "project"}: one at a time`
+              : NOTES[state](g);
+    return { townId: t.town.id, name: t.town.name, level: t.name, note, ready: state === "build", star: true, order: state === "build" ? 0 : 1 };
+  });
+  // Then the Cities nearly City ★; with no City ★ on the map, the towns nearest to one (the biggest, the fullest), so
+  // the list is never a dead end.
+  const others = towns
+    .filter((t) => t.level < GRAND_LEVEL && (t.level >= GRAND_LEVEL - 1 || stars.length === 0))
+    .sort((a, b) => b.level - a.level || b.have / Math.max(1, b.need) - a.have / Math.max(1, a.need))
+    .map((t) => ({ townId: t.town.id, name: t.town.name, level: t.name, note: `${t.have} of ${t.need} goods to grow`, ready: false, star: false, order: 2 }));
+  return [...rows.sort((a, b) => a.order - b.order), ...others].slice(0, CITY_ROWS).map(({ order: _, ...r }) => r);
+}
+
+/**
+ * The Achievements tab: every grand project, its stages done, and where it's built; one not started lists the towns it
+ * could be built in (`towns`: every town's standing, from `statusOf`).
+ */
+export function achievements(world: Pick<World, "economy" | "landscape">, p: Progress, towns: readonly TownStanding[]): AchievementView[] {
+  const anyCityStar = towns.some((t) => t.level >= GRAND_LEVEL);
   return GRANDS.map((g) => {
     const plan = world.economy.grandPlans.get(g.id);
     const town = plan ? (world.landscape.towns.find((t) => t.id === plan.townId)?.name ?? null) : null;
@@ -572,9 +640,10 @@ export function achievements(world: Pick<World, "economy" | "landscape">, anyCit
       : plan
         ? `Stage ${done + 1} of ${g.stages.length} in ${town}: ${g.stages[done].name.replace(/^The /, "the ")}`
         : anyCityStar
-          ? "Start it from a City ★'s card"
-          : "Grow a town into a City ★ to start it";
-    return { id: g.id, name: g.name, icon: g.icon, reward: g.reward, done, of: g.stages.length, earned: isEarned, town, line };
+          ? "Pick a City ★ to build it in"
+          : "Grow a town into a City ★ to build it";
+    const cities = plan ? [] : cityRows(world, p, g, towns);
+    return { id: g.id, name: g.name, icon: g.icon, reward: g.reward, done, of: g.stages.length, earned: isEarned, town, line, cities };
   });
 }
 

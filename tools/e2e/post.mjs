@@ -298,7 +298,18 @@ if (!setup.error && setup.engine !== -1) {
   // its station, so the tap goes where the game's own pick says this town is (its station or its streets and houses),
   // not a car: the spot nearest the station that `interaction.pick` gives as this town's depot.
   // (Straight after the view came back from far out a tap can land before the map has settled: tapped again if no card.)
-  const postRow = () => p.waitForFunction(() => [...document.querySelectorAll(".ledger-row-name")].some((e) => e.textContent === "Post" && e.getBoundingClientRect().width > 0), null, { timeout: 30000 }).then(() => true, () => false);
+  // (Its Post row is on the card's Station tab: a tap on the tab once the card's open.)
+  const tabTap = (tab) =>
+    p.evaluate((tab) => {
+      const t = document.querySelector(`.town-tab[data-tab="${tab}"]`);
+      const r = t?.getBoundingClientRect();
+      return r && r.width > 0 ? [r.x + r.width / 2, r.y + r.height / 2] : null;
+    }, tab).then((at) => (at ? p.touchscreen.tap(at[0], at[1]).then(() => p.waitForTimeout(400)) : null));
+  const postRow = async () => {
+    await p.waitForFunction(() => !!document.querySelector(".town-tab"), null, { timeout: 30000 }).catch(() => {});
+    await tabTap("station");
+    return p.waitForFunction(() => [...document.querySelectorAll(".ledger-row-name")].some((e) => e.textContent === "Post" && e.getBoundingClientRect().width > 0), null, { timeout: 30000 }).then(() => true, () => false);
+  };
   const tapTown = async (depotId) => {
     await showing({ depot: depotId });
     await settle();
@@ -327,14 +338,13 @@ if (!setup.error && setup.engine !== -1) {
     await postRow();
   }
   check("a spot that is the town, not the train, found by the game's own pick", !!townAt, JSON.stringify(townAt));
-  const card = await p.evaluate(() => {
-    const row = [...document.querySelectorAll(".ledger-row")].find((r) => r.querySelector(".ledger-row-name")?.textContent === "Post" && r.getBoundingClientRect().width > 0);
-    const buys = [...document.querySelectorAll(".ledger-buys")].find((e) => e.getBoundingClientRect().width > 0);
-    return { post: row?.querySelector(".ledger-row-note")?.textContent ?? null, buys: buys?.textContent ?? null };
-  });
+  const postNote = await p.evaluate(() => [...document.querySelectorAll(".ledger-row")].find((r) => r.querySelector(".ledger-row-name")?.textContent === "Post" && r.getBoundingClientRect().width > 0)?.querySelector(".ledger-row-note")?.textContent ?? null);
+  await shot("4-town-card-post");
+  // (What it always buys: on its Grow tab.)
+  await tabTap("grow");
+  const card = { post: postNote, buys: await p.evaluate(() => [...document.querySelectorAll(".ledger-buys")].find((e) => e.getBoundingClientRect().width > 0)?.textContent ?? null) };
   check("the town's card: a Post row with its post van", !!card.post && card.post.includes("post van"), JSON.stringify(card));
   check("…and it always buys post at full pay", !!card.buys && card.buys.includes("📮 post"), JSON.stringify(card));
-  await shot("4-town-card-post");
   await p.keyboard.press("Escape");
 
   // 9. The post office's yard, the train at it.

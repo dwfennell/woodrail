@@ -39,7 +39,7 @@ describe("turntable controls (T5)", () => {
     const b = BLUEPRINTS.find((x) => x.id === "turntable-controls")!;
     expect(b.branch).toBe("track");
     expect(b.needs).toEqual(["turntable"]);
-    expect(b.plan).toBeUndefined();
+    expect(b).toBeDefined();
     expect(b.feature).toBeTruthy();
   });
 

@@ -15,10 +15,13 @@ import {
 } from "./cursor";
 import { nearestCursor } from "./nearest";
 import { cleanEngineName, pickEngineName } from "./engine-names";
-import { driveOf, trainLength } from "./train-cars";
+import { ACCELERATION, brakeTo, ENGINE_SPEED, stopDistance } from "./brakes";
+import { driveOf, hasEngine, trainLength } from "./train-cars";
 
 export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
+/** How long (ticks) a call-on past a signal is remembered for the invariants (`Sim.calledOn`). */
+const CALL_ON_KEEP = 10 * SIM_HZ;
 /** A train stopped at the end of the line waits this long (2 s) before driving back. */
 export const TURNBACK_TICKS = 2 * SIM_HZ;
 /**
@@ -42,7 +45,6 @@ const CONTACT_FOLLOW = 4;
 const LIFT_GRACE = 2 * SIM_HZ;
 /** Slower than this (mm/s) a train is standing: it doesn't move (or ask for frames) at all. */
 const MIN_SPEED = 0.01;
-const hasEngine = (t: Train): boolean => t.cars.some((c) => c.kind === "engine");
 
 /** How far along the track (mm) a train put back (or loaded) may be moved to find room: a few train lengths. */
 const PUT_BACK_REACH = 1200;
@@ -61,10 +63,8 @@ const TURN_RETRY_TICKS = SIM_HZ / 2;
  */
 const END_BEHIND_SLACK = 120;
 
-// Motion tuning (mm, s).
-export const ENGINE_SPEED = 120;
-/** How quickly (mm/s²) a train gets up to speed, or stops: half a second either way. */
-export const ACCELERATION = ENGINE_SPEED * 2;
+// Motion tuning (mm, s). (Top speed and braking: ./brakes.)
+export { ACCELERATION, ENGINE_SPEED } from "./brakes";
 const SIDE_HIT_DISTANCE = 12;
 /** How far ahead (mm) a train looks for a signal at red, and in what steps: well past its stopping distance. */
 const SIGNAL_LOOK = 300;
@@ -78,6 +78,11 @@ const MARK_STAND = 6;
  * sections held it (issue #31: "the signal ahead of it is green").
  */
 const STAND_SLOP = 2;
+/**
+ * How far (mm) past a path signal's stop point a train held by sections must be meant to stand for the signal to need
+ * only its way up to there (`Sim.standsWithin`): one held at the signal itself (a waiting point's) waits there, red.
+ */
+const PAST_SIGNAL = 50;
 /** A block runs on through at most this many pieces (a loop with no signal in it ends somewhere). */
 const MAX_BLOCK = 64;
 /**
@@ -277,6 +282,15 @@ export class Sim {
    * (`crossCap`): it isn't coming onto them till they're its, and a claim would stop the train they're set for.
    */
   waitsAt: ((train: Train) => number) | null = null;
+  /**
+   * Optional: how far (mm) ahead of its front axle a train will stand, held short of a loop road's or line end's end by
+   * sections (Infinity: not held so). A path signal it stands at, its tail still on points behind, shows it clear with
+   * its way free only up to there when that's short of the block's first points: a pair inside a loop road (issue #31)
+   * stood red for a train that only had to pull up to the road's end, its tail left on the points behind.
+   */
+  standsWithin: ((train: Train) => number) | null = null;
+  /** May this train turn round nose to nose with a train standing at the end of the line (`endOfLineBehind`)? Sections'. */
+  turnsNose: ((train: Train) => boolean) | null = null;
   /** Optional top speed for a powered train (mm/s): a mode's faster engines. Null: every train runs at `ENGINE_SPEED`. */
   topSpeed: ((train: Train) => number) | null = null;
   /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
@@ -344,7 +358,13 @@ export class Sim {
    * end, `Signal.at`) with no move on past it granted, −1: none (the mark shows red then, so its green is the grant);
    * `version` changes whenever an answer would. Null: no sections.
    */
-  signalGate: { at(ref: number): number; version(): number } | null = null;
+  signalGate: { at(ref: number): number; version(): number; callOn?(ref: number, trainId: number): boolean } | null = null;
+  /**
+   * Call-ons (the user's yes, 2026-11-14): a signal passed at red by a line-mate let into the line end behind the train
+   * standing there, to turn behind it (`signalGate.callOn`): by `${signal key}:${train id}`, the tick. For the invariants
+   * (`calledOn`).
+   */
+  private readonly callOns = new Map<string, number>();
   /** Each signal's aspect as of this tick, by key (`signalKey`): true at clear (its block's free), false at red. */
   private readonly aspects = new Map<number, boolean>();
   /** Goes up whenever a signal's aspect changes, so the view redraws only then. */
@@ -1330,7 +1350,7 @@ export class Sim {
     const t = this.byId.get(trainId);
     if (!t || t.derailed || !this.lifts || this.lifts.length === 0) return null;
     for (const [id, r] of this.rides) if (r.trainIds.includes(t.id) && this.liftDef(id)) return "riding";
-    return t.speed < 1 && drive(t) !== 0 && this.liftCap(t, false) === 0 ? "waiting" : null;
+    return t.speed < 1 && driveOf(t) !== 0 && this.liftCap(t, false) === 0 ? "waiting" : null;
   }
 
   /**
@@ -1403,7 +1423,7 @@ export class Sim {
     const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
     const v = train.speed;
     const c: Cursor = { ...lead };
-    advanceCursor(this.layout, c, (v * v) / (2 * ACCELERATION) + 2 * v * SIM_DT + LIFT_LOOK + inset, null, lookAdv);
+    advanceCursor(this.layout, c, stopDistance(v) + 2 * v * SIM_DT + LIFT_LOOK + inset, null, lookAdv);
     if (lookAdv.status !== ADV_OPEN_END) return Infinity;
     const p = this.layout.getPiece(c.pieceId)!;
     const exit = pathExitConnector(getPieceDef(p.type, p.flipped), c.pathIndex, c.reversed);
@@ -1415,7 +1435,7 @@ export class Sim {
   /** A train held at a raised lift bridge, for its engine's card. */
   bridgeWait(trainId: number): boolean {
     const t = this.byId.get(trainId);
-    return !!t && !t.derailed && t.speed < 1 && drive(t) !== 0 && this.bridgeCap(t) === 0;
+    return !!t && !t.derailed && t.speed < 1 && driveOf(t) !== 0 && this.bridgeCap(t) === 0;
   }
 
   /** A lift piece's def, or undefined. */
@@ -1450,7 +1470,7 @@ export class Sim {
     if (record && this.liftRefused.size > 0) this.liftRefused.delete(train.id);
     const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
     const v = train.speed;
-    const look = (v * v) / (2 * ACCELERATION) + 2 * v * SIM_DT + LIFT_LOOK + inset;
+    const look = stopDistance(v) + 2 * v * SIM_DT + LIFT_LOOK + inset;
     const c: Cursor = { ...lead };
     advanceCursor(this.layout, c, look, null, lookAdv);
     let liftId = -1;
@@ -1537,7 +1557,8 @@ export class Sim {
    */
   private endOfLineBehind(train: Train): void {
     const h = this.held.get(trainKey(train));
-    if (!h || h.how !== "follow" || h.tick !== this.ticks) return;
+    // (Close behind it, or met nose to nose with it: either way it stands at the end of the line, and this one turns.)
+    if (!h || (h.how !== "follow" && (h.how !== "nose" || !this.turnsNose?.(train))) || h.tick !== this.ticks) return;
     const b = this.trainByKey(h.by);
     // (Not a train on a lift or a turntable's deck: that's a ride, waited for, not the end of the line.)
     if (!b || b.derailed || b.speed > 0 || this.onLift(b) || (this.rides.size > 0 && this.riding(b))) return;
@@ -1639,7 +1660,7 @@ export class Sim {
   private approaching(pieceId: number): boolean {
     for (const t of this.byId.values()) {
       if (t.derailed || t.bogies.length === 0 || t.bogies.some((b) => b.pieceId === pieceId)) continue;
-      const net = drive(t);
+      const net = driveOf(t);
       if (t.speed === 0 && net === 0) continue;
       // Standing, held at a lift's end (waiting behind the train it's carrying) or at a red signal: it isn't coming.
       if (t.speed === 0 && (this.liftCap(t, false) === 0 || this.signalCap(t) === 0 || this.bridgeCap(t) === 0)) continue;
@@ -1648,7 +1669,7 @@ export class Sim {
       const c: Cursor = { ...(back ? t.bogies[t.bogies.length - 1] : t.bogies[0]) };
       if (back) flipCursor(this.layout, c);
       const inset = CAR_SPECS[t.cars[back ? t.cars.length - 1 : 0].kind].bogieInset;
-      advanceCursor(this.layout, c, (t.speed * t.speed) / (2 * ACCELERATION) + LIFT_LOOK + inset, null, lookAdv);
+      advanceCursor(this.layout, c, stopDistance(t.speed) + LIFT_LOOK + inset, null, lookAdv);
       if (c.pieceId === pieceId) return true;
     }
     return false;
@@ -1685,7 +1706,7 @@ export class Sim {
         riders++;
         if (t.speed !== 0 || t.turnback >= 0) ridersReady = false;
         const lead = t.bogies[0];
-        if (drive(t) !== 0 && !lead.reversed && lead.pathIndex === at && this.liftCap(t, false) === 0) halted = true;
+        if (driveOf(t) !== 0 && !lead.reversed && lead.pathIndex === at && this.liftCap(t, false) === 0) halted = true;
       }
       const ready = !partly && (riders > 0 ? ridersReady && halted : this.liftCalls.has(id));
       if (!ready) {
@@ -1957,7 +1978,11 @@ export class Sim {
     this.findSignals();
     const g = this.signalByExit.get(ref);
     if (!g) return null;
-    if (this.gatedFor(g) !== -1) return { free: false };
+    // (A waiting point's gate holds the train it was set for, as `redFor` reads it: a path signal's, only that train (one
+    // further back in the slot gates it for itself, not the one at the front with its move granted); a plain signal
+    // shows red to all while gated.)
+    const gated = this.gatedFor(g);
+    if (gated === train.id || (!g.junction && gated !== -1)) return { free: false };
     if (!g.junction) return { free: !this.isHeld(g) && (this.blockBy.get(g.key) ?? -1) === -1 };
     const r = this.pathFor(train, g, false);
     return { free: r.clear };
@@ -2148,8 +2173,22 @@ export class Sim {
    * none locked for another's road). `by`: the train it waits for (on its way, or holding the points), or −1.
    * `locks`: also ask the router (else only the way's trains).
    */
-  private pathFor(train: Train, g: SignalAt, locks = true): { clear: boolean; by: number } {
-    const cacheKey = `${train.id}:${g.key}:${locks ? 1 : 0}`;
+  /** Is any of this train's bogies on points or a crossing? */
+  private straddlesPoints(train: Train): boolean {
+    for (const b of train.bogies) {
+      const p = this.layout.getPiece(b.pieceId);
+      if (p && getPieceDef(p.type, p.flipped).paths.length > 1) return true;
+    }
+    return false;
+  }
+
+  private pathFor(train: Train, g: SignalAt, locks = true, dist = -1): { clear: boolean; by: number } {
+    // (Only for its aspect (`dist` given, by `redFor`): the router's ask (`pathSignalAt`) is for the way through the
+    // points, which a train held short of them doesn't ask for yet.)
+    // And only for a train still on points behind the signal: pulling up clears them for the trains that cross there
+    // (issue #31's tail on the loop's points); one clear of them waits at the signal as before.
+    const held = dist < 0 || !this.straddlesPoints(train) ? Infinity : (this.standsWithin?.(train) ?? Infinity);
+    const cacheKey = held === Infinity ? `${train.id}:${g.key}:${locks ? 1 : 0}` : `${train.id}:${g.key}:${locks ? 1 : 0}:${Math.round(dist)}`;
     const hit = this.pathCache.get(cacheKey);
     if (hit) return hit;
     let r: { clear: boolean; by: number };
@@ -2168,6 +2207,10 @@ export class Sim {
       // (Up to its next clear point, as the router asks (routing §3.2): past the last points, plain track as long as it.)
       const length = trainLength(train);
       let plain = -1;
+      // (Held by sections short of its slot's end: how far past the signal it will stand (`dist`: at least how far its
+      // front axle is from it), and how far the way has run past it.)
+      const stand = held - dist;
+      let walked = 0;
       for (let n = 0; n < MAX_BLOCK && plain < length; n++) {
         const ref = connectorRef(at, exit);
         if (n > 0 && marks && this.marksAt.has(ref)) break;
@@ -2179,6 +2222,8 @@ export class Sim {
         if (!g.block.has(id)) break;
         const p = this.layout.getPiece(id)!;
         const def = getPieceDef(p.type, p.flipped);
+        // (It stands short of these points: the way it runs, up to here, is all it needs free.)
+        if (points.length === 0 && def.paths.length > 1 && stand > PAST_SIGNAL && stand <= walked) break;
         // (Points with a choice: a routed train's way is the router's, not as they lie.)
         if (this.pathLocks && def.isSwitch && !def.gated) {
           const way = this.pathLocks.way(train, id, indexOfRef(next));
@@ -2200,6 +2245,7 @@ export class Sim {
         if (def.signal) break;
         exit = pathExitConnector(def, pathStep.pathIndex, pathStep.reversed);
         if (exit === -1) break;
+        walked += pathLength(def.paths[pathStep.pathIndex].geom);
         at = id;
       }
       if (r.clear && locks && this.pathLocks && points.length > 0) {
@@ -2227,6 +2273,12 @@ export class Sim {
     return 0;
   }
 
+  /** Was this train called on past this signal lately (`callOns`)? */
+  calledOn(key: number, trainId: number): boolean {
+    const at = this.callOns.get(`${key}:${trainId}`);
+    return at !== undefined && this.ticks - at <= CALL_ON_KEEP;
+  }
+
   /** The red signal (its piece) a train is held by or braking for, or −1 (for the engine card and reports). */
   redSignalAhead(trainId: number): number {
     const t = this.byId.get(trainId);
@@ -2239,13 +2291,19 @@ export class Sim {
    * the train's own way (and it's noted as coming to it, for its aspect: `comingTo`).
    */
   private redFor(train: Train, g: SignalAt, dist: number): { by: number } | null {
+    // (Called on: let past it at red into the line end behind a line-mate standing there, to turn behind it.)
+    if (g.markId !== -1 && g.exit >= 0 && this.signalGate?.callOn?.(connectorRef(g.pieceId, g.exit), train.id)) {
+      if (this.callOns.size > 64) for (const [k, at] of this.callOns) if (this.ticks - at > CALL_ON_KEEP) this.callOns.delete(k);
+      this.callOns.set(`${g.key}:${train.id}`, this.ticks);
+      return null;
+    }
     // (A waiting point's train with no move past it granted: red for it, whatever the block (sections' wait names who).)
     if (g.junction && this.gatedFor(g) === train.id) {
       this.comingTo(g.key, false, dist);
       return { by: -1 };
     }
     if (!g.junction) return this.aspects.get(g.key) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
-    const r = this.pathFor(train, g);
+    const r = this.pathFor(train, g, true, Math.max(0, dist));
     this.comingTo(g.key, r.clear, dist);
     return r.clear ? null : { by: r.by };
   }
@@ -2615,7 +2673,7 @@ export class Sim {
    */
   private followCap(train: Train, v: number): number {
     this.endFace(train, true, followFace);
-    const look = FOLLOW_GAP + (v * v) / (2 * ACCELERATION) + 2 * v * SIM_DT + 8;
+    const look = FOLLOW_GAP + stopDistance(v) + 2 * v * SIM_DT + 8;
     let cap = Infinity;
     let least = Infinity;
     let by: Train | null = null;
@@ -2700,7 +2758,7 @@ export class Sim {
     const racks = this.racksNow();
     if (racks.size === 0 || this.mayRack === null || this.mayRack(train)) return Infinity;
     const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
-    const look = (v * v) / (2 * ACCELERATION) + v * SIM_DT + CROSS_LOOK + inset + RACK_GAP;
+    const look = stopDistance(v) + v * SIM_DT + CROSS_LOOK + inset + RACK_GAP;
     const c = crossAt;
     Object.assign(c, train.bogies[0]);
     let dist = -c.s;
@@ -2746,7 +2804,7 @@ export class Sim {
    */
   private crossCap(train: Train, v: number): number {
     const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
-    const look = (v * v) / (2 * ACCELERATION) + v * SIM_DT + CROSS_LOOK + inset + CROSS_GAP;
+    const look = stopDistance(v) + v * SIM_DT + CROSS_LOOK + inset + CROSS_GAP;
     const c = crossAt;
     Object.assign(c, train.bogies[0]);
     // How far ahead of the front axle the start of the piece c is on.
@@ -2893,13 +2951,9 @@ const LIFT_LOOK = 24;
 export const BRIDGE_RISE_S = 2;
 export const BRIDGE_UP_S = 5;
 
-/** How fast a train may go to stop within `d` mm (as at a red signal). */
-const brakeTo = (d: number): number => (d < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (d - 0.5)));
 
 
 
-/** Which way a train's engines drive it: + toward its front, − its back, 0 not at all (levers off). */
-const drive = driveOf;
 
 /** A signal's key: its piece and which of the piece's paths (roads) it guards (as many as it has connectors, at most). */
 export const signalKey = (pieceId: number, road: number): number => pieceId * MAX_CONNECTORS + road;

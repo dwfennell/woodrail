@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CARGO, Economy } from "../economy";
 import { Sim, SIM_DT, type CarKind } from "../sim";
 import { chain as loopChain } from "../economy/loop-fixtures";
-import { startLine } from "./lines";
+import { joinLine, startLine } from "./lines";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { oval } from "../routing/scenarios";
 import { signal } from "../routing/harness";
@@ -640,5 +640,56 @@ describe("the engine card at a ring of signals (signals audit, 2026-11-06)", () 
     }
     expect(engines.filter((e) => sim.atRedSignal(sim.findCar(e)!.train.id)).length).toBeGreaterThan(0);
     for (const e of engines) expect(engineStatus(sim, economy, e, () => "Oakhollow")).toBe("Stuck: too many trains for these signals. Add a signal");
+  });
+});
+
+describe("stepping aside into a spare platform (the user's A1)", () => {
+  it("a train held for one coming at it head on goes into the spare platform off the wye, its card says whom it lets by, and both run", () => {
+    // ⊐ Forest ══ ══ ══ wye, its legs: ══ Sawmill ══ ══ ⊏ (the line's) and ══ ══ ══ ══ ⊏ (spare: no industry, no stop).
+    const layout = new Layout();
+    const trunk = loopChain(layout, ["depot-forest", "straight-216", "straight-216", "straight-216"]);
+    appendPiece(layout, "buffer-turnback", false, connectorRef(trunk[0], 0));
+    const wye = appendPiece(layout, "wye", false, connectorRef(trunk[3], 1), 0);
+    const leg = loopChain(layout, ["straight-216", "depot-sawmill", "straight-216", "straight-216"], connectorRef(wye, 1));
+    appendPiece(layout, "buffer-turnback", false, connectorRef(leg[3], 1));
+    const spare = loopChain(layout, ["straight-216", "straight-216", "straight-216", "straight-216"], connectorRef(wye, 2));
+    appendPiece(layout, "buffer-turnback", false, connectorRef(spare[3], 1));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const forest = economy.addDepot("forest", trunk[0], 0).id;
+    const mill = economy.addDepot("sawmill", leg[1], 0).id;
+    const put = (pieceId: number, reversed: boolean) => {
+      const r = sim.addTrain(["engine", "timber"], { pieceId, pathIndex: 0, reversed, s: 100 });
+      if (r.kind !== "placed") throw new Error();
+      return sim.getTrain(r.trainId)!.cars[0].id;
+    };
+    const a = put(trunk[2], false);
+    const b = put(leg[2], true);
+    const line = startLine(economy, a, [{ depotId: forest, action: "auto" }, { depotId: mill, action: "auto" }]);
+    joinLine(economy, b, line.id);
+    economy.setRoute(a, { stops: line.stops, next: 1 });
+    economy.setRoute(b, { stops: line.stops, next: 0 });
+    sim.setLever(a, 1);
+    sim.setLever(b, 1);
+    const said = new Set<string>();
+    const onSpare = new Set(spare);
+    let aside = false;
+    const visits = { a: new Set<number>(), b: new Set<number>() };
+    for (let k = 0; k < 120 * 240; k++) {
+      sim.tick();
+      economy.tick();
+      for (const [e, v] of [[a, visits.a], [b, visits.b]] as const) {
+        const t = sim.findCar(e)!.train;
+        if (t.bogies.some((x) => onSpare.has(x.pieceId))) aside = true;
+        if (t.bogies.some((x) => x.pieceId === trunk[0])) v.add(trunk[0]);
+        if (t.bogies.some((x) => x.pieceId === leg[1])) v.add(leg[1]);
+        if (k % 60 === 0) said.add(engineStatus(sim, economy, e, () => "?"));
+      }
+    }
+    expect(aside).toBe(true);
+    expect([...said]).toContain(`Letting the ${line.name} line by`);
+    // (Both come to both their stops: neither stands for good.)
+    expect([...visits.a].sort()).toEqual([trunk[0], leg[1]].sort());
+    expect([...visits.b].sort()).toEqual([trunk[0], leg[1]].sort());
   });
 });

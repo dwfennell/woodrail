@@ -21,13 +21,12 @@ export const shortLabel = (id: string): string => techOf(id)?.short ?? label(id)
 
 /**
  * A blueprint's card in the picker. learned: done. researching: under way (`current`). next: up next. ready: can be
- * picked now. locked: later (needs another blueprint first, or something done). soon: not in the game yet.
+ * picked now. locked: later (needs another blueprint first, or something done).
  */
-export type CardState = "learned" | "researching" | "next" | "ready" | "locked" | "soon";
+export type CardState = "learned" | "researching" | "next" | "ready" | "locked";
 
 export function cardState(p: Progress, id: string): CardState {
   if (p.learned.has(id)) return "learned";
-  if (techOf(id)?.plan) return "soon";
   const r = p.research;
   if (r.current === id) return "researching";
   if (queuePlace(r, id) > 0) return "next";
@@ -88,8 +87,6 @@ function needToDo(p: Progress, n: Need): string {
     }
     case "landmark":
       return `get ${n.label}`;
-    case "place":
-      return `have ${n.text}`;
   }
 }
 
@@ -98,8 +95,7 @@ const and = (xs: string[]) => listed(xs);
 
 /**
  * How a locked tray tile is unlocked, in plain words, and the research to open the picker on (null if none can show
- * there): "Research Signals to unlock"; "Research Switches, then Signals"; "Reach a town, then research Big stations"; "Coming
- * soon". `jump` is the blueprint itself if the picker shows its card, else the nearest blueprint before it that shows
+ * there): "Research Signals to unlock"; "Research Switches, then Signals"; "Reach a town, then research Big stations". `jump` is the blueprint itself if the picker shows its card, else the nearest blueprint before it that shows
  * (one a "?" or not shown yet can't be opened on).
  */
 export function unlockHow(p: Progress, id: string): { text: string; jump: string | null } {
@@ -122,7 +118,6 @@ export function unlockHow(p: Progress, id: string): { text: string; jump: string
   };
   const name = shortLabel(id);
   if (p.learned.has(id)) return { text: `${name}: learned`, jump: null };
-  if (t.plan) return { text: `Coming soon (${name})`, jump: shows(id) ? id : null };
   const r = p.research;
   if (r.current === id) return { text: `Researching ${name} now: it unlocks then`, jump: id };
   if (queuePlace(r, id) > 0) return { text: `${name} is next in Research: it unlocks then`, jump: id };
@@ -202,7 +197,7 @@ export interface ResearchCardView {
 const ordinal = (n: number) => `${n}${n === 2 ? "nd" : n === 3 ? "rd" : "th"}`;
 
 /**
- * A card's research view (null for learned and soon, and for locked ones held back by something besides blueprints). A
+ * A card's research view (null for learned, and for locked ones held back by something besides blueprints). A
  * ready card: Research when nothing is under way or waiting, else Add to queue (held back while the queue is full). One
  * in the queue (#14): Remove, and Research now (it swaps in for the one under way), held back while its coins are
  * short; its line says where it waits ("Next up, after Switches", "3rd in line, after Signals"). One that needs
@@ -282,7 +277,7 @@ function chainCard(p: Progress, id: string, school: string | null): ResearchCard
     const unmet = s?.requires.filter((n) => !needMet(p, n)) ?? [];
     // (A town to grow: the step the player can take. QA 2026-11-05 #4.)
     const grow = unmet.some((n) => n.kind === "level") ? ": grow a town into one" : "";
-    const words = s?.plan ? `${shortLabel(block.stuck)} isn't in the game yet` : `${shortLabel(block.stuck)} needs ${unmet.map(describeNeed).join(" and ")} first${grow}`;
+    const words = `${shortLabel(block.stuck)} needs ${unmet.map(describeNeed).join(" and ")} first${grow}`;
     // No button: it couldn't be pressed (QA 2026-11-05 #4: a greyed "Research Sugar beet now" read as a promise).
     return { ...base, why: words, blocked: true };
   }

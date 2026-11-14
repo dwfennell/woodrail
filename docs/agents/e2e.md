@@ -36,7 +36,7 @@ pictures) isn't cached by run.mjs: it's run for its pictures.
 
 ## Groups in the split suites
 
-**touch** (`scripts/e2e/touch.mjs`): `sandbox-shelves`, the 28 Sandbox checks (`map-taps`, `select-drag`, … `route-ux-more`;
+**touch** (`scripts/e2e/touch.mjs`): `sandbox-shelves`, the 37 Sandbox checks (`map-taps`, `select-drag`, … `turntable-taps`;
 the comment above `openGroundScript` says what each is) and `game-shelves`. The Sandbox groups share one page, as
 before, opened when the first of them that runs needs it (after `sandbox-shelves`'s taps, or without them when that one
 is cached or not selected); each one's `step` takes up what it laid. With `E2E_FRESH=1` each opens a page of its own:
@@ -70,6 +70,10 @@ put down an underpass first when run alone).
 tray, an engine run up it) and `drag` (#8's curves dragged out and tapped), on one desktop Sandbox page, each finding its
 own room. On the test clock and Battery saver, a tray item's shelf tapped straight off (not shelf after shelf).
 
+**rotate** (`scripts/e2e/rotate.mjs`, about 6 min): `touch` (a 390×844 phone: a held curve twisted 30° by a second
+finger, laid, a curve joined on) and `mouse` (1440×900: Shift+R twice, laid at 30°, a loop of eight from the tray that
+closes, R on to the next eighth). Each on a fresh Sandbox page (#seed-24).
+
 **joints** (`scripts/e2e/joints.mjs`): `qa-line` (QA's drawn line's joints through a reload, an older build's save),
 `slip-draw` (a Draw stroke along a 45° crossing's turn makes it a slip, Game mode). Each on a fresh page.
 
@@ -82,7 +86,7 @@ learned).
 to read its tabs (K1 compares them).
 
 **cloud** (`scripts/e2e/cloud.mjs`, about 19 min idle, 27 with a CPU hog): `sandbox` (steps 1–6, devices A and B),
-`game-sync` (7–8) and `game-rewards` (9–10). Each Game group sets up two devices (C and D) on a code of its own, so it
+`game-sync` (7–8) and `game-rewards` (9–10), and `auto` (cloud saves turned on by themselves when a piece is laid, the title's Continue from cloud, a gone code, offline, Turn off). Each Game group sets up two devices (C and D) on a code of its own, so it
 can run alone; each run starts its own Worker on a free port (`CLOUD_PORT` to pin one), so `E2E_SHARD=1/2` and `2/2`
 can run side by side. As one group, a gate's 1700 s timeout fell on step 10 with every check before it passing.
 
@@ -149,6 +153,14 @@ timeout (2 min) and a bound of its own past Playwright's, and on failure prints 
 before a picture of a page that has only just loaded in a fresh context: it is still drawing its tray pictures, each read
 back from the graphics card, and under load a frame then takes seconds. (e2e:copy-map's last screenshot waited 23–30 s
 there for a frame, and ran out on a slower box after every check had passed; after `quiet` it took under a second.)
+
+## Taps on something that pops in: `scripts/e2e/lib/still.mjs`
+
+CSS animations only move on frames drawn, and under SwiftShader a slow WebGL frame can hold one on its first frame for
+a second or more. A box read then is where the element starts, not where the finger finds it a moment later.
+`still(page, selector, text)` waits until the element and its ancestors have no animation running and its box is the
+same on two reads, and only then should a tap measure it. (e2e:new-game measured ☰ New game while the menu's pop-in
+was held on its first frame, scaled 0.97 from the top right; the menu then came in, and the tap landed on Map seed.)
 
 ## Speed: where the time goes, and `scripts/e2e/lib/fast.mjs`
 

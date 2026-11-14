@@ -297,6 +297,13 @@ if (!setup.error && setup.engine !== -1) {
     const chips = [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.getBoundingClientRect().height);
     return { left: card.left, right: card.right, chips };
   });
+  // (Every stop whole in the route's strip, none under its fade: the stop the card says to tap can be seen and tapped.
+  // QA: drawn as a rail, the third column ran past the strip's edge on a 390 px phone, cut to "War…".)
+  const whole = await p.evaluate(() => {
+    const strip = document.querySelector(".engine-extra .route-stops").getBoundingClientRect();
+    return [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => { const r = c.getBoundingClientRect(); return r.left >= strip.left - 0.5 && r.right <= strip.right + 0.5; });
+  });
+  check("…all three stops whole in the route's strip (none cut off at its edge)", whole.length === 3 && whole.every(Boolean), JSON.stringify(whole));
   check("…the card inside the screen, chips one height", fits.left >= 0 && fits.right <= 390 && new Set(fits.chips.map(Math.round)).size === 1, JSON.stringify(fits));
   const hint = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent));
   check("…the card points to the warehouse stop's options", hint.includes("Tap the warehouse stop to set whether it drops or picks up there"), JSON.stringify(hint));

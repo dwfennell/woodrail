@@ -83,11 +83,9 @@ describe("the observatory", () => {
 
   it("is researched (Learning, tier 3, after University and Foundry), made with iron, its model a code model", () => {
     const row = BLUEPRINTS.find((b) => b.id === "observatory")!;
-    expect(row.plan).toBeUndefined();
+    expect(row).toBeDefined();
     expect(row.branch).toBe("learning");
     expect(THING_RULES["piece:kit-observatory"]).toMatchObject({ tech: "observatory", cost: { iron: 4 } });
     expect(KITS[OBSERVATORY_KIT].asset).toBe("bldg-observatory");
-    // (The rocket still waits on it, and on the rest.)
-    expect(BLUEPRINTS.find((b) => b.id === "rocket")!.needs).toContain("observatory");
   });
 });

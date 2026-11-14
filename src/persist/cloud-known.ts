@@ -1,4 +1,4 @@
-import type { GameMode } from "../game/modes";
+import { MODES, type GameMode } from "../game/modes";
 import { parseCode } from "./sync-code";
 
 /**
@@ -30,7 +30,6 @@ export const KNOWN_KEY = "woodrail.cloud.known.v1";
 export const MAX_KNOWN = 5;
 
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-const MODES: readonly GameMode[] = ["sandbox", "game"];
 
 export class KnownCodes {
   private list_: KnownCode[];

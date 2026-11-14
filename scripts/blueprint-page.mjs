@@ -27,7 +27,7 @@ const data = {
     id: b.id,
     name: b.label,
     branch: b.branch,
-    status: b.plan ?? "game",
+    status: "game",
     needs: b.needs,
     cost: costTokens(b),
     does: b.blurb,

@@ -1,5 +1,5 @@
 import { kitOf, getPieceDef, pathLength, type KitStopWho, type Layout } from "../track";
-import { ACCELERATION, ADV_OK, advanceCursor, createAdvance, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, ADV_OK, advanceCursor, createAdvance, SIM_DT, stopDistance, type Cursor, type Sim, type Train } from "../sim";
 import { ticks } from "./constants";
 import { driveOf } from "../sim/train-cars";
 
@@ -111,7 +111,7 @@ export class KitStops {
    * the piece it's on.
    */
   private crawlAhead(lead: Cursor, v: number, under: number): number {
-    const reach = (v * v) / (2 * ACCELERATION) + v * SIM_DT;
+    const reach = stopDistance(v) + v * SIM_DT;
     const c = this.look;
     c.pieceId = lead.pieceId;
     c.pathIndex = lead.pathIndex;
