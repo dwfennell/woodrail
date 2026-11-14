@@ -4,6 +4,5 @@
  * proposed fix clears it: docs/agents/routing-cases.md.
  */
 export const KNOWN: Record<string, string[]> = {
-  "fuzz seed 19": ["stalls-live"],
   "ring1 3×one same sig:blocks2": ["stalls-live"],
 };

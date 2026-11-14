@@ -195,7 +195,11 @@ const FOLLOW_ROOM = 150;
 /** How long (ticks) all a line's trains stand held for one another before the swap planner looks (`swapCap`). */
 const SWAP_AFTER = 3 * SIM_HZ;
 /** After a search that found no plan, how long (ticks) before the next (the track unchanged). */
+/** How long past `SWAP_AFTER` (ticks) Stalls hold off for a line the planner could take but hasn't started on (`swapHolds`). */
+const SWAP_GRACE = SIM_HZ;
 const SWAP_RETRY = 30 * SIM_HZ;
+/** How long (ticks) a plan may hold a line with none of its trains coming to a stop before it's given up (`swapCap`). */
+const SWAP_STUCK = 180 * SIM_HZ;
 /** States the swap planner's search expands a tick (`swapCap`): under 2.5 ms here at worst, about 0.7 on average. */
 const SWAP_SLICE = 20;
 /** How often (ticks) a planned line looks for its next moves. */
@@ -2394,8 +2398,12 @@ export class Sections {
         if (!this.stalledForSwap(info)) return null;
         const tried = this.swapTried.get(lineId);
         // (Again only a while after a search that found no plan: one that ran out, a new one from where they stand.)
-        if (tried && tried.failed && tried.revision === this.layout.revision && this.sim.ticks - tried.at < SWAP_RETRY) return null;
-        this.swapTried.set(lineId, { revision: this.layout.revision, at: this.sim.ticks, failed: false });
+        // (After one that found no plan, not again while nothing's changed: the track, the line's trains, where they stand.
+        // A line held for want of room stands so for good, and a search each `SWAP_RETRY` was a phone's 2 ms a tick for
+        // 5-15 s of every 30.)
+        const sig = this.swapSig(info);
+        if (tried && tried.failed && tried.revision === this.layout.revision && (tried.sig === sig || this.sim.ticks - tried.at < SWAP_RETRY)) return null;
+        this.swapTried.set(lineId, { revision: this.layout.revision, at: this.sim.ticks, failed: false, sig });
         const stops = this.host.stopPieces(lineId);
         const trains = info.engines.map((e) => {
           const t = this.sim.findCar(e)!.train;
@@ -2428,6 +2436,19 @@ export class Sections {
         sw.targets[k] = tg;
         sw.served[k] = this.sim.ticks;
       }
+    }
+    // (No train of it come to a stop for `SWAP_STUCK`: the plan isn't working (it can't be followed where it stands). Given
+    // up as a search that found no plan: the line's own rules again, and its stall said. Else the line stood held for
+    // good with nothing said: a plain line of two trains, taken, delivered nothing in ten minutes.)
+    if (this.sim.ticks - Math.max(...sw.served) > SWAP_STUCK) {
+      this.swaps.delete(lineId);
+      const tried = this.swapTried.get(lineId);
+      if (tried) {
+        tried.failed = true;
+        tried.at = this.sim.ticks;
+        tried.sig = this.swapSig(info);
+      }
+      return null;
     }
     // (Those not moving at rest: where they'd all be once the moves under way are done, and the next moves for those
     // free to go. A look a quarter second at most.)
@@ -2519,10 +2540,21 @@ export class Sections {
   /** Have all a line's trains stood held for one another `SWAP_AFTER`, with none but its own on its track? */
   private stalledForSwap(info: LineInfo, after = SWAP_AFTER): boolean {
     if (info.engines.length < 2 || info.loose.length > 0 || info.foreign.length > 0 || info.users.length !== info.engines.length) return false;
-    // (Only with a spare end to trade places through (no industry on it, none of the line's stops: the plan's
-    // `spareEnd`, the user's A1): else a line its room rule holds a train of is full as that says, the player's to fix
-    // (lay a loop: its card), and the held one stays held (sections-qa's room cases; fuzz seed 19 so, known).)
-    if (!this.hasSpareEnd(this.host.lineOf(info.engines[0]), info.topo)) return false;
+    // (With a spare end to trade places through (no industry on it, none of the line's stops: the plan's `spareEnd`, the
+    // user's A1); or a line with no passing loop its room rule holds a train of: the planner overrules that only where
+    // its search finds every train delivering, taking turns at the ends (the user's yes, 2026-11-14; fuzz seed 19).
+    // Found no such plan, the hold stands, its card saying lay a loop, and Stalls say so as before. Not with loops: a
+    // search there is big (the cap, 20 000 states, and nothing found: sections-qa's put-downs on loop roads ran on for
+    // minutes), and a loop is the card's fix.)
+    // (Nor where a loop's pinned so it's no passing place: the plan throws points as it likes, pins or not (QA's j_pin2:
+    // the planner took it, and the line delivered nothing).)
+    const lineId0 = this.host.lineOf(info.engines[0]);
+    // (And three line ends at least, as fuzz seed 19's: on a plain line's two the trains could only shuttle nose to
+    // tail, and a loop is what it wants, as the card says.)
+    let ends = 0;
+    for (const sl of info.topo.slots) if (sl.kind === "end") ends++;
+    const roomHeld = ends >= 3 && info.managed && info.loops === 0 && !(this.loopCount.get(lineId0)?.pinnedLoop ?? false) && info.engines.some((e) => !info.admitted.has(e));
+    if (!roomHeld && !this.hasSpareEnd(lineId0, info.topo)) return false;
     // (Nor with signals laid: the plan doesn't heed them (a train held at a green one, the signal fuzz).)
     if (this.layout.signalCount > 0) return false;
     const now = this.sim.ticks;
@@ -2652,8 +2684,14 @@ export class Sections {
     if (lineId < 0) return false;
     const info = this.line(lineId);
     if (!info.engines.includes(engine) || !this.stalledForSwap(info, 0)) return false;
+    // (Only till the planner should have started (`SWAP_AFTER` from when the last of them began waiting, and a little):
+    // not started by then (a train turning, say, never asks it), the stall is said as before. Else held off for good,
+    // a stall a test waited for was never said.)
+    let since = -Infinity;
+    for (const e of info.engines) since = Math.max(since, this.states.get(e)?.waitSince ?? -Infinity);
+    if (this.sim.ticks - since > SWAP_AFTER + SWAP_GRACE) return false;
     const tried = this.swapTried.get(lineId);
-    return !(tried && tried.failed && tried.revision === this.layout.revision && this.sim.ticks - tried.at < SWAP_RETRY);
+    return !(tried && tried.failed && tried.revision === this.layout.revision && (tried.sig === this.swapSig(info) || this.sim.ticks - tried.at < SWAP_RETRY));
   }
 
   /** May this train turn round nose to nose with one standing at the end of the line: the swap planner's turn. */
@@ -2664,7 +2702,18 @@ export class Sections {
   }
 
   private readonly swaps = new Map<number, SwapState>();
-  private readonly swapTried = new Map<number, { revision: number; at: number; failed: boolean }>();
+  private readonly swapTried = new Map<number, { revision: number; at: number; failed: boolean; sig: string }>();
+
+  /** Where a line's trains stand, for the planner's tries (`swapTried`): each engine and its front piece and path. */
+  private swapSig(info: LineInfo): string {
+    let sig = "";
+    for (const e of info.engines) {
+      const t = this.sim.findCar(e)?.train;
+      const b = t?.bogies[0];
+      sig += `${e}:${b ? b.pieceId * 8 + b.pathIndex : -1};`;
+    }
+    return sig;
+  }
   private readonly swapSearches = new Map<number, { s: OracleSearch; revision: number; engines: string; tick: number; searched: boolean; done: boolean }>();
 
   /** A refuge's innermost piece (its buffer's neighbour, else any of its pieces): what a train stepping aside aims for. */
