@@ -261,6 +261,16 @@ Still open: a routed and a hand-run train opposed (branch, branch-spare 2× mix:
 the routed one held just short of it, so the hand-run one's tail stays on the points), and two hand-run ones meeting
 on points (line1 facing, line1+siding(-spare) same, wye(-spare)).
 
+**A train turning at a line's end comes back** (`claude/routing-zero-hand`, on lap): a hand-run train isn't sent onto
+points with another coming at them on the single track beyond (B1, the router's `comingAt`). One turning round at a
+siding's buffer wasn't coming at them yet (standing, facing away), so the other went onto the points and met it there as
+it came out. Now `headsAt` walks a train turning round from its other end, for a hand-run train asking. 4 cases clear,
+none the other way: line1+siding(-spare) 2× hand same, wye(-spare) 2× hand opposed. line1 2× hand opposed facing goes on
+`reasons.ts`: both put down across a loop's points, facing each other over a road too short for either to clear them;
+dead, and one stands on points whatever it does (a train standing still sooner, tried, stopped trains on the bug maps
+that were only passing points). 10 known. The long fuzz is as before seed for seed; its never-worse check lists fuzz 136
+(all hand-run it now runs, 2 → 140 stops; with the route two hand-run trains still meet head on in the line's end).
+
 ## Results (on f10b8ee, before the fixes)
 
 414 cases. The oracle calls 299 live, 100 dead, 15 partial. The game agrees on 308; **106 disagree**, all listed in
@@ -334,12 +344,12 @@ Every case: the oracle's verdict (trains that can keep running of all; "own ends
 and pass / known.
 
 <!-- cases table: node tools/cases-report.mjs -->
-484 cases; 14 mismatched.
+484 cases; 10 mismatched.
 
 | Family | Cases | Mismatched | By kind |
 |---|---|---|---|
 | ring | 18 | 0 | – |
-| trains | 258 | 11 | waits-on-points 6, stalls-live:siding 5 |
+| trains | 258 | 7 | waits-on-points 2, stalls-live:siding 5 |
 | signals | 104 | 1 | stalls-live 1 |
 | placement | 30 | 1 | waits-on-points 1 |
 | stops | 50 | 0 | – |
@@ -369,7 +379,7 @@ and pass / known.
 | ring0 3×own same sig:blocks3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 | ring0 3×own same sig:oneway3 | dead (0/3; no signals 3) | stall at 7 s (signals, signals, signals); 0 / 1 / 0 | pass |
 
-### trains (258 cases, 11 mismatched)
+### trains (258 cases, 7 mismatched)
 
 | Case | Oracle | Game (stops per train; hand-run: metres) | Result |
 |---|---|---|---|
@@ -452,7 +462,7 @@ and pass / known.
 | line1+siding 1×hand | live (1/1) | 16.4 m | pass |
 | line1+siding 1×one | live (1/1) | 6 | pass |
 | line1+siding 2×hand opposed | dead (0/2) | 15.5 m / 15.2 m | pass |
-| line1+siding 2×hand same | live (2/2) | stall at 19 s (in-way, in-way); 1.5 m / 1.2 m | known: waits-on-points |
+| line1+siding 2×hand same | live (2/2) | stall at 49 s (in-way, in-way); 4.2 m / 3.9 m | pass |
 | line1+siding 2×mix opposed | live (2/2) | 6 / 15.1 m | pass |
 | line1+siding 2×mix same | live (2/2) | 5 / 15.4 m | pass |
 | line1+siding 2×one opposed | live (2/2) | 6 / 6 | pass |
@@ -466,7 +476,7 @@ and pass / known.
 | line1+siding-spare 1×hand | live (1/1) | 16.4 m | pass |
 | line1+siding-spare 1×one | live (1/1) | 6 | pass |
 | line1+siding-spare 2×hand opposed | dead (0/2) | 15.5 m / 15.2 m | pass |
-| line1+siding-spare 2×hand same | live (2/2) | stall at 19 s (in-way, in-way); 1.5 m / 1.2 m | known: waits-on-points |
+| line1+siding-spare 2×hand same | live (2/2) | stall at 49 s (in-way, in-way); 4.2 m / 3.9 m | pass |
 | line1+siding-spare 2×mix opposed | live (2/2) | 6 / 15.1 m | pass |
 | line1+siding-spare 2×mix same | live (2/2) | 5 / 15.4 m | pass |
 | line1+siding-spare 2×one opposed | live (2/2) | 6 / 6 | pass |
@@ -605,7 +615,7 @@ and pass / known.
 | terminus-spare 3×one same | live (3/3; own ends 2) | stall at 42 s (too-many, too-many, –); 0 / 2 / 1 | known: stalls-live:siding (waits for booking ahead (the reservation core): three line ends off one set of points, trains trading places through a spare one, need swaps planned several moves ahead; a train waiting deep in the spare with another stepped aside in front of it got out only if its stop was free just then, and it never was (claude/routing-zero-spare3, parked 2026-11-13)) |
 | wye 1×hand | live (1/1) | 16.1 m | pass |
 | wye 1×one | live (1/1) | 9 | pass |
-| wye 2×hand opposed | dead (0/2) | stall at 35 s (in-way, in-way); 2.6 m / 2.2 m | known: waits-on-points |
+| wye 2×hand opposed | dead (0/2) | stall at 93 s (in-way, in-way); 6.9 m / 7.6 m | pass |
 | wye 2×hand same | live (2/2) | stall at 14 s (in-way, in-way); 0.9 m / 0.7 m | pass |
 | wye 2×mix opposed | partial (1/2; through an industry siding 2) | 5 / 12.7 m | pass |
 | wye 2×mix same | live (2/2) | 5 / 12.7 m | pass |
@@ -619,7 +629,7 @@ and pass / known.
 | wye 3×one same | partial (2/3; through an industry siding 3) | stall at 16 s (–, too-many, –); 0 / 1 / 0 | pass |
 | wye-spare 1×hand | live (1/1) | 16.1 m | pass |
 | wye-spare 1×one | live (1/1) | 9 | pass |
-| wye-spare 2×hand opposed | dead (0/2) | stall at 35 s (in-way, in-way); 2.6 m / 2.2 m | known: waits-on-points |
+| wye-spare 2×hand opposed | dead (0/2) | stall at 93 s (in-way, in-way); 6.9 m / 7.6 m | pass |
 | wye-spare 2×hand same | live (2/2) | stall at 14 s (in-way, in-way); 0.9 m / 0.7 m | pass |
 | wye-spare 2×mix opposed | live (2/2) | 4 / 8.1 m | pass |
 | wye-spare 2×mix same | live (2/2) | 4 / 8.5 m | pass |
@@ -753,7 +763,7 @@ and pass / known.
 | line0 2×one same points | dead (0/2) | stall at 13 s (too-many, –); 0 / 1 | pass |
 | line0 2×one same straddle sig:blocks3 | dead (0/2; no signals 0) | stall at 7 s (too-many, –); 0 / 0 | pass |
 | line0 2×one same tail | dead (0/2) | stall at 13 s (too-many, –); 0 / 1 | pass |
-| line1 2×hand opposed facing | dead (0/2) | stall at 10 s (in-way, in-way); 0.4 m / 0.4 m | known: waits-on-points |
+| line1 2×hand opposed facing | dead (0/2) | stall at 10 s (in-way, in-way); 0.4 m / 0.4 m | known: waits-on-points (put down by the player across a loop's points at both ends, facing each other over a road too short for either to clear them: dead, and one stands on points whatever it does; each brakes from its starting speed a few cm before they meet, past the judge's never-moved allowance. A train that stood still sooner stopped running trains on the bug maps too, for trains only passing the points) |
 | line1 2×hand same points | live (2/2) | stall at 17 s (in-way, in-way); 1.2 m / 1 m | pass |
 | line1 2×hand same straddle sig:blocks3 | dead (0/2; no signals 2) | stall at 19 s (signals, signals); 1.3 m / 1.2 m | pass |
 | line1 2×hand same tail | live (2/2) | stall at 22 s (in-way, in-way); 1.8 m / 1.6 m | pass |
