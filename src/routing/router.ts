@@ -1032,7 +1032,7 @@ export class Router {
       const t = trainOn(sim, (p) => p === n.pieceId, { except: trainId, onRails: true });
       // (Only another hand-run train: a routed one's moves are sections' to grant, and they keep a hand-run train coming
       // onto its line short of the points (`Sections.comesInto`); this one gives way to it as before.)
-      if (t) return this.headsAt(t, w.pieceId, ways[0]?.exit ?? -1) && (any || !t.cars.some((c) => this.host.routed.has(c.id))) ? engineOf(t) : -1;
+      if (t) return this.headsAt(t, w.pieceId, ways[0]?.exit ?? -1, !any) && (any || !t.cars.some((c) => this.host.routed.has(c.id))) ? engineOf(t) : -1;
       const on = waysFrom(layout, n.pieceId, n.entry, () => true);
       if (on.length !== 1 || isPoints(layout, n.pieceId) || on[0].exit < 0) return -1;
       at = { p: n.pieceId, exit: on[0].exit };
@@ -1044,14 +1044,15 @@ export class Router {
    * Does train `t` (driving) come to piece `pieceId` by its end `end` (head on into one leaving by it), going on as the
    * points lie, within `WALK` pieces of its front? (Not one going away round a ring and back to them from behind.)
    */
-  private headsAt(t: Train, pieceId: number, end: number): boolean {
+  private headsAt(t: Train, pieceId: number, end: number, turning = false): boolean {
     const { layout } = this.host;
     const net = this.host.drive(t);
     if (net === 0) return false;
     // (Turning round at the end of the line: it comes back out, its other end first (line1+siding 2× hand same: one
     // turning at the siding's buffer wasn't coming at the points yet, and the other went onto them, to meet it there).)
-    const turning = t.turnback >= 0;
-    const back = turning ? net < 0 : net > 0;
+    // (Only for a hand-run train asking (`askHand`): a routed one sections don't hold waiting so for a hand-run train
+    // turning at a siding's end stood for good with it (fuzz seed 136, a route never makes it worse).)
+    const back = turning && t.turnback >= 0 ? net < 0 : net > 0;
     const c: Cursor = { ...(back ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };
     if (!back) flipCursor(layout, c);
     const piece = layout.getPiece(c.pieceId);

@@ -295,4 +295,9 @@ const KNOWN_WORSE: Record<string, string> = {
   // to with the route against 4 all hand-run, which is when each got stuck, not a stall the route made. Was all
   // hand-run 186 stops, routed 224, while a hand-run train turned round to give way.)
   "fuzz seed 77": "two hand-run trains head on in a line's end in both runs: a true deadlock, nothing turns",
+  // (2026-11-14: two hand-run trains put down one behind the other in the line's end past its last points; the one ahead
+  // turns at the buffer and meets the other head on, with the routed train waiting behind them, as before. The all
+  // hand-run run jammed so too (2 stops) till a train turning at a line's end counted as coming back at its points (the
+  // router's `headsAt`): now it runs (140), and the routed run, unchanged at 2, reads as made worse.)
+  "fuzz seed 136": "two hand-run trains head on in a line's end with the route, a true deadlock; all hand-run, they now miss each other",
 };
