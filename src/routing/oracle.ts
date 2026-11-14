@@ -92,6 +92,24 @@ export function atEnd(layout: Layout, f: Elem): boolean {
  * it, only its way through). Elsewhere signals hold nothing.
  */
 export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "spare", maxStates = 400_000, signals = false, handFree = false, behind = true, keep = false): OracleResult {
+  const s = createOracle(layout, start, ends, maxStates, signals, handFree, behind, keep);
+  s.step(Infinity);
+  return s.finish();
+}
+
+/**
+ * The oracle's search, a slice at a time (the swap planner's, in the game: spread over ticks, never a frame's worth):
+ * `step(n)` expands up to `n` more states and says whether the search is done; `finish` then gives the answer (and,
+ * finished early, as far as it got, capped). By count, not time, so the game stays deterministic.
+ */
+export interface OracleSearch {
+  step(n: number): boolean;
+  finish(): OracleResult;
+  /** States found so far. */
+  readonly size: number;
+}
+
+export function createOracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "spare", maxStates = 400_000, signals = false, handFree = false, behind = true, keep = false): OracleSearch {
   const n = start.length;
   /** A train in a state: its pieces (tail first) and how far (mm) its front stands short of its front piece's far end. */
   type T = { e: Elem[]; fs: number };
@@ -358,10 +376,19 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
   };
   add(start.map((t) => ({ e: t.elems, fs: 0 })));
   let capped = false;
-  for (let i = 0; i < states.length; i++) {
+  let next0 = 0;
+  const step = (budget: number): boolean => {
+    const until = next0 + budget;
+  for (let i = next0; i < states.length; i++) {
     if (states.length > maxStates) {
       capped = true;
-      break;
+      next0 = states.length;
+      return true;
+    }
+    // (This slice's states expanded: on from here next time.)
+    if (i >= until) {
+      next0 = i;
+      return false;
     }
     const ts = states[i];
     for (let k = 0; k < n; k++) {
@@ -377,6 +404,11 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
       }
     }
   }
+    next0 = states.length;
+    return true;
+  };
+  const finish = (): OracleResult => {
+    if (next0 < states.length) capped = true;
   // Strongly connected sets (Tarjan, iterative).
   const N = states.length;
   const index = new Int32Array(N).fill(-1);
@@ -449,6 +481,14 @@ export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "s
     }
   }
   return { states: N, best, bestSet, alone, capped, graph: keep ? { states, edges, best: bestComp } : undefined };
+  };
+  return {
+    step,
+    finish,
+    get size() {
+      return states.length;
+    },
+  };
 }
 
 /** How many whole pieces the oracle gives a train: what it fills on 216 mm pieces, 2 at least. */

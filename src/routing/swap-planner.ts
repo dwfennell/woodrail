@@ -8,7 +8,7 @@
  * (`Sections.planned`). It acts only on a stall: what runs today never comes here.
  */
 import type { Layout } from "../track";
-import { oracle, type Elem, type OTrain } from "./oracle";
+import { createOracle, oracle, type Elem, type OracleSearch, type OTrain } from "./oracle";
 
 /** A train as the oracle has it: its pieces, tail first, and how far (mm) short of its front piece's end it stands. */
 export interface PlanTrain {
@@ -41,6 +41,18 @@ export const PLAN_STATES = 20_000;
 export function planSwap(layout: Layout, trains: OTrain[], maxStates = PLAN_STATES): SwapPlan | null {
   const o = oracle(layout, trains, "spare", maxStates, false, false, true, true);
   if (o.capped || !o.graph || o.best < trains.length) return null;
+  return { states: o.graph.states, edges: o.graph.edges, keep: new Set(o.graph.best) };
+}
+
+/** The search for a plan from `trains`, a slice at a time (`OracleSearch.step`): `planOf` once it's done. */
+export function swapSearch(layout: Layout, trains: OTrain[], maxStates = PLAN_STATES): OracleSearch {
+  return createOracle(layout, trains, "spare", maxStates, false, false, true, true);
+}
+
+/** The plan a finished search found for `n` trains, or null (none where all of them keep delivering, or capped). */
+export function planOf(search: OracleSearch, n: number): SwapPlan | null {
+  const o = search.finish();
+  if (o.capped || !o.graph || o.best < n) return null;
   return { states: o.graph.states, edges: o.graph.edges, keep: new Set(o.graph.best) };
 }
 

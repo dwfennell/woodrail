@@ -5,8 +5,8 @@ import { plan, planWay, type KeepTest, type Lap } from "../routing/plan";
 import type { AvoidTest } from "../routing/router";
 import { deadEndsOf, mouthWay } from "../routing/dead-ends";
 import { engineOf, trainLength } from "../sim/train-cars";
-import { elemsByLength } from "../routing/oracle";
-import { planSwap, runFromAt, stateOf, type PlannedMove, type PlanTrain, type SwapPlan } from "../routing/swap-planner";
+import { elemsByLength, type OracleSearch } from "../routing/oracle";
+import { planOf, runFromAt, stateOf, swapSearch, type PlannedMove, type PlanTrain, type SwapPlan } from "../routing/swap-planner";
 
 /**
  * Sections and slots: trains that wait for each other on single track (token working; a line's own, and lines sharing
@@ -196,6 +196,8 @@ const FOLLOW_ROOM = 150;
 const SWAP_AFTER = 3 * SIM_HZ;
 /** After a search that found no plan, how long (ticks) before the next (the track unchanged). */
 const SWAP_RETRY = 30 * SIM_HZ;
+/** States the swap planner's search expands a tick (`swapCap`): under 2.5 ms here at worst, about 0.7 on average. */
+const SWAP_SLICE = 20;
 /** How often (ticks) a planned line looks for its next moves. */
 const SWAP_LOOK = SIM_HZ / 4;
 /** A planned move's way (`swapWay`): its pieces and their lengths from the train's front, its aim and follow test. */
@@ -2352,16 +2354,32 @@ export class Sections {
       sw = undefined;
     }
     if (!sw) {
-      if (!this.stalledForSwap(info)) return null;
-      const tried = this.swapTried.get(lineId);
-      if (tried && tried.revision === this.layout.revision && this.sim.ticks - tried.at < SWAP_RETRY) return null;
-      this.swapTried.set(lineId, { revision: this.layout.revision, at: this.sim.ticks });
-      const stops = this.host.stopPieces(lineId);
-      const trains = info.engines.map((e) => {
-        const t = this.sim.findCar(e)!.train;
-        return { elems: elemsByLength(this.layout, t), stops: [...stops], length: trainLength(t) };
-      });
-      const plan = planSwap(this.layout, trains);
+      // (A search under way: a slice of it a tick (`SWAP_SLICE` states), off the frame; the line's rules meanwhile.)
+      let search = this.swapSearches.get(lineId);
+      if (search && (search.revision !== this.layout.revision || search.engines !== info.engines.join(",") || !this.stalledForSwap(info))) {
+        this.swapSearches.delete(lineId);
+        search = undefined;
+      }
+      if (!search) {
+        if (!this.stalledForSwap(info)) return null;
+        const tried = this.swapTried.get(lineId);
+        if (tried && tried.revision === this.layout.revision && this.sim.ticks - tried.at < SWAP_RETRY) return null;
+        this.swapTried.set(lineId, { revision: this.layout.revision, at: this.sim.ticks });
+        const stops = this.host.stopPieces(lineId);
+        const trains = info.engines.map((e) => {
+          const t = this.sim.findCar(e)!.train;
+          return { elems: elemsByLength(this.layout, t), stops: [...stops], length: trainLength(t) };
+        });
+        search = { s: swapSearch(this.layout, trains), revision: this.layout.revision, engines: info.engines.join(","), tick: -1, done: false };
+        this.swapSearches.set(lineId, search);
+      }
+      if (search.tick !== this.sim.ticks) {
+        search.tick = this.sim.ticks;
+        search.done = search.s.step(SWAP_SLICE);
+      }
+      if (!search.done) return null;
+      this.swapSearches.delete(lineId);
+      const plan = planOf(search.s, info.engines.length);
       if (!plan) return null;
       sw = { plan, engines: [...info.engines], revision: this.layout.revision, at: 0, moves: [], targets: info.engines.map((e) => this.host.target(e)), served: info.engines.map(() => this.sim.ticks) };
       this.swaps.set(lineId, sw);
@@ -2558,6 +2576,7 @@ export class Sections {
 
   private readonly swaps = new Map<number, SwapState>();
   private readonly swapTried = new Map<number, { revision: number; at: number }>();
+  private readonly swapSearches = new Map<number, { s: OracleSearch; revision: number; engines: string; tick: number; done: boolean }>();
 
   /** A refuge's innermost piece (its buffer's neighbour, else any of its pieces): what a train stepping aside aims for. */
   private innerOf(slot: Slot): number {
