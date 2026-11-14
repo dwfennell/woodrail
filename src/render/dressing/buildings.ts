@@ -289,11 +289,19 @@ function green(land: Landscape, i: number, mats: Materials, b: Batcher): void {
   }
 }
 
+/** A hipped roof `w` along x by `d`, `h` high about its middle, sloping in on all four sides to a flat top `top` of its size. */
+function hippedRoof(w: number, d: number, h: number, top: number): BufferGeometry {
+  // (A four-sided frustum, a square turned to its sides, stretched to the roof's plan; flat-shaded.)
+  const g = new CylinderGeometry(top * Math.SQRT1_2, Math.SQRT1_2, h, 4, 1).rotateY(Math.PI / 4).scale(w, 1, d).toNonIndexed();
+  g.computeVertexNormals();
+  return g;
+}
+
 /**
  * The fixed station: platform with a yellow edge line, a canopy over both platform and track (trains run under the
  * roof, as with a wooden toy station) and a little beech station house.
  */
-export function buildStation(town: Town, mats: Materials, b: Batcher): void {
+export function buildStation(town: Town, mats: Materials, b: Batcher, rows = rowsOn()): void {
   const place = stationPlace(town);
   const side = TRACK_WIDTH / 2;
   b.add(mats.blockWood, place(new RoundedBoxGeometry(196, 14, 38, 2, 2.5), 108, side + 21, 7));
@@ -307,8 +315,16 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   const theme = stationTheme(town.name);
   b.add(mats.lacquer(theme.canopy), place(new RoundedBoxGeometry(176, 4, canopyW, 1, 1.5), 108, canopyMid, CANOPY_Y + 2));
   b.add(mats.lacquer("#fbf6ec"), place(new RoundedBoxGeometry(178, 3, canopyW + 2, 1, 1.2), 108, canopyMid, CANOPY_Y - 0.5));
-  b.add(mats.blockWood, place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
-  b.add(mats.lacquer(theme.roof), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));
+  if (rows) {
+    // Towns in rows: the house as the town's buildings are, painted walls over a band in the canopy's colour, under a
+    // hipped roof (its flat top where the lid's was: the town's sign stands on it).
+    b.add(mats.lacquer("#f3e7cb"), place(new RoundedBoxGeometry(70, 46, 30, 2, 2), 108, side + 58, 14 + 23));
+    b.add(mats.lacquer(theme.canopy), place(new RoundedBoxGeometry(70.8, 7, 30.8, 1, 1), 108, side + 58, 14 + 3.5));
+    b.add(mats.lacquer(theme.roof), place(hippedRoof(82, 40, 9, 0.62), 108, side + 58, STATION_ROOF_TOP - 4.5));
+  } else {
+    b.add(mats.blockWood, place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
+    b.add(mats.lacquer(theme.roof), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));
+  }
   // Bunting along the canopy's platform edge: a cord, and little flags hanging from it in the town's colours.
   const edge = side + 34 + 0.8;
   b.add(mats.lacquer("#fbf6ec"), place(new BoxGeometry(170, 0.5, 0.5), 108, edge, CANOPY_Y - 1.2));
