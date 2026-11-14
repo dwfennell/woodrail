@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { CELL, FEAT_STATION, generateLandscape, SURF_ROAD } from "../../landscape";
 import type { Materials } from "../materials";
 import type { Batcher } from "./batcher";
-import { building, buildStation, buildTown, footprintOf, FURNITURE_CLEARANCE, SPECIAL_LOOKS, townFurniture, townGreens, townLooks, type Look, type PropKind } from "./buildings";
+import { building, buildStation, STATION_ROOF_FLAT, buildTown, footprintOf, FURNITURE_CLEARANCE, SPECIAL_LOOKS, townFurniture, townGreens, townLooks, type Look, type PropKind } from "./buildings";
 import { releaseBuilding } from "../../props/towns";
 import { loadBlenderModels } from "../blender-models";
 import { onFelt } from "./roads";
@@ -251,6 +251,13 @@ describe("the station house in the rows' style", () => {
     const top = (list: typeof now) => Math.max(...list.map((p) => p.box.max.y));
     expect(top(rows)).toBeLessThanOrEqual(top(now) + 0.01);
     expect(rows.length).toBeGreaterThanOrEqual(now.length);
+  });
+
+  it("the roof's flat top is long enough for the town's sign to stand on: its posts are 28 either side of the middle, 2.4 thick", () => {
+    const roofs = parts(true).filter((p) => p.box.max.y > 64 && p.box.max.y - p.box.min.y > 6 && p.box.max.y - p.box.min.y < 12);
+    expect(roofs).toHaveLength(1);
+    // (Measured on the roof's own geometry: how far its top face reaches along the station.)
+    expect(STATION_ROOF_FLAT / 2).toBeGreaterThanOrEqual(28 + 2.4);
   });
 
   it("is how a station is drawn unless told otherwise", () => {

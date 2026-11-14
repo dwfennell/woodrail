@@ -7,7 +7,7 @@ import type { PropStore } from "./store";
 import { landmarkOf } from "../game/landmarks";
 import { isPlace, placeOf } from "../game/places";
 import { scaleOf } from "../catalogue/scale";
-import { civicRow, isChurch, isRow, ROW_ASSETS, ROW_HOUSES_1, rowFor, rowSquares, rowVariant, townPalette } from "./rows";
+import { civicRow, isChurch, isRow, ROW_ASSETS, ROW_CIVIC, ROW_HOUSES_1, rowFor, rowSquares, rowVariant, townPalette } from "./rows";
 import { chanceOf, extraStyles, jitterOf, SPIRE_LEVEL, storeysFor, STYLES_BY_LEVEL } from "./storeys";
 
 /**
@@ -214,7 +214,7 @@ export function rowFront(land: Landscape, town: Town, b: Building): 0 | 1 | 2 | 
 }
 
 /** Where a row model stands: its lot's middle (a court's: its street squares' middle), its front on `rowFront`. */
-export function rowPose(land: Landscape, town: Town, b: Building, asset: string): { x: number; z: number; heading: number } {
+export function rowPose(land: Landscape, town: Town, b: Building, _asset?: string): { x: number; z: number; heading: number } {
   const g = land.grid;
   const f = EDGES[rowFront(land, town, b)];
   let x = 0;
@@ -227,7 +227,6 @@ export function rowPose(land: Landscape, town: Town, b: Building, asset: string)
   z /= b.cells.length;
   // (On a 2 x 2 block a row stands on the street's two squares: the court and the civic models made for a block have
   // their grounds behind them, one made for two squares leaves the back two as they are.)
-  void asset;
   const out = b.cells.length >= 4 ? CELL / 2 : 0;
   return { x: x + f.x * out, z: z + f.z * out, heading: Math.atan2(f.z, f.x) };
 }
@@ -258,7 +257,7 @@ export function townProps(land: Landscape, town: Town, dressing: TownDressing = 
   const r = rng((Math.imul(land.seed, 71) + town.id * 613 + 29) >>> 0);
   const pick = <T>(list: readonly T[]) => list[Math.floor(r() * list.length)];
   // Three house styles per town, so its houses look like they belong together.
-  const rows = dressing.rows ?? false;
+  const rows = dressing.rows ?? true;
   const styles = [...(rows ? ROW_HOUSES_1 : HOUSES_1)].sort(() => r() - 0.5).slice(0, 3);
   // (In rows: the town's colours, and each building's as it's given one, for its neighbours to steer clear of.)
   const palette = rows ? townPalette(land.seed, town.id, level) : null;
@@ -270,10 +269,11 @@ export function townProps(land: Landscape, town: Town, dressing: TownDressing = 
     const inRows = rows ? rowsFor(looks[k], squares, b.corner ?? false, styles) : undefined;
     const own = inRows ?? (squares === 4 ? undefined : BY_LOOK[looks[k]][squares]) ?? (squares > 1 ? HOUSES_2 : styles);
     // A plain house's lot in a bigger town: more styles to build with (a building dressed already keeps its own).
-    const plain = inRows ? looks[k] === "house" || looks[k] === "terrace" : own === HOUSES_2 || own === styles;
+    // (In rows: a lot that takes a house's row, whatever its look: a school's spot and a one-square church's do.)
+    const plain = inRows ? looks[k] === "house" || looks[k] === "terrace" || looks[k] === "school" || (looks[k] === "church" && squares === 1) : own === HOUSES_2 || own === styles;
     const fresh = dressedAs(b.id) === undefined;
     // (Half the new buildings of a bigger town in its new styles, so they show: one draw either way.)
-    // (In rows: the houses among them as their rows; the civic ones, a kiosk, a fire station, as they are for now.)
+    // (In rows: the houses among them as their rows; the civic ones, a kiosk, a fire station, as theirs below.)
     const extra = plain && fresh && level > 0 ? extraStyles(level, squares).map((a) => (rows ? (rowFor(a) ?? a) : a)) : [];
     // A landmark: its own model, the first of its list that's in the catalogue and fits its lot (others stand in).
     const mark = b.landmark ? (landmarkOf(b.landmark) ?? placeOf(b.landmark)) : undefined;
@@ -469,6 +469,8 @@ export function dressInRows(land: Landscape, props: PropStore): number {
   let changed = 0;
   for (const p of [...props.all()]) {
     if (p.building === undefined) continue;
+    // (Most props are rows already: nothing to look up for them.)
+    if (isRow(p.asset) || (!rowFor(p.asset) && !ROW_CIVIC[p.asset])) continue;
     const found = findBuilding(land, p.building);
     if (!found) continue;
     const { town, building } = found;

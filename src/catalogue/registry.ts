@@ -16,7 +16,7 @@ const FILES = {
   grand: () => import("./assets/grand"),
   // The secret sites (Game mode: hidden on the map until track is laid to them; Sandbox: on the Nature tab).
   secret: () => import("./assets/secrets"),
-  // Towns in rows (props/rows.ts): the slices a town's houses and shops are drawn as. Dev only for now.
+  // Towns in rows (props/rows.ts): the models a town's buildings are drawn as.
   row: () => import("./assets/rows"),
 } as const;
 

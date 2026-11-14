@@ -61,7 +61,7 @@ export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: num
       canUse: (i) => editor.checkLot([i], false) === null,
       toward: land.towns.filter((t) => t !== town).map((t) => t.centre),
       wide: options.wide,
-      // (Towns in rows, the dev switch: rows fill before the town spreads.)
+      // (Towns in rows: rows fill before the town spreads.)
       rows: true,
     });
     for (const step of steps) {

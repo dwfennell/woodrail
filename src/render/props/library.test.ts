@@ -1,3 +1,4 @@
+import { rowFootprint } from "../../props/rows";
 import { Color, MeshStandardMaterial, type Object3D } from "three";
 import { describe, expect, it } from "vitest";
 import { Kit } from "../../catalogue/kit";
@@ -122,8 +123,9 @@ describe("a row model in the library (towns in rows)", () => {
     const lib = new PropLibrary(stubMaterials());
     expect(lib.footprint("row-shop")).toBeUndefined();
     await lib.load(modelKey("row-shop", 1, 2));
-    // Its lot's tile: a square, so the player can pick it up and put it down.
-    expect(lib.footprint("row-shop")!.hw).toBeCloseTo(36, 0);
-    expect(lib.footprint("row-shop")!.hd).toBeCloseTo(36, 0);
+    // Its building's, not its whole tile's (`rowFootprint`): the player can pick it up and put it down, and track fits
+    // beside it as it did beside a house.
+    expect(lib.footprint("row-shop")).toEqual(rowFootprint("row-shop"));
+    expect(lib.footprint("row-shop")!.hd).toBeLessThan(36);
   });
 });
