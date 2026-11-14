@@ -1595,10 +1595,18 @@ export class Game {
   private readonly tiltSph = new Spherical();
 
   /** Something changed that the frame loop can't see (track, scenery, a selection, a resize): draw it (once). */
-  /** Squares' heights changed in these plots (land editing): redraw them, and re-fit cuttings and trees. */
-  editLand(slots: readonly number[]): void {
+  /**
+   * Squares' heights changed in these plots (land editing): redraw them, and re-fit cuttings and trees. With `roads`,
+   * road pieces changed too (a growing town's new streets): their tiles are drawn again as well.
+   */
+  editLand(slots: readonly number[], roads = false): void {
     for (const s of slots) this.landscape.grid.touch(s);
     this.landscapeView.landEdited(slots);
+    if (roads) {
+      this.landscapeView.roadsEdited(false);
+      this.crossingsChanged();
+      this.trackView.syncSwitches();
+    }
     this.trackChanged();
     this.invalidate();
   }
