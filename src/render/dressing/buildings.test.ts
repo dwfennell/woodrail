@@ -214,3 +214,46 @@ describe("row openings (towns in rows)", () => {
     expect(street.count()).toBe(streetOff.count());
   });
 });
+
+describe("the station house in the rows' style", () => {
+  /** What `buildStation` adds, by a material's name. */
+  function parts(rows: boolean) {
+    const land = generateLandscape(7);
+    const town = land.towns[0];
+    const wood = new MeshStandardMaterial({ name: "wood" });
+    const added: { paint: string; box: Box3 }[] = [];
+    const named = { lacquer: (c: string) => new MeshStandardMaterial({ name: c }), blockWood: wood, naturalWood: wood } as unknown as Materials;
+    const b = {
+      add(m: Material, g: BufferGeometry) {
+        g.computeBoundingBox();
+        added.push({ paint: m.name, box: g.boundingBox!.clone() });
+      },
+    } as unknown as Batcher;
+    buildStation(town, named, b, rows);
+    return added;
+  }
+  const tall = (p: { box: Box3 }) => p.box.max.y - p.box.min.y;
+
+  it("has painted walls and a hipped roof in place of the bare block and its flat lid; nothing stands higher than before", () => {
+    const now = parts(false);
+    const rows = parts(true);
+    // Today: the house is a bare wooden block, 46 tall.
+    expect(now.some((p) => p.paint === "wood" && Math.abs(tall(p) - 46) < 0.01)).toBe(true);
+    expect(rows.some((p) => p.paint === "wood" && Math.abs(tall(p) - 46) < 0.01)).toBe(false);
+    // In rows: cream walls, 46 tall, and a roof that slopes (taller than the flat lid's 5).
+    expect(rows.some((p) => p.paint === "#f3e7cb" && Math.abs(tall(p) - 46) < 0.01)).toBe(true);
+    const top = (list: typeof now) => Math.max(...list.map((p) => p.box.max.y));
+    expect(top(rows)).toBeLessThanOrEqual(top(now) + 0.01);
+    expect(rows.length).toBeGreaterThanOrEqual(now.length);
+  });
+
+  it("is today's station with the switch off", () => {
+    const land = generateLandscape(7);
+    const a = measuring();
+    const b = measuring();
+    buildStation(land.towns[0], mats, a.b);
+    buildStation(land.towns[0], mats, b.b, false);
+    expect(b.count()).toBe(a.count());
+    expect(b.bounds).toEqual(a.bounds);
+  });
+});
