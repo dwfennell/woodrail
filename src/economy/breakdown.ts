@@ -282,12 +282,15 @@ export class Breakdown {
     const sim = this.sim;
     const craneAt = sim.findCar(job.crane);
     if (job.phase === "home") return this.goHome(job, craneAt?.train);
+    // (The crane itself gone, taken off the track mid-job (while stowing too): nothing's left to work or stow.)
+    if (!craneAt) return this.cancel(job.crane);
     const target = sim.findCar(job.target)?.train;
-    // (The crane or the train gone, the crane come off the rails, or the train put right some other way: the job's over.)
-    const over = !craneAt || craneAt.train.derailed || !target || (job.kind === "rerail" && !target.derailed && job.phase !== "set" && job.phase !== "stow") || (job.kind === "remove" && target.derailed);
+    // (The train gone, the crane come off the rails, or the train put right some other way: the job's over. So is one
+    // whose train the crane has coupled on to: lifting it off would take the crane with it.)
+    const over = craneAt.train.derailed || !target || target === craneAt.train || (job.kind === "rerail" && !target.derailed && job.phase !== "set" && job.phase !== "stow") || (job.kind === "remove" && target.derailed);
     if (over && job.phase !== "stow") {
       // (Mid-lift with the train gone: it swings home all the same.)
-      if (craneAt && !craneAt.train.derailed && job.phase !== "drive") {
+      if (!craneAt.train.derailed && job.phase !== "drive") {
         job.hoist = 0;
         this.enter(job, "stow");
         return;
@@ -295,7 +298,7 @@ export class Breakdown {
       this.cancel(job.crane);
       return;
     }
-    const crane = craneAt!.train;
+    const crane = craneAt.train;
     if (job.phase === "drive") {
       job.driven++;
       if (crane.speed < 1 && crane.cars.some((c) => c.kind === "engine" && c.lever !== 0)) job.blocked++;

@@ -337,6 +337,29 @@ describe("Breakdown crane", () => {
     expect(economy.breakdown.send(car, "rerail")).toMatchObject({ ok: true });
   }, 60_000);
 
+  it("a crane train taken off the track while it stows ends its job, and the game ticks on (perf page error 2026-11-14)", () => {
+    // (Was: the stow went on looking at the crane, gone, and threw "reading 'train'" every tick from then on.)
+    const { sim, economy, ids, tick } = oval();
+    const stuck = sim.addTrain(["engine", "van"], { pieceId: ids[14], pathIndex: 0, reversed: false, s: 100 });
+    const crane = sim.addTrain(["crane", "engine"], { pieceId: ids[5], pathIndex: 0, reversed: false, s: 100 });
+    const other = sim.addTrain(["engine", "van"], { pieceId: ids[20], pathIndex: 0, reversed: false, s: 100 });
+    if (stuck.kind !== "placed" || crane.kind !== "placed" || other.kind !== "placed") throw new Error("no room");
+    const craneCar = sim.getTrain(crane.trainId)!.cars[0].id;
+    const otherEngine = sim.getTrain(other.trainId)!.cars[0].id;
+    expect(economy.breakdown.send(sim.getTrain(stuck.trainId)!.cars[0].id, "remove")).toMatchObject({ ok: true });
+    expect(tick(150, () => economy.breakdown.jobOf(craneCar)?.phase === "stow")).toBe(true);
+    // (The player takes the crane train away, as the box or Put away does.)
+    sim.removeTrain(sim.findCar(craneCar)!.train.id);
+    expect(() => tick(1)).not.toThrow();
+    expect(economy.breakdown.jobOf(craneCar)).toBeUndefined();
+    expect(economy.breakdown.busy).toBe(false);
+    // (Everything else carries on: another train runs.)
+    sim.setLever(otherEngine, 1);
+    const at = { ...sim.findCar(otherEngine)!.train.world[0] };
+    expect(() => tick(3)).not.toThrow();
+    expect(sim.findCar(otherEngine)!.train.world[0]).not.toMatchObject({ x: at.x, z: at.z });
+  }, 60_000);
+
   it("a crane at work costs a look every half second at most when idle", () => {
     const { tick, economy } = oval(2);
     // (No crane, no derailed train: nothing to do, and nothing done.)
