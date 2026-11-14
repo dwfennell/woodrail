@@ -194,8 +194,12 @@ describe("row openings (towns in rows)", () => {
     buildTown(land, { ...town, cells: [cell] }, mats, off.b, false);
     const on = measuring();
     buildTown(land, { ...town, cells: [cell] }, mats, on.b, true);
-    expect(on.count() - off.count()).toBeGreaterThanOrEqual(4);
-    // Within its square, a tree's height at most.
+    expect(on.count() - off.count()).toBe(1);
+    // Flat pavement and nothing standing on it: the player's track or a prop may go there (the dressing can't know).
+    const slab = measuring();
+    buildTown(land, { ...town, cells: [], buildings: town.buildings.filter((x) => x.cells.some((c) => Math.abs(g.colOf(c) - g.colOf(cell)) + Math.abs(g.rowOf(c) - g.rowOf(cell)) === 1)) }, mats, slab.b, true);
+    expect(slab.bounds.max.y - g.groundY(cell)).toBeLessThanOrEqual(2.5);
+    expect(slab.bounds.max.x - slab.bounds.min.x).toBeLessThanOrEqual(CELL + 0.01);
     const place = measuring();
     buildTown(land, { ...town, cells: [], station: town.station }, mats, place.b, true);
     const none = measuring();
