@@ -8,7 +8,7 @@
 //  5. The first train put back on the line from its card (Run a line…, the line), Go: it carries logs to the sawmill
 //     again (the payoff).
 //  6. 0 frames drawn idle with the card open, paused; a reload keeps the line and which train runs it; no page errors.
-// Pictures in the out dir (off-line-*.jpg). Starts its own dev server.
+// Pictures in the out dir (off-line-*.jpg; the cards: docs/agents/shots/off-line-*.jpg). Starts its own dev server.
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
