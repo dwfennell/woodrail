@@ -493,7 +493,7 @@ export class LineSheet {
       const text = el("div", "ls-train-text");
       text.append(el("b", "", t.name), el("span", "ls-train-status", t.status));
       const show = this.button("Show", "ls-train-show", `Show ${t.name} on the map`, () => this.h.showTrain(t.engine));
-      const off = this.button("Take off", "ls-train-off", `Take ${t.name} off this line: it goes anywhere again`, () => this.h.takeOff(t.engine));
+      const off = this.button("Take off", "ls-train-off", `Take ${t.name} off this line: it stops and is run by hand`, () => this.h.takeOff(t.engine));
       li.append(text, show, off);
       list.append(li);
     }
