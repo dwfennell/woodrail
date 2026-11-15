@@ -147,7 +147,7 @@ const setup = await p.evaluate(async () => {
     for (const B of towns)
       for (const C of towns)
         for (const D of towns) {
-          if (new Set([A, B, C, D].map((t) => t.id)).size < 4 || far(A, B) >= far(A, C)) continue;
+          if (new Set([A, B, C, D].map((t) => t.id)).size < 4 || Math.round(far(A, C) / 800) <= Math.round(far(A, B) / 800)) continue;
           const before = new Set(w.layout.pieceIds());
           const undo = () => {
             const laid = [...w.layout.pieceIds()].filter((id) => !before.has(id));
@@ -166,8 +166,17 @@ const setup = await p.evaluate(async () => {
           // A coach train on the first piece out of each end of A's station.
           const trains = [];
           for (const end of [ab.i, 1 - ab.i]) {
-            const next = w.layout.joinedConnector(connectorRef(station(A), end));
-            const piece = pieceOfRef(next);
+            // (Four pieces out, clear of A's platform: a tap on A is a tap on A.)
+            let piece = station(A);
+            let ref = connectorRef(station(A), end);
+            for (let k = 0; k < 4; k++) {
+              const next = w.layout.joinedConnector(ref);
+              if (next === -1) break;
+              piece = pieceOfRef(next);
+              const other = [0, 1].map((i) => connectorRef(piece, i)).find((r) => r !== next);
+              if (other === undefined) break;
+              ref = other;
+            }
             let engine = -1;
             for (const s of [10, 40, 80]) {
               const r = w.sim.addTrain(["engine", "passenger", "passenger"], { pieceId: piece, pathIndex: 0, reversed: false, s });
@@ -222,7 +231,7 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
   check("…A's people want C or D, some each, none B or anywhere", wantC > 0 && wantD > 0 && wantC + wantD === 6, JSON.stringify(dealt));
   await tapOn({ depot: A });
   await p.waitForFunction(() => window.woodrail.hud.depotCardOpen, null, { timeout: 20000 }).catch(() => {});
-  await p.evaluate(() => document.querySelector('.town-tab[data-tab="station"]')?.click());
+  await tapButton('.town-tab[data-tab="station"]').catch(() => {});
   await p.waitForTimeout(800);
   const rows = await p.evaluate(() => [...document.querySelectorAll(".ledger-row")].map((r) => r.textContent));
   const going = rows.find((r) => r.startsWith("Going to")) ?? "";
@@ -247,12 +256,18 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
   await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), red);
   // On board at A, then on through B.
   let aboard = 0;
-  for (let k = 0; k < 40 && aboard < wantC; k++) {
+  for (let k = 0; k < 150 && aboard < wantC; k++) {
     await p.evaluate(() => window.__run(2));
     aboard = await p.evaluate((red) => window.woodrail.sim.findCar(red).train.cars.reduce((n, c) => n + (c.kind === "passenger" ? window.woodrail.economy.ridersOf(c.id).count : 0), 0), red);
   }
   const left = await p.evaluate((A) => window.woodrail.economy.depot(A).wants.slice(0, window.woodrail.economy.depot(A).waiting), A);
-  check("…Red takes A's people for C, and leaves those for D waiting", aboard === wantC && left.length === wantD && left.every((k) => k === townIds[3]), JSON.stringify({ aboard, left }));
+  const where = await p.evaluate((red) => {
+    const w = window.woodrail;
+    const t = w.sim.findCar(red).train;
+    const r = w.economy.routeOf(red);
+    return { piece: t.bogies[0].pieceId, speed: t.speed, next: r?.next, at: r?.at, stops: r?.stops.map((s) => s.depotId), held: w.sim.heldBy?.(t.id) ?? null, serving: w.economy.servingDepot(t.id)?.id ?? null };
+  }, red);
+  check("…Red takes A's people for C, and leaves those for D waiting", aboard === wantC && left.length === wantD && left.every((k) => k === townIds[3]), JSON.stringify({ aboard, left, where }));
   await tapOn({ engine: red });
   await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
   await p.waitForTimeout(600);

@@ -57,7 +57,7 @@ describe("the town ledger (Game mode's town card)", () => {
     w.economy.deliveredGoods.set(town.id, { flour: 6 });
     expect(townLedger(w, d, ctx(["college"]))!.school).toEqual({ depotId: school.id, name: `${town.name} school`, note: "a college: learns 2× as fast · library wing" });
     d.waiting = 3;
-    expect(townLedger(w, d, ctx([], 12, 40))!.station).toEqual({ waiting: 3, room: 12, carried: 40 });
+    expect(townLedger(w, d, ctx([], 12, 40))!.station).toEqual({ waiting: 3, room: 12, carried: 40, to: "" });
     const other = w.economy.depotAtPiece(w.stations.get(w.landscape.towns[1].id)!)!;
     w.economy.lines.set(1, { id: 1, colour: "#c0392b", name: "Red line", stops: [{ depotId: d.id, action: "auto" }, { depotId: other.id, action: "auto" }] });
     w.economy.lines.set(2, { id: 2, colour: "#2f6db5", name: "Blue line", stops: [{ depotId: other.id, action: "auto" }] });
