@@ -253,7 +253,12 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
     return { toC: fareFor(w.world, w.economy.depot(A), w.economy.depot(C), coach), toB: fareFor(w.world, w.economy.depot(A), w.economy.depot(B), coach), coins: w.progress().coins };
   }, setup);
   check("…a fare to C is more than one to B (it's farther)", fares.toC > fares.toB, JSON.stringify(fares));
-  await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), red);
+  // Red set going by a tap on its card's Go.
+  await tapOn({ engine: red });
+  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
+  if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine: red });
+  await tapButton(".chip.go");
+  await p.keyboard.press("Escape");
   // On board at A, then on through B.
   let aboard = 0;
   for (let k = 0; k < 150 && aboard < wantC; k++) {
