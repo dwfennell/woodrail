@@ -180,24 +180,30 @@ const setup = await p.evaluate(async () => {
           // Red four pieces out of A toward B (clear of A's platform: a tap on A is a tap on A); Blue four pieces out
           // of D toward A, at the far end of its line, out of Red's way.
           for (const [from, end] of [[station(A), ab.i], [station(D), ad.j]]) {
-            let piece = from;
+            // (The pieces out from that end, in order; the train put on the first that takes it from the fourth on.)
+            const out = [];
             let ref = connectorRef(from, end);
-            for (let k = 0; k < 4; k++) {
+            for (let k = 0; k < 12; k++) {
               const next = w.layout.joinedConnector(ref);
               if (next === -1) break;
-              piece = pieceOfRef(next);
+              const piece = pieceOfRef(next);
+              out.push(piece);
               const other = [0, 1].map((i) => connectorRef(piece, i)).find((r) => r !== next);
               if (other === undefined) break;
               ref = other;
             }
             let engine = -1;
-            for (const s of [10, 40, 80]) {
-              const r = w.sim.addTrain(["engine", "passenger", "passenger"], { pieceId: piece, pathIndex: 0, reversed: false, s });
-              if (r.kind === "placed") {
-                engine = w.sim.getTrain(r.trainId).cars[0].id;
-                w.sim.setLever(engine, 0);
-                break;
-              }
+            for (const piece of [...out.slice(3), ...out.slice(0, 3)]) {
+              for (const reversed of [false, true])
+                for (const s of [10, 40, 80, 120]) {
+                  if (engine !== -1) break;
+                  const r = w.sim.addTrain(["engine", "passenger", "passenger"], { pieceId: piece, pathIndex: 0, reversed, s });
+                  if (r.kind === "placed") {
+                    engine = w.sim.getTrain(r.trainId).cars[0].id;
+                    w.sim.setLever(engine, 0);
+                  }
+                }
+              if (engine !== -1) break;
             }
             trains.push(engine);
           }
