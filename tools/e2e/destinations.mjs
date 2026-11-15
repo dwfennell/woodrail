@@ -178,12 +178,12 @@ const setup = await p.evaluate(async () => {
           // A coach train a few pieces out of each end of A's station.
           const trains = [];
           // Red four pieces out of A toward B (clear of A's platform: a tap on A is a tap on A); Blue four pieces out
-          // of D toward A, at the far end of its line, out of Red's way.
-          for (const [from, end] of [[station(A), ab.i], [station(D), ad.j]]) {
+          // out of D toward A (walked from A to D's end of the line), out of Red's way.
+          for (const [from, end, nearEnd] of [[station(A), ab.i, false], [station(A), 1 - ab.i, true]]) {
             // (The pieces out from that end, in order; the train put on the first that takes it from the fourth on.)
             const out = [];
             let ref = connectorRef(from, end);
-            for (let k = 0; k < 12; k++) {
+            for (let k = 0; k < 400; k++) {
               const next = w.layout.joinedConnector(ref);
               if (next === -1) break;
               const piece = pieceOfRef(next);
@@ -193,7 +193,9 @@ const setup = await p.evaluate(async () => {
               ref = other;
             }
             let engine = -1;
-            for (const piece of [...out.slice(3), ...out.slice(0, 3)]) {
+            // (Blue: walked all the way out to D, put down on the pieces nearest it.)
+            const tries = nearEnd ? out.slice(0, -1).reverse().slice(3) : [...out.slice(3), ...out.slice(0, 3)];
+            for (const piece of tries) {
               for (const reversed of [false, true])
                 for (const s of [10, 40, 80, 120]) {
                   if (engine !== -1) break;
