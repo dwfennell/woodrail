@@ -60,7 +60,7 @@ export const landscapeSchema = z.object({
       upgraded: z.enum(["kit-two-platform-station", "kit-grand-terminus", "kit-grand-central-1", "kit-grand-central-2", "kit-grand-central-3"]).optional(),
     }),
   ),
-  depots: z.array(z.object({ id, kind: z.enum(["forest", "sawmill"]), centre: point, piece: pose })),
+  depots: z.array(z.object({ id, kind: z.enum(["forest", "sawmill"]), centre: point, piece: pose, moved: z.literal(true).optional() })),
   fields: z.array(z.object({ id, cells, animal: z.enum(FIELD_STOCK) })),
   shed: z.object({ cells, x: z.number().finite(), z: z.number().finite(), heading: z.number().finite() }).nullable(),
   corridors: cells,
