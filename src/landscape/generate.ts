@@ -88,6 +88,11 @@ export interface Depot {
   centre: { x: number; z: number };
   /** Pose of the depot piece's origin (its socket end). */
   piece: Pose;
+  /**
+   * Moved by the player (the starter map's lumber yard and sawmill may be: `movableMapDepot`): its squares given up,
+   * `centre` and `piece` following its piece (`syncMapDepots`).
+   */
+  moved?: true;
 }
 
 /** The industries whose old yards stand on the map (see `MapSite`). */

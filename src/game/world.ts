@@ -8,6 +8,7 @@ import {
   adoptRegion,
   CELL,
   FEAT_BUILDING,
+  FEAT_DEPOT,
   FEAT_FIELD,
   FEAT_NONE,
   FEAT_RUIN,
@@ -392,6 +393,67 @@ export function fixedPieces(w: Pick<World, "stations" | "depots" | "ruins"> & { 
   const out = new Set([...w.stations.values(), ...w.depots.values(), ...w.ruins.values()]);
   if (w.layout) for (const id of w.layout.pieceIds()) if (isSecretKit(w.layout.getPiece(id)!.type)) out.add(id);
   return out;
+}
+
+/**
+ * The starter map's own lumber yard and sawmill (its first two depots, made with its start): the player may pick them
+ * up and put them down elsewhere, as an industry they placed. They stay the map's own (not counted as the player's,
+ * never put back in the box: `world.depots` keeps them); other maps' depots, and the plots' bought later, stay put.
+ */
+export const STARTER_DEPOTS = 2;
+export function movableMapDepot(land: Landscape, depotId: number): boolean {
+  return !!land.starter && depotId >= 0 && depotId < STARTER_DEPOTS && !!land.depots[depotId];
+}
+
+/**
+ * A movable map depot (`movableMapDepot`) picked up for the first time: its squares on the map (`FEAT_DEPOT`) are given
+ * up, so it's moved by a placed industry's rules (its yard where its piece is, `placedYard`) from now on, and it's
+ * marked `moved` (saved). False if it was freed already, or isn't movable. Not undone: put back, it stands as a placed
+ * industry would.
+ */
+export function freeMapDepot(land: Landscape, depotId: number): boolean {
+  const depot = land.depots[depotId];
+  if (!depot || depot.moved || !movableMapDepot(land, depotId)) return false;
+  depot.moved = true;
+  const g = land.grid;
+  const slots = new Set<number>();
+  g.forEachCell((i) => {
+    if (g.feature[i] !== FEAT_DEPOT || g.owner[i] !== depotId) return;
+    g.feature[i] = FEAT_NONE;
+    g.owner[i] = -1;
+    slots.add(plotSlotOf(i));
+  });
+  for (const s of slots) g.touch(s);
+  return true;
+}
+
+/** Is this piece a map depot that has left its squares (`freeMapDepot`): placed by the rules of the player's own? */
+export function movedMapDepotPiece(w: Pick<World, "depots" | "landscape">, pieceId: number): boolean {
+  for (const [depotId, id] of w.depots) if (id === pieceId) return !!w.landscape.depots[depotId]?.moved;
+  return false;
+}
+
+/**
+ * The map's depots' records follow their pieces (one moved by the player: `movableMapDepot`): its piece pose, and its
+ * centre the same way along it. A save finds the piece where its record says; roads, markers and goals read them.
+ * Cheap: a look at each map depot.
+ */
+export function syncMapDepots(w: Pick<World, "depots" | "landscape" | "layout">): void {
+  for (const [depotId, pieceId] of w.depots) {
+    const d = w.landscape.depots[depotId];
+    const p = w.layout.getPiece(pieceId);
+    if (!d?.moved || !p) continue;
+    const was = d.piece;
+    if (was.x === p.pose.x && was.z === p.pose.z && was.heading === p.pose.heading) continue;
+    // (The centre's offset from the piece's origin, in the piece's own frame, turned to its new heading.)
+    const dx = d.centre.x - was.x;
+    const dz = d.centre.z - was.z;
+    const turn = p.pose.heading - was.heading;
+    const c = Math.cos(turn);
+    const s = Math.sin(turn);
+    d.centre = { x: p.pose.x + dx * c - dz * s, z: p.pose.z + dx * s + dz * c };
+    d.piece = { x: p.pose.x, z: p.pose.z, heading: p.pose.heading };
+  }
 }
 
 /** Where a town station's goods crane stops wagons: near its socket end, by the plank pile. */

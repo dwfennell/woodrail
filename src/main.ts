@@ -10,7 +10,7 @@ import { viewRoom } from "./ui/view-room";
 import { stopDrag } from "./ui/route-drag";
 import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, createWorld, freshGameWorld, landForSale, newMapSeed, plotsForSale } from "./game/world";
+import { buildStarterWorld, createWorld, freshGameWorld, landForSale, newMapSeed, plotsForSale, syncMapDepots } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
 import { connectedPairs, mapSettingsOf, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
@@ -1422,6 +1422,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function onChange(): void {
+    // (The starter map's lumber yard or sawmill, moved: its record follows it, for roads, markers and goals.)
+    syncMapDepots(game.world);
     // Track laid to a secret finds it: its halt is laid, a stop from now on (src/game/secrets.ts).
     secrets?.trackChanged();
     game.trackChanged();

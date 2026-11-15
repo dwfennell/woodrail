@@ -34,7 +34,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
 import { pointsSetFor } from "./engine-status";
-import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
+import { DEPOT_NAMES, depotName, freeMapDepot, INDUSTRY_ROLE, movableMapDepot } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
 import { haltName, secretAt, secretOfPiece } from "./secrets";
 import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
@@ -2314,8 +2314,8 @@ export class Interaction {
       this.game.controls.enabled = true;
       return false;
     };
-    // Stations and depots are part of the map and stay put.
-    if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId)) return idle();
+    // Stations and depots are part of the map and stay put (but the starter map's lumber yard and sawmill: `movableMapDepot`).
+    if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId) && !this.movesAsPlaced(m.press.pieceId)) return idle();
     // Track with a train on it stays put: lifted, it would derail the train (a turntable carrying an engine, say).
     const lifts = m.press.kind === "piece" ? (this.picking ? (this.picked.has(m.press.pieceId) ? this.pickedWithRisers() : []) : [m.press.pieceId]) : m.press.kind === "depot" ? [this.movableIndustry(m.press.depotId)] : [];
     if (lifts.some((id) => id !== -1 && this.game.sim.pieceOccupied(id))) {
@@ -2373,7 +2373,7 @@ export class Interaction {
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
     // (But a town's house, which no line is drawn from, lifts as it does with drawing off.)
     if (this.drawing && !branch && !house) return;
-    if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
+    if (m.press.kind === "piece" && (this.picking || (this.fixedLabel(m.press.pieceId) && !this.movesAsPlaced(m.press.pieceId)))) return;
     if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };
     this.holdFrom = t;
@@ -3798,7 +3798,7 @@ export class Interaction {
     // (A metro stop's footprint is its entrance, up on a town's green or street: its own rule, `metroTown`.)
     if (!hasFootprint(type) || type === METRO_KIT) return null;
     const own = typeof ignoreId === "number" ? ignoreId : (ignoreId.values().next().value ?? -1);
-    if (own !== -1 && this.fixedLabel(own) !== null) return null;
+    if (own !== -1 && this.fixedLabel(own) !== null && !this.movesAsPlaced(own)) return null;
     const g = this.game;
     const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
     const key = `${type}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${g.layout.pieceCount}|${g.landscape.grid.revision}|${g.props.version}`;
@@ -3847,8 +3847,12 @@ export class Interaction {
       if (!p || layout.isLifted(id)) continue;
       key += `k${id}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y};`;
     }
+    // (The map's own depots have their squares on the map, but one moved: its yard is with the player's, by its piece.)
+    let moved = 0;
+    for (const d of g.landscape.depots) if (d.moved) moved++;
+    key += `m${moved}`;
     if (this.yardsFor?.key === key) return this.yardsFor.yards;
-    const fixed = new Set(g.depots.values());
+    const fixed = new Set([...g.depots].filter(([depotId]) => !g.landscape.depots[depotId]?.moved).map(([, id]) => id));
     const yards: PlacedYard[] = [];
     for (const d of g.economy.allDepots()) {
       const p = layout.getPiece(d.pieceId);
@@ -4121,12 +4125,30 @@ export class Interaction {
     return m.covers ? new Set([m.pieceId, ...m.covers]) : m.pieceId;
   }
 
-  /** The piece of an industry you placed (a drag on its yard or buildings moves it), or −1 (a map's own depot). */
+  /**
+   * The piece of an industry you placed, or the starter map's lumber yard or sawmill (a drag on its yard or buildings
+   * moves it), or −1 (another map's own depot).
+   */
   private movableIndustry(depotId: number): number {
     const d = this.game.economy.depot(depotId);
     const p = d && this.game.layout.getPiece(d.pieceId);
-    if (!d || !p || !INDUSTRY_ROLE[p.type] || this.fixedLabel(d.pieceId) || this.game.sim.pieceOccupied(d.pieceId)) return -1;
+    if (!d || !p || !INDUSTRY_ROLE[p.type] || (this.fixedLabel(d.pieceId) && !this.movesAsPlaced(d.pieceId)) || this.game.sim.pieceOccupied(d.pieceId)) return -1;
     return d.pieceId;
+  }
+
+  /** The map depot (`Landscape.depots` id) on this piece, or −1. */
+  private mapDepotOf(pieceId: number): number {
+    for (const [depotId, id] of this.game.depots) if (id === pieceId) return depotId;
+    return -1;
+  }
+
+  /**
+   * Is this one of the map's own depots that moves as an industry you placed (the starter map's lumber yard and
+   * sawmill: `movableMapDepot`)? Still the map's own otherwise: not picked with others, nor put back in the box.
+   */
+  private movesAsPlaced(pieceId: number): boolean {
+    const id = this.mapDepotOf(pieceId);
+    return id !== -1 && movableMapDepot(this.game.landscape, id);
   }
 
   /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
@@ -4777,6 +4799,9 @@ export class Interaction {
     this.hud.hideCards();
     const from = { pose: { ...p.pose }, y: p.y };
     const leaves = this.splices(p.type) ? this.inlineEnds(pieceId) : null;
+    // The starter map's lumber yard or sawmill, picked up the first time: it gives up its squares on the map, and is
+    // put down by a placed industry's rules from now on (`freeMapDepot`).
+    if (this.movesAsPlaced(pieceId)) freeMapDepot(this.game.landscape, this.mapDepotOf(pieceId));
     layout.liftPiece(pieceId);
     // An industry's yard goes up with it (drawn in the hand, not where it stood).
     if (INDUSTRY_ROLE[p.type]) this.game.depotView.syncSites(this.game.economy, layout);
@@ -5289,7 +5314,13 @@ export class Interaction {
     // it's going down, see-through red when it's refused.
     const refused = final !== null || m.overTray;
     mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone];
-    switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
+    let outcome = dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew });
+    // (The map's own lumber yard or sawmill, moved, doesn't go in the box: it floats back to where it was.)
+    if (outcome === "delete" && this.mapDepotOf(m.pieceId) !== -1) {
+      this.hud.toast(`The ${DEPOT_NAMES[m.type === "depot-forest" ? "forest" : "sawmill"].toLowerCase()} came with the map: it can't go in the box`);
+      outcome = "return";
+    }
+    switch (outcome) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
         const covers = m.covers;

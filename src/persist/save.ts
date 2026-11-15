@@ -1,7 +1,7 @@
 import { saveSchemas } from "./schemas";
 import { MAX_RIDERS, MAX_SAVED_SPEED, SAVE_VERSION } from "./save-limits";
 import { err, ok, type Result } from "../lib/result";
-import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, INDUSTRY_ROLE, RUIN_STUB, STATION_CRANE_AT, type World } from "../game/world";
+import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, INDUSTRY_ROLE, RUIN_STUB, STATION_CRANE_AT, syncMapDepots, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
@@ -97,6 +97,8 @@ function savedStops(stops: readonly RouteStopDef[], renumbered: ReadonlyMap<numb
 
 export function serializeWorld(world: World): SaveData {
   const { layout, sim } = world;
+  // (A map depot the player moved is saved where it stands now: it's found there as the save loads.)
+  syncMapDepots(world);
   const pieces: SaveData["pieces"] = [];
   const switches: SaveData["switches"] = [];
   for (const id of layout.pieceIds()) {
