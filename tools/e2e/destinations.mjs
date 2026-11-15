@@ -274,10 +274,12 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
     return { toC: fareFor(w.world, w.economy.depot(A), w.economy.depot(C), coach), toB: fareFor(w.world, w.economy.depot(A), w.economy.depot(B), coach), coins: w.progress().coins };
   }, setup);
   check("…a fare to C is more than one to B (it's farther)", fares.toC > fares.toB, JSON.stringify(fares));
-  // Red set going by a tap on its card's Go.
-  await openEngine(red);
-  await tapButton(".chip.go");
-  await p.keyboard.press("Escape");
+  // Both set going by a tap on their cards' Go (Blue too: standing, it would hold Red, as a parked train does).
+  for (const e of [blue, red]) {
+    await openEngine(e);
+    await tapButton(".chip.go");
+    await p.keyboard.press("Escape");
+  }
   // On board at A, then on through B.
   let aboard = 0;
   for (let k = 0; k < 150 && aboard < wantC; k++) {
@@ -293,7 +295,8 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
     const trains = [...w.sim.trains()].map((x) => ({ id: x.id, cars: x.cars.map((c) => `${c.kind}${c.id}:${c.lever}`).join(","), pieces: x.bogies.map((b) => b.pieceId).join(","), speed: x.speed }));
     return { piece: t.bogies[0].pieceId, speed: t.speed, next: r?.next, at: r?.at, stops: r?.stops.map((s) => s.depotId), serving: w.economy.servingDepot(t.id)?.id ?? null, stations, trains, depots: [A, B, C, D].map((id) => w.economy.depot(id).pieceId) };
   }, setup);
-  check("…Red takes A's people for C, and leaves those for D waiting", aboard === wantC && left.length === wantD && left.every((k) => k === townIds[3]), JSON.stringify({ aboard, left, where }));
+  // (Blue may have taken some of D's by now: those left are all for D.)
+  check("…Red takes A's people for C, and leaves those for D to Blue", aboard === wantC && left.every((k) => k === townIds[3]), JSON.stringify({ aboard, left, where }));
   await openEngine(red);
   await p.waitForTimeout(600);
   const load = await p.evaluate(() => document.querySelector(".summary-load")?.textContent ?? "");
