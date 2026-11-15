@@ -311,7 +311,7 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
   await openEngine(red);
   await p.waitForTimeout(600);
   const load = await p.evaluate(() => document.querySelector(".summary-load")?.textContent ?? "");
-  check("…Red's card says where its riders are going", load.includes(`to ${nameC} ${forC}`), load);
+  check("…Red's card says where its riders are going", load.includes(`${forC} to ${nameC}`), load);
   await shot("2-train-card-riders-to");
   await p.keyboard.press("Escape");
   // (People turning up at B and C meanwhile: kept off for now, one thing at a time.)

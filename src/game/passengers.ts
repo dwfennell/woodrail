@@ -336,10 +336,14 @@ export function drawsWords(town: Town): string | null {
   return names.length > 0 ? names.join(", ") : null;
 }
 
-/** Where these coaches' riders are going, as words ("Ashby 3 · Brook 1"); empty when none say (they want anywhere). */
+/**
+ * Where these coaches' riders are going, as words ("Ashby 3 · Brook 1"; one place alone, just its name, the count being
+ * said beside it already); empty when none say (they want anywhere).
+ */
 export function ridersTo(world: World, coaches: readonly number[]): string {
   const by = new Map<number, number>();
   for (const id of coaches) for (const [k, n] of world.economy.ridersByPlace(id)) by.set(k, (by.get(k) ?? 0) + n);
-  by.delete(ANYWHERE);
+  const anywhere = by.delete(ANYWHERE);
+  if (by.size === 1 && !anywhere) return placeName(world, [...by.keys()][0]);
   return placesWords(world, by);
 }
