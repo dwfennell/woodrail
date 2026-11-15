@@ -208,6 +208,18 @@ export function recolourLine(economy: Economy, id: number, colour: string): void
 }
 
 /**
+ * The player takes this train off its line (its card's Leave line, or the line sheet's Take off): it runs no line now,
+ * hand-run, and stands where it is (once clear of points: it never stands on them, `stopClearOfPoints`). The line stays,
+ * run by its other trains or none ("No trains" in the Lines list). False if it ran no line.
+ */
+export function takeOffLine(economy: Economy, engineCarId: number): boolean {
+  if (!economy.lineIdOf.has(engineCarId)) return false;
+  stopLine(economy, engineCarId);
+  economy.stopClearOfPoints(engineCarId);
+  return true;
+}
+
+/**
  * This engine runs no line now (goes anywhere, works at every stop). Its line stays, run by no train if this was its
  * last (the Lines list shows it, to put a train on again), but for a transient one (a call home), which is forgotten.
  */

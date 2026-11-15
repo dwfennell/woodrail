@@ -58,7 +58,7 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
-import { createLine, deleteLine, editLine, editLineById, isRingLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, stopLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { createLine, deleteLine, editLine, editLineById, isRingLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
 import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui/line-sheet";
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
@@ -4216,6 +4216,32 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * lines, from a snapshot before and after (`snapshotLines`); undone, the lines go back and a train that hasn't run on
    * since heads where it did before (`restoreLines`). Nothing recorded if nothing changed.
    */
+  /**
+   * Take this train off its line, by the player (the card's Leave line, the sheet's Take off): hand-run now, standing
+   * where it is once clear of points (`takeOffLine`); the line kept with its other trains. One undo step: undone, it's
+   * on the line again and on its way as it was (its lever back, if it's still standing); redone, it stops again.
+   */
+  function takeTrainOff(engine: number): void {
+    const line = lineOf(game.economy, engine);
+    if (!line) return;
+    // (Each engine's lever as it was: put back on undo, where the train's still standing.)
+    const levers = new Map<number, -1 | 0 | 1>();
+    for (const car of game.sim.findCar(engine)?.train.cars ?? []) if (car.kind === "engine") levers.set(car.id, car.lever);
+    routeEdit(
+      () => takeOffLine(game.economy, engine),
+      () => {
+        const at = game.sim.findCar(engine);
+        if (!at) return;
+        if (game.economy.lineIdOf.has(engine)) {
+          game.economy.stopsClear.delete(engine);
+          if (at.train.cars.every((c) => c.kind !== "engine" || c.lever === 0)) for (const car of at.train.cars) if (car.kind === "engine") game.sim.setLever(car.id, levers.get(car.id) ?? 0);
+        } else game.economy.stopClearOfPoints(engine);
+        linesChanged();
+      },
+    );
+    hud.toast(`${game.sim.nameOf(engine)} is off ${line.name}, stopped and run by hand (Undo puts it back)`, false, 3000);
+    linesChanged();
+  }
   function routeEdit(change: () => void, then?: () => void): void {
     const before = snapshotLines(game.economy);
     change();
@@ -4399,11 +4425,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (at) frameInRoom([at, at.clone().add(new Vector3(200, 0, 200))], 600);
     },
     takeOff: (engine) => {
-      const line = game.economy.lines.get(sheetLine);
-      routeEdit(() => stopLine(game.economy, engine));
-      if (line) hud.toast(`${game.sim.nameOf(engine)} is off ${line.name}: it goes anywhere now`, false, 2500);
+      takeTrainOff(engine);
       // (The sheet stays its card's, if it came from one: Done goes back to that card.)
-      linesChanged();
       showSheet();
     },
     addTrain: (engine) => {
@@ -5355,8 +5378,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       any.textContent = "Goes anywhere, works at every stop";
       head.append(any);
     }
+    // Leave line: the train leaves its line (it stops, hand-run; the line runs on with its other trains). Beside Edit,
+    // where a player looks for it (it was only in the sheet's Trains tab). The two keep together: a name too long for
+    // the row keeps its words, and they go under it.
+    const tools = document.createElement("span");
+    tools.className = "route-head-tools";
+    if (line && !planning)
+      tools.append(
+        button("Leave line", "route-leave route-off", `Take this train off ${line.name}: it stops and is run by hand; the line stays`, () => {
+          takeTrainOff(carId);
+          showRoute();
+          routeChanged();
+          scheduleSave();
+        }),
+      );
     // Edit (or Plan a route): the line sheet, where its stops and trains are changed (and a train taken off it).
-    head.append(button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)));
+    tools.append(button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots to add them as stops, in order (and track, to go that way)", () => setPlanning(true)));
+    head.append(tools);
     box.append(head);
     // "Run a line…" tapped: the lines it can reach, at most `JOIN_SHOWN`, nearest first; the rest in the Lines list.
     if (!line && !planning && joinOpen === carId && reach.length > 0) {
