@@ -34,6 +34,8 @@ export interface SummaryCar {
   cargo?: CargoKind | null;
   /** A wagon's goods, or a coach's riders. */
   count?: number;
+  /** Where a coach's riders are going, as words ("Ashby 3 · Brook 1"; spec 2026-11-15-passenger-destinations.md). */
+  to?: string;
 }
 
 /**
@@ -42,12 +44,14 @@ export interface SummaryCar {
  *   left out when there's none, or its name is too long);
  * - `load`: what's on board, by good in cargo order then riders: "🪵 12 · \uE000 4 · 🧑 3", or "Empty" (no cars: "").
  */
-export function trainSummary(cars: readonly SummaryCar[], speed: number, line: string): { about: string; load: string } {
+export function trainSummary(cars: readonly SummaryCar[], speed: number, line: string, to = ""): { about: string; load: string } {
   const n = cars.filter((c) => c.kind !== "engine").length;
   const about = [n === 1 ? "1 car" : `${n} cars`];
   if (speed > 0) about.push(speedWord(speed));
   if (line && line.length <= SUMMARY_LINE_NAME) about.push(line);
-  return { about: about.join(" · "), load: n === 0 ? "" : loadWords(cars) };
+  // (`to`: where its riders are going, all its coaches': "🧑 5 to Ashby 3 · Brook 2".)
+  const load = n === 0 ? "" : loadWords(cars);
+  return { about: about.join(" · "), load: to && load !== "Empty" ? `${load} to ${to}` : load };
 }
 
 /** What a train carries: "🪵 12 · \uE000 4 · 🧑 3", at most `LOAD_KINDS_SHOWN` kinds then "+n more"; "Empty". */
@@ -67,7 +71,7 @@ export function loadWords(cars: readonly SummaryCar[]): string {
 
 /** A wagon's card: "🪵 Logs: 6 of 8", "Empty (carries logs, planks, iron)"; a coach: "🧑 3 of 6 seats". */
 export function carLoadWords(car: SummaryCar, room: number, carries: readonly CargoKind[] = []): string {
-  if (car.kind === "coach") return `${RIDER_ICON} ${car.count ?? 0} of ${room} seats`;
+  if (car.kind === "coach") return `${RIDER_ICON} ${car.count ?? 0} of ${room} seats${car.to ? ` · to ${car.to}` : ""}`;
   if (!car.cargo || !car.count) {
     const what = carries.map((k) => CARGO[k].label.toLowerCase());
     return what.length ? `Empty (carries ${what.join(", ")})` : "Empty";

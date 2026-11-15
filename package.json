@@ -82,6 +82,7 @@
     "e2e:sandbox-chains": "node scripts/e2e/lib/run.mjs tools/e2e/sandbox-chains.mjs",
     "e2e:life": "node scripts/e2e/lib/run.mjs tools/e2e/life.mjs",
     "e2e:airport": "node scripts/e2e/lib/run.mjs tools/e2e/airport.mjs",
+    "e2e:destinations": "node scripts/e2e/lib/run.mjs tools/e2e/destinations.mjs",
     "e2e:airship": "node scripts/e2e/lib/run.mjs tools/e2e/airship.mjs",
     "e2e:circus": "node scripts/e2e/lib/run.mjs tools/e2e/circus.mjs",
     "e2e:grand": "node scripts/e2e/lib/run.mjs tools/e2e/grand.mjs",

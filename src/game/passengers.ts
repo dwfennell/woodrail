@@ -1,16 +1,18 @@
-import type { DepotState } from "../economy";
+import { ANYWHERE, type DepotState } from "../economy";
 import type { CarLook } from "../sim";
 import { VISITOR_BONUS } from "./airports";
 import { circusFare, circusRiders } from "./circus";
-import { isBridge, OBSERVATORY_KIT, RISER_HEIGHT } from "../track";
+import { isBridge, isSecretKit, OBSERVATORY_KIT, RISER_HEIGHT } from "../track";
 import { CELL } from "../landscape/grid";
 import type { Progress } from "./progress";
 import { statusOf } from "./town-life";
 import type { World } from "./world";
-import { noteTrip } from "./secrets";
-import { visitorFactor } from "./places";
+import type { Town } from "../landscape";
+import { noteTrip, secretName, secretOfStop } from "./secrets";
+import { placeOf, townPlaces, visitorFactor } from "./places";
 import { METRO_QUARTERS, METRO_SLOWER } from "./metro";
-import { hubFare } from "./grand";
+import { grandDone, hubFare } from "./grand";
+
 
 /**
  * Game mode's passengers: people wait at each town's station, more the bigger the town; coaches carry them to another
@@ -116,6 +118,51 @@ export function peopleArrive(world: World, p: Progress, seconds: number, clock: 
     // (A quarter's clock is keyed by its depot: −2 − its id, apart from the towns' own.)
     for (const d of list.slice(0, METRO_QUARTERS)) arrive(-2 - d.id, [d], every);
   }
+  // Where they want to go: the places the lines take them to, dealt by pull (newcomers, and anyone whose place no line
+  // goes to now). Spec 2026-11-15-passenger-destinations.md.
+  world.economy.refreshReach();
+}
+
+/** A town's pull grows this much for each place standing in it (a town hall, a park, a fountain…), up to `PLACES_PULL_MAX`. */
+export const PLACE_PULL = 0.1;
+export const PLACES_PULL_MAX = 0.5;
+/** A lookout halt's pull, against a hamlet's 1. */
+export const LOOKOUT_PULL = 2;
+/** An observatory's, a found secret's, an airport's and an airship mast's pull. */
+export const SIGHT_PULL = 3;
+/** A town with a finished grand project draws this many times as many. */
+export const GRAND_PULL = 1.5;
+
+/**
+ * How strongly a place draws people (spec 2026-11-15-passenger-destinations.md): a town by its size, the places standing
+ * in it, its visitors now (`month`), the circus and a finished grand project; a lookout, an observatory, a found secret,
+ * an airport and a mast by what they are; a metro quarter as its town's size. Distance plays no part. Cheap (a town's
+ * buildings); called as people are dealt places.
+ */
+export function placePull(world: World, p: Progress, key: number, month?: number): number {
+  if (key >= 0) {
+    const town = world.landscape?.towns.find((t) => t.id === key);
+    if (!town) return 1;
+    let pull = 1 + statusOf(world, key).level;
+    pull *= 1 + Math.min(PLACES_PULL_MAX, PLACE_PULL * townPlaces(town).size);
+    pull *= visitorFactor(town, month);
+    pull *= circusRiders(p, key);
+    for (const [id, plan] of world.economy.grandPlans)
+      if (plan.townId === key && grandDone(id, plan)) {
+        pull *= GRAND_PULL;
+        break;
+      }
+    return pull;
+  }
+  const d = world.economy.depot(-2 - key);
+  if (!d) return 1;
+  if (d.role === "airport" || d.role === "mast") return SIGHT_PULL;
+  if (world.economy.isLookout(d)) {
+    const type = world.layout.getPiece(d.pieceId)?.type;
+    return type === OBSERVATORY_KIT || (!!type && isSecretKit(type)) ? SIGHT_PULL : LOOKOUT_PULL;
+  }
+  // (A metro quarter: its town's size.)
+  return 1 + statusOf(world, d.townId).level;
 }
 
 /** Seats in a car by its look, in Game mode (only coaches have any). */
@@ -219,6 +266,7 @@ export function payFare(world: World, p: Progress, from: DepotState, to: DepotSt
 /** Put Game mode's passengers into the world's economy (seats and fares). */
 export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void, month?: () => number, year?: () => number): void {
   world.economy.seatsOf = (carId) => seatsIn(world, carId);
+  world.economy.pullOf = (key) => placePull(world, p(), key, month?.());
   world.economy.onAlight = (from, to, carId) => {
     const fare = payFare(world, p(), from, to, carId, month?.(), year?.());
     paid?.(fare, from, to);
@@ -228,5 +276,70 @@ export function attachPassengers(world: World, p: () => Progress, paid?: (fare: 
 /** Back to Sandbox: coaches carry no one. */
 export function detachPassengers(world: World): void {
   world.economy.seatsOf = null;
+  world.economy.pullOf = null;
   world.economy.onAlight = null;
+}
+
+/**
+ * A place's name for the cards (spec 2026-11-15-passenger-destinations.md): a town's name; "🔭 Observatory", a found
+ * secret's name, "⛰️ Lookout", "✈️ Airport", "🎈 Airship", a metro stop's "Ⓜ️ <town>"; "anywhere".
+ */
+export function placeName(world: World, key: number): string {
+  if (key === ANYWHERE) return "anywhere";
+  if (key >= 0) return world.landscape?.towns.find((t) => t.id === key)?.name ?? "a town";
+  const d = world.economy.depot(-2 - key);
+  if (!d) return "a town";
+  if (d.role === "airport") return "✈️ Airport";
+  if (d.role === "mast") return "🎈 Airship";
+  const town = world.landscape?.towns.find((t) => t.id === d.townId)?.name ?? "";
+  if (world.economy.isLookout(d)) {
+    const type = world.layout.getPiece(d.pieceId)?.type;
+    if (type === OBSERVATORY_KIT) return "🔭 Observatory";
+    const site = secretOfStop(world, d);
+    return site ? secretName(site) : "⛰️ Lookout";
+  }
+  return `Ⓜ️ ${town}`;
+}
+
+/** Most places named on a card's row; the rest are "+n more". */
+export const PLACES_SHOWN = 4;
+
+/**
+ * Counts by place as words, the most first (then by name): "Ashby 3 · Brook 2 · +1 more". Empty for none.
+ */
+export function placesWords(world: World, counts: ReadonlyMap<number, number>): string {
+  const rows = [...counts].filter(([, n]) => n > 0).map(([k, n]) => [placeName(world, k), n] as const);
+  rows.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const shown = rows.slice(0, PLACES_SHOWN).map(([name, n]) => `${name} ${n}`);
+  if (rows.length > PLACES_SHOWN) shown.push(`+${rows.length - PLACES_SHOWN} more`);
+  return shown.join(" · ");
+}
+
+/** Who's waiting at a town's stops (its station and halts, not a metro quarter), by place. */
+export function waitingByPlace(world: World, townId: number): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const d of world.economy.allDepots()) {
+    if (d.role !== "town" || d.townId !== townId || world.economy.isMetro(d) || world.economy.isLookout(d)) continue;
+    world.economy.dealPlaces(d);
+    for (let i = 0; i < d.waiting; i++) out.set(d.wants[i], (out.get(d.wants[i]) ?? 0) + 1);
+  }
+  return out;
+}
+
+/** What draws people to a town, for its card: its places standing that aren't treats ("🖼️ Museum, 🌳 Park"); null for none. */
+export function drawsWords(town: Town): string | null {
+  const names: string[] = [];
+  for (const id of townPlaces(town)) {
+    const place = placeOf(id);
+    if (place && place.kind !== "treat") names.push(`${place.icon} ${place.name}`);
+  }
+  return names.length > 0 ? names.join(", ") : null;
+}
+
+/** Where these coaches' riders are going, as words ("Ashby 3 · Brook 1"); empty when none say (they want anywhere). */
+export function ridersTo(world: World, coaches: readonly number[]): string {
+  const by = new Map<number, number>();
+  for (const id of coaches) for (const [k, n] of world.economy.ridersByPlace(id)) by.set(k, (by.get(k) ?? 0) + n);
+  by.delete(ANYWHERE);
+  return placesWords(world, by);
 }

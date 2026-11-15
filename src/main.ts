@@ -101,7 +101,7 @@ import { CARGO, CARGO_KINDS, CARRIES, COIN_ICON } from "./economy/cargo";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, lighthouseNear, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, COLLEGE_SCHOOL_ID, describeNeed as describeNeedWords, needTag, RENAMED, SCHOOL_NEED, UNIVERSITY_SCHOOL_ID, type Need } from "./game/blueprints";
-import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
+import { attachPassengers, detachPassengers, peopleArrive, ridersTo, waitingCap } from "./game/passengers";
 import { ledgerKey, townLedger, type LedgerContext, type TownLedger } from "./game/town-ledger";
 import { drawLedger, type NextUpView, type TownTabView } from "./ui/town-ledger";
 import { nextUp, type NextUp, type TownTab } from "./game/town-next";
@@ -5197,7 +5197,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let summaryKey = "";
   const summaryCar = (c: { id: number; kind: string }): SummaryCar => {
     if (c.kind === "engine") return { kind: "engine" };
-    if (c.kind === "passenger") return { kind: "coach", count: game.economy.ridersOf(c.id).count };
+    if (c.kind === "passenger") {
+      const r = game.economy.ridersOf(c.id);
+      const to = r.count > 0 && mode === "game" ? ridersTo(game.world, [c.id]) : "";
+      return to ? { kind: "coach", count: r.count, to } : { kind: "coach", count: r.count };
+    }
     const cargo = game.economy.cargoOf(c.id);
     return { kind: "wagon", cargo: cargo.kind, count: cargo.count };
   };
@@ -5219,7 +5223,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const l = engineLoad(game.world, found.train);
       const speed = mode !== "game" ? 1 : l.cars > l.pulls || l.engines.length === 0 ? 0 : Math.min(...l.engines.map((e) => e.speed));
       // (Its line's name isn't said again where the card's route section says it.)
-      const s = trainSummary(cars.map(summaryCar), speed, mode === "sandbox" || progress.learned.has("routes") ? "" : (line?.name ?? ""));
+      const s = trainSummary(cars.map(summaryCar), speed, mode === "sandbox" || progress.learned.has("routes") ? "" : (line?.name ?? ""), mode === "game" ? ridersTo(game.world, cars.filter((c) => c.kind === "passenger").map((c) => c.id)) : "");
       hud.setEngineSummary(s.about, s.load);
       hud.setCarGoods(null);
     } else {

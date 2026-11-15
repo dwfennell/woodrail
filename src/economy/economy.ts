@@ -402,6 +402,11 @@ export interface DepotState {
   powerAsk: number;
   /** People waiting at a town's station for a coach (Game mode's passengers); an airport's: visitors off its planes. */
   waiting: number;
+  /**
+   * The place each of them wants (a place key: `Economy.placeKey`; `ANYWHERE`), the first `waiting` of them; kept in
+   * step with `waiting` by `Economy.dealPlaces` (newcomers dealt a place, the leavers' dropped from the end).
+   */
+  readonly wants: number[];
   /** Riders in an airport's lounge, waiting for a plane (at most `AIRPORT_LOUNGE`); 0 for anything else. */
   flyers: number;
   /** Dock sheds beside a harbour's quay (Game mode): each holds more of every good (see `capAt`). */
@@ -422,13 +427,23 @@ export interface DepotState {
   readonly keeps: (number | null)[];
 }
 
-/** People riding a coach: how many, and the station (depot id) they got on at. */
+/**
+ * People riding a coach: how many, and the station (depot id) they got on at. Riders who got on with a place to go
+ * (spec 2026-11-15-passenger-destinations.md) have `to` and `froms`, one each per rider: the place they want (a place
+ * key, `ANYWHERE` for anywhere) and the stop they got on at (`from` is then the first's). Without them, all `count`
+ * got on at `from` and want anywhere (an old save, a test's `setRiders`).
+ */
 export interface Riders {
   count: number;
   from: number;
   /** They've been over a bridge or along a hilltop on this ride (an observation car's riders pay more: `markScenic`). */
   scenic?: boolean;
+  to?: number[];
+  froms?: number[];
 }
+
+/** A rider who wants anywhere: on at any coach going to a town, off at the first other town (as before destinations). */
+export const ANYWHERE = -1;
 
 export interface CarCargo {
   kind: CargoKind | null;
@@ -488,6 +503,8 @@ interface Later {
   school: number;
   /** A later stop is a town's station (riders have somewhere to get off). */
   town: boolean;
+  /** The places (`Economy.placeKey`) of the later stops riders get off at, each once. */
+  places: number[];
   /** Goods some later town takes (it wants them): a school takes only its share of them (`SCHOOL_SHARE`). */
   towns: number;
   /**
@@ -508,6 +525,7 @@ interface LaterCache {
 
 const EMPTY: CarCargo = { kind: null, count: 0 };
 const NO_RIDERS: Riders = { count: 0, from: -1 };
+const NO_PLACES: readonly number[] = [];
 
 /**
  * Depots, their piles and the cargo riding on wagons. Pure and deterministic: everything advances in whole sim
@@ -892,7 +910,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_SLOTS), timer: 0, rate: 1, powerAsk: 0, craneAt: craneAt ?? len / 2, waiting: 0, flyers: 0, sheds: 0, modes: Array.from({ length: CARGO_SLOTS }, () => null), others: "both", keeps: Array.from({ length: CARGO_SLOTS }, () => null) };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_SLOTS), timer: 0, rate: 1, powerAsk: 0, craneAt: craneAt ?? len / 2, waiting: 0, wants: [], flyers: 0, sheds: 0, modes: Array.from({ length: CARGO_SLOTS }, () => null), others: "both", keeps: Array.from({ length: CARGO_SLOTS }, () => null) };
     if (role === "warehouse" && this.liftLoad) d.stack = LIFT_STACK;
     // An endless heap is full from the start.
     if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
@@ -1302,30 +1320,224 @@ export class Economy {
   onAlight: ((from: DepotState, to: DepotState, carId: number) => void) | null = null;
 
   /**
-   * Would someone on this coach get off here: a town's station other than where they got on (a stop to drop at), or
-   * an airport (where they wait for a plane) with room in its lounge?
+   * Would someone on this coach get off here (see `alightWho`)?
    */
   private canAlight(d: DepotState, carId: number): boolean {
-    const r = this.riders.get(carId);
-    if (!r || !riderStop(d)) return false;
-    if ((d.role === "airport" || d.role === "mast") && d.flyers >= loungeCap(d)) return false;
-    // (A lookout takes riders from any town, its own too, for the view; none got on at a lookout. Else, a town's halts
-    // are its stops too: no one gets off in the town they got on in. An airport is a "town" of its own: `stopTown`.)
-    if (this.isLookout(d)) {
-      if (this.isLookout(this.depots[r.from])) return false;
-    } else if (this.quarterOf(r.from) === this.quarterOf(d.id)) return false;
-    const route = this.routeOfCar(carId);
-    return !route || this.dropsAt(route, d, null);
+    return this.alightWho(d, carId) >= 0;
   }
 
-  /** Would someone waiting here get on this coach: a free seat, and no one aboard bound from another town? */
-  private canBoard(d: DepotState, carId: number): boolean {
-    if (!riderStop(d) || d.waiting <= 0 || !this.seatsOf) return false;
+  /**
+   * Which rider on this coach gets off here (an index into its riders), or −1: one whose place this stop is, or one who
+   * wants anywhere at a town's stop other than the one they got on in (a lookout: from any town but a lookout), with
+   * room in an airport's or a mast's lounge, and the train's route dropping riders here.
+   */
+  private alightWho(d: DepotState, carId: number): number {
     const r = this.riders.get(carId);
-    if (r && (this.quarterOf(r.from) !== this.quarterOf(d.id) || r.count >= this.seatsOf(carId))) return false;
-    if (!r && this.seatsOf(carId) <= 0) return false;
+    if (!r || !riderStop(d)) return -1;
+    if ((d.role === "airport" || d.role === "mast") && d.flyers >= loungeCap(d)) return -1;
     const route = this.routeOfCar(carId);
-    return !route || this.picksAt(route, d, null);
+    if (route && !this.dropsAt(route, d, null)) return -1;
+    const here = this.placeKey(d);
+    const lookout = this.isLookout(d);
+    for (let i = 0; i < r.count; i++) {
+      const to = r.to ? r.to[i] : ANYWHERE;
+      if (to === here) return i;
+      if (to !== ANYWHERE) continue;
+      const from = r.froms ? r.froms[i] : r.from;
+      // (A lookout takes riders from any town, its own too, for the view; none got on at a lookout. Else, a town's
+      // halts are its stops too: no one gets off in the town they got on in. An airport is a "town" of its own.)
+      if (lookout ? !this.isLookout(this.depots[from]) : this.quarterOf(from) !== this.quarterOf(d.id)) return i;
+    }
+    return -1;
+  }
+
+  /** Would someone waiting here get on this coach (see `boardWho`)? */
+  private canBoard(d: DepotState, carId: number): boolean {
+    return this.boardWho(d, carId) >= 0;
+  }
+
+  /**
+   * Which of the people waiting here gets on this coach (an index into `d.wants`), or −1. A free seat, and: on a
+   * routed train, someone whose place is one of the places the line's later stops drop riders at (or who wants
+   * anywhere, with a town later on); on a hand-run train, only someone who wants anywhere (no one knows where it goes).
+   */
+  private boardWho(d: DepotState, carId: number): number {
+    if (!riderStop(d) || d.waiting <= 0 || !this.seatsOf) return -1;
+    const r = this.riders.get(carId);
+    if ((r?.count ?? 0) >= this.seatsOf(carId)) return -1;
+    this.dealPlaces(d);
+    const route = this.routeOfCar(carId);
+    if (!route) {
+      const w = d.wants.indexOf(ANYWHERE);
+      return w < d.waiting ? w : -1;
+    }
+    const n = route.stops.length;
+    let pick = false;
+    for (let k = 0; k < n; k++) {
+      const i = (route.next + k) % n;
+      const s = route.stops[i];
+      if (s.depotId !== d.id) break;
+      if (s.action === "drop") continue;
+      const later = this.laterOf(route.stops, i);
+      if (s.action === "pick") pick = true;
+      if (!later.town && s.action !== "pick") continue;
+      for (let w = 0; w < d.waiting; w++) {
+        const want = d.wants[w];
+        if (want === ANYWHERE ? later.town : later.places.includes(want)) return w;
+      }
+    }
+    // (Told to pick up here with no town later on: as before, anyone who wants anywhere.)
+    if (pick) {
+      const w = d.wants.indexOf(ANYWHERE);
+      if (w >= 0 && w < d.waiting) return w;
+    }
+    return -1;
+  }
+
+  /**
+   * A rider stop's place: what people say they're going to (spec 2026-11-15-passenger-destinations.md). A town's
+   * station and halts are its town (its id); a metro stop is its own quarter, a lookout, an observatory, a found
+   * secret's halt, an airport and a mast each a place of their own (−2 − the depot's id).
+   */
+  placeKey(d: DepotState): number {
+    return this.isLookout(d) ? -2 - d.id : this.quarterOf(d.id);
+  }
+
+  /**
+   * How strongly a place draws people (Game mode sets it: src/game/passengers.ts `placePull`); null: all alike.
+   */
+  pullOf: ((key: number) => number) | null = null;
+
+  /** Each rider stop's reach: the places a coach on a line can take its people to (see `refreshReach`), by depot id. */
+  private readonly reach = new Map<number, number[]>();
+  /** How many newcomers each rider stop has dealt each place since its reach last changed, by depot id then place. */
+  private readonly dealt = new Map<number, Map<number, number>>();
+
+  /** The places people at this stop may want (empty: nothing in reach, they want anywhere). */
+  placesFrom(d: DepotState): readonly number[] {
+    return this.reach.get(d.id) ?? NO_PLACES;
+  }
+
+  /**
+   * Work out each rider stop's reach: the places of the later stops, round the line, of every routed train with a seat
+   * whose stop here picks riders up. A stop whose reach changed starts dealing afresh, and its people who want a place
+   * no longer in reach (or anywhere, now there's somewhere) are dealt again. Called about once a second (Game mode's
+   * `peopleArrive`): a few routes × stops, allocating only when a reach changes.
+   */
+  refreshReach(): void {
+    const next = this.reachScratch;
+    for (const list of next.values()) list.length = 0;
+    if (this.seatsOf)
+      for (const [engine, route] of this.routes) {
+        const found = this.sim.findCar(engine);
+        if (!found || this.routeOfTrain(found.train) !== route) continue;
+        let seats = false;
+        for (const c of found.train.cars) if (c.kind === "passenger" && this.seatsOf(c.id) > 0) seats = true;
+        if (!seats) continue;
+        const stops = route.stops;
+        for (let i = 0; i < stops.length; i++) {
+          const s = stops[i];
+          const d = this.liveDepot(s.depotId);
+          if (!d || !riderStop(d) || s.action === "drop") continue;
+          const here = this.placeKey(d);
+          let list = next.get(d.id);
+          if (!list) next.set(d.id, (list = []));
+          for (const key of this.laterOf(stops, i).places) if (key !== here && !list.includes(key)) list.push(key);
+        }
+      }
+    for (const d of this.depots) {
+      if (!riderStop(d)) continue;
+      const now = next.get(d.id) ?? NO_PLACES;
+      const was = this.reach.get(d.id) ?? NO_PLACES;
+      if (now.length === was.length && now.every((k) => was.includes(k))) continue;
+      if (now.length === 0) this.reach.delete(d.id);
+      else this.reach.set(d.id, [...now]);
+      this.dealt.delete(d.id);
+      // Those who wanted somewhere no train goes now, or anywhere while there's somewhere, are dealt a place again.
+      const reach = this.placesFrom(d);
+      for (let w = 0; w < d.wants.length; w++) {
+        const want = d.wants[w];
+        if (reach.length === 0 ? want !== ANYWHERE : !reach.includes(want)) d.wants[w] = this.deal(d);
+      }
+      this.loadsVersion++;
+    }
+    for (const d of this.depots) if (riderStop(d)) this.dealPlaces(d);
+  }
+  private readonly reachScratch = new Map<number, number[]>();
+
+  /** Keep `d.wants` in step with `d.waiting`: newcomers dealt a place (`deal`), leavers' places dropped from the end. */
+  dealPlaces(d: DepotState): void {
+    if (d.wants.length > d.waiting) d.wants.length = Math.max(0, d.waiting);
+    while (d.wants.length < d.waiting) d.wants.push(this.deal(d));
+  }
+
+  /**
+   * The place for this stop's next newcomer: of its reach, the one furthest behind its share by pull (a weighted round,
+   * no dice: the same on every replay); `ANYWHERE` with nothing in reach.
+   */
+  private deal(d: DepotState): number {
+    const reach = this.placesFrom(d);
+    if (reach.length === 0) return ANYWHERE;
+    let dealt = this.dealt.get(d.id);
+    if (!dealt) this.dealt.set(d.id, (dealt = new Map()));
+    let best = reach[0];
+    let score = Infinity;
+    for (const key of reach) {
+      const pull = Math.max(0.01, this.pullOf?.(key) ?? 1);
+      const s = ((dealt.get(key) ?? 0) + 1) / pull;
+      if (s < score) {
+        score = s;
+        best = key;
+      }
+    }
+    dealt.set(best, (dealt.get(best) ?? 0) + 1);
+    return best;
+  }
+
+  /** The places this coach's riders want, each with how many (for its card). */
+  ridersByPlace(carId: number): Map<number, number> {
+    const out = new Map<number, number>();
+    const r = this.riders.get(carId);
+    if (!r) return out;
+    for (let i = 0; i < r.count; i++) {
+      const key = r.to ? r.to[i] : ANYWHERE;
+      out.set(key, (out.get(key) ?? 0) + 1);
+    }
+    return out;
+  }
+
+  /** Put riders with places onto a coach (saves, tests): one each per rider, the stop they got on at and their place. */
+  setTrips(carId: number, froms: readonly number[], to: readonly number[]): void {
+    this.loadsVersion++;
+    const n = Math.min(froms.length, to.length);
+    if (n <= 0) {
+      this.riders.delete(carId);
+      return;
+    }
+    const scenic = this.riders.get(carId)?.scenic;
+    this.riders.set(carId, { count: n, from: froms[0], ...(scenic ? { scenic } : {}), to: to.slice(0, n), froms: froms.slice(0, n) });
+  }
+
+  /** One rider off this coach: the `i`th. */
+  private takeRider(carId: number, i: number): void {
+    const r = this.riders.get(carId);
+    if (!r) return;
+    if (!r.to || !r.froms) return this.setRiders(carId, r.count - 1, r.from);
+    r.to.splice(i, 1);
+    r.froms.splice(i, 1);
+    this.setTrips(carId, r.froms, r.to);
+  }
+
+  /** One rider onto this coach, from stop `from`, for `place`. */
+  private addRider(carId: number, from: number, place: number): void {
+    const r = this.riders.get(carId);
+    // (Riders who want anywhere, all from one stop: a count, as before places, with no lists.)
+    if (place === ANYWHERE && (!r || (!r.to && r.from === from))) return this.setRiders(carId, (r?.count ?? 0) + 1, from);
+    const to = r ? (r.to ?? new Array<number>(r.count).fill(ANYWHERE)) : [];
+    const froms = r ? (r.froms ?? new Array<number>(r.count).fill(r.from)) : [];
+    to.push(place);
+    froms.push(from);
+    this.setTrips(carId, froms, to);
   }
 
   /**
@@ -2091,7 +2303,7 @@ export class Economy {
     }
     const at: Later[] = [];
     for (let i = 0; i < n; i++) {
-      const later: Later = { takes: 0, uses: 0, shop: 0, school: 0, town: false, towns: 0, sharers: 0 };
+      const later: Later = { takes: 0, uses: 0, shop: 0, school: 0, town: false, places: [], towns: 0, sharers: 0 };
       /** Goods some later stop other than a town's or a workshop's takes, so far round the line. */
       let taken = 0;
       for (let k = 1; k < n; k++) {
@@ -2104,6 +2316,10 @@ export class Economy {
         if (role === "school" && this.depots[stops[j].depotId].takesAll) later.school |= takes[j] & ~taken;
         if (role && role !== "town" && role !== "workshop") taken |= takes[j];
         later.town ||= town[j];
+        if (town[j]) {
+          const key = this.placeKey(this.depots[stops[j].depotId]);
+          if (!later.places.includes(key)) later.places.push(key);
+        }
         if (role === "town") later.towns |= takes[j];
         if (role === "town" || (role === "school" && !this.depots[stops[j].depotId].takesAll)) later.sharers |= takes[j];
       }
@@ -2615,22 +2831,25 @@ export class Economy {
         continue;
       }
       // People get off a coach, then on, by themselves (no crane).
-      const alight = this.canAlight(d, s.carId);
-      if (alight || this.canBoard(d, s.carId)) {
+      const off = this.alightWho(d, s.carId);
+      const on = off < 0 ? this.boardWho(d, s.carId) : -1;
+      if (off >= 0 || on >= 0) {
         if (++s.ticks < RIDER_TICKS) continue;
         s.ticks = 0;
         const r = this.riders.get(s.carId);
-        if (alight) {
-          const from = this.depots[r!.from];
+        if (off >= 0) {
+          const from = this.depots[r!.froms ? r!.froms[off] : r!.from];
           // (Paid while still aboard: the fare reads what the coach's riders have had, `Riders.scenic`.)
           // (At an airport they wait in its lounge for a plane.)
           if (d.role === "airport" || d.role === "mast") d.flyers++;
           if (from) this.onAlight?.(from, d, s.carId);
-          this.setRiders(s.carId, r!.count - 1, r!.from);
+          this.takeRider(s.carId, off);
           this.stationNote("off", d.pieceId, s.trainId, s.carId);
         } else {
+          const place = d.wants[on];
+          d.wants.splice(on, 1);
           d.waiting--;
-          this.setRiders(s.carId, (r?.count ?? 0) + 1, r?.from ?? d.id);
+          this.addRider(s.carId, d.id, place);
           this.stationNote("on", d.pieceId, s.trainId, s.carId);
         }
         continue;

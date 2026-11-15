@@ -69,6 +69,7 @@ export const SUITES = {
   leftovers: { script: "e2e:leftovers", minutes: 12 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   airport: { script: "e2e:airport", minutes: 8 },
+  destinations: { script: "e2e:destinations", minutes: 5 },
   airship: { script: "e2e:airship", minutes: 8 },
   circus: { script: "e2e:circus", minutes: 6 },
   grand: { script: "e2e:grand", minutes: 6 },
@@ -311,6 +312,8 @@ export const RULES = [
   ["src/game/dev-checks.ts", []],
   // The airship tour (late-game spec B1).
   [["src/game/airship.ts", "src/game/passengers.ts", "src/render/airship-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airship"]],
+  // Passenger destinations (spec 2026-11-15-passenger-destinations.md).
+  [["src/game/passengers.ts", "src/economy/economy.ts", "src/game/town-ledger.ts", "src/ui/town-ledger.ts", "src/game/train-summary.ts", "src/persist/save.ts"], ["destinations"]],
   // The airport (late-game spec A1).
   [["src/game/airports.ts", "src/game/passengers.ts", "src/render/planes-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airport"]],
   // Grand projects as achievements (spec 2026-11-05-character-and-goals.md): the projects, the city's card, the

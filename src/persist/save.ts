@@ -7,7 +7,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { CAR_LOOKS, Sim } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, givesChoice, isStore, pilesOf, RECIPES, type BoatState, type CargoKind, type DepotState, type RouteStopDef, type StoreMode } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, givesChoice, isStore, pilesOf, RECIPES, ANYWHERE, type BoatState, type Riders, type CargoKind, type DepotState, type RouteStopDef, type StoreMode } from "../economy";
 
 import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, pieceOfRef, relaxJoints, pathLength, angleDiff, isLift, type SignalStyle, type Pose, type RelaxOptions } from "../track";
 import { BARGE_LOADS, isBulk, isDock, MAX_BOATS } from "../game/boats";
@@ -167,7 +167,7 @@ export function serializeWorld(world: World): SaveData {
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(line ? { line } : {}),
           ...(off.length > 0 ? { off } : {}),
-          ...(riders.count > 0 && renumbered.has(riders.from) ? { riders: { count: Math.min(riders.count, MAX_RIDERS), from: renumbered.get(riders.from)! } } : {}),
+          ...(riders.count > 0 && renumbered.has(riders.from) ? { riders: savedRiders(riders, renumbered) } : {}),
         };
       }),
       lead: { ...t.bogies[0] },
@@ -515,7 +515,12 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       // A wagon's goods switched off on its card (only goods it can carry).
       for (const kind of t.cars[i].off ?? []) if (canCarry(car.kind, kind)) economy.setCarTakes(car.id, kind, false);
       const riders = t.cars[i].riders;
-      if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") economy.setRiders(car.id, riders.count, riders.from);
+      if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") {
+        economy.setRiders(car.id, riders.count, riders.from);
+        // (Their places, spec 2026-11-15-passenger-destinations.md: an old save's riders want anywhere.)
+        if (riders.to && riders.froms && riders.to.length === riders.froms.length && riders.froms.every((f) => economy.depot(f)))
+          economy.setTrips(car.id, riders.froms, riders.to.map((k) => (k >= 0 || economy.depot(-2 - k) ? k : ANYWHERE)));
+      }
     });
   }
   for (const l of save.lines ?? []) if (l.toldFull && economy.lines.has(l.id)) economy.sections.markToldFull(l.id);
@@ -808,4 +813,32 @@ export const PROGRESS_KEYS = { progress: PROGRESS_KEY, goals: GOALS_KEY, sticker
 export function modeKeys(mode: GameMode): string[] {
   const keys = [STORAGE_KEYS[mode], sessionKey(mode)];
   return mode === "game" ? [...keys, GOALS_KEY, STICKERS_KEY, PROGRESS_KEY, GAMES_KEY] : keys;
+}
+
+/**
+ * A coach's riders as saved: how many and where the first got on, and with places (spec
+ * 2026-11-15-passenger-destinations.md) each one's place and stop, the depots renumbered as the save numbers them (a
+ * place of a stop of its own, −2 − its depot's id, too; one whose stop has gone wants anywhere).
+ */
+export function savedRiders(r: Readonly<Riders>, renumbered: ReadonlyMap<number, number>): { count: number; from: number; to?: number[]; froms?: number[] } {
+  const count = Math.min(r.count, MAX_RIDERS);
+  const out: { count: number; from: number; to?: number[]; froms?: number[] } = { count, from: renumbered.get(r.from)! };
+  if (r.to && r.froms) {
+    const to: number[] = [];
+    const froms: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const from = renumbered.get(r.froms[i]);
+      if (from === undefined) continue;
+      const k = r.to[i];
+      to.push(k >= -1 ? k : (renumbered.has(-2 - k) ? -2 - renumbered.get(-2 - k)! : ANYWHERE));
+      froms.push(from);
+    }
+    if (to.length > 0) {
+      out.count = to.length;
+      out.from = froms[0];
+      out.to = to;
+      out.froms = froms;
+    }
+  }
+  return out;
 }
