@@ -173,7 +173,9 @@ const setup = await p.evaluate(async () => {
           }
           await new Promise((r) => setTimeout(r, 500));
           const depot = (t) => w.economy.depotAtPiece(station(t)).id;
-          // A coach train on the first piece out of each end of A's station.
+          // The map's own trains (the starter's, parked by a station) taken off: one in the way would hold ours.
+          for (const id of [...w.sim.trainIds()]) w.sim.removeTrain(id);
+          // A coach train a few pieces out of each end of A's station.
           const trains = [];
           for (const end of [ab.i, 1 - ab.i]) {
             // (Four pieces out, clear of A's platform: a tap on A is a tap on A.)
