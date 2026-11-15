@@ -70,6 +70,12 @@ coach's seats are taken longer, so a busy line carries fewer riders a minute, bu
 on long lines with seats to spare and stays about level on full ones. Short lines are as before. The `BALANCE=1`
 play-through and `npm run balance:sweep` must stay inside their bands; the numbers go in the commit.
 
+Measured (`npm run balance:sweep -- --from 0 --to 15`, main 6be8c05's parent against this branch, at 180 min): all
+16 seeds inside every band on both. Means: riders carried 324 → 231 (−29%: they ride farther, so a coach takes fewer),
+coins 973 → 877 (−10%: each pays more, not quite enough to make up for it in the play-through, whose coaches ride on
+the goods line's long loop), blueprints researched 14.1 → 13.8. Seed by seed the play diverges (which cars the player
+picks, when), so single seeds swing both ways (seed 1: 352 → 1103 coins; seed 5: 1536 → 1022).
+
 ## Cost
 
 The reach is rebuilt only on a signature change (lines, trains' coaches, pieces), a few lines × stops². A waiting

@@ -177,10 +177,11 @@ const setup = await p.evaluate(async () => {
           for (const id of [...w.sim.trainIds()]) w.sim.removeTrain(id);
           // A coach train a few pieces out of each end of A's station.
           const trains = [];
-          for (const end of [ab.i, 1 - ab.i]) {
-            // (Four pieces out, clear of A's platform: a tap on A is a tap on A.)
-            let piece = station(A);
-            let ref = connectorRef(station(A), end);
+          // Red four pieces out of A toward B (clear of A's platform: a tap on A is a tap on A); Blue four pieces out
+          // of D toward A, at the far end of its line, out of Red's way.
+          for (const [from, end] of [[station(A), ab.i], [station(D), ad.j]]) {
+            let piece = from;
+            let ref = connectorRef(from, end);
             for (let k = 0; k < 4; k++) {
               const next = w.layout.joinedConnector(ref);
               if (next === -1) break;
