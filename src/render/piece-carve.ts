@@ -75,7 +75,10 @@ evaluator.attributes = ["position", "normal", "uv"];
  * Bridge: a painted viaduct `height` tall under the deck (which is at y = 0), straight or curved, two round arches on
  * three piers.
  */
-/** `floors`: how far down (riser heights) each arch's opening reaches, in `ARCH_CENTRES` order; all of `height` without. */
+/**
+ * `floors`: how far down (riser heights) each arch's opening reaches, in `ARCH_CENTRES` order; all of `height` without.
+ * Followed, where an opening is clipped at a hill's face (`archOpenings`), by each one's trim (mm) at its start and end.
+ */
 function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[] | null): BufferGeometry {
   const path = def.paths[0].geom;
   const len = pathLength(path);
@@ -103,19 +106,25 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
   // Arch tops a spandrel below the deck; the openings reach the ground. A low viaduct's arches are smaller, so each
   // still springs a little above the ground (a full-size one would be cut off by it).
   const arches = archesOf(def.type);
+  const count = arches.centres.length;
+  const trims = floors && floors.length === 3 * count ? floors : null;
   arches.centres.forEach((at, i) => {
     // Over a hill, an arch springs from the hilltop: its opening stops there (the viaduct's foot goes on down, hidden).
     const floor = floors ? -floors[i] * RISER_HEIGHT : -height;
-    samplePath(path, len * at, p);
+    // Clipped at a hill's face: the opening narrows to the low ground, its middle moved to the middle of what's left.
+    const full = len * arches.radius;
+    const t0 = trims ? trims[count + 2 * i] : 0;
+    const t1 = trims ? trims[count + 2 * i + 1] : 0;
+    samplePath(path, len * at + (t0 - t1) / 2, p);
     const archTop = p.y - ARCH_CROWN_DROP;
     // The arch's circle reaches below its centre: stopping on a hilltop, it's small enough to stand clear of it.
-    const radius = Math.min(len * arches.radius, archTop - floor - 4, floor > -height ? (archTop - floor) / 2 : Infinity);
+    const radius = Math.min(full - (t0 + t1) / 2, archTop - floor - 4, floor > -height ? (archTop - floor) / 2 : Infinity);
     // No room for an arch here (a ramp's low end, close to the ground): solid.
     if (radius < 6) return;
-    const arch = onlyCsgAttributes(nonIndexed(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40)));
+    const arch = mmUvs(onlyCsgAttributes(nonIndexed(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40))), radius);
     arch.rotateX(Math.PI / 2);
     arch.translate(0, archTop - radius, 0);
-    const opening = onlyCsgAttributes(nonIndexed(new BoxGeometry(radius * 2, archTop - radius - floor + 2, TRACK_WIDTH + 10)));
+    const opening = mmUvs(onlyCsgAttributes(nonIndexed(new BoxGeometry(radius * 2, archTop - radius - floor + 2, TRACK_WIDTH + 10))));
     opening.translate(0, (archTop - radius + floor) / 2 - 1, 0);
     for (const g of [arch, opening]) {
       g.rotateY(-p.heading);
@@ -124,6 +133,34 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
     }
   });
   return result.geometry;
+}
+
+/**
+ * Texture coordinates in mm for a cutter (a box's or cylinder's own run 0..1 across each face), from its positions
+ * (in its own frame, before it's turned into place): the faces it carves (an arch's soffit, the inside of its piers)
+ * take the paint's grain at the size the swept body does (its uvs are in mm too), not one texel stretched over them.
+ * `radius`: a cylinder's (its axis y), whose side runs round its girth.
+ */
+function mmUvs(g: BufferGeometry, radius = 0): BufferGeometry {
+  const pos = g.attributes.position;
+  const nor = g.attributes.normal;
+  const uv = g.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const ax = Math.abs(nor.getX(i));
+    const ay = Math.abs(nor.getY(i));
+    const az = Math.abs(nor.getZ(i));
+    // A cylinder's side round its girth (its seam at z = r: the arch's bottom, cut away by the opening below it);
+    // otherwise projected along the normal's main axis.
+    if (radius > 0 && ay < 0.5) uv.setXY(i, Math.atan2(x, -z) * radius, y);
+    else if (ay >= ax && ay >= az) uv.setXY(i, x, z);
+    else if (ax >= az) uv.setXY(i, z, y);
+    else uv.setXY(i, x, y);
+  }
+  uv.needsUpdate = true;
+  return g;
 }
 
 /** Pier length at each end of a girder span, and its side plates' thickness (mm). */
