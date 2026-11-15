@@ -2000,6 +2000,10 @@ class Playthrough {
         if (kind === "goods 2") this.goods2Cut++;
         else this.lifted++;
         if (this.lines) this.jamCut++;
+        // (Taken off for jamming the line, the people train waits for a loop laid after this to come back: a player
+        // doesn't put it straight back for one that was there while it jammed. Passenger destinations, 2026-11-15: a
+        // loop laid at minute 51 with it on the line put it back the minute it was taken off at 54, to jam till 89.)
+        if (kind === "people") this.peopleBack = Math.max(this.peopleBack, this.peopleLoops.length + this.stuckLoops.length);
         P.findings.push(`Minute ${P.minute.toFixed(0)}: no planks sawn for 4 minutes with ${this.trains.size + 1} trains on one line (they turn each other back; the goods train never reached the forest). Picked the ${kind} train up.`);
         P.note(`JAM: no planks sawn for 4 min; picked the ${kind} train up`);
         this.sawnAt = P.minute;
