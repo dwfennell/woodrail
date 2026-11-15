@@ -64,8 +64,9 @@ const worldAt = (what) =>
   p.evaluate((what) => {
     const w = window.woodrail;
     if (what.engine !== undefined) {
-      const t = w.sim.findCar(what.engine).train;
-      const [a, c] = [t.world[0], t.world[1]];
+      const { train: t, index } = w.sim.findCar(what.engine);
+      // (Its own bogies: two a car, in the cars' order.)
+      const [a, c] = [t.world[2 * index] ?? t.world[0], t.world[2 * index + 1] ?? t.world[1]];
       return { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2, z: (a.z + c.z) / 2 };
     }
     const piece = w.layout.getPiece(w.economy.depot(what.depot).pieceId);
@@ -102,10 +103,19 @@ const tapButton = async (sel) => {
   await tapped(() => p.touchscreen.tap(x, y));
 };
 const routeStops = (e) => p.evaluate((e) => window.woodrail.economy.routeOf(e)?.stops.map((s) => s.depotId) ?? null, e);
+/** Tap an engine till its own card is open (a tap can land on the coach behind it, or on the ground beside). */
+const openEngine = async (engine) => {
+  for (let k = 0; k < 4; k++) {
+    await tapOn({ engine });
+    const open = await p.waitForFunction((e) => window.woodrail.hud.engineCardOpen && window.woodrail.interaction.openEngineCarId === e, engine, { timeout: 8000 }).then(() => true, () => false);
+    if (open) return true;
+    await p.keyboard.press("Escape");
+  }
+  await shot(`no-engine-card-${engine}`);
+  return false;
+};
 const planRoute = async (engine, places) => {
-  await tapOn({ engine });
-  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
-  if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine });
+  await openEngine(engine);
   await tapButton(".engine-extra .route-plan");
   for (const d of places) await tapOn({ depot: d });
   await tapButton(".line-sheet .route-plan.on");
@@ -254,9 +264,7 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
   }, setup);
   check("…a fare to C is more than one to B (it's farther)", fares.toC > fares.toB, JSON.stringify(fares));
   // Red set going by a tap on its card's Go.
-  await tapOn({ engine: red });
-  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
-  if (!(await p.evaluate(() => window.woodrail.hud.engineCardOpen))) await tapOn({ engine: red });
+  await openEngine(red);
   await tapButton(".chip.go");
   await p.keyboard.press("Escape");
   // On board at A, then on through B.
@@ -273,8 +281,7 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
     return { piece: t.bogies[0].pieceId, speed: t.speed, next: r?.next, at: r?.at, stops: r?.stops.map((s) => s.depotId), held: w.sim.heldBy?.(t.id) ?? null, serving: w.economy.servingDepot(t.id)?.id ?? null };
   }, red);
   check("…Red takes A's people for C, and leaves those for D waiting", aboard === wantC && left.length === wantD && left.every((k) => k === townIds[3]), JSON.stringify({ aboard, left, where }));
-  await tapOn({ engine: red });
-  await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 20000 }).catch(() => {});
+  await openEngine(red);
   await p.waitForTimeout(600);
   const load = await p.evaluate(() => document.querySelector(".summary-load")?.textContent ?? "");
   check("…Red's card says where its riders are going", load.includes(`to ${nameC} ${wantC}`), load);

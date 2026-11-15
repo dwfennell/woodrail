@@ -1342,13 +1342,25 @@ export class Economy {
     for (let i = 0; i < r.count; i++) {
       const to = r.to ? r.to[i] : ANYWHERE;
       if (to === here) return i;
-      if (to !== ANYWHERE) continue;
+      // (Someone whose place the train doesn't go to now, its line edited or its route taken off, wants anywhere: off
+      // at the next other town, not carried round for ever.)
+      if (to !== ANYWHERE && route && this.routeGoesTo(route, to)) continue;
       const from = r.froms ? r.froms[i] : r.from;
       // (A lookout takes riders from any town, its own too, for the view; none got on at a lookout. Else, a town's
       // halts are its stops too: no one gets off in the town they got on in. An airport is a "town" of its own.)
       if (lookout ? !this.isLookout(this.depots[from]) : this.quarterOf(from) !== this.quarterOf(d.id)) return i;
     }
     return -1;
+  }
+
+  /** Does a route stop at a place (`placeKey`) to set riders down there? */
+  private routeGoesTo(route: Route, key: number): boolean {
+    for (const s of route.stops) {
+      if (s.action === "pick") continue;
+      const d = this.liveDepot(s.depotId);
+      if (d && riderStop(d) && this.placeKey(d) === key) return true;
+    }
+    return false;
   }
 
   /** Would someone waiting here get on this coach (see `boardWho`)? */

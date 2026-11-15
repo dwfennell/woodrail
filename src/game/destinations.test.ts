@@ -157,6 +157,18 @@ describe("passenger destinations", () => {
     expect(B.waiting).toBe(0);
   });
 
+  it("riders whose place the line no longer goes to get off at the next other town", () => {
+    const { w, economy, A, B, C, car, run, route } = row();
+    const p = Progress.fresh();
+    attachPassengers(w, () => p);
+    // Two from A for C aboard; the line now goes only A–B (edited).
+    route(A, B);
+    economy.setTrips(car("passenger").id, [A.id, A.id], [C.townId, C.townId]);
+    for (let s = 0; s < 60 && p.riders < 2; s++) run(1);
+    expect(p.riders).toBe(2);
+    expect(p.coins).toBe(2 * fareFor(w, A, B, car("passenger").id));
+  });
+
   it("a hand-run coach takes only people who want anywhere", () => {
     const { w, economy, A, B, car, run } = row();
     attachPassengers(w, () => Progress.fresh());
@@ -164,9 +176,9 @@ describe("passenger destinations", () => {
     B.waiting = 2;
     B.wants.push(2, ANYWHERE);
     run(15);
-    const r = economy.ridersOf(car("passenger").id);
-    expect(r.count).toBe(1);
-    expect(r.to).toEqual([ANYWHERE]);
+    const coach = car("passenger").id;
+    expect(economy.ridersOf(coach).count).toBe(1);
+    expect([...economy.ridersByPlace(coach)]).toEqual([[ANYWHERE, 1]]);
     expect(B.wants).toEqual([2]);
   });
 
