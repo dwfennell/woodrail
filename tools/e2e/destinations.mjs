@@ -285,12 +285,14 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
     aboard = await p.evaluate((red) => window.woodrail.sim.findCar(red).train.cars.reduce((n, c) => n + (c.kind === "passenger" ? window.woodrail.economy.ridersOf(c.id).count : 0), 0), red);
   }
   const left = await p.evaluate((A) => window.woodrail.economy.depot(A).wants.slice(0, window.woodrail.economy.depot(A).waiting), A);
-  const where = await p.evaluate((red) => {
+  const where = await p.evaluate(({ red, A, B, C, D }) => {
     const w = window.woodrail;
     const t = w.sim.findCar(red).train;
     const r = w.economy.routeOf(red);
-    return { piece: t.bogies[0].pieceId, speed: t.speed, next: r?.next, at: r?.at, stops: r?.stops.map((s) => s.depotId), held: w.sim.heldBy?.(t.id) ?? null, serving: w.economy.servingDepot(t.id)?.id ?? null };
-  }, red);
+    const stations = [...w.world.stations].map(([town, piece]) => ({ town, piece }));
+    const trains = [...w.sim.trains()].map((x) => ({ id: x.id, cars: x.cars.map((c) => `${c.kind}${c.id}:${c.lever}`).join(","), pieces: x.bogies.map((b) => b.pieceId).join(","), speed: x.speed }));
+    return { piece: t.bogies[0].pieceId, speed: t.speed, next: r?.next, at: r?.at, stops: r?.stops.map((s) => s.depotId), serving: w.economy.servingDepot(t.id)?.id ?? null, stations, trains, depots: [A, B, C, D].map((id) => w.economy.depot(id).pieceId) };
+  }, setup);
   check("…Red takes A's people for C, and leaves those for D waiting", aboard === wantC && left.length === wantD && left.every((k) => k === townIds[3]), JSON.stringify({ aboard, left, where }));
   await openEngine(red);
   await p.waitForTimeout(600);
