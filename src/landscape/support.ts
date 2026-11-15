@@ -132,6 +132,23 @@ export function levelsOver(land: Landscape, type: PieceTypeId, flipped: boolean,
  * gap, stopped at the hilltops, and the track under the bridge ran into a solid wall.)
  */
 export function archFloors(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, levels: number): number[] | null {
+  const o = archOpenings(land, type, flipped, pose, y, levels);
+  return o ? o.slice(0, archesOf(type).centres.length) : null;
+}
+
+/** A pier this thick (mm) is left between an arch opening and the hill face it's clipped at. */
+const ABUTMENT = 4;
+
+/**
+ * Each arch opening of a bridge (or a ramp on arches) fitted to the ground under it: `archFloors` (how far down each
+ * reaches), then, where some opening runs over ground not at its floor (a hill's edge under it), how far (mm, whole)
+ * each is trimmed at its start and end along the deck: `[f0, f1, …, start0, end0, start1, end1, …]`. The opening is
+ * clipped to the stretch of ground it's open down to, with a pier left where the ground steps (an abutment against a
+ * hill's face, or a pier down off a hilltop's edge), so an arch never runs on down into the hill, its half cut off by
+ * the hill's side, nor hangs its floor over lower ground. Null as `archFloors` is, with no trims. (What the drawn
+ * bridge is carved from: see `bridgeSupport`.)
+ */
+export function archOpenings(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, levels: number): number[] | null {
   if (levels <= 0) return null;
   const def = getPieceDef(type, flipped);
   if (def.paths.length !== 1) return null;
@@ -148,6 +165,8 @@ export function archFloors(land: Landscape, type: PieceTypeId, flipped: boolean,
   // How many samples a track's width spans.
   const span = Math.min(n, Math.ceil(TRACK_WIDTH / step));
   const ground: number[] = [];
+  const trims: number[] = [];
+  let trimmed = false;
   const floors = arches.centres.map((at) => {
     // The highest ground across the viaduct at each step along the opening.
     ground.length = 0;
@@ -163,14 +182,42 @@ export function archFloors(land: Landscape, type: PieceTypeId, flipped: boolean,
     }
     // The lowest a track's width of it (the highest ground in each such stretch) gets.
     let low = Infinity;
+    let lowAt = 0;
     for (let a = 0; a + span <= n; a++) {
       let high = -Infinity;
       for (let k = a; k <= a + span; k++) high = Math.max(high, ground[k]);
-      low = Math.min(low, high);
+      if (high < low) {
+        low = high;
+        lowAt = a;
+      }
     }
     // Whole levels above that ground (never below it).
-    return Math.max(0, Math.min(levels, Math.floor((y - low) / RISER_HEIGHT + 0.02)));
+    const floor = Math.max(0, Math.min(levels, Math.floor((y - low) / RISER_HEIGHT + 0.02)));
+    // The longest stretch of it whose ground is at the opening's floor. Past it the ground is higher (a hill's face,
+    // the opening would run on down into the hill) or lower (off a hill's edge: the floor would hang over it, a sill
+    // in the air): the opening stops there, and the masonry stands on down to that ground as a pier.
+    const level = y - floor * RISER_HEIGHT;
+    let from = 0;
+    let to = -1;
+    for (let k = 0, run = 0; k <= n; k++) {
+      run = Math.abs(ground[k] - level) <= TOL ? run + 1 : 0;
+      if (run > to - from + 1) {
+        from = k - run + 1;
+        to = k;
+      }
+    }
+    if (to < from) {
+      from = lowAt;
+      to = Math.min(n, lowAt + span);
+    }
+    // The face lies between the last sample at the floor and the next: halfway, and the pier's thickness in from it.
+    const start = from > 0 ? Math.round((from - 0.5) * step + ABUTMENT) : 0;
+    const end = to < n ? Math.round((n - to - 0.5) * step + ABUTMENT) : 0;
+    if (floor > 0 && (start > 0 || end > 0)) trimmed = true;
+    trims.push(floor > 0 ? start : 0, floor > 0 ? end : 0);
+    return floor;
   });
+  if (trimmed) return [...floors, ...trims];
   return floors.every((f) => f === levels) ? null : floors;
 }
 

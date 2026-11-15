@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ARCH_CENTRES, BRIDGE_LENGTH, connectorRef, findOverlap, getPieceDef, Layout, LIFT_LENGTH, LIFT_RISE, RAMP_LENGTH, RISER_HEIGHT, transformPose } from "../track";
+import { ARCH_CENTRES, ARCH_RADIUS, BRIDGE_LENGTH, connectorRef, findOverlap, getPieceDef, Layout, LIFT_LENGTH, LIFT_RISE, RAMP_LENGTH, RISER_HEIGHT, transformPose } from "../track";
 import { appendPiece } from "../track/snap";
 import { gridWithPlots } from "./grid";
 import type { Landscape } from "./generate";
-import { archFloors, bridgeLevels, checkSupport, looseHeight, riserStackAt } from "./support";
+import { archFloors, archOpenings, bridgeLevels, checkSupport, looseHeight, riserStackAt } from "./support";
 
 function flat(): Landscape {
   return { seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
@@ -247,5 +247,56 @@ describe("archFloors", () => {
     expect(archFloors(land, "bridge", false, P(0, Z), RISER_HEIGHT, 1)).toBeNull();
     hill(land, -216, 1200, -144, 216);
     expect(archFloors(land, "bridge", false, P(0, Z), 2 * RISER_HEIGHT, bridgeLevels(land, "bridge", false, P(0, Z), 2 * RISER_HEIGHT))).toBeNull();
+  });
+});
+
+describe("archOpenings", () => {
+  const half = ARCH_RADIUS * BRIDGE_LENGTH;
+  /** Where (x) each opening starts and ends along a bridge laid along +x from x = 0, trims taken off. */
+  const spans = (o: number[]) => ARCH_CENTRES.map((c, i) => [c * BRIDGE_LENGTH - half + o[2 + 2 * i], c * BRIDGE_LENGTH + half - o[3 + 2 * i]]);
+
+  it("an arch over a gap in a hill ridge opens down into the gap, its sides piers against the hill's faces", () => {
+    // A one-level ridge along x, a square left low at x = 72..144: the second arch over it (82 mm wide, the gap 72).
+    const land = flat();
+    hill(land, -288, 72, 0, 72);
+    hill(land, 144, 504, 0, 72);
+    const y = 2 * RISER_HEIGHT;
+    const x0 = 108 - ARCH_CENTRES[1] * BRIDGE_LENGTH;
+    const o = archOpenings(land, "bridge", false, P(x0, Z), y, 2)!;
+    expect(o.slice(0, 2)).toEqual([1, 2]);
+    expect(archFloors(land, "bridge", false, P(x0, Z), y, 2)).toEqual([1, 2]);
+    // Open over the gap only (within a sample of its faces, a pier's thickness in), never past its faces into the hill.
+    const [from, to] = spans(o)[1].map((x) => x + x0);
+    expect(from).toBeGreaterThan(72);
+    expect(to).toBeLessThan(144);
+    expect(to - from).toBeGreaterThan(72 - 2 * 10);
+  });
+
+  it("an arch springing from a hilltop doesn't hang its floor over the lower ground off the hill's edge", () => {
+    // The felt for the bridge's first 120 mm, then a one-level block: the second arch (114..197) over both, springing
+    // from the block (only a sliver of the felt under it), now opens over the block alone.
+    const land = flat();
+    hill(land, 144, 1200, -144, 216);
+    const y = 2 * RISER_HEIGHT;
+    const o = archOpenings(land, "bridge", false, P(0, Z), y, 2)!;
+    expect(o.slice(0, 2)).toEqual([2, 1]);
+    const [from, to] = spans(o)[1];
+    expect(from).toBeGreaterThan(144);
+    expect(to).toBeCloseTo(ARCH_CENTRES[1] * BRIDGE_LENGTH + half, 5);
+    // The first arch, over the felt: as it was.
+    expect(o[2]).toBe(0);
+    expect(o[3]).toBe(0);
+  });
+
+  it("an opening wholly over one level of ground isn't trimmed", () => {
+    const land = flat();
+    expect(archOpenings(land, "bridge", false, P(0, Z), RISER_HEIGHT, 1)).toBeNull();
+    // Wholly over a hill, a level up from its top.
+    hill(land, -216, 1200, -144, 216);
+    expect(archOpenings(land, "bridge", false, P(0, Z), 2 * RISER_HEIGHT, 1)).toBeNull();
+    // A hill from the bridge's far end on: the openings over the felt, whole.
+    const felt = flat();
+    hill(felt, BRIDGE_LENGTH, 1200, -144, 216);
+    expect(archOpenings(felt, "bridge", false, P(0, Z), 2 * RISER_HEIGHT, 2)).toBeNull();
   });
 });
