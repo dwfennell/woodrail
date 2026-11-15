@@ -8,9 +8,10 @@
 //      there) and Blue A → D.
 //   3. People at A (six put on its platform: setup) are dealt places: only C and D (the places the lines go), none for
 //      B (no line stops there), none for "anywhere". A's card, by a tap, says who's going where ("Going to").
-//   4. The payoff: the Red train takes A's people for C (not D's), runs through B with them aboard (no one gets off
-//      there), and they get off at C; each pays the fare for the whole trip, A to C, more than A to B would have paid.
-//      Its card, while they ride, says where they're going ("to C").
+//   4. The two lines share A's single track with no passing loop, so Blue is taken off by its card's Remove (a tap):
+//      A's people who wanted D are dealt C, the one place still served. The payoff: Red, set going by Go, takes them
+//      on, runs through B with them aboard (no one gets off there), and they get off at C; each pays the fare for the
+//      whole trip, A to C, more than A to B would have paid. Its card, while they ride, says where they're going.
 //   5. No page errors.
 //
 // Harness shortcut (as e2e:airport's): the game's own sim and economy ticks run ahead of SwiftShader's few frames a
@@ -274,15 +275,26 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
     return { toC: fareFor(w.world, w.economy.depot(A), w.economy.depot(C), coach), toB: fareFor(w.world, w.economy.depot(A), w.economy.depot(B), coach), coins: w.progress().coins };
   }, setup);
   check("…a fare to C is more than one to B (it's farther)", fares.toC > fares.toB, JSON.stringify(fares));
-  // Both set going by a tap on their cards' Go (Blue too: standing, it would hold Red, as a parked train does).
-  for (const e of [blue, red]) {
-    await openEngine(e);
-    await tapButton(".chip.go");
-    await p.keyboard.press("Escape");
-  }
+  // The two lines share A's single track with no passing loop (the game says so: "Add a passing loop here"), so Blue
+  // is taken off by its card's Remove, as a player would. A's people who wanted D are dealt C now, the one place a
+  // train still goes from A.
+  await openEngine(blue);
+  await tapButton(".chip.remove");
+  const redealt = await p.evaluate((A) => {
+    const w = window.woodrail;
+    w.economy.refreshReach();
+    const d = w.economy.depot(A);
+    return { trains: [...w.sim.trains()].length, reach: [...w.economy.placesFrom(d)], wants: d.wants.slice(0, d.waiting) };
+  }, A);
+  const forC = redealt.wants.filter((k) => k === townIds[2]).length;
+  check("…Blue taken off by Remove: A's people are all for C now", redealt.trains === 1 && JSON.stringify(redealt.reach) === JSON.stringify([townIds[2]]) && forC === 6, JSON.stringify(redealt));
+  // Red set going by a tap on its card's Go.
+  await openEngine(red);
+  await tapButton(".chip.go");
+  await p.keyboard.press("Escape");
   // On board at A, then on through B.
   let aboard = 0;
-  for (let k = 0; k < 150 && aboard < wantC; k++) {
+  for (let k = 0; k < 300 && aboard < forC; k++) {
     await p.evaluate(() => window.__run(2));
     aboard = await p.evaluate((red) => window.woodrail.sim.findCar(red).train.cars.reduce((n, c) => n + (c.kind === "passenger" ? window.woodrail.economy.ridersOf(c.id).count : 0), 0), red);
   }
@@ -295,30 +307,29 @@ if (!setup.error && setup.red !== -1 && setup.blue !== -1) {
     const trains = [...w.sim.trains()].map((x) => ({ id: x.id, cars: x.cars.map((c) => `${c.kind}${c.id}:${c.lever}`).join(","), pieces: x.bogies.map((b) => b.pieceId).join(","), speed: x.speed }));
     return { piece: t.bogies[0].pieceId, speed: t.speed, next: r?.next, at: r?.at, stops: r?.stops.map((s) => s.depotId), serving: w.economy.servingDepot(t.id)?.id ?? null, stations, trains, depots: [A, B, C, D].map((id) => w.economy.depot(id).pieceId) };
   }, setup);
-  // (Blue may have taken some of D's by now: those left are all for D.)
-  check("…Red takes A's people for C, and leaves those for D to Blue", aboard === wantC && left.every((k) => k === townIds[3]), JSON.stringify({ aboard, left, where }));
+  check("…Red takes A's people for C on board", aboard === forC, JSON.stringify({ aboard, left, where }));
   await openEngine(red);
   await p.waitForTimeout(600);
   const load = await p.evaluate(() => document.querySelector(".summary-load")?.textContent ?? "");
-  check("…Red's card says where its riders are going", load.includes(`to ${nameC} ${wantC}`), load);
+  check("…Red's card says where its riders are going", load.includes(`to ${nameC} ${forC}`), load);
   await shot("2-train-card-riders-to");
   await p.keyboard.press("Escape");
   // (People turning up at B and C meanwhile: kept off for now, one thing at a time.)
   let offs = [];
-  for (let k = 0; k < 120; k++) {
+  for (let k = 0; k < 300; k++) {
     await p.evaluate(({ B, C }) => {
       window.__run(2);
       window.woodrail.economy.depot(B).waiting = 0;
       window.woodrail.economy.depot(C).waiting = 0;
     }, setup);
     offs = await p.evaluate(() => window.__offs);
-    if (offs.filter((o) => o.from === A).length >= wantC) break;
+    if (offs.filter((o) => o.from === A).length >= forC) break;
   }
   const fromA = offs.filter((o) => o.from === A);
   check("…no one gets off at B on the way (they stay aboard past the nearer town)", !offs.some((o) => o.to === B), JSON.stringify(offs));
-  check("…they all get off at C, each paying the A–C fare", fromA.length === wantC && fromA.every((o) => o.to === C && o.fare === fares.toC), JSON.stringify(offs));
+  check("…they all get off at C, each paying the A–C fare", fromA.length === forC && fromA.every((o) => o.to === C && o.fare === fares.toC), JSON.stringify(offs));
   const coins = await p.evaluate(() => window.woodrail.progress().coins);
-  check("…and the coins went up by those fares", coins - fares.coins >= wantC * fares.toC, JSON.stringify({ was: fares.coins, now: coins }));
+  check("…and the coins went up by those fares", coins - fares.coins >= forC * fares.toC, JSON.stringify({ was: fares.coins, now: coins }));
   await showing({ depot: C }, 900);
   await shot("3-at-C");
   void nameA;
