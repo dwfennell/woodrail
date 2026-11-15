@@ -1635,7 +1635,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-head .engine-extra-label { display: inline-flex; align-items: center; gap: 6px; }
 .route-swatch { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.15); }
 .route-none { font-size: 0.85em; color: var(--ink-muted); flex: 1; }
-.route-head .route-plan { margin-left: auto; }
 /* Done: the system's go-green, dark ink (audit F18: white on #3c9a5f was 3.5:1). */
 .route-plan.on { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--green); box-shadow: inset 0 -4px 0 var(--green-cut), var(--block-drop); }
 .route-hint { font-size: 0.85em; color: var(--ink-soft); }
@@ -1832,6 +1831,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-join-line:disabled { opacity: 0.45; }
 .route-riders { font-weight: 700; color: var(--ink-soft); }
 .route-head .route-leave { padding-inline: 10px; }
+/* Leave line and Edit, kept together at the head's end; a line's name too long for the row with them keeps its words
+   (to its own ellipsis at the box's width) and they go under it, at the right. */
+.route-head { flex-wrap: wrap; row-gap: 0; }
+.route-head .route-line-name { flex: 1 0 auto; max-width: 100%; }
+.route-head-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: 0 0 auto; }
+.route-head-tools > .chip { flex: 0 0 auto; }
+/* (quiet, not the sheet's red stamp: it leaves the line, it doesn't delete anything) */
+.route-head .route-off { font-size: 14px; }
 .route-join { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .route-join-line { padding-inline: 8px; display: inline-flex; align-items: center; gap: 6px; }
 /* A lacquer disc in the line's colour before its name, as the card's own swatch. */

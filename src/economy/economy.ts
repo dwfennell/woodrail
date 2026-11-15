@@ -2685,6 +2685,8 @@ export class Economy {
     this.work();
     this.kitStops.tick();
     if (this.routes.size > 0) this.advanceRoutes();
+    // (Trains taken off their line, stopping once clear of points.)
+    if (this.stopsClear.size > 0) for (const engine of [...this.stopsClear.keys()]) this.stopIfClear(engine);
     // Switches ahead of routed trains (routing/router.ts; nothing with none).
     this.router.tick();
     // Trains stuck for good, for their cards (every CHECK_TICKS, with two trains or more).
@@ -2917,6 +2919,38 @@ export class Economy {
    * levers off, as it comes to it (`advanceRoutes`), and is forgotten. Not saved: after a load it runs on as routed.
    */
   readonly homeCalls = new Map<number, number>();
+  /**
+   * Trains just taken off their line by the player (`takeOffLine`): engine → its lever then. Each stops (its levers off)
+   * as soon as no car of it is on points, and is forgotten; or forgotten if the player moves its lever first. Not saved
+   * (a train is over points a second or two): after a load it runs on, hand-run.
+   */
+  readonly stopsClear = new Map<number, number>();
+
+  /** Stop this train (all its engines' levers off) once it's clear of points: at once if it is now. */
+  stopClearOfPoints(engine: number): void {
+    const found = this.sim.findCar(engine);
+    if (!found) return;
+    this.stopsClear.set(engine, found.train.cars[found.index].lever);
+    this.stopIfClear(engine);
+  }
+
+  /** A train waiting to stop clear of points (`stopsClear`): stopped now if it's off them. */
+  private stopIfClear(engine: number): void {
+    const found = this.sim.findCar(engine);
+    const lever = this.stopsClear.get(engine);
+    if (!found || found.train.derailed || lever === undefined || found.train.cars[found.index].lever !== lever) {
+      this.stopsClear.delete(engine);
+      return;
+    }
+    for (const id of this.sim.piecesUnder(found.train.id)) {
+      const p = this.layout.getPiece(id);
+      const def = p && getPieceDef(p.type, p.flipped);
+      if (def?.isSwitch && !def.gated && !def.signal) return;
+    }
+    for (const car of found.train.cars) if (car.kind === "engine") this.sim.setLever(car.id, 0);
+    this.stopsClear.delete(engine);
+  }
+
   /** Engines come home since the last look (`drainCameHome`). */
   private cameHome: number[] = [];
 
