@@ -281,24 +281,24 @@ export function detachPassengers(world: World): void {
 }
 
 /**
- * A place's name for the cards (spec 2026-11-15-passenger-destinations.md): a town's name; "🔭 Observatory", a found
- * secret's name, "⛰️ Lookout", "✈️ Airport", "🎈 Airship", a metro stop's "Ⓜ️ <town>"; "anywhere".
+ * A place's name for the cards (spec 2026-11-15-passenger-destinations.md): a town's name; "Observatory", a found
+ * secret's name, "⛰️ Lookout", "Airport", "Airship tour", a metro stop's "<town> metro"; "anywhere".
  */
 export function placeName(world: World, key: number): string {
   if (key === ANYWHERE) return "anywhere";
   if (key >= 0) return world.landscape?.towns.find((t) => t.id === key)?.name ?? "a town";
   const d = world.economy.depot(-2 - key);
   if (!d) return "a town";
-  if (d.role === "airport") return "✈️ Airport";
-  if (d.role === "mast") return "🎈 Airship";
+  if (d.role === "airport") return "Airport";
+  if (d.role === "mast") return "Airship tour";
   const town = world.landscape?.towns.find((t) => t.id === d.townId)?.name ?? "";
   if (world.economy.isLookout(d)) {
     const type = world.layout.getPiece(d.pieceId)?.type;
-    if (type === OBSERVATORY_KIT) return "🔭 Observatory";
+    if (type === OBSERVATORY_KIT) return "Observatory";
     const site = secretOfStop(world, d);
     return site ? secretName(site) : "⛰️ Lookout";
   }
-  return `Ⓜ️ ${town}`;
+  return `${town} metro`;
 }
 
 /** Most places named on a card's row; the rest are "+n more". */
