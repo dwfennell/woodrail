@@ -2,6 +2,7 @@ import { connectorRef, getPieceDef, indexOfRef, offersChoice, pathLength, pathLe
 import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, SIM_HZ, stopDistance, trainOn, type Cursor, type Sim, type Train } from "../sim";
 import { next, SEARCH, walkOn, waysFrom } from "../routing/graph";
 import { plan, planWay, type KeepTest, type Lap } from "../routing/plan";
+import { stubRule, type StubRule } from "../routing/stubs";
 import type { AvoidTest } from "../routing/router";
 import { deadEndsOf, mouthWay } from "../routing/dead-ends";
 import { engineOf, trainLength } from "../sim/train-cars";
@@ -1280,7 +1281,7 @@ export class Sections {
   private outOfDeadEnd(own: Train | undefined, at: { pieceId: number; entry: number }, ways: readonly { option: number; path: number; exit: number }[], w: { option: number; path: number; exit: number }, target: number, lap?: Lap): { option: number; path: number; exit: number } {
     // (Round its line's lap: not out the other way round, though a train faces it on the lap's road (it waits for it).)
     if (lap) return w;
-    const reaches = target < 0 ? undefined : (x: { option: number; path: number; exit: number }) => planWay(this.layout, at.pieceId, at.entry, [{ option: 0, path: x.path, exit: x.exit }], target) !== -1;
+    const reaches = target < 0 ? undefined : (x: { option: number; path: number; exit: number }) => planWay(this.layout, at.pieceId, at.entry, [{ option: 0, path: x.path, exit: x.exit }], target, undefined, undefined, undefined, undefined, this.stubsFor(own)) !== -1;
     const o = mouthWay(this.layout, this.sim, own, at.pieceId, at.entry, ways, w.option, reaches);
     return o === w.option ? w : (ways.find((x) => x.option === o) ?? w);
   }
@@ -1517,7 +1518,7 @@ export class Sections {
       }
       else if (ways.length > 1) {
         // (The router's choice: the plan's way to its stop.)
-        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target), undefined, lap);
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target), undefined, lap, this.stubsFor(own));
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
         w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target, lap);
       }
@@ -2169,7 +2170,7 @@ export class Sections {
       const under = own?.bogies.find((b) => b.pieceId === p);
       if (ways.length > 1 && under) w = ways.find((x) => x.path === under.pathIndex) ?? w;
       else if (ways.length > 1) {
-        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target), undefined, lap);
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target), undefined, lap, this.stubsFor(own));
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
         w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target, lap);
       }
@@ -2221,7 +2222,7 @@ export class Sections {
       let w = ways[0];
       if (ways.length > 1) {
         const target = aims[aim] ?? -1;
-        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target), undefined, lap);
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target), undefined, lap, this.stubsFor(own));
         w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
         w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target, lap);
       }
@@ -3665,6 +3666,14 @@ export class Sections {
       }
     }
     return best;
+  }
+
+  /**
+   * The dead ends too short for this train to turn in and take another road out (stubs.ts), for its plans: as the
+   * router plans its way, so sections' ways agree with it.
+   */
+  private stubsFor(train: Train | undefined): StubRule | undefined {
+    return train ? stubRule(this.layout, trainLength(train)) : undefined;
   }
 
   /** Steering for a train holding a move: its way (`follow`), aimed at a piece of the slot it goes to. */
