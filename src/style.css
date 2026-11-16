@@ -1958,15 +1958,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-colour { width: 44px; height: 44px; border: 0; border-radius: 50%; padding: 0; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.25), 0 3px 3px -1px rgba(40, 22, 6, 0.4); cursor: pointer; }
 .ls-colour[aria-pressed="true"] { outline: 3px solid var(--wood-ink); outline-offset: 2px; }
 .ls-menu .chip { flex: 1 1 auto; }
-/* Stops / Trains: a groove with a maple block slid to the open side. */
-.ls-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); flex: 0 0 auto; }
-.ls-tab { flex: 1 1 0; min-height: 44px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
-.ls-tab.on { background: var(--maple); color: var(--wood-ink); box-shadow: var(--tile-face), var(--tile-drop); }
 .ls-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding-bottom: 2px; }
 /* The stops: a spine in the line's colour down the numbers, a row a stop. */
 .ls-stops { list-style: none; margin: 0; padding: 0; position: relative; }
 .ls-stop, .ls-via { position: relative; display: grid; grid-template-columns: 28px 30px 1fr; align-items: center; column-gap: 8px; min-height: 52px; }
-.ls-stop::before, .ls-via::before { content: ""; position: absolute; left: 47px; top: 0; bottom: 0; width: 8px; background: var(--line); box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.25), inset -2px 0 0 rgba(0, 0, 0, 0.2); }
+.ls-stop::before, .ls-via::before, .ls-train::before { content: ""; position: absolute; left: 47px; top: 0; bottom: 0; width: 8px; background: var(--line); box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.25), inset -2px 0 0 rgba(0, 0, 0, 0.2); }
 .ls-stops > :first-child::before { top: 26px; }
 .ls-stops > :last-child::before { bottom: calc(100% - 26px); }
 .ls-stops > :only-child::before { display: none; }
@@ -2040,13 +2036,25 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-foot .ls-add-via { flex: 0 0 auto; }
 .ls-add-via.on { box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 0 0 3px var(--blue); }
 /* The trains on it, and free ones to add. */
-.ls-trains { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.ls-train { display: flex; align-items: center; gap: 6px; padding: 4px 4px 7px 12px; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
-.ls-train-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; font-size: 15px; }
-.ls-train-status { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ls-train .chip { flex: 0 0 auto; font-size: 14px; padding-inline: 10px; }
 .ls-h { font-family: var(--display); font-size: 13px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: var(--wood-ink-soft); margin-top: 2px; }
-.ls-empty { padding: 10px; border-radius: 8px; border: 1.5px dashed var(--pencil); font-size: 14.5px; font-weight: 700; color: var(--wood-ink-soft); text-align: center; }
+/* Its trains ride the spine (lines UI redesign 2026-11-16): a dark engine token on the line before the stop each is
+   heading for; its name and what it's doing beside it, the whole sentence; waiting, a gold tile, stuck, a red one, with
+   Show. Tapped, Show and Take off line. */
+.ls-stops > .ls-train { position: relative; display: grid; grid-template-columns: 28px 30px 1fr auto; align-items: center; column-gap: 8px; min-height: 48px; margin: 2px 0; }
+.ls-train-token { justify-self: center; position: relative; z-index: 1; width: 32px; height: 20px; border-radius: 5px 9px 4px 4px; background: var(--sheen), var(--dark); box-shadow: inset 0 -3px 0 var(--dark-cut), 0 2px 2px -1px rgba(40, 22, 6, 0.5), 0 0 0 2.5px var(--maple); }
+.ls-train-token::before { content: ""; position: absolute; left: 5px; top: -7px; width: 6px; height: 8px; border-radius: 1px; background: var(--dark); }
+.ls-train-token::after { content: ""; position: absolute; right: 4px; top: 4px; width: 8px; height: 6px; border-radius: 1px; background: var(--yellow); }
+.ls-train-main { min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 4px 8px; border: 0; border-radius: 8px; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.ls-train-name { font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.01em; line-height: 1.15; }
+.ls-train-status { font-size: 13.5px; font-weight: 700; line-height: 1.25; color: var(--wood-ink-soft); }
+.ls-train.waiting .ls-train-main { background: rgba(244, 182, 26, 0.16); box-shadow: inset 0 0 0 1.5px var(--stamp-gold); }
+.ls-train.stuck .ls-train-main { background: rgba(179, 48, 28, 0.07); box-shadow: inset 0 0 0 1.5px var(--stamp-red); }
+.ls-train.stuck .ls-train-status { color: var(--stamp-red); }
+.ls-stops > .ls-train > .chip { font-size: 14.5px; padding-inline: 12px; }
+.ls-train.open { align-items: start; }
+.ls-train.open > .ls-train-token { margin-top: 12px; }
+.ls-train > .ls-acts { grid-column: 3 / 5; padding: 2px 0 6px 8px; }
+.ls-add { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
 .ls-free { display: flex; flex-wrap: wrap; gap: 6px; }
 .ls-add-train { font-size: 14.5px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ls-add-train span { font-weight: 700; color: var(--wood-ink-soft); }

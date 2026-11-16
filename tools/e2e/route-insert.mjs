@@ -2,7 +2,7 @@
 // you want to add one in an existing route"), in Game mode on a 390×844 phone, by taps (`npm run e2e:route-insert
 // [-- <out dir>]`):
 //  1. A line A → B → C made by taps (☰ Lines, + New line, three yards on an oval: A and B forest yards, C a workshop),
-//     a goods train put on it from its Trains tab.
+//     a goods train put on it from Add a train in its sheet.
 //  2. The line opened again, the sawmill D (lying between B and C round the oval) tapped: it goes in between B and C,
 //     not at the end; the sheet says so ("Added Sawmill between Forest yard 2 and Workshop"), the train still heads
 //     for the stop it was. Move to end puts it last; the note's Undo puts it back between; the bar's Undo takes it off.
@@ -201,7 +201,6 @@ const engine = await p.evaluate((pieceId) => {
   return e;
 }, setup.placed[1]);
 check("1. (setup) a goods train on the oval", engine !== -1);
-await tap(".ls-tab", "Trains");
 await p.waitForFunction((e) => !!document.querySelector(`.ls-add-train[data-engine='${e}']`), engine, { timeout: 15000 }).catch(() => {});
 await tap(`.ls-add-train[data-engine='${engine}']`);
 const run = await sheetLine();
@@ -211,7 +210,6 @@ await p.waitForFunction(() => { const v = document.querySelector(".lines-view");
 
 // ---- 2. The line opened again, D tapped ---------------------------------------------------------------------------
 await tap(".lines-row");
-await tap(".ls-tab", "Stops");
 const heading = () => p.evaluate((e) => { const r = window.woodrail.economy.routeOf(e); return r ? { next: r.next, depot: r.stops[r.next]?.depotId } : null; }, engine);
 const was = await heading();
 const opened = await sheetState();
@@ -224,6 +222,16 @@ check("2. D tapped, lying between B and C: it goes in between them, not at the e
 check("2. …the sheet says where it went, with Move to end and Undo; its stop ringed", /^Added Sawmill.* between Forest yard.* and Workshop/.test(said.added) && said.toEnd && said.undo && same(said.ringed, [2]), JSON.stringify(said));
 const now = await heading();
 check("2. …the train still heads for the stop it was (its index moved with it)", !!was && !!now && now.depot === was.depot && (was.next < 2 ? now.next === was.next : now.next === was.next + 1), JSON.stringify({ was, now }));
+// (Its train rides the sheet's spine, before the stop it's heading for: lines UI redesign 2026-11-16.)
+const ride = await p.evaluate((e) => {
+  const li = document.querySelector(`.ls-train[data-engine='${e}']`);
+  let n = li?.nextElementSibling;
+  while (n && !n.classList.contains("ls-stop")) n = n.nextElementSibling;
+  let b = li?.previousElementSibling;
+  while (b && !b.classList.contains("ls-stop")) b = b.previousElementSibling;
+  return { row: !!li, before: n ? Number(n.dataset.stop) : -1, after: b ? Number(b.dataset.stop) : -1, here: !!li?.classList.contains("here"), status: li?.querySelector(".ls-train-status")?.textContent ?? "" };
+}, engine);
+check("2. its train rides the sheet's spine before the stop it's heading for (after it, standing there), saying what it's doing", ride.row && (ride.here ? ride.after === now.next : ride.before === now.next) && ride.status.length > 0, JSON.stringify({ ride, now }));
 check("2. the sheet's buttons are 44 px or more (the pegs and the note's too)", (await small(".line-sheet")).length === 0, JSON.stringify(await small(".line-sheet")));
 await shot("2-added-between");
 await tap(".ls-added-end");
@@ -247,6 +255,7 @@ const viaPlus = await sheetLine();
 const plusSaid = await sheetState();
 check("3. …then D tapped: in between B and C, said (no Move to end: it was put there by hand), the + let go", same(viaPlus?.stops, [A, B, D, C]) && /^Added Sawmill.* between/.test(plusSaid.added) && !plusSaid.toEnd && plusSaid.armed.length === 0, JSON.stringify({ viaPlus, plusSaid }));
 await shot("4-plus-added");
+
 // (0 frames drawn idle, the sheet open and the game paused.)
 const idle = await p.evaluate(async () => {
   const w = window.woodrail;

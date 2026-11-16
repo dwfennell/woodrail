@@ -1018,8 +1018,9 @@ try {
   await clickButton(".ls-stop.open .ls-pick");
   const dropped = await route();
   check("desktop (F2): the stop's ticks (Drop, Pick up), Pick up clicked off: Only drop; with two stops, it can't pass by (said)", opts.ticks.slice(0, 2).join(",") === "Drop:true,Pick up:true" && /pass by needs 3 stops/.test(opts.note) && dropped.stops.length === 2 && dropped.stops[1].a === "drop", JSON.stringify({ opts, dropped }));
-  // F3 (lines stand alone, 2026-11-06): Take off on the sheet's Trains tab takes the train off and keeps the line.
-  await clickButton(".line-sheet .ls-tab[data-tab='trains']");
+  // F3 (lines stand alone, 2026-11-06): Take off line, on its train's row on the sheet's spine, takes the train off
+  // and keeps the line.
+  await clickButton(".line-sheet .ls-train-main");
   await clickButton(".line-sheet .ls-train-off");
   const gone = await route();
   check("desktop (F3): Take off takes the train off its line, the line kept", gone.lines === 1 && gone.stops.length === 0, JSON.stringify(gone));

@@ -4457,9 +4457,9 @@ async function routeUx(ctx, p) {
   await tapUndo();
   const back = await route();
   check("route-ux (F1): Undo brings the sawmill back as a stop, Only drop", back.stops.length === 3 && back.stops[1].d === setup.places[1] && back.stops[1].a === "drop" && back.stops.every((s) => s.via.length === 0), JSON.stringify(back));
-  // F3 (lines stand alone, 2026-11-06): Take off, on the sheet's Trains tab, takes the train off its line and keeps the
-  // line (run by no train now: the Lines list shows it); Undo puts the train back on it.
-  await tapButton(".line-sheet .ls-tab[data-tab='trains']");
+  // F3 (lines stand alone, 2026-11-06): Take off line, on its train's row on the sheet's spine, takes the train off its
+  // line and keeps the line (run by no train now: the Lines list shows it); Undo puts the train back on it.
+  await tapButton(".line-sheet .ls-train-main");
   // (Lines from the groups before stand on the map too: counted against this.)
   const lines0 = (await route()).lines;
   await tapButton(".line-sheet .ls-train-off");
@@ -4578,10 +4578,9 @@ async function routeUxMore(ctx, p) {
   // (Lines from the groups before stand in the list too: this one's row by its name.)
   const mine = await p.evaluate((e) => window.woodrail.economy.lines.get(window.woodrail.economy.lineIdOf.get(e))?.name, first);
   check("route-ux-more (B5, C2): the Lines view draws each line's stops and arrows, and lists it as a row to tap (44 px or more)", all.discs >= 3 && all.arrows && all.rows.some((r) => r.t === mine) && all.rows.every((a) => a.h >= 44), JSON.stringify({ all, mine }));
-  // (A train added from the line's sheet: its row, its Trains tab, the free train nearest the line, + Add.)
+  // (A train added from the line's sheet: its row, Add a train under its spine, the free train nearest the line.)
   await p.evaluate((n) => [...document.querySelectorAll(".lines-row")].find((r) => r.querySelector(".lines-name")?.textContent === n)?.setAttribute("data-e2e-row", "1"), mine);
   await tapButton(".lines-row[data-e2e-row='1']");
-  await tapButton(".line-sheet .ls-tab[data-tab='trains']");
   await p.waitForFunction(() => !!document.querySelector(".ls-add-train"), null, { timeout: 30000 }).catch(() => {});
   await tapButton(".ls-add-train");
   const joined = await p.evaluate((es) => {
@@ -4590,7 +4589,7 @@ async function routeUxMore(ctx, p) {
     return { on, rows: document.querySelectorAll(".ls-train").length };
   }, { engines: setup.engines, first });
   const added = joined.on.find((e) => e !== first);
-  check("route-ux-more (C2): + Add on the line's Trains tab puts a free train on the line, listed there", joined.on.length === 2 && joined.rows === 2, JSON.stringify(joined));
+  check("route-ux-more (C2): + Add under the line's spine puts a free train on the line, riding it there", joined.on.length === 2 && joined.rows === 2, JSON.stringify(joined));
   await tapButton(".line-sheet .route-plan.on");
   // C2 (2026-11-06): + New line: the sheet with no line and no train, planning.
   await tapButton(".lines-head .lines-new");
@@ -5111,7 +5110,6 @@ async function routeRing(ctx, p) {
     }, line.name);
     await tapButton(".lines-row[data-e2e-row='1']");
     if (words === "+ Train") {
-      await tapButton(".line-sheet .ls-tab[data-tab='trains']");
       await p.waitForFunction(() => !!document.querySelector(".ls-add-train"), null, { timeout: 30000 }).catch(() => {});
       await tapButton(".ls-add-train");
     } else {
@@ -5120,7 +5118,7 @@ async function routeRing(ctx, p) {
     }
     await tapButton(".line-sheet .route-plan.on");
   };
-  // The train behind put on the line from its Trains tab (the nearest free train that can reach it).
+  // The train behind put on the line from Add a train in its sheet (the nearest free train that can reach it).
   await openLinesView();
   await tapAction("+ Train");
   const joined = await lineOf(behind);
