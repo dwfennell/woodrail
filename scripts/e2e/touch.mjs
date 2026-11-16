@@ -2933,9 +2933,10 @@ async function putAwayButton(p) {
     const sawmill = depot(real(b), "sawmill");
     // Harness shortcut (setup): the trains put down and joined to one line in code, as the tray and the card's line
     // would; the fourth comes on a moment later, as the player adds it.
-    const put = (piece, s, next, lineId) => {
+    const put = (piece, s, next, lineId, soft = false) => {
       const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId: real(piece), pathIndex: 0, reversed: false, s });
-      if (r.kind !== "placed") throw new Error("no room for a train");
+      if (r.kind !== "placed" && soft) return null;
+      if (r.kind !== "placed") throw new Error(`no room for a train on ${real(piece)} at ${s}: ${JSON.stringify(r)}; the trains stand on ${JSON.stringify(w.sim.trainIds().map((id) => [...w.sim.piecesUnder(id)]))}; the line's pieces ${JSON.stringify({ forest: real(a), west: west.map(real), main: loop.main.map(real), side: loop.side.map(real), east: east.map(real), sawmill: real(b) })}`);
       const e = w.sim.getTrain(r.trainId).cars[0].id;
       w.sim.setLever(e, 1);
       const line = lineId === undefined ? editLine(w.economy, e, (st) => st.push({ depotId: forest.id, action: "auto" }, { depotId: sawmill.id, action: "auto" })) : joinLine(w.economy, e, lineId);
@@ -2969,7 +2970,15 @@ async function putAwayButton(p) {
     const toast = w.hud.toast.bind(w.hud);
     w.hud.toast = (m, ...rest) => (window.__trapSaid.push(m), toast(m, ...rest));
     window.__run(30);
-    const fourth = put(west[1], 100, 1, first.lineId);
+    // (The fourth goes on the west straights, behind the forest's end, where a player drops it: on track no train covers.
+    // The train waiting at the forest stands with its tail on west[0] as far as it happened to stop (the game's own frames
+    // tick the sim while setup awaits its imports, so not the same each run): one put at a fixed spot found no room now
+    // and then. The first spot that fits, nearest the loop first; none (a train passing), a second more, as a player waits.)
+    const spots = [[west[1], 200], [west[1], 150], [west[1], 100], [west[0], 200]];
+    const putFourth = () => spots.reduce((got, [piece, s]) => got ?? put(piece, s, 1, first.lineId, true), null);
+    let fourth = putFourth();
+    for (let k = 0; k < 20 && !fourth; k++) (window.__run(1), (fourth = putFourth()));
+    fourth ??= put(west[1], 100, 1, first.lineId);
     window.__run(1);
     const at = { x: g.x + 1200, z: g.z };
     w.director.glideTo(w.controls.target.clone().set(at.x, 0, at.z), frameDistance(1600, w.camera.fov, w.camera.aspect), { duration: 0.3 });
