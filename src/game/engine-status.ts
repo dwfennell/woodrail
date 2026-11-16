@@ -61,6 +61,12 @@ export type TrainState =
   | { kind: "stuck"; why: "signals"; by: number; headOn?: { loop: boolean } }
   /** A train (`by`, maybe this one) at a signal inside a passing loop, its tail over the points (`mark`: that signal). */
   | { kind: "stuck"; why: "loop-signal"; by: number; mark: number }
+  /**
+   * Kept waiting by trains coming at it on a long single track with no passing place, used by `lines` lines (sections'
+   * `singleTrack`): `by`, the one it waits for now; `from` and `to`, the first and last stops on that track as it would
+   * run it (depot ids; −1: none there).
+   */
+  | { kind: "stuck"; why: "single-track"; by: number; from: number; to: number; lines: number }
   /** Standing with its lever on, for want of anything better known: `by`, the train the sim or sections say it's behind. */
   | { kind: "held-up"; by?: number }
   /**
@@ -170,6 +176,18 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
       if (s.kind === "parked") return { kind: "stuck", why: "parked", by: s.by };
       if (s.kind === "signals") return { kind: "stuck", why: "signals", by: s.by, headOn: s.headOn };
       if (s.kind === "loop-signal") return { kind: "stuck", why: "loop-signal", by: s.by, mark: s.mark };
+      // (Kept waiting on a long single track that lines share, with nowhere on it to pass: that, and where it runs.)
+      const single = economy.sections.singleTrack(car.id);
+      if (single) {
+        const stops: number[] = [];
+        for (const p of single.pieces) {
+          const d = economy.depotAtPiece(p);
+          if (d && stops[stops.length - 1] !== d.id) stops.push(d.id);
+        }
+        const from = stops[0] ?? -1;
+        const to = stops.length > 1 ? stops[stops.length - 1] : -1;
+        return { kind: "stuck", why: "single-track", by: s.by, from, to, lines: single.lines };
+      }
       return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop, by: s.by };
     }
   // Stepped aside into a spare siding or platform, going in or waiting there, to let a train coming the other way by.
@@ -422,6 +440,8 @@ const OR_REMOVE = ", or remove a train";
 
 /** The fix for a signal inside a passing loop holding a train over the points (issue #31): the engine and signal cards. */
 export const LOOP_SIGNAL_FIX = "Move that signal to the loop's end";
+/** The fix for a train kept waiting on a long single track lines share (`single-track`): somewhere to pass. */
+export const SINGLE_TRACK_FIX = "A passing loop in the middle lets trains pass";
 
 /** Said once ever, when a line's trains wait for each other on a long stretch a signal could split (signals spec §7). */
 export const FOLLOW_TIP = "Trains on this line wait for the whole stretch. A signal here lets them follow · Show me where";
@@ -594,6 +614,12 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (s.why === "loop-signal") {
         const own = sim.findCar(engineCarId)?.train === sim.findCar(s.by)?.train;
         return `Stuck: ${own ? "it stands" : `${trainLabel(sim, s.by)} stands`} at a signal inside the passing loop, its tail over the points. ${LOOP_SIGNAL_FIX}`;
+      }
+      if (s.why === "single-track") {
+        const from = placeLabel(nameOf, s.from);
+        const to = placeLabel(nameOf, s.to);
+        const where = from && to ? ` from ${from} to ${to}` : from ? ` past ${from}` : "";
+        return `Waiting for the single track${where}: ${s.lines} lines use it and it has no passing place. ${SINGLE_TRACK_FIX}`;
       }
       if (s.why === "parked") return `Stuck: ${who && who.car >= 0 ? inTheWay(who, place) : SPARE_CUT}`;
       // (Left standing, named by where it is: moving it is the fix. Two lines' trains with no passing loop where they

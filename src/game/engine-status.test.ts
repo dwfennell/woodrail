@@ -734,6 +734,34 @@ describe("stepping aside into a spare platform (the user's A1)", () => {
     expect([...visits.b].sort()).toEqual([trunk[0], leg[1]].sort());
   });
 
+  it("a train kept waiting on a long single track lines share says so, where it runs, and that a passing loop helps (a user's map)", async () => {
+    // (A user's map, 2026-11-16, src/play/bugmaps/reports/ (map1): engine 100 (line 13) waits at a waiting point for
+    // the single track on from there, 83 pieces through sixteen waiting points and no passing place, which five lines
+    // use; line 11's whole route lies on it, and some train is always coming at it there. No turn rule helps (one let
+    // on from the other end is already on it): the card says why, and what to lay.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-16-rowan-dead-end.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const waiting = 100;
+    const name = (id: number) => `D${id}`;
+    const early = new Set<string>();
+    let view: ReturnType<typeof engineView> | null = null;
+    for (let k = 0; k < 270 * 120 && !view; k++) {
+      sim.tick();
+      economy.tick();
+      if (k % 120 !== 0) continue;
+      const v = engineView(sim, economy, waiting, name);
+      // (Not said till it has waited `STARVED_S` on trains under way: ordinary meets never are.)
+      if (k < 120 * 120) early.add(v.status);
+      else if (v.status.startsWith("Waiting for the single track")) view = v;
+    }
+    expect([...early].filter((x) => x.includes("single track"))).toEqual([]);
+    expect(view?.status).toMatch(/^Waiting for the single track from D\d+ to D\d+: 5 lines use it and it has no passing place\. A passing loop in the middle lets trains pass$/);
+    // (The train it waits for now is named for the card's Show, as for any train in the way.)
+    expect(view?.blocker?.car).toBeGreaterThanOrEqual(0);
+  }, 120_000);
+
   it("after a reload, a train standing aside in a spare dead end still says whom it lets by (a save keeps no step-aside)", async () => {
     // (A user's map, 2026-11-16, src/play/bugmaps/reports/: "This Rowan train on the Red line keeps on going into this
     // dead-end track, unclear why." Rowan (engine 30) was saved standing in the ring's one spare dead end (the spur off

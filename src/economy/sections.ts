@@ -61,6 +61,8 @@ export const ROAD_MARGIN = 2 * STAND_SHORT;
 const ASK_LOOK = 24;
 /** A train waiting this long (s) at its slot's end keeps what it waits for from later askers (`firstCome`). */
 export const FIRST_COME_S = 10;
+/** A single track this many sections long or more, shared by lines, is named on a waiting train's card (`singleTrack`). */
+const SINGLE_TRACK_SECTIONS = 2;
 /** How long (sim ticks, 2 s) `convoy` keeps a probe's "no slot that way" for the same train, signal, stop and points. */
 const PROBE_KEEP = 240;
 /** How often (sim ticks) a waiting train asks again. */
@@ -311,6 +313,11 @@ interface TrainState {
   lettingFrom?: number;
   /** Standing there for it now (`waitsAside`), its wait that train. */
   asideHeld?: boolean;
+  /**
+   * Held at a waiting point for a train coming at it on the single track on from there: that stretch (`onwardStretch`,
+   * piece → the end it's come onto by, in order), for its card (`singleTrack`). Let go with any other hold.
+   */
+  stretch?: ReadonlyMap<number, number>;
 }
 
 // --- Topology ---------------------------------------------------------------------------------------------------
@@ -2664,6 +2671,7 @@ export class Sections {
         }
         if (this.stepAside(st, info, v)) return true;
         this.hold(st, { kind: "section", engine: v });
+        st.stretch = onward;
         return false;
       }
     }
@@ -3407,6 +3415,7 @@ export class Sections {
 
   private hold(st: TrainState, wait: BlockWait): void {
     if (!st.wait) st.waitSince = this.sim.ticks;
+    st.stretch = undefined;
     st.wait = wait;
     this.refused++;
   }
@@ -3729,6 +3738,36 @@ export class Sections {
   }
 
   /** Why a train is held (null: it isn't). */
+  /**
+   * Waiting at a waiting point for trains coming at it on a long single track shared by lines (the user's map1,
+   * 2026-11-16: five lines on one stretch of sixteen waiting points and no passing place; two lines' trains waited
+   * there nearly all the time): the stretch's pieces, in the order it would run them, and how many lines use it (its
+   * own, and those with a train on it, a move over it or a stop on it). For its card: where a passing loop helps. Only
+   * a stretch of `SINGLE_TRACK_SECTIONS` sections or more, used by two lines or more. Null: none such.
+   */
+  singleTrack(engine: number): { pieces: readonly number[]; lines: number } | null {
+    if (!this.enabled) return null;
+    const st = this.states.get(engine);
+    const stretch = st?.stretch;
+    if (!st || !stretch || st.move || !st.wait) return null;
+    const topo = st.topo;
+    const sections = new Set<number>();
+    for (const p of stretch.keys()) {
+      const x = topo.sectionOf.get(p);
+      if (x !== undefined) sections.add(x);
+    }
+    if (sections.size < SINGLE_TRACK_SECTIONS) return null;
+    const own = this.host.lineOf(engine);
+    const lines = new Set<number>(own >= 0 ? [own] : []);
+    for (const [u, w] of this.states) {
+      const l = this.host.lineOf(u);
+      if (l < 0 || lines.has(l)) continue;
+      const t = this.sim.findCar(u)?.train;
+      if ((t && t.bogies.some((b) => stretch.has(b.pieceId))) || w.move?.steps.some((x) => stretch.has(x.pieceId)) || this.host.stopPieces(l).some((p) => stretch.has(p))) lines.add(l);
+    }
+    return lines.size >= 2 ? { pieces: [...stretch.keys()], lines: lines.size } : null;
+  }
+
   /**
    * The train it's letting by, stepped aside into a spare siding or platform for it (the user's A1, `stepAside`): for
    * its card ("Letting the Red line by"). −1: none.
