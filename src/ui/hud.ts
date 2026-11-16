@@ -109,6 +109,8 @@ export interface HudHandlers {
   resetStarter(): void;
   /** Game mode: start the goals again on the starter map. */
   newGame(): void;
+  /** ☰ Your games (Game mode): every game kept on the device. */
+  yourGames(): void;
   /** Open the Lines view (every line: its colour, name and trains). */
   openLines(): void;
   /** The menu: copy this mode's map (its save, compressed) to the clipboard, for a bug report. */
@@ -614,12 +616,16 @@ export class Hud {
         h.newLayout();
       }, "menu-item"),
     ];
-    // Starting over loses the game's progress: the new-game sheet it opens says so, and asks for its Start.
+    // A new game beside this one (kept in Your games): the new-game sheet says so, and asks for its Start.
     const newGame = button("New game", "Start the goals again on a new map", () => {
       this.menu.hidden = true;
       h.newGame();
     }, "menu-item");
-    this.gameItems = [newGame];
+    const games = button("Your games", "Every game kept on this device: open another, rename, copy or delete one", () => {
+      this.menu.hidden = true;
+      h.yourGames();
+    }, "menu-item games-item");
+    this.gameItems = [newGame, games];
     // The bar's buttons that don't fit on a phone.
     const narrow = (label: string, title: string, act: () => void) =>
       button(label, title, () => {

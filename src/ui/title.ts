@@ -13,6 +13,8 @@ export interface TitleHandlers {
    * (offline, gone), said on the card under the button (the HUD's toasts don't show over the title).
    */
   continueCloud?(offer: TitleOffer): Promise<string | void>;
+  /** Game's "Your games" (shown while there's a game kept): the list of them. */
+  games?(): void;
 }
 
 export interface TitleOptions {
@@ -51,6 +53,8 @@ export class TitleScreen {
   /** Each card's "Continue from cloud" row (hidden till there's a railway in the cloud to offer). */
   private readonly cloudRows = new Map<GameMode, HTMLElement>();
   private readonly handlers: TitleHandlers;
+  /** Game's "Your games". */
+  private gamesBtn: HTMLButtonElement | null = null;
 
   constructor(parent: HTMLElement, handlers: TitleHandlers, opts: TitleOptions = {}) {
     this.handlers = handlers;
@@ -79,6 +83,11 @@ export class TitleScreen {
       const go = button("Continue", `Carry on with your ${c.name.toLowerCase()} railway`, "chip text primary", () => handlers.play(c.mode, false));
       const fresh = button(c.fresh, c.freshTitle, "chip text", () => handlers.play(c.mode, true));
       buttons.append(go, fresh);
+      if (c.mode === "game" && handlers.games) {
+        this.gamesBtn = button("Your games", "Every game kept on this device: open, rename, copy or delete one", "chip text title-games", () => handlers.games!());
+        this.gamesBtn.hidden = true;
+        buttons.append(this.gamesBtn);
+      }
       this.continueBtns.set(c.mode, go);
       const cloudRow = document.createElement("div");
       cloudRow.className = "title-cloud-offer";
@@ -99,7 +108,8 @@ export class TitleScreen {
    * Show the title. Continue appears for the modes that have a save it can load; one from an older version of the
    * game (`older`) can't, so there's no Continue, only the fresh start (the old save is kept aside, not lost).
    */
-  show(saved: Record<GameMode, boolean>, older: Partial<Record<GameMode, boolean>> = {}): void {
+  show(saved: Record<GameMode, boolean>, older: Partial<Record<GameMode, boolean>> = {}, games = 0): void {
+    if (this.gamesBtn) this.gamesBtn.hidden = games === 0;
     for (const [mode, b] of this.continueBtns) {
       const canContinue = saved[mode] && !older[mode];
       b.hidden = !canContinue;

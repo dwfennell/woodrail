@@ -124,13 +124,29 @@ export type CloudStatus =
   | { kind: "newer" };
 
 /** What happened to a mode's railway when the cloud was checked (for a toast), or null: nothing to say. */
-export type SyncNote = "took-cloud" | "kept-here" | "both-changed" | "newer" | null;
+export type SyncNote = "took-cloud" | "kept-here" | "both-changed" | "newer" | "other-game" | null;
+
+/**
+ * Game mode's games (`persist/slots.ts`): the open one syncs, and a copy of another game is never merged with nor
+ * written over it. Such a copy is parked here as that game (`keepOther`); one taken into storage on purpose (a code
+ * typed, a restore) has the open game parked first (`parkOpen`).
+ */
+export interface CloudSlots {
+  /** Is this copy of the mode's keys another game than the open one? */
+  isOther(mode: GameMode, keys: Readonly<Record<string, string | null | undefined>>): boolean;
+  /** Park another game's copy here. False: not now (no room), tried again later. */
+  keepOther(mode: GameMode, keys: Record<string, string>, savedAt: number): Promise<boolean>;
+  /** Park the open game before another's keys are written over it. False: no room (nothing's written). */
+  parkOpen(mode: GameMode): Promise<boolean>;
+}
 
 export type UseCodeResult = { ok: true; took: GameMode[] } | { ok: false; error: "malformed" | "nothing" | "offline" | "newer" };
 
 export interface CloudOptions {
   /** How progress is merged (none: a conflict is always one copy or the other). */
   merge?: Merger | null;
+  /** Game mode's games (none: one railway a mode, as before). */
+  slots?: CloudSlots | null;
   backend: CloudBackend;
   storage: KeyStore;
   /** Each mode's storage keys (`modeKeys`): the first is its autosave. */
@@ -195,6 +211,7 @@ export class CloudSync {
   constructor(opts: CloudOptions) {
     this.o = {
       merge: null,
+      slots: null,
       auto: false,
       now: () => Date.now(),
       setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -424,6 +441,8 @@ export class CloudSync {
       if (!got.ok || !got.value) return { ok: false, error: "offline" };
       const bundle = await this.readBundle(got.value.bytes, mode);
       if (!bundle) return { ok: false, error: "offline" };
+      // (Another game than the open one: that one's parked in Your games, not only kept as the backup.)
+      if (this.o.slots?.isOther(mode, bundle.keys) && !(await this.o.slots.parkOpen(mode))) return { ok: false, error: "offline" };
       if (this.o.storage.getItem(this.o.keys[mode][0]) !== null) await this.keepBackup(mode, this.bundleHere(mode, this.meta.modes[mode].changedAt || this.o.now()));
       if (!this.apply(bundle)) return { ok: false, error: "offline" };
       this.writeBase(mode, bundle.keys);
@@ -480,6 +499,7 @@ export class CloudSync {
       if (!b) return false;
       const bundle = await this.readBundle(fromBase64(b.data), mode);
       if (!bundle) return false;
+      if (this.o.slots?.isOther(mode, bundle.keys) && !(await this.o.slots.parkOpen(mode))) return false;
       const m = this.meta.modes[mode];
       await this.keepBackup(mode, this.bundleHere(mode, m.changedAt || this.o.now()));
       if (!this.apply(bundle)) return false;
@@ -539,6 +559,15 @@ export class CloudSync {
     if (!got.ok || !got.value) return null;
     const bundle = await this.readBundle(got.value.bytes, mode);
     if (!bundle) return null;
+    // Another game (one played last on the other device): parked here, in Your games; the open game stays as it is.
+    if (this.o.slots?.isOther(mode, bundle.keys)) {
+      if (when === "start" && this.late) return null;
+      if (!(await this.o.slots.keepOther(mode, bundle.keys, got.value.meta.savedAt))) return null;
+      m.remoteSavedAt = got.value.meta.savedAt;
+      m.remoteStoredAt = remote.storedAt ?? 0;
+      this.writeMeta();
+      return "other-game";
+    }
     // (When the other copy was made: when the cloud stored it, by this device's clock, so two devices' clocks never
     // disagree about which edit came later; by the other's own clock if the cloud didn't say.)
     const offset = this.o.backend.clockOffset ?? 0;
@@ -622,6 +651,13 @@ export class CloudSync {
     this.busy.add(mode);
     try {
       let keys = this.readKeys(mode);
+      // (No railway here, its game deleted: nothing goes up over the cloud's.)
+      if (this.o.slots && keys.get(this.o.keys[mode][0]) == null) {
+        m.dirty = false;
+        this.writeMeta();
+        this.settle();
+        return;
+      }
       if (this.sent[mode] && sameKeys(this.sent[mode], keys)) {
         m.dirty = false;
         this.writeMeta();
