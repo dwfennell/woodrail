@@ -3589,6 +3589,18 @@ export class Sections {
       if (!this.firstSeen.has(e)) this.firstSeen.set(e, e);
       const t = this.sim.findCar(e)?.train;
       if (t) longest = Math.max(longest, trainLength(t));
+      // (Stopped by the player, its levers off, and standing: a move it was granted is let go, and it asks again once
+      // it's sent on (`capOf` isn't asked for a train with no drive). Kept, it held the way it was granted for good: a
+      // user's map (2026-11-16), a hopper train stopped in a balloon loop by the quarry with its move to the forest yard
+      // granted, and a timber train waited for it ever after, "Stuck: the train parked by the quarry is in the way",
+      // though it stood nowhere on its way.)
+      const st = t && t.speed < 1 ? this.states.get(e) : undefined;
+      if (st?.move && this.host.drive(t!) === 0) {
+        st.move = null;
+        this.movesVer++;
+        st.askedAt = -Infinity;
+        st.frontKey = -1;
+      }
     }
     // (Sharing its network with other lines: one topology for them all (for the longest train of any), and their trains
     // work the single track with its own.)
