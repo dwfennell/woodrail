@@ -299,12 +299,16 @@ export class LineSheet {
       name.setAttribute("aria-label", m.id === -1 ? "New line" : `${m.name}: rename`);
       name.disabled = m.id === -1;
       name.addEventListener("click", (e) => (e.stopPropagation(), this.h.startRename()));
-      head.append(name);
-    }
-    if (m.id !== -1 && m.trains.length > 0) {
-      const pill = el("span", `ls-pill ${m.health}`);
-      pill.append(el("i"), m.healthWords);
-      head.append(pill);
+      // (The name and, under it, how its trains are doing: the name has the row's width, two lines if it must. A long
+      // name was cut to "Thi…" at 360 px beside the stamp, harden 2026-11-16.)
+      const title = el("div", "ls-title");
+      title.append(name);
+      if (m.id !== -1 && m.trains.length > 0) {
+        const pill = el("span", `ls-pill ${m.health}`);
+        pill.append(el("i"), m.healthWords);
+        title.append(pill);
+      }
+      head.append(title);
     }
     if (m.id !== -1) {
       const more = this.button("⋯", "ls-more", "More: copy, reverse or delete the line", () => this.h.toggleMenu());

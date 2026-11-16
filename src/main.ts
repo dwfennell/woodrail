@@ -4963,7 +4963,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         : insertAfter
           ? `Places you tap now go after ${insertAfter}`
           : sheetFits && stops.length >= 2
-            ? "Tap a place on the map: it goes in where it fits the line. Or tap + on the line first"
+            ? "Tap a place to add it where it fits, or + to choose where"
             : "Tap places on the map to add stops, or a stop above for its options";
     const warnings = [...(line ? blockedTexts(stops, plan) : [])];
     const lostNames = [...new Set(stops.filter((st) => !names.some((x) => x.depotId === st.depotId)).map((st) => lostStopName(game.world, st.depotId)))];
@@ -5849,6 +5849,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         strip.append(chip);
       });
       box.append(strip);
+      // (More stops than fit (eight on a phone): the line scrolls, the stop it's going to in view, and the edge it runs
+      // on past fades, as the tray's does. Harden 2026-11-16: six pegs showed with no sign of the rest.)
+      const edges = () => {
+        strip.classList.toggle("more-right", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 2);
+        strip.classList.toggle("more-left", strip.scrollLeft > 2);
+      };
+      strip.addEventListener("scroll", edges, { passive: true });
+      requestAnimationFrame(() => {
+        if (strip.scrollWidth <= strip.clientWidth + 2) return;
+        const target = strip.querySelector<HTMLElement>(".route-chip.next");
+        if (target) strip.scrollLeft = Math.max(0, target.offsetLeft + target.offsetWidth / 2 - strip.clientWidth / 2);
+        edges();
+      });
       nextDrawn = { carId, next: r?.next ?? -1 };
       if (next >= 0 && line.stops[next]) {
         const where = document.createElement("div");

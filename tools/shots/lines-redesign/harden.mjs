@@ -16,8 +16,9 @@ async function sheetFor(p, s) {
   await reset(p);
   await look(p, s);
   await p.evaluate((e) => window.woodrail.interaction.openEngineCard(e), s.engines[0]);
-  await p.waitForTimeout(1000);
+  await p.waitForTimeout(1800);
   await tapSel(p, ".engine-extra .route-plan");
+  await p.waitForSelector(".line-sheet:not([hidden])", { timeout: 15000 }).catch(() => {});
   await p.waitForTimeout(1500);
   await clearToasts(p);
 }
