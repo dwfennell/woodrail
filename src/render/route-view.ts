@@ -142,6 +142,19 @@ export interface DiscSpec {
   via?: boolean;
 }
 
+/**
+ * A + peg on the line between two stops (lines UI redesign 2026-11-16): planning, a tap on it means "the next place
+ * tapped goes in here". At the middle of the leg from stop `after` to the next, on the ribbon; `armed`, painted.
+ */
+export interface InsertSpec {
+  x: number;
+  y: number;
+  z: number;
+  after: number;
+  colour: string;
+  armed: boolean;
+}
+
 /** The ribbon: its width (mm), how far over the track's top it lies, and how finely it follows curves. */
 const RIBBON_WIDTH = 14;
 const RIBBON_LIFT = 0.4;
@@ -204,6 +217,8 @@ export const RIBBON_OPACITY = 0.85;
 const DISC = 0.022;
 const DISC_NEXT = 0.028;
 const DISC_HEIGHT = 70;
+/** A + peg's height over the line (mm): low, on the ribbon, below the stops' discs on their posts. */
+const INSERT_HEIGHT = 14;
 /** A via point's disc and post, against a stop's. */
 const VIA_SCALE = 0.62;
 const POST_RADIUS = 1.2;
@@ -267,7 +282,35 @@ export class RouteView {
   }
 
   /** Draw these ribbons and discs (replacing what was drawn). Builds geometry once per call; nothing per frame. */
-  show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = [], scale = 1): void {
+  show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = [], scale = 1, inserts: readonly InsertSpec[] = []): void {
+    this.showDiscsAndRibbons(ribbons, discs, gaps, scale);
+    for (const p of inserts) this.insertPeg(p);
+  }
+
+  /**
+   * A + peg on the ribbon (`InsertSpec`): a maple token a little smaller than a stop's disc, low over the line (a stop's
+   * stands on a post above its place), not fanned with the stops'. Built with the ribbons; nothing per frame.
+   */
+  private insertPeg(p: InsertSpec): void {
+    const key = `+|${p.colour}|${p.armed ? 1 : 0}`;
+    let m = this.discMats.get(key);
+    if (!m) {
+      m = new SpriteMaterial({ map: insertTexture(p), transparent: true, fog: false, depthWrite: false, depthTest: false, sizeAttenuation: false });
+      this.discMats.set(key, m);
+    }
+    const token = new Sprite(m);
+    token.position.set(p.x, p.y + INSERT_HEIGHT, p.z);
+    // (Its drawn peg is about two thirds of the sprite, which is what a tap hits: a finger's size, a little larger than
+    // a stop's disc, the peg itself smaller.)
+    const size = DISC * (p.armed ? 1.45 : 1.3);
+    token.scale.set(size, size, 1);
+    token.renderOrder = 4;
+    token.name = "route-insert";
+    token.userData = { kind: "route-insert", after: p.after };
+    this.group.add(token);
+  }
+
+  private showDiscsAndRibbons(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[], scale: number): void {
     this.clear(true);
     // (Wider ribbons, arrows and edges, seen from far: the Lines view's. See `ribbonScale`.)
     this.scale = scale;
@@ -877,4 +920,56 @@ export function ribbonScale(distance: number, heightPx: number, fovDeg: number, 
   const want = minPx / pxPerMm / RIBBON_WIDTH;
   if (want <= 1) return 1;
   return Math.SQRT2 ** Math.ceil(Math.log(want) / Math.log(Math.SQRT2));
+}
+
+/**
+ * A + peg's face: a maple token, ringed in wood ink, a + on it; armed, painted in the line's colour with a blue ring (as
+ * the sheet's + when tapped). Null where there's no canvas (tests).
+ */
+function insertTexture(p: InsertSpec): CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  const S = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d")!;
+  const cx = S / 2;
+  const cy = S / 2 - 3;
+  const r = S * 0.34;
+  g.fillStyle = "rgba(40, 25, 10, 0.25)";
+  g.beginPath();
+  g.ellipse(cx, cy + 8, r + 2, r + 1, 0, 0, Math.PI * 2);
+  g.fill();
+  if (p.armed) {
+    g.fillStyle = "#2563b0";
+    g.beginPath();
+    g.arc(cx, cy, r + 9, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.fillStyle = p.armed ? new Color(p.colour).multiplyScalar(0.62).getStyle() : "#dcbf94";
+  g.beginPath();
+  g.arc(cx, cy + 4, r, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = p.armed ? p.colour : "#fbf1df";
+  g.beginPath();
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.fill();
+  if (!p.armed) {
+    g.strokeStyle = "#2a1a0e";
+    g.lineWidth = 7;
+    g.beginPath();
+    g.arc(cx, cy, r - 3.5, 0, Math.PI * 2);
+    g.stroke();
+  }
+  g.strokeStyle = p.armed ? "#ffffff" : "#2a1a0e";
+  g.lineWidth = 10;
+  g.lineCap = "round";
+  g.beginPath();
+  g.moveTo(cx - r * 0.5, cy);
+  g.lineTo(cx + r * 0.5, cy);
+  g.moveTo(cx, cy - r * 0.5);
+  g.lineTo(cx, cy + r * 0.5);
+  g.stroke();
+  const t = new CanvasTexture(c);
+  t.colorSpace = SRGBColorSpace;
+  return t;
 }

@@ -4,12 +4,12 @@
 //     tap can add.
 //  2. Places tapped on the map, by their buildings and yards (not their track): a forest yard, a sawmill, a workshop's
 //     yard ground, and a town's house (its station): a line with four stops, run by no train.
-//  4. The town's stop dragged by its handle to the top, then opened and taken off: three stops, in a new order, then
-//     put back in order with ↓ ↑.
+//  4. The town's stop dragged by its handle to the top, then opened and taken off (Remove stop): three stops, in a new
+//     order; the sawmill dragged below the workshop and back.
 //  5. A stop opened: what moves there in sentences; Pick up unticked (drop only) and ticked again.
 //  6. Done: back to the Lines list; the line listed first ("No trains"), with its stops drawn.
 //  7. A train put on the track by the line (as the tray would: a harness shortcut, not what's tested); the line tapped
-//     in the list opens its Trains tab, + Add puts the train on it; the line runs (the payoff): logs carried from the
+//     in the list opens its sheet, Add a train under its stops puts the train on it; the line runs (the payoff): logs carried from the
 //     forest to the sawmill, counted as the line's loads; the list says Moving and its loads a month.
 //  8. ⋯ Copy: a second line with the same stops and no train; a reload keeps both (one with no train).
 //  9. A town with no station tapped: "… needs a station first", nothing added.
@@ -227,14 +227,15 @@ await tap(".ls-stop[data-stop='0'] .ls-stop-main");
 await tap(".ls-stop.open .ls-remove");
 const three = await sheetLine();
 check("4. …opened and taken off: three stops, the forest's first", JSON.stringify(three?.stops) === JSON.stringify([setup.forest, setup.mill, setup.workshop]), JSON.stringify(three));
-await tap(".ls-stop[data-stop='1'] .ls-stop-main");
-await tap(".ls-stop.open .ls-down-btn");
+// (↑ ↓ gave way to the grip, lines UI redesign 2026-11-16: the sawmill dragged below the workshop, and back.)
+await dragRow(1, 2);
 const down = await sheetLine();
-await tap(".ls-stop.open .ls-up-btn");
+await dragRow(2, 1);
 const up = await sheetLine();
-check("4. ↓ then ↑ on the open stop move it and back", JSON.stringify(down?.stops) === JSON.stringify([setup.forest, setup.workshop, setup.mill]) && JSON.stringify(up?.stops) === JSON.stringify([setup.forest, setup.mill, setup.workshop]), JSON.stringify({ down, up }));
+check("4. the sawmill dragged by its grip below the workshop, and back", JSON.stringify(down?.stops) === JSON.stringify([setup.forest, setup.workshop, setup.mill]) && JSON.stringify(up?.stops) === JSON.stringify([setup.forest, setup.mill, setup.workshop]), JSON.stringify({ down, up }));
 
 // ---- 5. An open stop ---------------------------------------------------------------------------------------------
+await tap(".ls-stop[data-stop='1'] .ls-stop-main");
 const openStop = await p.evaluate(() => {
   const s = document.querySelector(".ls-stop.open");
   return { says: s?.querySelector(".ls-says")?.textContent ?? "", ticks: [...(s?.querySelectorAll(".ls-tick") ?? [])].map((t) => `${t.textContent}:${t.getAttribute("aria-pressed")}`) };
@@ -282,10 +283,10 @@ const engine = await p.evaluate((pieceId) => {
 check("7. (setup) a goods train on the oval", engine !== -1);
 await p.waitForTimeout(600);
 await tap(".lines-row");
-await p.waitForFunction(() => document.querySelector(".line-sheet .ls-tab.on")?.dataset.tab === "trains", null, { timeout: 10000 }).catch(() => {});
 await p.waitForFunction(() => !!document.querySelector(".ls-add-train"), null, { timeout: 15000 }).catch(() => {});
 const offered = await p.evaluate(() => [...document.querySelectorAll(".ls-add-train")].map((b) => Number(b.dataset.engine)));
-check("7. the line with no train opens on its Trains tab: no train yet, the free train offered", offered.includes(engine) && !!(await p.evaluate(() => document.querySelector(".ls-empty"))), JSON.stringify(offered));
+const addSaid = await p.evaluate(() => document.querySelector(".ls-add .ls-h")?.textContent ?? "");
+check("7. the line with no train: its sheet says so under the stops, and offers the free train", offered.includes(engine) && /^No train runs it yet/.test(addSaid), JSON.stringify({ offered, addSaid }));
 await shot("4-add-train");
 await tap(`.ls-add-train[data-engine='${engine}']`);
 const run = await sheetLine();
@@ -307,7 +308,6 @@ const moved = await p.evaluate(async ({ forest, mill, lineId }) => {
 }, { forest: setup.forest, mill: setup.mill, lineId: run.id });
 check("7. the line runs: logs carried from the forest to the sawmill, counted as the line's loads", moved.toMill > 0 && moved.loads >= moved.toMill, JSON.stringify(moved));
 await p.waitForTimeout(700);
-await tap(".ls-tab", "Trains");
 await p.waitForTimeout(600);
 await shot("5-trains");
 await tap(".ls-done");

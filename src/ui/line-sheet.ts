@@ -1,7 +1,8 @@
 /**
- * The line sheet (routes UX, option B, 2026-11-06): one line, run by trains or by none, at the bottom of the screen.
- * Two tabs: Stops, a vertical line diagram (the line's colour as a spine, each stop's number, name and the goods it
- * drops and picks up), and Trains (the trains on it, and free trains to add). A stop tapped opens in place: what moves
+ * The line sheet (routes UX, option B, 2026-11-06; one diagram, lines UI redesign 2026-11-16): one line, run by trains
+ * or by none, at the bottom of the screen (docked at the right on a desktop). The line drawn down a painted spine: each
+ * stop's number, name and the goods it drops and picks up, and its trains riding the spine before the stop each is
+ * heading for (a waiting or stuck one says why, where it is); then free trains to add. A stop tapped opens in place: what moves
  * there in sentences, two ticks (Drop, Pick up; untick both and the train passes by), Wait to fill, ↑ ↓ and ✕. Its
  * height is capped (`.line-sheet` max-height) so the map stays above it to tap places on. Rebuilt only when its model
  * changes (`show` compares a key); nothing per frame.
@@ -36,6 +37,12 @@ export interface SheetTrain {
   engine: number;
   name: string;
   status: string;
+  /** The stop it's heading for (an index into the stops), or −1: none (not drawn on the spine). */
+  heading: number;
+  /** Standing at that stop (drawn after it, not before). */
+  here: boolean;
+  /** How it's doing: a waiting or stuck train is a gold tile, its whole status said. */
+  health: "moving" | "waiting" | "stuck";
 }
 
 export interface SheetFree {
@@ -54,7 +61,10 @@ export interface SheetModel {
   colour: string;
   /** Ink for text on the line's colour (dark on light colours). */
   ink: string;
-  tab: "stops" | "trains";
+  /** What the sheet shows first: its stops, or its trains (scrolled to Add a train, where a line has none). */
+  focus: "stops" | "trains";
+  /** The train row opened (Show, Take off line), or −1. */
+  trainOpen: number;
   stops: SheetStop[];
   /** The open stop, or −1; a via `{k, i}` open instead. */
   open: number;
@@ -87,7 +97,8 @@ export interface SheetModel {
 
 export interface SheetHandlers {
   done(): void;
-  tab(t: "stops" | "trains"): void;
+  /** A train's row tapped: its Show and Take off line (tapped again: closed). */
+  openTrain(engine: number): void;
   open(k: number): void;
   openVia(k: number, i: number): void;
   ticks(k: number, drop: boolean, pick: boolean): void;
@@ -190,9 +201,11 @@ export class LineSheet {
     // on a button isn't lost to a rebuild under the finger.
     if (this.shownKey !== "" && this.shape(key) === this.shape(this.shownKey)) {
       this.shownKey = key;
-      for (const t of m.trains) {
-        const status = this.root.querySelector<HTMLElement>(`.ls-train[data-engine="${t.engine}"] .ls-train-status`);
-        if (status && status.textContent !== t.status) status.textContent = t.status;
+      for (const t of m.trains) this.placeTrain(t);
+      const pill = this.root.querySelector<HTMLElement>(".ls-pill");
+      if (pill && !pill.classList.contains(m.health)) {
+        pill.className = `ls-pill ${m.health}`;
+        pill.lastChild!.textContent = m.healthWords;
       }
       for (const f of m.free) {
         const where = this.root.querySelector<HTMLElement>(`.ls-add-train[data-engine="${f.engine}"] span`);
@@ -212,17 +225,17 @@ export class LineSheet {
     this.root.append(this.head(m));
     if (m.palette) this.root.append(this.palette(m));
     if (m.menu) this.root.append(this.menu(m));
-    if (m.id !== -1) this.root.append(this.tabs(m));
     const body = el("div", "ls-body");
     const foot = el("div", "ls-foot");
-    if (m.tab === "stops" || m.id === -1) this.stopsTab(m, body, foot);
-    else this.trainsTab(m, body);
+    this.diagram(m, body, foot);
     this.root.append(body);
     // (What a tap on the map does now, and + Pass by…: under the list, never scrolled away.)
     if (this.addedRow) this.root.append(this.addedRow);
     this.addedRow = null;
     if (foot.childElementCount > 0) this.root.append(foot);
     if (sameLine) body.scrollTop = scroll;
+    // (Opened on its trains, a line no train runs: Add a train in view.)
+    else if (m.focus === "trains") requestAnimationFrame(() => body.querySelector(".ls-add")?.scrollIntoView({ block: "nearest" }));
     // The open stop (else one just put in by a tap) scrolled into the sheet's view.
     const target = body.querySelector<HTMLElement>(".ls-stop.open, .ls-via.open, .ls-stop.added");
     // (Its top: an open stop can be taller than the sheet, and its name says which it is.)
@@ -239,7 +252,8 @@ export class LineSheet {
   /** A model's key without what changes as trains run (statuses, where free trains are, loads): its shape. */
   private shape(key: string): string {
     const m = JSON.parse(key) as SheetModel;
-    return JSON.stringify({ ...m, trains: m.trains.map((t) => t.engine), free: m.free.map((f) => f.engine), carries: !!m.carries, health: m.health });
+    // (Where each train is and how it's doing change as it runs: moved and said in place, not built again.)
+    return JSON.stringify({ ...m, trains: m.trains.map((t) => t.engine), free: m.free.map((f) => f.engine), carries: !!m.carries, health: m.health, healthWords: "" });
   }
 
   private button(text: string, cls: string, tip: string, fn: () => void): HTMLButtonElement {
@@ -285,12 +299,16 @@ export class LineSheet {
       name.setAttribute("aria-label", m.id === -1 ? "New line" : `${m.name}: rename`);
       name.disabled = m.id === -1;
       name.addEventListener("click", (e) => (e.stopPropagation(), this.h.startRename()));
-      head.append(name);
-    }
-    if (m.id !== -1 && m.trains.length > 0) {
-      const pill = el("span", `ls-pill ${m.health}`);
-      pill.append(el("i"), m.healthWords);
-      head.append(pill);
+      // (The name and, under it, how its trains are doing: the name has the row's width, two lines if it must. A long
+      // name was cut to "Thi…" at 360 px beside the stamp, harden 2026-11-16.)
+      const title = el("div", "ls-title");
+      title.append(name);
+      if (m.id !== -1 && m.trains.length > 0) {
+        const pill = el("span", `ls-pill ${m.health}`);
+        pill.append(el("i"), m.healthWords);
+        title.append(pill);
+      }
+      head.append(title);
     }
     if (m.id !== -1) {
       const more = this.button("⋯", "ls-more", "More: copy, reverse or delete the line", () => this.h.toggleMenu());
@@ -327,24 +345,9 @@ export class LineSheet {
     return row;
   }
 
-  private tabs(m: SheetModel): HTMLElement {
-    const tabs = el("div", "ls-tabs");
-    tabs.setAttribute("role", "tablist");
-    const tab = (t: "stops" | "trains", text: string) => {
-      const b = el("button", `ls-tab${m.tab === t ? " on" : ""}`, text);
-      b.setAttribute("role", "tab");
-      b.setAttribute("aria-selected", String(m.tab === t));
-      b.dataset.tab = t;
-      b.addEventListener("click", (e) => (e.stopPropagation(), this.h.tab(t)));
-      return b;
-    };
-    tabs.append(tab("stops", `Stops · ${m.stops.length}`), tab("trains", `Trains · ${m.trains.length}`));
-    return tabs;
-  }
-
-  private stopsTab(m: SheetModel, body: HTMLElement, foot: HTMLElement): void {
+  private diagram(m: SheetModel, body: HTMLElement, foot: HTMLElement): void {
     const list = el("ol", `ls-stops${m.stops.length > 1 ? " pegs" : ""}`);
-    list.setAttribute("aria-label", "Stops, in order");
+    list.setAttribute("aria-label", "Stops, in order, and the trains between them");
     m.stops.forEach((st, k) => {
       const rows = [this.stopRow(m, st, k), ...st.vias.map((v, i) => this.viaRow(m, v, k, i))];
       list.append(...rows);
@@ -353,6 +356,9 @@ export class LineSheet {
       if (m.stops.length > 1) rows.at(-1)!.append(this.insertPeg(m, k));
     });
     body.append(list);
+    // Its trains on the spine, each before the stop it's heading for (after it, standing there).
+    for (const t of m.trains) this.placeTrain(t, m, list);
+    if (m.id !== -1) this.addTrains(m, body);
     if (m.stops.length > 1) this.dragRows(list, m);
     const hint = el("div", "ls-hint route-plan-hint", m.hint);
     if (m.stops.length === 0) {
@@ -441,18 +447,12 @@ export class LineSheet {
     );
     if (st.pick) row.append(tick("Wait to fill", st.waitFill, "ls-wait route-wait", "Wait here till the wagons are full (of goods a later stop wants)", () => this.h.wait(k)));
     opts.append(row);
-    opts.append(el("div", "ls-note", st.canPass ? "Untick both: the train passes by without stopping" : "A stop must drop or pick up (pass by needs 3 stops)"));
     if (st.note) opts.append(el("div", "ls-note", st.note));
+    // (Reordering is the grip's (and ← → with a keyboard); Remove stop a stamp at the end of the row, after a word on
+    // passing by. Critique 2026-11-16: ↑ ↓ and Take off fell below the sheet's foot on a phone.)
     const acts = el("div", "ls-acts");
-    const up = this.button("↑", "ls-up-btn route-move", "Move this stop earlier", () => this.h.move(k, k - 1));
-    up.setAttribute("aria-label", "Move earlier");
-    up.disabled = k === 0;
-    const down = this.button("↓", "ls-down-btn route-move", "Move this stop later", () => this.h.move(k, k + 1));
-    down.setAttribute("aria-label", "Move later");
-    down.disabled = k === m.stops.length - 1;
-    const remove = this.button("Take off", "ls-remove route-remove", "Take this stop off the line", () => this.h.remove(k));
-    if (m.stops.length > 1) acts.append(up, down);
-    acts.append(remove);
+    acts.append(el("div", "ls-note", st.canPass ? "Take both pegs out: it passes by" : "A stop must drop or pick up: pass by needs 3 stops"));
+    acts.append(this.button("Remove stop", "ls-remove route-remove", "Take this stop off the line", () => this.h.remove(k)));
     opts.append(acts);
     li.append(opts);
     return li;
@@ -525,22 +525,65 @@ export class LineSheet {
     });
   }
 
-  private trainsTab(m: SheetModel, body: HTMLElement): void {
-    if (m.trains.length === 0) body.append(el("div", "ls-empty", "No train runs this line yet"));
-    const list = el("ul", "ls-trains");
-    for (const t of m.trains) {
-      const li = el("li", "ls-train");
-      li.dataset.engine = String(t.engine);
-      const text = el("div", "ls-train-text");
-      text.append(el("b", "", t.name), el("span", "ls-train-status", t.status));
-      const show = this.button("Show", "ls-train-show", `Show ${t.name} on the map`, () => this.h.showTrain(t.engine));
-      const off = this.button("Take off", "ls-train-off", `Take ${t.name} off this line: it stops and is run by hand`, () => this.h.takeOff(t.engine));
-      li.append(text, show, off);
-      list.append(li);
+  /** A train's row on the spine: its engine as a token on the line, its name and what it's doing; opened, Show and Take off line. */
+  private trainRow(m: SheetModel, t: SheetTrain): HTMLElement {
+    const open = m.trainOpen === t.engine;
+    const li = el("li", `ls-train ${t.health}${open ? " open" : ""}`);
+    li.dataset.engine = String(t.engine);
+    const token = el("span", "ls-train-token");
+    token.setAttribute("aria-hidden", "true");
+    const main = el("button", "ls-train-main");
+    main.setAttribute("aria-expanded", String(open));
+    main.title = open ? "Close" : `${t.name}: show it, or take it off this line`;
+    main.append(el("b", "ls-train-name", t.name), el("span", "ls-train-status", t.status));
+    main.addEventListener("click", (e) => (e.stopPropagation(), this.h.openTrain(t.engine)));
+    li.append(el("span", "ls-handle none"), token, main);
+    // (Waiting or stuck: Show at once, to see why. Else in its opened row.)
+    const show = () => this.button("Show", "ls-train-show", `Show ${t.name} on the map`, () => this.h.showTrain(t.engine));
+    if (t.health !== "moving" && !open) li.append(show());
+    if (open) {
+      const acts = el("div", "ls-acts");
+      acts.append(show(), this.button("Take off line", "ls-train-off", `Take ${t.name} off this line: it stops and is run by hand`, () => this.h.takeOff(t.engine)));
+      li.append(acts);
     }
-    if (m.trains.length > 0) body.append(list);
-    body.append(el("div", "ls-h", "Add a train"));
-    if (m.free.length === 0) body.append(el("div", "ls-note", "No free train can reach this line. Put an engine on its track (the Trains tab), then add it here."));
+    return li;
+  }
+
+  /**
+   * Put a train's row where it is on the spine (made, the first time: `m`), and say what it's doing: before the stop
+   * it's heading for, or after it (and its via rows) standing there. Moved and said in place as it runs: the sheet
+   * isn't built again for it.
+   */
+  private placeTrain(t: SheetTrain, m?: SheetModel, into?: HTMLElement): void {
+    const list = into ?? this.root.querySelector<HTMLElement>(".ls-stops");
+    if (!list) return;
+    let li = list.querySelector<HTMLElement>(`.ls-train[data-engine="${t.engine}"]`);
+    if (!li) {
+      if (!m || t.heading < 0) return;
+      li = this.trainRow(m, t);
+    } else {
+      const status = li.querySelector<HTMLElement>(".ls-train-status");
+      if (status && status.textContent !== t.status) status.textContent = t.status;
+      for (const h of ["moving", "waiting", "stuck"] as const) li.classList.toggle(h, t.health === h);
+    }
+    const stop = list.querySelector<HTMLElement>(`.ls-stop[data-stop="${t.heading}"]`);
+    if (!stop) return li.remove();
+    let at: Element | null = stop;
+    if (t.here) {
+      // (After its stop and that stop's via rows, ahead of the trains already standing there.)
+      at = stop.nextElementSibling;
+      while (at && at.classList.contains("ls-via")) at = at.nextElementSibling;
+      while (at && at.classList.contains("ls-train") && at !== li && at.classList.contains("here")) at = at.nextElementSibling;
+    }
+    li.classList.toggle("here", t.here);
+    if (li.nextElementSibling !== at || li.parentElement !== list) list.insertBefore(li, at);
+  }
+
+  /** Under the spine: free trains to put on the line (or why none), and what it carries. */
+  private addTrains(m: SheetModel, body: HTMLElement): void {
+    const box = el("div", "ls-add");
+    box.append(el("div", "ls-h", m.trains.length === 0 ? "No train runs it yet: add one" : "Add a train"));
+    if (m.free.length === 0) box.append(el("div", "ls-note", "No free train can reach this line. Put an engine on its track (the tray's Trains tab), then add it here."));
     const free = el("div", "ls-free");
     for (const f of m.free) {
       const b = this.button("", "ls-add-train", `Put ${f.name} on this line`, () => this.h.addTrain(f.engine));
@@ -548,7 +591,8 @@ export class LineSheet {
       b.append(el("b", "", `+ ${f.name}`), el("span", "", ` · ${f.where}`));
       free.append(b);
     }
-    body.append(free);
+    if (m.free.length > 0) box.append(free);
+    body.append(box);
     if (m.carries) body.append(el("div", "ls-carries", m.carries));
   }
 }

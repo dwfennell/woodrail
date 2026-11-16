@@ -7,7 +7,6 @@ import { CrossingBells } from "./audio/crossing-bell";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
-import { stopDrag } from "./ui/route-drag";
 import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, newMapSeed, plotsForSale, syncMapDepots } from "./game/world";
@@ -64,10 +63,10 @@ import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
 import { HEALTH_WORDS, lineHealth, type LineHealth } from "./game/line-health";
 import { wouldRepeat } from "./ui/route-drag";
-import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, runsLength, stopCursors, viaLegs } from "./game/route-path";
+import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, runsLength, stopCursors, viaLegs, type PathRun } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
-import { ribbonScale, RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
+import { ribbonScale, RouteView, type DiscSpec, type GapSpec, type InsertSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { addTipped, emptyWords, type Tipped } from "./game/empty-words";
 import { canContinue, continueOn } from "./game/continue-on";
@@ -4567,14 +4566,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let sheetChosen = false;
   /** Opened from the Lines list: Done goes back there. */
   let sheetFromLines = false;
+  /** What the sheet shows first (its stops, or Add a train where no train runs it): its scroll on opening. */
   let sheetTab: "stops" | "trains" = "stops";
+  /** The train whose row is open in the sheet (Show, Take off line), or −1. */
+  let trainPicked = -1;
   let sheetMenu = false;
   let sheetPalette = false;
   let sheetRenaming = false;
   let sheetDeleteAsked = false;
   const lineSheet = new LineSheet(hud.root, {
     done: () => donePlanning(),
-    tab: (t) => ((sheetTab = t), (stopPicked = -1), (viaPicked = null), showSheet()),
+    openTrain: (e) => ((trainPicked = trainPicked === e ? -1 : e), (stopPicked = -1), (viaPicked = null), showSheet()),
     open: (k) => {
       stopPicked = stopPicked === k ? -1 : k;
       viaPicked = null;
@@ -4695,6 +4697,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       interaction.undo();
       showRoute();
       showSheet();
+      // (The line, and its + pegs, in view again: as after any edit.)
+      requestAnimationFrame(() => (showRibbon(), frameSheet()));
     },
     startRename: () => ((sheetRenaming = true), (sheetPalette = false), (sheetMenu = false), showSheet()),
     rename: (name) => {
@@ -4929,9 +4933,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (sheetLine !== -1 && !line) sheetLine = -1;
     const engines = line ? trainsOn(game.economy, line.id) : [];
     const now = performance.now();
-    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}|${engines.length > 0 ? game.economy.routeOf(engines[0])?.next : ""}|${insertAt}|${justAdded?.text ?? ""}`;
+    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}|${engines.length > 0 ? game.economy.routeOf(engines[0])?.next : ""}|${insertAt}|${justAdded?.text ?? ""}|${trainPicked}|${game.sim.trainCount}`;
     // (Built again on a change, and, on the Trains tab while the game runs, 4 times a second: the trains' doings.)
-    if (key === sheetKey && (sheetTab !== "trains" || game.paused || now - sheetAt < 250)) return;
+    // (Its trains ride its spine: where they are and what they're doing, 4 times a second while they run; placed and
+    // said in place by the sheet, not built again.)
+    // (A line no train runs: its free trains looked at again once a second, as they come and go near it; a train put
+    // on the map or taken off is in the key.)
+    if (key === sheetKey && (game.paused || now - sheetAt < (engines.length === 0 ? 1000 : 250))) return;
     sheetKey = key;
     sheetAt = now;
     const names = routeStops(game.world);
@@ -4979,18 +4987,31 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         : insertAfter
           ? `Places you tap now go after ${insertAfter}`
           : sheetFits && stops.length >= 2
-            ? "Tap a place on the map: it goes in where it fits the line. Or tap + on the line first"
+            ? "Tap a place to add it where it fits, or + to choose where"
             : "Tap places on the map to add stops, or a stop above for its options";
     const warnings = [...(line ? blockedTexts(stops, plan) : [])];
     const lostNames = [...new Set(stops.filter((st) => !names.some((x) => x.depotId === st.depotId)).map((st) => lostStopName(game.world, st.depotId)))];
     for (const n of lostNames) warnings.push(lostStopWords(n));
     if (line && engines.length > 1) warnings.unshift(`Changes the line for all ${engines.length} of its trains`);
-    const trains: SheetTrain[] =
-      sheetTab === "trains"
-        ? engines.flatMap((e) => (game.sim.findCar(e) ? [{ engine: e, name: game.sim.nameOf(e), status: engineView(game.sim, game.economy, e, (id) => nameOf(id), whyCantMove(), trainPlace).status }] : []))
-        : engines.map((e) => ({ engine: e, name: game.sim.nameOf(e), status: "" }));
+    const trains: SheetTrain[] = engines.flatMap((e) => {
+      const found = game.sim.findCar(e);
+      if (!found) return [];
+      const route = game.economy.routeOf(e);
+      const h = lineHealth([trainState(game.sim, game.economy, found.train, found.train.cars[found.index].lever, whyCantMove())]);
+      return [
+        {
+          engine: e,
+          name: game.sim.nameOf(e),
+          status: engineView(game.sim, game.economy, e, (id) => nameOf(id), whyCantMove(), trainPlace).status,
+          heading: route && stops.length > 0 ? route.next % stops.length : -1,
+          here: !!route?.at,
+          health: h === "none" ? "moving" : h,
+        },
+      ];
+    });
+    if (trainPicked !== -1 && !engines.includes(trainPicked)) trainPicked = -1;
     const free: SheetFree[] =
-      line && sheetTab === "trains"
+      line
         ? freeCached(line.id).map((e) => {
             const at = trainPlace(e);
             return { engine: e, name: game.sim.nameOf(e), where: at ? `near ${at}` : "free" };
@@ -5003,7 +5024,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       name: line?.name ?? "",
       colour,
       ink: inkOn(colour),
-      tab: sheetTab,
+      focus: sheetTab,
+      trainOpen: trainPicked,
       stops: sheetStops,
       open: stopPicked,
       openVia: viaPicked,
@@ -5011,7 +5033,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       free,
       health,
       healthWords: HEALTH_WORDS[health],
-      carries: line && sheetTab === "trains" ? carriesWords(line.id) : "",
+      carries: line ? carriesWords(line.id) : "",
       hint,
       warnings,
       viaAsked,
@@ -5046,6 +5068,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         if (at) points.push(at);
       }
     }
+    // (The map's + pegs too: one between two stops can lie round a far curve, under the sheet.)
+    if (planning) points.push(...pegSpots);
     return points;
   }
 
@@ -5058,13 +5082,43 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
+   * Planning a line of two stops or more: a + peg at the middle of each leg, on its ribbon (lines UI redesign
+   * 2026-11-16: insert where the geography is). `legs[k]` runs from stop k to the next. None where a stop is off the
+   * map (the legs then don't line up with the stops), or a leg has no way.
+   */
+  function insertPegs(line: { colour: string; stops: readonly RouteStopDef[] }, legs: readonly (readonly PathRun[] | null)[], lost: boolean): InsertSpec[] {
+    const out = pegsOf(line, legs, lost);
+    pegSpots = out.map((p) => new Vector3(p.x, p.y, p.z));
+    return out;
+  }
+  /** Where the map's + pegs are (planning), for framing the line with them in view: a leg's middle can lie far from its stops. */
+  let pegSpots: Vector3[] = [];
+  function pegsOf(line: { colour: string; stops: readonly RouteStopDef[] }, legs: readonly (readonly PathRun[] | null)[], lost: boolean): InsertSpec[] {
+    // (Not while "+ Pass by…" waits for the track to be tapped: a peg on the track would take that tap.)
+    if (!planning || viaAsked || lost || line.stops.length < 2 || legs.length !== line.stops.length) return [];
+    return legs.flatMap((leg, k) => {
+      if (!leg || leg.length === 0) return [];
+      let half = runsLength(leg) / 2;
+      for (const run of leg) {
+        const l = Math.abs(run.s1 - run.s0);
+        if (half <= l) {
+          const p = pointOnPath(game.layout, run.pieceId, run.pathIndex, run.s0 + Math.sign(run.s1 - run.s0) * half);
+          return p ? [{ ...p, after: k, colour: line.colour, armed: insertAt === k + 1 }] : [];
+        }
+        half -= l;
+      }
+      return [];
+    });
+  }
+
+  /**
    * The sheet's line drawn on the track when no train of the sheet's runs it (a line on its own): its ribbon round all
    * its stops, numbered discs. Built only when it changes (`ribbonKey`).
    */
   function showLineAlone(): boolean {
     const line = game.economy.lines.get(sheetLine);
     const scale = ribbonScale(game.camera.position.distanceTo(game.controls.target), game.canvas.clientHeight || 1, game.camera.fov);
-    const key = `alone|${scale}|${sheetLine}|${game.trackVersion}|${game.layout.switchesVersion}|${line ? `${line.colour}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}`;
+    const key = `alone|${scale}|${sheetLine}|${game.trackVersion}|${game.layout.switchesVersion}|${line ? `${line.colour}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}|${planning}|${insertAt}|${viaAsked}`;
     if (key === ribbonKey) return true;
     ribbonKey = key;
     if (!routeView || routeLayout !== game.layout) {
@@ -5094,7 +5148,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else d.label += `·${k + 1}`;
       for (const v of st.via ?? []) if (!discs.has(v) && game.layout.getPiece(v)) discs.set(v, { pieceId: v, label: "", colour: line.colour, state: "stop", stop: k, via: true });
     });
-    routeView.show(ribbons, [...discs.values()], [], scale);
+    routeView.show(ribbons, [...discs.values()], [], scale, insertPegs(line, legs, pieces.includes(-1)));
     game.invalidate();
     return true;
   }
@@ -5611,10 +5665,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The stop whose tools were last scrolled into view on the card ("engine:stop"; see `showRoute`). */
   /** The stop the open card's next mark was last drawn on (its engine): a mark that moves pops, so the player sees it go. */
   let nextDrawn = { carId: -1, next: -1 };
-  /** A stop's chip lifted to drag (`stopDrag`): the card holds still till it's let go. */
+  /** A stop's chip held (none since the card's line is read only; kept for the sheet's drag): the card holds still. */
   let stopDragging = false;
-  /** The stop just dropped by a drag: its chip pops once, where it went (−1: none). */
-  let stopDropped = -1;
   const DRAG_HINT_KEY = "woodrail.hint.stopDrag";
   let dragHintSeen = loadFlag(DRAG_HINT_KEY);
   function showRoute(): void {
@@ -5776,15 +5828,24 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       box.append(hint);
     }
     if (line) {
-      // What a train on the line picks up and drops at each stop (the economy's own rules), under each chip as icons.
+      // The line, read only (lines UI redesign, 2026-11-16: one editor, the sheet): its stops as numbered pegs on a
+      // painted line, this train between the stop it left and the one it's heading for, and where it's going in words.
+      // A peg tapped opens the sheet with that stop open; Edit line, the whole sheet.
       const plan = game.economy.routePlan(line.stops);
       const strip = document.createElement("div");
-      strip.className = "route-stops";
-      const viaCount = line.stops.reduce((n, st) => n + (st.via ?? []).filter((v) => game.layout.getPiece(v)).length, 0);
-      let viaNumber = 0;
+      strip.className = "route-mini";
+      strip.style.setProperty("--line", line.colour);
+      const next = r ? r.next % Math.max(1, line.stops.length) : -1;
       line.stops.forEach((st, k) => {
-        const chip = button("", "route-chip", "Tap for this stop's options", () => {
-          // (Its options are in the line sheet: it opens with this stop open.)
+        // (The train, on the line before the stop it's heading for: between it and the one before. At the stop: none.)
+        if (k === next && !r?.at && line.stops.length > 1) {
+          const eng = document.createElement("span");
+          eng.className = "route-mini-train";
+          eng.setAttribute("aria-hidden", "true");
+          strip.append(eng);
+        }
+        const name = nameOf(st.depotId);
+        const chip = button("", "route-chip", `${name}: tap for this stop's options`, () => {
           setPlanning(true);
           stopPicked = k;
           viaPicked = null;
@@ -5798,125 +5859,42 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           }
           showRoute();
         });
-        // Its number always (the order), filled in the line's colour on the stop the train's heading for: the ▶ that
-        // marked it took the number's place, and ▶ also meant "visit later" in the tools under it (audit F7).
-        // (A place's own number, "Forest yard 2", in a lighter weight: it's not the stop's. Audit F17.)
-        const named = /^(.*\S) (\d+)$/.exec(nameOf(st.depotId));
-        chip.append(Object.assign(document.createElement("span"), { className: "route-num", textContent: `${k + 1}` }), named ? named[1] : nameOf(st.depotId));
-        if (named) chip.append(Object.assign(document.createElement("span"), { className: "route-place-num", textContent: ` ${named[2]}` }));
-        chip.dataset.stop = String(k);
-        chip.classList.toggle("next", r?.next === k);
-        if (r?.next === k) {
-          chip.setAttribute("aria-current", "step");
-          chip.title = "The train's heading here next. Tap for this stop's options";
-        }
-        // (The next mark moved on this card: to the stop the train comes to first, once the line has two, or on as it runs.)
-        chip.classList.toggle("moved", r?.next === k && nextDrawn.carId === carId && nextDrawn.next !== -1 && nextDrawn.next !== k);
-        chip.classList.toggle("lost", !stops.some((x) => x.depotId === st.depotId));
-        chip.classList.toggle("picked", stopPicked === k);
-        chip.classList.toggle("dropped", stopDropped === k);
-        // (Only drop or Only pick up: said on the chip itself, beside its name, so it shows without tapping it.)
-        if (st.action === "drop" || st.action === "pick") {
-          chip.dataset.intent = st.action;
-          chip.append(Object.assign(document.createElement("span"), { className: "route-intent", textContent: st.action === "drop" ? "only ⬇" : "only ⬆" }));
-        }
-        if (st.waitFill) chip.dataset.wait = "1";
+        chip.append(Object.assign(document.createElement("span"), { className: "route-num", textContent: `${k + 1}` }));
+        // (What it moves there, for a screen reader: the sheet shows it; the peg is too small to.)
         const icons = plan[k] ? planIcons(plan[k]) : "";
-        if (icons) {
-          chip.classList.add("has-goods");
-          chip.append(Object.assign(document.createElement("span"), { className: "route-goods", textContent: icons }));
-        }
-        chip.style.setProperty("--line", line.colour);
+        chip.append(Object.assign(document.createElement("span"), { className: "route-goods", textContent: icons }));
+        chip.setAttribute("aria-label", `Stop ${k + 1}, ${name}${icons ? `: ${icons}` : ""}`);
+        chip.dataset.stop = String(k);
+        chip.classList.toggle("next", next === k);
+        if (next === k) chip.setAttribute("aria-current", "step");
+        chip.classList.toggle("at", next === k && !!r?.at);
+        chip.classList.toggle("moved", next === k && nextDrawn.carId === carId && nextDrawn.next !== -1 && nextDrawn.next !== k);
+        chip.classList.toggle("lost", !stops.some((x) => x.depotId === st.depotId));
+        if (st.waitFill) chip.dataset.wait = "1";
         strip.append(chip);
-        // Its via points: "via ●" chips after it (passed on the way to the next stop, in order), numbered along the line
-        // where it has more than one. A tap picks one, and shows it on the map (audit F6: they couldn't be told apart).
-        (st.via ?? []).forEach((v, i) => {
-          if (!game.layout.getPiece(v)) return;
-          viaNumber++;
-          const via = button(viaCount > 1 ? `via ${viaNumber} ` : "via ", "route-chip route-via", "Goes this way (no stop): tap for options", () => {
-            setPlanning(true);
-            viaPicked = { k, i };
-            stopPicked = -1;
-            showRoute();
-            showVia(carId, v);
-          });
-          const dot = document.createElement("i");
-          dot.className = "route-via-dot";
-          via.append(dot);
-          via.classList.toggle("picked", viaPicked?.k === k && viaPicked.i === i);
-          via.style.setProperty("--line", line.colour);
-          strip.append(via);
-        });
-        // A + after it on the rail (route-insert): the sheet opens with a place tapped next going in here.
-        if (line.stops.length > 1) {
-          const last = k === line.stops.length - 1;
-          const here = last ? `at the end, after ${nameOf(st.depotId)}` : `between ${nameOf(st.depotId)} and ${nameOf(line.stops[k + 1].depotId)}`;
-          const plus = button("", `route-insert${last ? " last" : ""}`, `Add a stop ${here}`, () => {
-            setPlanning(true);
-            insertAt = k + 1;
-            showRoute();
-          });
-          plus.className = `route-insert${last ? " last" : ""}`;
-          plus.setAttribute("aria-label", `Add a stop ${here}`);
-          plus.dataset.after = String(k);
-          plus.style.setProperty("--line", line.colour);
-          plus.append(Object.assign(document.createElement("span"), { className: "route-insert-peg", textContent: "+" }));
-          strip.append(plus);
-        }
       });
       box.append(strip);
-      stopDropped = -1;
-      // Held, a stop's chip lifts and drags along the strip to another place in the order (the card's own edit: Undo
-      // takes it back, and each train keeps heading for the stop it was).
-      stopDrag(strip, {
-        places: line.stops.map((st) => st.depotId),
-        start: () => (stopDragging = true),
-        move: (from, to) => {
-          if (!dragHintSeen) {
-            dragHintSeen = true;
-            saveFlag(DRAG_HINT_KEY);
-          }
-          stopDropped = to;
-          edit((l) => {
-            moveStop(l, from, to);
-            stopPicked = to;
-          });
-        },
-        refused: () => hud.toast("Not there: the same place twice in a row is one stop", false, 2500),
-        // (Rebuilt only if something changed: a slow tap, let go where it was, is a tap, and its click picks the stop.)
-        end: () => {
-          stopDragging = false;
-          showRoute();
-        },
-      });
-      nextDrawn = { carId, next: r?.next ?? -1 };
-      // Stops beyond the edge (scrolled sideways): the edge fades, as the tray's does.
+      // (More stops than fit (eight on a phone): the line scrolls, the stop it's going to in view, and the edge it runs
+      // on past fades, as the tray's does. Harden 2026-11-16: six pegs showed with no sign of the rest.)
       const edges = () => {
         strip.classList.toggle("more-right", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 2);
         strip.classList.toggle("more-left", strip.scrollLeft > 2);
       };
       strip.addEventListener("scroll", edges, { passive: true });
       requestAnimationFrame(() => {
-        // The picked stop (else, planning, the last, just added; else the one it's heading for) scrolled into view,
-        // whole, with a whole chip at the strip's start (the strip snaps to chips' starts: one cut at the start read as
-        // a stop missing, critique 2026-11-05). Heading for a stop, the one before it shows too, where it fits.
-        const chips = [...strip.querySelectorAll<HTMLElement>(".route-chip")];
-        const target = strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? chips.at(-1) : strip.querySelector<HTMLElement>(".route-chip.next")) ?? null;
-        if (target) {
-          const fade = 36;
-          // The furthest left it may start and still show the target whole, short of the right edge's fade.
-          const least = target.offsetLeft + target.offsetWidth - strip.clientWidth + fade;
-          const before = target.previousElementSibling as HTMLElement | null;
-          let left = !planning && before && before.offsetLeft >= least ? before.offsetLeft : Math.min(target.offsetLeft, Math.max(0, least));
-          // On a chip's start: the first at or after it (or the target's own).
-          left = chips[0] === target ? 0 : (chips.find((c) => c.offsetLeft >= left)?.offsetLeft ?? target.offsetLeft);
-          // (Room at the end for it, where the chips after it are too few to fill the strip: the end's blank grows.)
-          const short = left - (strip.scrollWidth - strip.clientWidth);
-          strip.style.setProperty("--end", `${36 + Math.max(0, Math.ceil(short))}px`);
-          strip.scrollLeft = left;
-        }
+        if (strip.scrollWidth <= strip.clientWidth + 2) return;
+        const target = strip.querySelector<HTMLElement>(".route-chip.next");
+        if (target) strip.scrollLeft = Math.max(0, target.offsetLeft + target.offsetWidth / 2 - strip.clientWidth / 2);
         edges();
       });
+      nextDrawn = { carId, next: r?.next ?? -1 };
+      if (next >= 0 && line.stops[next]) {
+        const where = document.createElement("div");
+        where.className = "route-where";
+        const goods = plan[next] ? planIcons(plan[next]) : "";
+        where.append(r?.at ? "At " : "Going to ", Object.assign(document.createElement("b"), { textContent: nameOf(line.stops[next].depotId) }), goods ? ` · ${goods}` : "");
+        box.append(where);
+      }
       // The first time, a word on what a chip does (till one is tapped); on a line with a warehouse, till its chip is.
       const storeHint = !storeHintSeen && line.stops.some((st) => isStoreAt(st.depotId));
       if ((!stopHintSeen || storeHint) && stopPicked === -1 && !viaPicked && !planning) {
@@ -6062,6 +6040,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     sheetMenu = sheetPalette = sheetRenaming = sheetDeleteAsked = false;
     insertAt = -1;
     justAdded = null;
+    trainPicked = -1;
     sheetFits = on && (game.economy.lines.get(sheetLine)?.stops.length ?? 0) >= 2;
     hud.setMapTaps("planning", on);
     stopPicked = -1;
@@ -6087,6 +6066,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             sheetTab = "stops";
             showSheet();
           } else interaction.onPickPlace?.(depotId);
+        }
+      : null;
+    // A + peg on the line tapped: the next place tapped goes in there (tapped again: not), as the sheet's +.
+    interaction.onTapInsertDisc = on
+      ? (after) => {
+          insertAt = insertAt === after + 1 ? -1 : after + 1;
+          viaAsked = false;
+          viaPicked = null;
+          stopPicked = -1;
+          justAdded = null;
+          showSheet();
         }
       : null;
     interaction.onLeavePlanning = on ? () => setPlanning(false) : null;
@@ -6365,7 +6355,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     // (Wide enough to see from far out, as planning frames a long line: as the Lines view's.)
     const scale = ribbonScale(game.camera.position.distanceTo(game.controls.target), game.canvas.clientHeight || 1, game.camera.fov);
-    const key = `${scale}|${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${r?.at}|${r?.viaFor}:${r?.viaDone}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}`;
+    const key = `${scale}|${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${r?.at}|${r?.viaFor}:${r?.viaDone}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}|${planning}|${insertAt}|${viaAsked}`;
     if (key === ribbonKey) return;
     ribbonKey = key;
     if (!routeView || routeLayout !== game.layout) {
@@ -6447,7 +6437,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       line.stops.forEach((st, k) => {
         for (const v of st.via ?? []) if (!discs.has(v) && game.layout.getPiece(v)) discs.set(v, { pieceId: v, label: "", colour: line.colour, state: "stop", stop: k, via: true });
       });
-      routeView.show(ribbons, [...discs.values()], gaps, scale);
+      routeView.show(ribbons, [...discs.values()], gaps, scale, insertPegs(line, legs, pieces.includes(-1)));
       // A stop just added pops in; the next stop pulses when it becomes the next (or the card opens).
       const now = performance.now() / 1000;
       // (A track edit changed its way round: the new stretch lit up a moment, and, shorter, a toast once an edit;

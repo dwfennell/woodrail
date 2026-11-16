@@ -199,6 +199,7 @@ type Press =
   | { kind: "lever"; pieceId: number; road?: number; corner?: number; slack?: number; at?: number }
   /** A stop disc of the route being planned (its index in the route). */
   | { kind: "route-stop"; index: number }
+  | { kind: "route-insert"; after: number }
   /** A via point's disc of the route being planned (the piece it's on). */
   | { kind: "route-via"; pieceId: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
@@ -480,6 +481,10 @@ export class Interaction {
   /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
   routeGroup: Object3D | null = null;
   onTapStopDisc: ((index: number) => void) | null = null;
+  /** Planning, a + peg on the line between two stops tapped (lines UI redesign 2026-11-16): the stop it follows. */
+  onTapInsertDisc: ((after: number) => void) | null = null;
+  /** Scratch: a + peg's middle on the screen (`pickExact`). */
+  private readonly pegAt = new Vector3();
   /**
    * Planning, a place tapped that a train can't stop at yet (a town with no station, an old industry's ruin): what to
    * say ("Larkfield needs a station first").
@@ -2922,6 +2927,10 @@ export class Interaction {
     }
     if (p.kind === "route-stop") {
       this.onTapStopDisc?.(p.index);
+      return;
+    }
+    if (p.kind === "route-insert") {
+      this.onTapInsertDisc?.(p.after);
       return;
     }
     if (p.kind === "route-via") {
@@ -6384,7 +6393,7 @@ export class Interaction {
   private pick(x: number, y: number, touch = false): Press | null {
     const exact = this.pickExact(x, y);
     // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
-    if (exact?.kind === "route-stop" || exact?.kind === "route-via") return exact;
+    if (exact?.kind === "route-stop" || exact?.kind === "route-via" || exact?.kind === "route-insert") return exact;
     if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
     // Planning, a tap on plain track (or the ground) just beside a station or depot means the place: a via point there
     // was the stray tap's (audit F6). Within a fingertip of the place's track on screen.
@@ -6567,8 +6576,19 @@ export class Interaction {
     const g = this.game;
     // Planning a route: its stop discs float over everything, and win.
     if (this.routeGroup?.visible && this.onTapStopDisc) {
-      for (const h of this.raycaster.intersectObject(this.routeGroup, true)) {
+      const hits = this.raycaster.intersectObject(this.routeGroup, true);
+      // (A + peg on the line: the one whose middle is nearest the finger on the screen. Their sprites are a finger's
+      // size and may overlap where a leg is short; the nearest along the ray isn't the one meant.)
+      let peg: { after: number; d: number } | null = null;
+      for (const h of hits) {
+        if (h.object.userData.kind !== "route-insert" || !this.onTapInsertDisc) continue;
+        const c = h.object.getWorldPosition(this.pegAt).project(this.game.camera);
+        const d = Math.hypot(c.x - this.ndc.x, c.y - this.ndc.y);
+        if (!peg || d < peg.d) peg = { after: h.object.userData.after as number, d };
+      }
+      for (const h of hits) {
         if (h.object.userData.kind === "route-stop") return { kind: "route-stop", index: h.object.userData.index as number };
+        if (h.object.userData.kind === "route-insert" && peg) return { kind: "route-insert", after: peg.after };
         if (h.object.userData.kind === "route-via") return { kind: "route-via", pieceId: h.object.userData.pieceId as number };
       }
     }

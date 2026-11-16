@@ -4,7 +4,7 @@
 //  2. Leave line: the train is off the line and hand-run, its toast says so (and Undo); it stands where it is, not
 //     on points; the line is kept, its other train still on it and still running. The card now offers Run a line….
 //  3. Undo puts it back on the line; Redo takes it off again.
-//  4. The line sheet's Trains tab (☰ Lines, the line): Take off for the second train; the Lines list says No trains.
+//  4. The line sheet (☰ Lines, the line): the second train's row on its spine, Take off line; the Lines list says No trains.
 //  5. The first train put back on the line from its card (Run a line…, the line), Go: it carries logs to the sawmill
 //     again (the payoff).
 //  6. 0 frames drawn idle with the card open, paused; a reload keeps the line and which train runs it; no page errors.
@@ -279,8 +279,8 @@ await tap(".engine-card:not([hidden]) .close");
 await tap('button[aria-label="Menu"]');
 await tap(".menu button", "Lines");
 await tap(".lines-row");
-await tap(".ls-tab", "Trains");
-check("4. the line's Trains tab lists its other train with Take off", await p.evaluate((e) => !!document.querySelector(`.ls-train[data-engine='${e}'] .ls-train-off`), second));
+await tap(`.ls-train[data-engine='${second}'] .ls-train-main`);
+check("4. the line's sheet has its other train on its spine; tapped, Take off line", await p.evaluate((e) => document.querySelector(`.ls-train[data-engine='${e}'] .ls-train-off`)?.textContent === "Take off line", second));
 await shot("3-sheet-trains");
 await tap(`.ls-train[data-engine='${second}'] .ls-train-off`);
 const secondOff = await trainState(second);

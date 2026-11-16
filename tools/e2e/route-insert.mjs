@@ -2,14 +2,15 @@
 // you want to add one in an existing route"), in Game mode on a 390×844 phone, by taps (`npm run e2e:route-insert
 // [-- <out dir>]`):
 //  1. A line A → B → C made by taps (☰ Lines, + New line, three yards on an oval: A and B forest yards, C a workshop),
-//     a goods train put on it from its Trains tab.
+//     a goods train put on it from Add a train in its sheet.
 //  2. The line opened again, the sawmill D (lying between B and C round the oval) tapped: it goes in between B and C,
 //     not at the end; the sheet says so ("Added Sawmill between Forest yard 2 and Workshop"), the train still heads
 //     for the stop it was. Move to end puts it last; the note's Undo puts it back between; the bar's Undo takes it off.
-//  3. The + on the line after B tapped (painted, the hint says where), then D: in between B and C again.
+//  3. The + on the line after B tapped (painted, the hint says where), then D: in between B and C again. Undone, and
+//     the + peg on the map's ribbon between B and C tapped, then D: in between them once more.
 //  4. The train runs the line (the payoff): it calls at B, then D, then C, in that order; logs are unloaded at the
 //     sawmill, and planks at the workshop.
-//  5. The card's rail: a + between two stops opens the sheet with it armed (the hint says where).
+//  5. The card's line, read only: a peg a stop, where the train's going, no +; a peg tapped opens the sheet at its stop.
 //  6. Every sheet button 44 px or more (the + pegs too); 0 frames drawn idle with the sheet open; no page errors.
 // Pictures in the out dir (route-insert-*.jpg). Starts its own dev server.
 import { existsSync, mkdirSync } from "node:fs";
@@ -201,7 +202,6 @@ const engine = await p.evaluate((pieceId) => {
   return e;
 }, setup.placed[1]);
 check("1. (setup) a goods train on the oval", engine !== -1);
-await tap(".ls-tab", "Trains");
 await p.waitForFunction((e) => !!document.querySelector(`.ls-add-train[data-engine='${e}']`), engine, { timeout: 15000 }).catch(() => {});
 await tap(`.ls-add-train[data-engine='${engine}']`);
 const run = await sheetLine();
@@ -211,7 +211,6 @@ await p.waitForFunction(() => { const v = document.querySelector(".lines-view");
 
 // ---- 2. The line opened again, D tapped ---------------------------------------------------------------------------
 await tap(".lines-row");
-await tap(".ls-tab", "Stops");
 const heading = () => p.evaluate((e) => { const r = window.woodrail.economy.routeOf(e); return r ? { next: r.next, depot: r.stops[r.next]?.depotId } : null; }, engine);
 const was = await heading();
 const opened = await sheetState();
@@ -224,6 +223,16 @@ check("2. D tapped, lying between B and C: it goes in between them, not at the e
 check("2. …the sheet says where it went, with Move to end and Undo; its stop ringed", /^Added Sawmill.* between Forest yard.* and Workshop/.test(said.added) && said.toEnd && said.undo && same(said.ringed, [2]), JSON.stringify(said));
 const now = await heading();
 check("2. …the train still heads for the stop it was (its index moved with it)", !!was && !!now && now.depot === was.depot && (was.next < 2 ? now.next === was.next : now.next === was.next + 1), JSON.stringify({ was, now }));
+// (Its train rides the sheet's spine, before the stop it's heading for: lines UI redesign 2026-11-16.)
+const ride = await p.evaluate((e) => {
+  const li = document.querySelector(`.ls-train[data-engine='${e}']`);
+  let n = li?.nextElementSibling;
+  while (n && !n.classList.contains("ls-stop")) n = n.nextElementSibling;
+  let b = li?.previousElementSibling;
+  while (b && !b.classList.contains("ls-stop")) b = b.previousElementSibling;
+  return { row: !!li, before: n ? Number(n.dataset.stop) : -1, after: b ? Number(b.dataset.stop) : -1, here: !!li?.classList.contains("here"), status: li?.querySelector(".ls-train-status")?.textContent ?? "" };
+}, engine);
+check("2. its train rides the sheet's spine before the stop it's heading for (after it, standing there), saying what it's doing", ride.row && (ride.here ? ride.after === now.next : ride.before === now.next) && ride.status.length > 0, JSON.stringify({ ride, now }));
 check("2. the sheet's buttons are 44 px or more (the pegs and the note's too)", (await small(".line-sheet")).length === 0, JSON.stringify(await small(".line-sheet")));
 await shot("2-added-between");
 await tap(".ls-added-end");
@@ -247,6 +256,44 @@ const viaPlus = await sheetLine();
 const plusSaid = await sheetState();
 check("3. …then D tapped: in between B and C, said (no Move to end: it was put there by hand), the + let go", same(viaPlus?.stops, [A, B, D, C]) && /^Added Sawmill.* between/.test(plusSaid.added) && !plusSaid.toEnd && plusSaid.armed.length === 0, JSON.stringify({ viaPlus, plusSaid }));
 await shot("4-plus-added");
+
+// ---- 3b. The + on the map: a peg on the ribbon between B and C ------------------------------------------------------
+await tap(".ls-added-undo");
+const undoneAgain = await sheetLine();
+check("3b. (the note's Undo: A → B → C again)", same(undoneAgain?.stops, [A, B, C]), JSON.stringify(undoneAgain));
+// (The view may glide to frame the line after the edit: the pegs measured once it's still.)
+await p.waitForTimeout(400);
+await still();
+await p.waitForTimeout(300);
+/** The map's + pegs: where each is on the screen, and which stop it follows (built with the line's ribbon). */
+const mapPegs = () =>
+  p.evaluate(() => {
+    const w = window.woodrail;
+    const out = [];
+    w.scene.getObjectByName("route")?.traverse((o) => {
+      if (o.userData?.kind !== "route-insert") return;
+      const c = o.position.clone().project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      out.push({ after: o.userData.after, x: r.left + ((c.x + 1) / 2) * r.width, y: r.top + ((1 - c.y) / 2) * r.height });
+    });
+    return out.sort((a, b) => a.after - b.after);
+  });
+const pegs = await mapPegs();
+check("3b. planning, the map has a + peg on each leg of the line (three, a ring of three stops)", pegs.length === 3 && same(pegs.map((q) => q.after), [0, 1, 2]), JSON.stringify(pegs));
+const peg = pegs.find((q) => q.after === 1);
+const sheetTop = await p.evaluate(() => document.querySelector(".line-sheet").getBoundingClientRect().top);
+check("3b. …each peg in view, above the sheet (the line framed with its pegs)", pegs.every((q) => q.y > 0 && q.y < sheetTop - 10 && q.x > 0 && q.x < 390), JSON.stringify({ pegs, sheetTop }));
+if (peg) {
+  await p.touchscreen.tap(peg.x, peg.y);
+  await p.waitForTimeout(500);
+  await frames();
+}
+const mapArmed = await sheetState();
+check("3b. the map's + between B and C tapped: the sheet's + there painted, the hint says between B and C", same(mapArmed.armed, [1]) && /^Now tap a place: it goes between Forest yard.* and Workshop/.test(mapArmed.hint), JSON.stringify({ mapArmed, peg }));
+await shot("4b-map-plus-armed");
+await tapPlace(D);
+const viaMap = await sheetLine();
+check("3b. …then D tapped: in between B and C", same(viaMap?.stops, [A, B, D, C]), JSON.stringify(viaMap));
 // (0 frames drawn idle, the sheet open and the game paused.)
 const idle = await p.evaluate(async () => {
   const w = window.woodrail;
@@ -290,32 +337,26 @@ const order = ran.calls.map((d) => names[d] ?? "?").join("");
 check("4. the train calls at B, then D, then C, round and round", /BDC/.test(order) && !/BC/.test(order) && !/DB/.test(order), JSON.stringify({ order }));
 check("4. …logs unloaded at the sawmill and planks at the workshop (the payoff)", ran.logsToMill > 0 && ran.planksToWorkshop > 0, JSON.stringify(ran));
 
-// ---- 5. The card's rail: a + between two stops --------------------------------------------------------------------
+// ---- 5. The card: its line read only, a stop's peg opens the sheet at that stop --------------------------------------
 await tap(".ls-done");
 await p.waitForTimeout(600);
 await p.keyboard.press("Escape");
 // (Harness shortcut: the train's card opened as a tap on it would.)
 await p.evaluate((e) => window.woodrail.interaction.openEngineCard(e), engine);
-await p.waitForSelector(".engine-extra .route-insert", { timeout: 15000 }).catch(() => {});
+await p.waitForSelector(".engine-extra .route-mini .route-chip", { timeout: 15000 }).catch(() => {});
 await p.waitForTimeout(700); // (the card's scale-in)
-const rail = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-insert")].map((b) => ({ after: Number(b.dataset.after), label: b.getAttribute("aria-label") })));
-check("5. the card's rail has a + after each stop", rail.length === 4 && /^Add a stop between Forest yard.* and Sawmill/.test(rail[1]?.label ?? ""), JSON.stringify(rail));
-const railSmall = await small(".engine-extra .route-stops");
-check("5. …44 px or more", railSmall.length === 0, JSON.stringify(railSmall) + JSON.stringify(await p.evaluate(() => { const b = document.querySelector(".engine-extra .route-insert"); const c = getComputedStyle(b); const chain = []; for (let e = b; e; e = e.parentElement) { const s = getComputedStyle(e); if (s.zoom !== "1" || s.transform !== "none" || s.scale !== "none") chain.push(`${e.className}:${s.zoom}:${s.transform}:${s.scale}`); } return { w: c.width, h: c.height, box: c.boxSizing, chain }; })));
-// (The rail from its start, for the picture; the card fully in.)
-await p.evaluate(() => { const s = document.querySelector(".engine-extra .route-stops"); if (s) s.scrollLeft = 0; });
-await p.waitForTimeout(1500);
-await shot("5-card-rail");
-// (Scrolled into view first, and let settle: the rail snaps to its chips.)
-await p.evaluate(() => document.querySelector(".engine-extra .route-insert[data-after='2']")?.scrollIntoView({ block: "nearest", inline: "center" }));
-await p.waitForTimeout(500);
-const plusAt = await p.evaluate(() => { const r = document.querySelector(".engine-extra .route-insert[data-after='2']").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
-await p.touchscreen.tap(plusAt.x, plusAt.y);
-await p.waitForTimeout(600);
-await frames();
-const fromRail = { ...(await sheetState()), open: await p.evaluate(() => !document.querySelector(".line-sheet").hidden) };
-check("5. …the + after D tapped: the sheet opens, its + after D painted, the hint says between D and C", fromRail.open && same(fromRail.armed, [2]) && /^Now tap a place: it goes between Sawmill.* and Workshop/.test(fromRail.hint), JSON.stringify(fromRail));
-await shot("6-from-rail");
+const rail = await p.evaluate(() => ({
+  pegs: [...document.querySelectorAll(".engine-extra .route-mini .route-chip")].map((b) => b.getAttribute("aria-label")),
+  plus: document.querySelectorAll(".engine-extra .route-insert").length,
+  where: document.querySelector(".engine-extra .route-where")?.textContent ?? "",
+}));
+check("5. the card's line: a peg a stop (named for a screen reader), where the train's going, no + (the sheet edits)", rail.pegs.length === 4 && /^Stop 3, Sawmill/.test(rail.pegs[2] ?? "") && rail.plus === 0 && /^(Going to|At) /.test(rail.where), JSON.stringify(rail));
+check("5. …its pegs 44 px or more", (await small(".engine-extra .route-mini")).length === 0, JSON.stringify(await small(".engine-extra .route-mini")));
+await shot("5-card-line");
+await tap('.engine-extra .route-chip[data-stop="2"]');
+const fromPeg = await p.evaluate(() => ({ open: !document.querySelector(".line-sheet").hidden, stop: document.querySelector(".ls-stop.open")?.dataset.stop }));
+check("5. …stop 3's peg tapped: the sheet opens at it", fromPeg.open && fromPeg.stop === "2", JSON.stringify(fromPeg));
+await shot("6-from-peg");
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 await b.close();
