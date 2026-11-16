@@ -10,7 +10,7 @@ export interface NearestTrack {
 const sample = createSample();
 
 /** Closest distance along a path (piece-local) to a local point. */
-function closestS(g: PathGeom, lx: number, lz: number): number {
+export function closestS(g: PathGeom, lx: number, lz: number): number {
   const len = pathLength(g);
   const h0 = g.start.heading;
   if (g.kind === "line") {

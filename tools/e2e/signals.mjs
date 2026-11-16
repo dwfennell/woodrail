@@ -232,9 +232,17 @@ if (!setup.error) {
       const m = w.interaction.mode;
       const ms = [...w.interaction.signalMoveMs].sort((a, b) => a - b);
       const post = (n) => m.ghost?.getObjectByName(n);
-      const p0 = post("post0")?.position;
-      const p1 = post("post1")?.position;
-      return { kind: m.kind, target: m.target, ghost: m.ghost?.visible, both: !!post("post1")?.visible, across: p0 && p1 ? Math.hypot(p0.x - p1.x, p0.z - p1.z) : 0, tint: w.blockTint.mesh.visible && (w.blockTint.mesh.geometry.getAttribute("position")?.count ?? 0) > 0, moves: ms.length, median: ms[Math.floor(ms.length / 2)], worst: ms[ms.length - 1] };
+      // (Where each ghost's post stands in the world: its model's foot, as the drawn signal's post top is over its own.)
+      const foot = (n) => {
+        const f = post(n)?.getObjectByName("model")?.children[0];
+        if (!f) return null;
+        f.updateWorldMatrix(true, false);
+        const v = f.getWorldPosition(new w.camera.position.constructor());
+        return { x: v.x, z: v.z };
+      };
+      const p0 = foot("post0");
+      const p1 = foot("post1");
+      return { kind: m.kind, target: m.target, ghost: m.ghost?.visible, both: !!post("post1")?.visible, feet: [p0, p1], across: p0 && p1 ? Math.hypot(p0.x - p1.x, p0.z - p1.z) : 0, tint: w.blockTint.mesh.visible && (w.blockTint.mesh.geometry.getAttribute("position")?.count ?? 0) > 0, moves: ms.length, median: ms[Math.floor(ms.length / 2)], worst: ms[ms.length - 1] };
     });
     await shot("1-held");
     check("held over the line: the ghost snaps to the joint, facing the way the finger went", held.kind === "drag-signal" && held.ghost && held.target === at, JSON.stringify({ ...held, at }));
@@ -252,6 +260,13 @@ if (!setup.error) {
   check("let go: a pair on that joint, one each way", placed.length === 2 && placed.some((m) => m.at === at) && placed.some((m) => m.at === other), JSON.stringify({ placed, at, other }));
   const posts = await p.evaluate((ids) => ids.map((id) => window.woodrail.marksView.topOf(id)), placed.map((m) => m.id));
   check("…their posts on both sides of the track", posts.every(Boolean) && Math.hypot(posts[0].x - posts[1].x, posts[0].z - posts[1].z) > 30, JSON.stringify(posts));
+  // (The user: "the preview of the signal doesn't match where it's actually placed". Each post just where its ghost stood.)
+  if (held?.feet?.[0] && held.feet[1] && posts.every(Boolean)) {
+    const ids = [placed.find((m) => m.at === at)?.id, placed.find((m) => m.at === other)?.id];
+    const tops = await p.evaluate((ids) => ids.map((id) => window.woodrail.marksView.topOf(id)), ids);
+    const off = tops.map((t, i) => (t ? Math.hypot(t.x - held.feet[i].x, t.z - held.feet[i].z) : Infinity));
+    check("…each post stands just where its preview did (within 0.5 mm)", off.every((d) => d < 0.5), JSON.stringify({ off, feet: held.feet, tops }));
+  } else check("…each post stands just where its preview did (within 0.5 mm)", false, JSON.stringify({ feet: held?.feet, posts }));
   const lit = await p.evaluate((ids) => ids.map((id) => window.woodrail.marksView.shownOf(id)), placed.map((m) => m.id));
   check("…drawn as lamps, lit green with the line clear", lit.every((l) => l?.look === "plain" && l.clear), JSON.stringify(lit));
   check("…and the tint is gone", !(await tintShown()));

@@ -3,8 +3,9 @@
  * finger over the track snaps to and which way it faces, and the blocks a mark guards and ends (for the tint shown
  * while one is held or its card is open). Pure: no view, no sim. Cheap enough for a pointer move (a few pieces walked).
  */
-import { connectorRef, createSample, getPieceDef, indexOfRef, normalizeAngle, pathLength, pieceOfRef, samplePath, type Layout } from "../track";
+import { connectorRef, createSample, DOUBLE_TRACK_SPACING, getPieceDef, indexOfRef, normalizeAngle, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout } from "../track";
 import type { Cursor } from "../sim";
+import { closestS } from "../sim/nearest";
 
 /** A joint end as the mark stands on it: the joint (plan x, z; y the track's top) and the way trains cross it there. */
 export interface JointPose {
@@ -48,18 +49,118 @@ export function jointPose(layout: Layout, at: number): JointPose | null {
   };
 }
 
-/** How far (mm) to the right of the track a mark's post stands, and back from its joint. */
-export const POST_SIDE = 26;
-export const POST_BACK = 10;
+/**
+ * Where a mark's post stands from its joint (mm): this far out from the track's centre line, and back from the joint
+ * along it. The drawn toy light (`signal-marks-view.ts`), its ghost in the hand and the clearance check all read these,
+ * so a signal stands where its preview showed.
+ */
+export const POST_SIDE = TRACK_WIDTH / 2 + 13;
+export const POST_BACK = 20;
+/** How far around its post a mark takes room (mm): its foot and its head over it, with a little to spare. */
+export const POST_ROOM = 8;
 
-/** Where a mark's post stands (plan x, z), on the driver's right just short of the joint, and the joint's pose. */
-export function postAt(layout: Layout, at: number): (JointPose & { px: number; pz: number }) | null {
-  const j = jointPose(layout, at);
-  if (!j) return null;
+/** A mark as it stands: its joint, its post (plan x, z) and the side it's on (+1 the driver's right, −1 the left). */
+export interface MarkStand extends JointPose {
+  px: number;
+  pz: number;
+  side: 1 | -1;
+  /** False when neither side has room (the post stands on the right, on track): such a mark isn't put down. */
+  room: boolean;
+}
+
+/** Where a post stands on `side` of joint `j` (plan x, z). */
+function postOn(j: JointPose, side: 1 | -1): { x: number; z: number } {
   const c = Math.cos(j.heading);
   const s = Math.sin(j.heading);
   // (Heading h runs along (cos h, sin h); the driver's right is (−sin h, cos h), as a signal piece's post at +z.)
-  return { ...j, px: j.x - c * POST_BACK - s * POST_SIDE, pz: j.z - s * POST_BACK + c * POST_SIDE };
+  return { x: j.x - c * POST_BACK - side * s * POST_SIDE, z: j.z - s * POST_BACK + side * c * POST_SIDE };
+}
+
+/** How far a piece's track reaches from its origin (plan, mm), per piece def: the clearance check's quick reject. */
+const reachOf = new WeakMap<object, number>();
+function pieceReach(def: ReturnType<typeof getPieceDef>): number {
+  let r = reachOf.get(def);
+  if (r !== undefined) return r;
+  r = 0;
+  for (const g of [...def.paths.map((p) => p.geom), ...(def.web ? [def.web] : [])]) {
+    const len = pathLength(g);
+    for (let k = 0; k <= 16; k++) {
+      samplePath(g, (len * k) / 16, sample);
+      r = Math.max(r, Math.hypot(sample.x, sample.z));
+    }
+  }
+  reachOf.set(def, r);
+  return r;
+}
+
+/** Track this far below a post's foot, or up to this far above it, is in its way (mm): a line on a bridge overhead is not. */
+const BELOW = 24;
+const ABOVE = 70;
+const near: { lx: number; lz: number }[] = [];
+
+/**
+ * Is there room for a post at plan (x, z), a joint at height `y`: no track's board within `POST_ROOM` of it? Any piece's,
+ * its own approach piece's other roads too: a centre line nearer than half a track's width and the room, or (on a piece
+ * built as one board over two lines, a crossover's or a double track's: `web`) between two of its roads.
+ */
+export function roomForPost(layout: Layout, x: number, y: number, z: number): boolean {
+  const clear = TRACK_WIDTH / 2 + POST_ROOM;
+  for (const id of layout.pieceIds()) {
+    if (layout.isLifted(id)) continue;
+    const p = layout.getPiece(id)!;
+    const dx = x - p.pose.x;
+    const dz = z - p.pose.z;
+    const def = getPieceDef(p.type, p.flipped);
+    const reach = pieceReach(def) + clear + DOUBLE_TRACK_SPACING;
+    if (dx * dx + dz * dz > reach * reach) continue;
+    const ch = Math.cos(p.pose.heading);
+    const sh = Math.sin(p.pose.heading);
+    const lx = dx * ch + dz * sh;
+    const lz = -dx * sh + dz * ch;
+    near.length = 0;
+    for (const path of def.paths) {
+      const g = path.geom;
+      const at = closestS(g, lx, lz);
+      samplePath(g, at, sample);
+      const dy = p.y + sample.y - y;
+      if (dy < -BELOW || dy > ABOVE) continue;
+      const d = Math.hypot(sample.x - lx, sample.z - lz);
+      if (d < clear) return false;
+      // (Square across the road there, not off its end: a post just past a board's end is beside it, not on it.)
+      if (def.web && d < DOUBLE_TRACK_SPACING + clear && at > 0.5 && at < pathLength(g) - 0.5) near.push({ lx: sample.x - lx, lz: sample.z - lz });
+    }
+    // (Between two roads of one board: their nearest points lie on opposite sides of the post.)
+    for (let i = 0; i < near.length; i++)
+      for (let k = i + 1; k < near.length; k++) if (near[i].lx * near[k].lx + near[i].lz * near[k].lz < 0) return false;
+  }
+  return true;
+}
+
+/**
+ * Where a mark at joint end `at` stands: its post on the driver's right just short of the joint, or on the left when
+ * the right has no room (`roomForPost`: other track, the other road of points or a crossover, a parallel line). Neither
+ * has: `room` false (on the right). Null if `at` is no joint. The one place a mark's stand is worked out, for the drawn
+ * mark, its ghost in the hand and where a drop is let go.
+ */
+export function standAt(layout: Layout, at: number): MarkStand | null {
+  const j = jointPose(layout, at);
+  if (!j) return null;
+  for (const side of [1, -1] as const) {
+    const q = postOn(j, side);
+    if (roomForPost(layout, q.x, j.y, q.z)) return { ...j, px: q.x, pz: q.z, side, room: true };
+  }
+  const q = postOn(j, 1);
+  return { ...j, px: q.x, pz: q.z, side: 1, room: false };
+}
+
+/** Where a mark's post stands (plan x, z) and the joint's pose (`standAt`). */
+export function postAt(layout: Layout, at: number): MarkStand | null {
+  return standAt(layout, at);
+}
+
+/** Has a mark at joint end `at` room to stand on either side? (False for no joint.) */
+export function hasRoom(layout: Layout, at: number): boolean {
+  return standAt(layout, at)?.room ?? false;
 }
 
 /** The plan heading a cursor's path runs along from its `from` end to its `to` end, where the cursor is. */
@@ -73,10 +174,10 @@ export function pathHeading(layout: Layout, c: Cursor): number {
 
 /**
  * The joint end a mark held over this cursor goes on: the nearer joint of the piece under the finger (the other if that
- * end is joined to nothing), facing so it guards trains going `dir` along the path (+1: from its `from` end to its
- * `to` end; −1: back). −1: no joint at either end.
+ * end is joined to nothing, or `ok` refuses it), facing so it guards trains going `dir` along the path (+1: from its
+ * `from` end to its `to` end; −1: back). −1: no joint at either end.
  */
-export function snapJoint(layout: Layout, c: Cursor, dir: 1 | -1): number {
+export function snapJoint(layout: Layout, c: Cursor, dir: 1 | -1, ok?: (at: number) => boolean): number {
   const p = layout.getPiece(c.pieceId);
   if (!p) return -1;
   const def = getPieceDef(p.type, p.flipped);
@@ -95,7 +196,10 @@ export function snapJoint(layout: Layout, c: Cursor, dir: 1 | -1): number {
     const other = layout.joinedConnector(ref);
     if (other === -1) continue;
     // Going toward this end: trains cross it from this piece. Going away: they cross it from the piece beyond.
-    return dir === e.towards ? ref : other;
+    const at = dir === e.towards ? ref : other;
+    // (No room there (`ok`): the piece's other joint, so a signal held by a crossover still finds somewhere to go.)
+    if (ok && !ok(at)) continue;
+    return at;
   }
   return -1;
 }

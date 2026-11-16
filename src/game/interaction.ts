@@ -14,7 +14,7 @@ import { METRO_KIT, isSecretKit, SPLICE_POINTS, DRAW_TYPES, connectorRef, create
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
-import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
+import { blocksOf, hasRoom, pathHeading, postAt, snapJoint } from "./signal-place";
 import { ROAD_MARGIN, topologyOf, trainLength } from "../economy/sections";
 import { SIGNAL_MODES, type SignalStyle } from "../track";
 import { pieceInfo } from "../ui/piece-info";
@@ -52,6 +52,8 @@ import { planBore, planTunnel, TUNNEL_MESSAGES, type TunnelPlan } from "./tunnel
 
 /** Said of a signal put on a joint in a tunnel. */
 const SIGNAL_DARK = "Signals need daylight: put it outside the tunnel";
+/** Refused: no room beside the track on either side of the joint (other track there: points, a crossover, a line beside). */
+const SIGNAL_NO_ROOM = "No room for a signal there: other track's in the way";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
 import { PinHint, type PinHintState } from "./switch-pin";
@@ -730,6 +732,7 @@ export class Interaction {
     g.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = m.overTray ? null : this.groundAt(x, this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y);
     let target = -1;
+    this.signalCramped = false;
     if (ground) {
       const near = nearestCursor(layout, ground.x, ground.z, TRAIN_DROP_RANGE, this.cameraHeading());
       if (near) {
@@ -740,9 +743,12 @@ export class Interaction {
           if (Math.abs(along) >= 4) m.dir = along > 0 ? 1 : -1;
         }
         if (m.dir === 0) m.dir = Math.cos(h - this.cameraHeading()) >= 0 ? 1 : -1;
+        // (A new one goes where none faces that way; a placed one with its set, where both fit: `signalSetAt`. Each where
+        // its post has room beside the track (`hasRoom`): no room at the nearer joint, the piece's other one.)
+        const fits = (at: number) => (m.moving === -1 ? !layout.signalAt(at) : this.setFits(m.moving, at)) && hasRoom(layout, at);
         target = snapJoint(layout, near.cursor, m.dir);
-        // (A new one goes where none faces that way; a placed one with its set, where both fit: `signalSetAt`.)
-        if (target !== -1 && (m.moving === -1 ? !!layout.signalAt(target) : !this.editor().signalSetAt(m.moving, target))) target = -1;
+        this.signalCramped = target !== -1 && !hasRoom(layout, target);
+        if (target !== -1 && !fits(target)) target = snapJoint(layout, near.cursor, m.dir, fits);
         // (Not in a tunnel: it couldn't be seen or tapped there.)
         this.signalDark = target !== -1 && this.jointInTunnel(target);
         if (this.signalDark) target = -1;
@@ -757,7 +763,7 @@ export class Interaction {
       m.ghost.visible = target !== -1;
       if (target !== -1) {
         // (Both posts, as the drop will put them: a new pair where the other way's free, a set with its partner.)
-        const both = m.moving === -1 ? !layout.signalAt(layout.joinedConnector(target)) : !!layout.signalPartner(m.moving);
+        const both = m.moving === -1 ? this.pairOf(target).length > 1 : !!layout.signalPartner(m.moving);
         placeSetGhost(m.ghost, layout, target, both);
         this.showTint(target, m.moving);
       } else g.blockTint.hide();
@@ -826,7 +832,7 @@ export class Interaction {
       if (m.overTray && m.moving !== -1) {
         ed.removeSignalSet(m.moving);
         this.hud.toast("Back in the box");
-      } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : "Drop it onto the track");
+      } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : this.signalCramped ? SIGNAL_NO_ROOM : "Drop it onto the track");
       return;
     }
     let id = m.moving;
@@ -846,15 +852,31 @@ export class Interaction {
     }
     // (The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with.)
     this.hud.toast("Signal moved. Tap here to turn it round", false, 3600, () => {
-      if (this.game.layout.getSignal(id) && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
+      if (!this.game.layout.getSignal(id)) return;
+      if (this.turnRoomless(id)) this.hud.refuse(SIGNAL_NO_ROOM);
+      else if (!this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
     });
   }
 
-  /** A joint end and its other end (one signal each way), each only if no signal faces that way there yet. */
+  /** A joint end and its other end (one signal each way), each only if no signal faces that way there yet and its post has room. */
   private pairOf(at: number): number[] {
     const layout = this.game.layout;
     const other = layout.joinedConnector(at);
-    return [at, other].filter((a) => a !== -1 && !layout.signalAt(a));
+    return [at, other].filter((a) => a !== -1 && !layout.signalAt(a) && hasRoom(layout, a));
+  }
+
+  /** Would signal `id` turned round have no room for its post on the joint's other end? */
+  private turnRoomless(id: number): boolean {
+    const L = this.game.layout;
+    const m = L.getSignal(id);
+    const other = m ? L.joinedConnector(m.at) : -1;
+    return other !== -1 && !L.signalAt(other) && !hasRoom(L, other);
+  }
+
+  /** Can a placed signal's set go on joint end `at` (`signalSetAt`), each post with room beside the track? */
+  private setFits(id: number, at: number): boolean {
+    const set = this.editor().signalSetAt(id, at);
+    return !!set && set.ats.every((a) => hasRoom(this.game.layout, a));
   }
 
   /** The Signal tool on (tapped in the tray) or off. */
@@ -884,6 +906,8 @@ export class Interaction {
 
   /** The last signal held over a joint was there in a tunnel (and so refused). */
   private signalDark = false;
+  /** The last joint a signal was held over had no room beside the track (and nowhere near did either). */
+  private signalCramped = false;
   private readonly jointScratch = createWorldConnector();
   /** Is this end of track (a joint) in a tunnel? Signals can't go there. */
   private jointInTunnel(ref: number): boolean {
@@ -902,11 +926,21 @@ export class Interaction {
       return;
     }
     const dir = Math.cos(pathHeading(layout, near.cursor) - this.cameraHeading()) >= 0 ? 1 : -1;
-    let at = snapJoint(layout, near.cursor, dir);
+    // (The nearer joint where a signal's post has room, else the piece's other one.)
+    const room = (a: number) => hasRoom(layout, a);
+    let at = snapJoint(layout, near.cursor, dir, room);
+    if (at === -1 && snapJoint(layout, near.cursor, dir) !== -1) {
+      this.hud.refuse(SIGNAL_NO_ROOM);
+      return;
+    }
     // (One there facing that way already: the other way, if that's free.)
     if (at !== -1 && layout.signalAt(at)) at = layout.signalAt(layout.joinedConnector(at)) ? -1 : layout.joinedConnector(at);
     if (at === -1) {
       this.hud.toast("There's a signal there already");
+      return;
+    }
+    if (this.pairOf(at).length === 0) {
+      this.hud.refuse(SIGNAL_NO_ROOM);
       return;
     }
     if (this.jointInTunnel(at)) {
@@ -952,7 +986,7 @@ export class Interaction {
     if (Math.abs(along) < 4) return;
     m.fx = ground.x;
     m.fz = ground.z;
-    const at = snapJoint(layout, near.cursor, along > 0 ? 1 : -1);
+    const at = snapJoint(layout, near.cursor, along > 0 ? 1 : -1, (a) => hasRoom(layout, a));
     if (at === -1 || m.ats.includes(at) || m.ats.includes(layout.joinedConnector(at)) || layout.signalAt(at)) return;
     const j = postAt(layout, at);
     if (!j) return;
@@ -963,7 +997,7 @@ export class Interaction {
     m.ats.push(at);
     // (Both posts of the pair each joint gets, the other only where that way's free.)
     const ghost = markSetGhost(g.mats);
-    placeSetGhost(ghost, layout, at, !layout.signalAt(layout.joinedConnector(at)));
+    placeSetGhost(ghost, layout, at, this.pairOf(at).length > 1);
     g.scene.add(ghost);
     m.ghosts.push(ghost);
     g.invalidate();
@@ -1058,7 +1092,8 @@ export class Interaction {
         { label: `Look: ${Interaction.STYLE_NAMES[m.style]} ▸`, title: "Lamps, semaphore or colour light: a tap shows the next" },
       ],
       (i) => {
-        if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
+        if (i === 0 && this.turnRoomless(id)) this.hud.refuse(SIGNAL_NO_ROOM);
+        else if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
         if (i === 1) {
           const k = Interaction.STYLES.indexOf(m.style);
           this.editor().setSignalStyle(id, Interaction.STYLES[(k + 1) % Interaction.STYLES.length]);
