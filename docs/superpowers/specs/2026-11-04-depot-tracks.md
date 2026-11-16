@@ -11,51 +11,40 @@ something, just adds to the crane".
 ## 1. What it is
 
 Once **Sidings** is learned, an industry's card offers **Second track**, then **Third track**. Each tap lays one more
-track beside it, on the side away from its yard, a double track (72 mm, one square) apart, joined to the line at both
-ends by a **short split** (a turnout two squares long), like a passing loop; the third branches off the second the
-same way. (Until 2026-11-16 a ladder of crossovers and buffers: it needed 4½ squares of straight at each end, which
-real layouts often didn't have. Those already laid keep working.) Track, record and price are **one undo step** (undone,
-the goods go back to the workshop). The yard's **one crane** becomes a gantry over every track and **serves each
-track's train in turn**, a load at a time. To routes, goals and counts the industry is still one stop. A routed train
-goes to the **first free track** (the industry's own, then 2, then 3), and **waits short of the crossovers** when every
-track is taken.
+track beside it, on the side away from its yard, a double track (72 mm, one square) apart: **only the track** (since
+2026-11-16, the owner: "keep auto, but just add the track, no crossovers"), a straight of the yard's length under the
+crane, its ends left open. The player joins it to the line however they like, with points from the tray; the card
+says it needs joining (the track lit on the map) until a train can reach it, and until then it's no track of the
+industry to routes. Track, record and price are **one undo step** (undone, the goods go back to the workshop). The
+yard's **one crane** becomes a gantry over every track and **serves each track's train in turn**, a load at a time.
+To routes, goals and counts the industry is still one stop. A routed train goes to the **first free track** it can
+reach (the industry's own, then 2, then 3), and **waits short of the points** into them when every track is taken.
 
-| | Cost (from the workshop) | Lays | Needs on the line (was, with the ladder) |
-|---|---|---|---|
-| 2nd track | **10 planks** | 2 short splits, its track (432 clear of points), the line's straight up to them | 7 squares in all, at least 2 at each end: 2 + 5, … 3½ + 3½ (4½ at each end) |
-| 3rd track | **12 planks + 10 stone** | 2 more short splits (the first two move out a length), its track, the second track on to them | 11 in all, at least 4 at each end (7½ at each end) |
+| | Cost (from the workshop) | Lays |
+|---|---|---|
+| 2nd track | **10 planks** | a straight (216) beside the yard |
+| 3rd track | **12 planks + 10 stone** | a straight beside the second |
 
-Pictures (390×844, from `npm run e2e:depot-tracks`): `docs/agents/shots/depot-tracks-1-card.jpg` (before: one track,
-"Second track · 10 planks"), `-2-card.jpg` (two tracks, the gantry over both, "Third track · 12 planks 10 stone"),
-`-3-card.jpg` (three, the gantry over all three), `-two-trains.jpg` (two trains standing at once, each on its own
-track, the crane lifting grain from one), `-overview.jpg` (from above: the splits, gantry and both trains). Since
-2026-11-16 the e2e's yard has a curve 2 squares from its end; `-5-third-refused.jpg`: the third refused there, the
-card saying what's in the way, the stretch lit on the map with the curve red.
+(Until 2026-11-16 the card laid a ladder of crossovers and buffers to the line too, which needed 4½ squares of plain
+straight at each end, 7½ for the third: real layouts often didn't have it. Those laid keep working, and a third track
+added to one goes beside the second, the ladder kept.)
+
+Pictures (390×844, from `npm run e2e:depot-tracks`, in `e2e-out/depot-tracks`): `1-one-track`, `2-two-tracks-unjoined`
+(the new track lit, the card asking for it to be joined), `3-two-tracks-joined` (by a pair of splits), `4-two-trains-
+served`, `5-overview`, `6-three-tracks`.
 
 ## 2. The track
 
-The industry lays it (option A of Phase 1). In the depot's frame (t along its track, l across, +l its yard's side),
-for `n` tracks every track runs **432 mm clear of points** (an engine and three wagons stand clear of the turnouts; at
-216 a two-wagon train's tail stood on the points and blocked the next track): from t = −e0 to 216 + e1, e0 + e1 = 216.
-The 216 is shared **evenly** (108 at each end, the crane as near the middle of each track as it can be) where the
-line allows, else as much at one end as it takes (0 … 216, in 18s), so a curve or points close to one end don't stop
-it. Line k (0 the line itself, l = −k·72) runs from t = −e0 − (n−1−k)·144: first the short split onto line k+1
-(k < n−1), flipped so its link goes to −l, then straight; the far end the same turned round. So each end needs
-(n−1)·144 + its share. The **short split** (`split-short`, 2026-11-16) is the split in two squares, its link two tight
-curves (the small curve's radius, 90); not on the tray.
+In the depot's frame (t along its track, l across, +l its yard's side), track k (2, 3) is a 216 straight at
+t 0 … 216, l = −(k−1)·72, at the yard's level. The game's drop rule says whether its spot is clear (river, hill, town,
+track, road, yard…): "No room for a second track: that's a hill". Nothing on the line is taken up, so the line can
+bend or have points right at the yard's ends.
 
-It takes the place of plain, level, unswitched straights on the line (and, for the third, the second track's own
-splits and ends, or an older save's ladder); a straight running past the turnout is cut (the rest put back as shorter
-straights). Every piece put down is asked of the game's own drop rule. Refusals, on the card under the greyed button
-and as a toast, saying what's in the way at each end (the stretch is lit on the map while the card is open: the
-straight it takes green, what's in the way red; built when the card's key changes, nothing per frame):
-
-- "The second track needs 7 squares of straight line beside it, at least 2 at each end: there's 1 before a curve at
-  one end, room at the other (shown on the map)" (a curve / points / it climbs / the track ends; "lay track at its
-  other end first" when nothing's joined there);
-- "No room for a second track: that's a hill" (or whatever the drop rule says: river, town, track, road, yard…);
-- "A train is standing on the line beside it: move it first" (the train's piece lit red);
-- "Another track needs 10 planks at the workshop" / "Place your workshop … another track's planks come from there".
+**Joined:** a further track is the industry's to routes once it's joined to the same track as the yard's own
+(`Economy.reachableTracks`: what's joined to the depot's piece, worked out once a change of the layout). The points a
+routed train waits short of when every track is taken are the first points out from each track's ends (and an older
+save's ladder; `Economy.joinsOf`). How long each track is clear of points is the player's: a track too short for a
+train is as in load-in-place (a train loads where it stands at the crane).
 
 ## 3. The crane: one, in turn
 
@@ -118,15 +107,16 @@ tracks still on the map, so a track taken up with the eraser is simply a track l
 
 ## 7. Code
 
-- `src/game/depot-tracks.ts`: `planTracks` (the walk along the line, the share of the extra length, the turnouts, the
-  drop rule, the stretch for the map), `tracksAfter`, prices, roles, `TRACKS_TECH`. `src/track/pieces.ts`: `split-short`.
+- `src/game/depot-tracks.ts`: `planTracks` (the track beside, the drop rule), `tracksAfter`, prices, roles,
+  `TRACKS_TECH`.
 - `src/economy/economy.ts`: `setTracks`, `tracksOf`, `roadsOf`, `trackCount`; each further track is a `DepotState` of its
   own piece and crane point reading everything else through to its industry (same id and piles); the one crane in turn;
-  `trackFor`, `fullAt`, `sameDepot`. `src/routing/router.ts`: `fullAt` (wait short of the ladder).
+  `trackFor` (of the tracks a train can reach: `reachableTracks`), `fullAt` (the points into them: `joinsOf`),
+  `unjoinedTracks` (for the card), `sameDepot`. `src/routing/router.ts`: `fullAt` (wait short of the points).
   `src/economy/sections.ts`: `sameDepot`.
 - `src/render/depot-view.ts`: `spanLayout`, `syncTracks` (only a depot whose number of tracks changed is drawn again).
-- `src/main.ts`: the card row, the stretch on the map (`lightTracks`, its own `RouteView`) and `addTrack` (one undo
-  step with the price). `src/persist/save.ts`: `tracks`.
+- `src/main.ts`: the card row (and "needs joining", the track lit by its own `RouteView`: `lightTracks`) and
+  `addTrack` (one undo step with the price). `src/persist/save.ts`: `tracks`.
 - `src/game/blueprints.ts`: Sidings.
 
 Cost: nothing per frame while nothing moves (the e2e counts 0 frames idle). The planner runs on a tap, and for the card
@@ -134,14 +124,18 @@ only when the track, the land or the workshop's stock change.
 
 ## 8. Tests
 
-- `src/game/depot-tracks.test.ts`: 2 → 3 tracks laid and joined, refusals in words; one crane, never two loads at once,
-  going back and forth; the throughput above; routed trains to the first free track, and a third waiting short of the
-  ladder till one frees; a one-track depot unchanged; a save round trip, and an old save with one track; the gantry's
-  span.
-- `npm run e2e:depot-tracks` (about 6 min): by taps on a phone: the card, Second track (planks taken), Undo (track,
-  crossovers and planks back), again, Third track (planks and stone), the gantry over 2 and 3; two trains routed by
-  taps standing at the mill at once on their own tracks, the crane never moving two loads at once, both trains'
-  grain unloaded; after a reload three tracks still; 0 idle frames.
+- `src/game/depot-tracks.test.ts`: 2 → 3 tracks laid beside, one straight each, ends open, not the industry's to
+  routes till joined (`unjoinedTracks`, `reachableTracks`); no straight needed on the line (a curve or points at the
+  yard's ends); the drop rule asked at the yard's level; a routed train going to the yard's own track while the one
+  beside isn't joined. Joined by a pair of splits (as a player would): one crane, never two loads at once, going back
+  and forth; the throughput above; routed trains to the first free track, and a third waiting short of the points
+  till one frees; a one-track depot unchanged. An older save's ladder: two routed trains served on its two tracks,
+  and a third track beside it, the ladder kept. A save round trip, an old save with one track; the gantry's span.
+- `npm run e2e:depot-tracks` (about 6 min): by taps on a phone: the card, Second track (only the track: planks taken,
+  its ends open, "needs joining", lit), Undo (track and planks back), again; joined by a pair of splits (setup: the
+  editor, each piece asked of the drop rule; a player lays them from the tray); two trains routed by taps standing at
+  the mill at once on their own tracks, the crane never moving two loads at once, both trains' grain unloaded; Third
+  track (planks and stone, "needs joining"), the gantry over 2 and 3; after a reload three tracks still; 0 idle frames.
 
-Not covered: a line of several trains (sections) running for a long time through an industry of several tracks; a
-three-track ladder under sections (nested loops) is untested.
+Not covered: a line of several trains (sections) running for a long time through an industry of several tracks;
+tracks joined in odd ways (one end only, a siding) are routed by plain reachability.

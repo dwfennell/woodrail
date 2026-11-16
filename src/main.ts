@@ -137,7 +137,7 @@ import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, SIGNAL_ITEM, TRACK_ITEMS, TRAIN_ITEMS
 import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpare } from "./game/road-box";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
-import { MAX_TRACKS, planTracks, TRACK_PRICES, TRACK_ROLES, TRACKS_TECH, tracksAfter, type TracksLook, type TracksPlan } from "./game/depot-tracks";
+import { MAX_TRACKS, planTracks, TRACK_PRICES, TRACK_ROLES, TRACKS_TECH, tracksAfter, type TracksPlan } from "./game/depot-tracks";
 import { TURNTABLE_CONTROLS } from "./game/deck-roads";
 import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
@@ -3813,15 +3813,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let tracksRow: HTMLElement | null = null;
   const tracksCheck = (t: PieceTypeId, f: boolean, pose: Pose, y: number, ignore: Ignore) => interaction.placeWhyIgnoring(t, f, pose, y, ignore);
   /**
-   * The stretch of line another track takes, shown on the map while the card's open: the straight it takes the place
-   * of (green), and what's in the way (red: the curve, points or slope, or a train). Its own ribbon, built once a
-   * change of the card's key (nothing per frame), gone with the card.
+   * A further track not joined to the line yet, lit on the map while the card's open (its own ribbon, built when the
+   * card's key changes: nothing per frame), gone with the card.
    */
   let tracksView: RouteView | null = null;
   let tracksLit = false;
-  const tracksLook: TracksLook = { room: [], block: [] };
-  function lightTracks(look: TracksLook | null): void {
-    if (!look || (look.room.length === 0 && look.block.length === 0)) {
+  function lightTracks(ids: readonly number[]): void {
+    if (ids.length === 0) {
       if (tracksLit) {
         tracksView?.clear();
         if (tracksView) tracksView.group.userData.colours = [];
@@ -3836,22 +3834,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         tracksView.dispose();
       }
       tracksView = new RouteView(game.layout, game.mats);
-      tracksView.group.name = "depot-tracks-stretch";
+      tracksView.group.name = "depot-tracks-unjoined";
       game.scene.add(tracksView.group);
     }
-    const runs = (ids: readonly number[], every: boolean) =>
-      ids.flatMap((pieceId) => {
-        const p = game.layout.getPiece(pieceId);
-        if (!p) return [];
-        const paths = getPieceDef(p.type, p.flipped).paths;
-        return (every ? paths : paths.slice(0, 1)).map((q, pathIndex) => ({ pieceId, pathIndex, s0: 0, s1: pathLength(q.geom) }));
-      });
-    const blocked = new Set(look.block);
-    const ribbons: RibbonSpec[] = [{ runs: runs(look.room.filter((id) => !blocked.has(id)), false), colour: "#4f8a3c" }];
-    if (look.block.length > 0) ribbons.push({ runs: runs(look.block, true), colour: "#c23b22" });
+    const runs = ids.flatMap((pieceId) => {
+      const p = game.layout.getPiece(pieceId);
+      return p ? [{ pieceId, pathIndex: 0, s0: 0, s1: pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) }] : [];
+    });
+    const ribbons: RibbonSpec[] = [{ runs, colour: "#c27a22" }];
     tracksView.show(ribbons, []);
     // (For the e2e: what's lit.)
-    tracksView.group.userData.colours = ribbons.filter((r) => r.runs.length > 0).map((r) => r.colour);
+    tracksView.group.userData.colours = ribbons.map((r) => r.colour);
     tracksLit = true;
     game.redraw();
   }
@@ -3861,7 +3854,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!d || !TRACK_ROLES.has(d.role) || !progress.learned.has(TRACKS_TECH)) {
       tracksShown = "";
       tracksRow = null;
-      lightTracks(null);
+      lightTracks([]);
       return;
     }
     const n = game.economy.trackCount(d.id);
@@ -3876,15 +3869,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     title.className = "station-waiting";
     title.textContent = n === 1 ? "One track: a train waits on the line while another is loaded" : `${n} tracks: ${n} trains stand here, the crane serving each in turn`;
     box.append(title);
+    // A track laid beside it and not joined yet: say so, and light it.
+    const unjoined = game.economy.unjoinedTracks(d);
+    lightTracks(unjoined);
+    if (unjoined.length > 0) {
+      const join = document.createElement("div");
+      join.className = "station-waiting depot-tracks-join";
+      join.textContent = `${unjoined.length === 1 && n === 2 ? "The second track" : unjoined.length === 1 ? "A track" : "Its new tracks"} needs joining to the line: lay points from the tray to it (lit on the map), and trains can load there`;
+      box.append(join);
+    }
     if (n < MAX_TRACKS) {
       const price = TRACK_PRICES[(n + 1) as 2 | 3];
-      const plan = planTracks(game.world, d, tracksCheck, tracksLook);
-      lightTracks(tracksLook);
+      const plan = planTracks(game.world, d, tracksCheck);
       const b = document.createElement("button");
       b.className = "chip text depot-tracks-btn";
       b.dataset.tracks = String(n + 1);
       b.innerHTML = `⬆ ${n === 1 ? "Second" : "Third"} track · ${costTag(price, 0)}`;
-      b.title = "Lay another track beside it, joined at both ends: its crane reaches over to load a train there too";
+      b.title = "Lay another track beside it, for you to join to the line: its crane reaches over to load a train there too";
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         addTrack(d);
@@ -3897,7 +3898,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         why.textContent = plan;
         box.append(why);
       }
-    } else lightTracks(null);
+    }
     hud.depotExtra.hidden = false;
     hud.depotExtra.append(box);
   }
@@ -3910,7 +3911,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * Give depot `d` one more track: the ladder laid in place of the straights at its ends, its record and its price,
+   * Give depot `d` one more track: laid beside its own (for the player to join to the line), its record and its price,
    * all one undo step (undone, the goods go back to the workshop; redone, they're taken again if they're there).
    */
   function addTrack(d: DepotState): void {
@@ -3961,7 +3962,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (game.depotView.syncTracks(game.economy, game.layout)) game.invalidate();
     // (The group's step goes on the undo stack only once it's whole: the Undo button is told after.)
     hud.setHistory(editor.canUndo, editor.canRedo);
-    hud.toast(`${depotName(game.world, d)} has ${plan.tracks} tracks now: its crane reaches over them all`, false, 3600);
+    hud.toast(`${depotName(game.world, d)} has ${plan.tracks} tracks now: join the new one to the line with points`, false, 3600);
     audio.chime();
     tracksShown = "";
     scheduleSave();
