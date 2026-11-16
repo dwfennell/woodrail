@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
-import { connectorRef, Layout, type PieceTypeId } from "../track";
+import { connectorRef, findSplice, Layout, type PieceTypeId } from "../track";
 import { CARGO } from "../economy/cargo";
 import { Economy, type DepotState } from "../economy";
 import { planTracks, TRACK_ROLES, tracksAfter, type PlaceCheck, type TracksPlan } from "./depot-tracks";
@@ -38,8 +38,8 @@ function apply(w: Pick<W, "layout" | "economy">, mill: DepotState, plan: TracksP
 }
 /**
  * The second track joined to the line as a player would, by a pair of splits from the tray: one in place of the
- * line's straight two out from each end of the mill, its link over to the track, a straight on the track out to each.
- * The tracks run 648 clear of points. Returns the splits.
+ * line's straight two out from each end of the mill (where the track's ends end), its link over to the track. The
+ * tracks run 648 clear of points. Returns the splits.
  */
 function loop(w: W): number[] {
   const mx = w.millAt * 216;
@@ -47,8 +47,6 @@ function loop(w: W): number[] {
   L.removePiece(w.ids[w.millAt - 2]);
   L.removePiece(w.ids[w.millAt + 2]);
   const splits = [L.addPiece("split", { x: mx - 432, z: 0, heading: 0 }, 0, true), L.addPiece("split", { x: mx + 648, z: 0, heading: Math.PI })];
-  L.addPiece("straight-216", { x: mx - 216, z: -72, heading: 0 });
-  L.addPiece("straight-216", { x: mx + 216, z: -72, heading: 0 });
   return splits;
 }
 function upgrade(w: W, to: 2 | 3): void {
@@ -79,14 +77,22 @@ describe("depot tracks: the track beside it", () => {
     if (typeof two === "string") throw new Error(two);
     expect(two.tracks).toBe(2);
     expect(two.covers).toEqual([]);
-    expect(two.pieces.map((p) => p.type)).toEqual(["straight-216"]);
+    // 648 long: the yard's length under the crane, and 216 on past each end.
+    expect(two.pieces.map((p) => [p.type, Math.round(p.pose.x - 4 * 216), Math.round(p.pose.z)])).toEqual([
+      ["straight-216", -216, -72],
+      ["straight-216", 0, -72],
+      ["straight-216", 216, -72],
+    ]);
     apply(w, w.mill, two);
-    expect([...w.layout.pieceIds()].length).toBe(before + 1);
+    expect([...w.layout.pieceIds()].length).toBe(before + 3);
+    expect(w.economy.tracksOf(w.mill.id)!.ends).toHaveLength(2);
     expect(w.economy.trackCount(w.mill.id)).toBe(2);
     const road = w.layout.getPiece(roadOf(w, 0))!;
     expect(road.pose.z).toBeCloseTo(-72);
     expect(road.pose.x).toBeCloseTo(4 * 216);
-    for (const i of [0, 1]) expect(w.layout.joinedConnector(connectorRef(road.id, i))).toBe(-1);
+    // Its ends open.
+    const ends = w.economy.tracksOf(w.mill.id)!.ends;
+    for (const e of ends) expect([0, 1].filter((i) => w.layout.joinedConnector(connectorRef(e, i)) === -1)).toHaveLength(1);
     // Not joined: no track of the industry to routes yet, and the card says so (`unjoinedTracks`).
     expect(w.economy.unjoinedTracks(w.mill)).toEqual([road.id]);
     expect(w.economy.reachableTracks(w.mill)).toEqual([w.ids[w.millAt]]);
@@ -100,9 +106,34 @@ describe("depot tracks: the track beside it", () => {
     expect(w.economy.trackCount(w.mill.id)).toBe(3);
     const third = w.layout.getPiece(roadOf(w, 1))!;
     expect(third.pose.z).toBeCloseTo(-144);
+    // The yard's length: Splits in place of the second's ends join it.
+    expect(three.pieces).toHaveLength(1);
     expect(roadOf(w, 0)).toBe(road.id);
     expect(w.economy.unjoinedTracks(w.mill)).toEqual([third.id]);
     expect(planTracks(w, w.mill, open)).toMatch(/3 tracks already/);
+  });
+
+  it("a Split dropped from the tray onto the line at each end of it splices in and joins it (the player's path)", () => {
+    const w = line();
+    const plan = planTracks(w, w.mill, open);
+    if (typeof plan === "string") throw new Error(plan);
+    apply(w, w.mill, plan);
+    const mx = w.millAt * 216;
+    // Held over the line beyond each end of the new track, turned so its link goes to the track's side: what the
+    // drag does (`findSplice`, as for a depot), then dropped (its straights taken up, the split put down).
+    for (const [x, heading, flipped] of [
+      [mx - 324, 0, true],
+      [mx + 540, Math.PI, false],
+    ] as const) {
+      const s = findSplice(w.layout, "split", flipped, { x, z: -10 }, heading, 40);
+      if (s.kind !== "splice") throw new Error(s.kind);
+      expect(s.covers).toHaveLength(1);
+      for (const id of s.covers) w.layout.removePiece(id);
+      w.layout.addPiece("split", s.pose, s.y, flipped);
+    }
+    expect(count(w.layout, "split")).toBe(2);
+    expect(w.economy.unjoinedTracks(w.mill)).toEqual([]);
+    for (const id of w.layout.pieceIds()) if (w.layout.getPiece(id)!.type === "split") for (const i of [0, 1, 2]) expect(w.layout.joinedConnector(connectorRef(id, i))).not.toBe(-1);
   });
 
   it("needs no straight on the line: a curve or points right at the yard's ends, or no line at all", () => {
@@ -416,8 +447,7 @@ describe("depot tracks: which industries", () => {
     layout.removePiece(ids[6]);
     layout.addPiece("split", { x: 2 * 216, z: 0, heading: 0 }, 0, true);
     layout.addPiece("split", { x: 7 * 216, z: 0, heading: Math.PI });
-    layout.addPiece("straight-216", { x: 3 * 216, z: -72, heading: 0 });
-    layout.addPiece("straight-216", { x: 5 * 216, z: -72, heading: 0 });
+
     well.piles[CARGO.oil.index] = 6;
     const road = economy.roadsOf(well.id)[0].pieceId;
     // (Run in to the track's end, as the mill's second train in "one crane serves each track in turn".)

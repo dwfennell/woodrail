@@ -10,7 +10,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type LeverPost, t
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { METRO_KIT, isSecretKit, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { METRO_KIT, isSecretKit, SPLICE_POINTS, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
@@ -4078,6 +4078,15 @@ export class Interaction {
   }
 
   /**
+   * Is it dropped onto a line's straights to take their place: a depot or splicing kit (`splices`), or points from the
+   * tray (`SPLICE_POINTS`: a split or a switch, its straight-on leg along the line, its branch to the side it's held;
+   * 2026-11-16, so a track laid beside a line can be joined to it). Points held at a line's open end still go on from it.
+   */
+  private splicesIn(type: PieceTypeId): boolean {
+    return this.splices(type) || SPLICE_POINTS.has(type);
+  }
+
+  /**
    * The track ends a placed piece is joined to, from its first end's to its second's, if it's joined at both ends
    * and only to plain track (not a station or a depot); else null.
    */
@@ -5089,7 +5098,10 @@ export class Interaction {
       let spliceWhy: PlaceBlock | null = null;
       // The placement check last made of a splice (reused below for the one taken, not worked out twice).
       let spliceFit = null as { pose: Pose; placed: { reason: PlaceBlock | null; risers: RiserAt[] } } | null;
-      if (this.splices(m.type)) {
+      // (Points: spliced where that fits, else as before: seated on an open end, or loose. Never refused for not
+      // being over a line.)
+      const points = SPLICE_POINTS.has(m.type);
+      if (this.splicesIn(m.type)) {
         // Its centre as held under the finger, seen at the height of each straight it may be over (a few heights).
         // On touch, where it's drawn (held by its middle, not where it was taken hold of: QA N1).
         const seen = new Map<number, { x: number; z: number } | null>();
@@ -5123,11 +5135,12 @@ export class Interaction {
         // (At the joint: the finger on it, within a finger's width. On touch the piece is drawn above the finger.)
         const finger = (h: number) => this.planeAt(x, y, h);
         const s = findSpliceThatFits(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free, fits, finger, capture);
-        if (s.kind === "splice") {
+        if (s.kind === "splice" && (!points || (spliceFit?.pose === s.pose ? spliceFit.placed.reason === null : fits(s)))) {
           m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
           m.covers = s.covers;
           m.rest = s.rest ? s.rest.map((f) => ({ type: f.type, pose: f.pose, y: f.y })) : null;
-        } else if (s.kind !== "none") spliceWhy = s.kind === "busy" ? "splice-busy" : "splice-fit";
+        } else if (points) spliceFit = null;
+        else if (s.kind !== "none") spliceWhy = s.kind === "busy" ? "splice-busy" : "splice-fit";
         else spliceWhy = "splice-onto";
       }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;

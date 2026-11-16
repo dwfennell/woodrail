@@ -147,8 +147,6 @@ describe("crane: front train first", () => {
     w.layout.removePiece(w.ids[w.millAt + 2]);
     w.layout.addPiece("split", { x: mx - 432, z: 0, heading: 0 }, 0, true);
     w.layout.addPiece("split", { x: mx + 648, z: 0, heading: Math.PI });
-    w.layout.addPiece("straight-216", { x: mx - 216, z: -72, heading: 0 });
-    w.layout.addPiece("straight-216", { x: mx + 216, z: -72, heading: 0 });
     return w.economy.roadsOf(w.mill.id)[0].pieceId;
   }
 

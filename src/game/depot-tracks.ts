@@ -5,9 +5,11 @@ import type { World } from "./world";
 
 /**
  * Depot tracks (docs/superpowers/specs/2026-11-04-depot-tracks.md): an industry upgraded from its card to two, then
- * three tracks side by side. The card lays only the extra track: a straight of the yard's length (216) beside its own,
- * under the crane, on the side away from its yard, a double track (72 mm) apart (the third beside the second), its ends
- * left open. The player joins it to the line however they like (points from the tray). One undo step
+ * three tracks side by side. The card lays only the extra track, beside its own on the side away from its yard, a
+ * double track (72 mm) apart, its ends left open: the second 648 long (a straight of the yard's length, 216, under the
+ * crane and one on past each end, `TRACK_END`), the third the yard's length beside the second. The player joins it
+ * however they like: a Split dragged from the tray onto the line at each end of the second (onto the second's ends,
+ * for the third) splices in there and joins it exactly. One undo step
  * (`Editor.replaceRun`, in a group with the record and the price). Each extra track is the depot to the economy
  * (`Economy.setTracks`) once a train can reach it (`Economy.reachableTracks`); its one crane, its gantry spanning them
  * all, serves each track's train in turn.
@@ -19,6 +21,7 @@ import type { World } from "./world";
 export const MAX_TRACKS = 3;
 /** Tracks of a depot of several lie this far apart (mm), on the side away from its yard (a double track apart). */
 export const TRACK_GAP = DOUBLE_TRACK_SPACING;
+const DEPOT_LEN = 216;
 /** The research that brings them. */
 export const TRACKS_TECH = "sidings";
 
@@ -38,7 +41,7 @@ export interface NewPiece {
   flipped: boolean;
 }
 
-type Part = "road";
+type Part = "road" | "end";
 
 /** An upgrade worked out: the piece put down, and the record kept. */
 export interface TracksPlan {
@@ -48,7 +51,7 @@ export interface TracksPlan {
   /** None: the track goes down beside the yard, nothing taken up. */
   readonly covers: readonly number[];
   readonly pieces: readonly NewPiece[];
-  /** Of each piece put down: a new track's middle (its crane's). */
+  /** Of each piece put down: a new track's middle (its crane's), or one of its ends. */
   readonly parts: readonly Part[];
   /** The tracks already there, kept: their middles, and an older save's ends and ladder. */
   readonly keptRoads: readonly number[];
@@ -60,8 +63,11 @@ export interface TracksPlan {
 export type PlaceCheck = (type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore: Ignore) => string | null;
 
 const ORD = ["", "", "second", "third"];
-/** The track a further track is laid as: the yard's length. */
+/** A further track: a straight under the crane (the yard's length), and one on past each end of the yard. */
 const ROAD: PieceTypeId = "straight-216";
+/** How far the second track runs on past each end of the yard (mm): a Split's length, so one spliced into the line at
+ * each end of it joins it, and it runs 648 clear of points. */
+export const TRACK_END = 216;
 
 /**
  * Can depot `depot` have one more track, and how: the plan, or why not in words. The new track goes beside the last,
@@ -78,14 +84,28 @@ export function planTracks(w: Pick<World, "layout" | "sim" | "economy">, depot: 
   const rec = w.economy.tracksOf(depot.id);
   const live = (ids: readonly number[] | undefined) => (ids ?? []).filter((id) => !!layout.getPiece(id));
   const keptRoads = w.economy.roadsOf(depot.id).map((r) => r.pieceId);
-  const pose = { ...transformPose(piece.pose, { x: 0, z: -(n - 1) * TRACK_GAP, heading: 0 }, { x: 0, z: 0, heading: 0 }) };
-  const no = check(ROAD, false, pose, piece.y, new Set<number>());
-  if (no) return `No room for a ${ORD[n]} track: ${no[0].toLowerCase()}${no.slice(1)}`;
-  return { depotId: depot.id, depotPieceId: depot.pieceId, tracks: n, covers: [], pieces: [{ type: ROAD, pose, y: piece.y, flipped: false }], parts: ["road"], keptRoads, keptEnds: live(rec?.ends), keptLadder: live(rec?.ladder) };
+  const l = -(n - 1) * TRACK_GAP;
+  const at = (t: number): Pose => ({ ...transformPose(piece.pose, { x: t, z: l, heading: 0 }, { x: 0, z: 0, heading: 0 }) });
+  // The second runs on past the yard so Splits on the line join it; the third is the yard's length, so Splits in
+  // place of the second's ends join it (a train longer than 216 loads at it where it stands).
+  const pieces: NewPiece[] =
+    n === 2
+      ? [
+          { type: ROAD, pose: at(-TRACK_END), y: piece.y, flipped: false },
+          { type: ROAD, pose: at(0), y: piece.y, flipped: false },
+          { type: ROAD, pose: at(DEPOT_LEN), y: piece.y, flipped: false },
+        ]
+      : [{ type: ROAD, pose: at(0), y: piece.y, flipped: false }];
+  const ignore = new Set<number>();
+  for (const p of pieces) {
+    const no = check(p.type, p.flipped, p.pose, p.y, ignore);
+    if (no) return `No room for a ${ORD[n]} track: ${no[0].toLowerCase()}${no.slice(1)}`;
+  }
+  return { depotId: depot.id, depotPieceId: depot.pieceId, tracks: n, covers: [], pieces, parts: pieces.length === 3 ? ["end", "road", "end"] : ["road"], keptRoads, keptEnds: live(rec?.ends), keptLadder: live(rec?.ladder) };
 }
 
 /** The depot's tracks as a plan leaves them (the editor's ids for `plan.pieces`, in order): for `Economy.setTracks`. */
 export function tracksAfter(plan: TracksPlan, ids: readonly number[]): { roads: number[]; ends: number[]; ladder: number[] } {
   const of = (part: Part) => plan.parts.flatMap((p, i) => (p === part ? [ids[i]] : []));
-  return { roads: [...plan.keptRoads, ...of("road")], ends: [...plan.keptEnds], ladder: [...plan.keptLadder] };
+  return { roads: [...plan.keptRoads, ...of("road")], ends: [...plan.keptEnds, ...of("end")], ladder: [...plan.keptLadder] };
 }

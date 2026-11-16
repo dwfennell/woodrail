@@ -128,7 +128,7 @@ import { renderThumbnails, renderThumbnailsAsync, ThumbnailStudio, type Thumbnai
 import { loadCached, saveCached } from "./render/piece-cache";
 import { forgetTextureCache, texturesMade, useTextureCache } from "./render/textures";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Ignore, type Layout, type PieceTypeId, type Pose } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, pieceOfRef, PIECE_TYPES, type Ignore, type Layout, type PieceTypeId, type Pose } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { installSwipeGuard } from "./ui/swipe-guard";
@@ -3869,13 +3869,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     title.className = "station-waiting";
     title.textContent = n === 1 ? "One track: a train waits on the line while another is loaded" : `${n} tracks: ${n} trains stand here, the crane serving each in turn`;
     box.append(title);
-    // A track laid beside it and not joined yet: say so, and light it.
+    // A track laid beside it and not joined yet: say so, and how, and light it (its pieces: the middle, and the ends
+    // laid with it).
     const unjoined = game.economy.unjoinedTracks(d);
-    lightTracks(unjoined);
+    const roads = game.economy.roadsOf(d.id).map((r) => r.pieceId);
+    const ends = new Set(game.economy.tracksOf(d.id)?.ends ?? []);
+    const lit = unjoined.flatMap((road) => [road, ...[0, 1].map((i) => pieceOfRef(game.layout.joinedConnector(connectorRef(road, i)))).filter((id) => ends.has(id))]);
+    lightTracks(lit);
     if (unjoined.length > 0) {
       const join = document.createElement("div");
       join.className = "station-waiting depot-tracks-join";
-      join.textContent = `${unjoined.length === 1 && n === 2 ? "The second track" : unjoined.length === 1 ? "A track" : "Its new tracks"} needs joining to the line: lay points from the tray to it (lit on the map), and trains can load there`;
+      const second = unjoined.includes(roads[0]);
+      join.textContent = second
+        ? "Join the second track to the line: drag a Split from the Switch shelf onto the line at each end of it (lit on the map), and trains load there too"
+        : "Join the third track: drag a Split from the Switch shelf onto each end of the second track, beside it (lit on the map)";
       box.append(join);
     }
     if (n < MAX_TRACKS) {
