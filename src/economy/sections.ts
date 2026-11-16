@@ -194,7 +194,9 @@ const FOLLOW_LOOK = 48;
 const FOLLOW_ROOM = 150;
 /** Waiting points on a train's way looked at by `feasible`, and its rounds of moving up. */
 const FEASIBLE_ON = 4;
-const FEASIBLE_STATES = 2000;
+const FEASIBLE_STATES = 500;
+/** Answers `feasible` keeps for a track, at most (then begun again). */
+const FEASIBLE_KEEP = 512;
 /** How long (ticks) all a line's trains stand held for one another before the swap planner looks (`swapCap`). */
 const SWAP_AFTER = 3 * SIM_HZ;
 /** After a search that found no plan, how long (ticks) before the next (the track unchanged). */
@@ -2381,6 +2383,29 @@ export class Sections {
    * way); else a train left unable to move.
    */
   private feasible(st: TrainState, info: LineInfo, way: Way): number {
+    const topo = info.topo;
+    // (Asked again and again while a train is held, nothing moved: the answer kept, by where every train is, what it's
+    // granted and where it's going, and the points.)
+    let key = `${st.engine}:${st.slot}:${way.dest}:${way.steps[0]?.pieceId ?? -1}:${this.layout.switchesVersion}`;
+    for (const u of info.users) {
+      if (u === st.engine) continue;
+      const us = this.states.get(u);
+      if (!us || us.topo !== topo) continue;
+      key += `|${u}:${us.slot}:${us.move ? us.move.dest : "-"}:${us.exitPiece}:${us.exitEntry}:${this.host.target(u)}`;
+    }
+    for (const t of info.foreign) key += `|f${t.id}:${t.bogies[0]?.pieceId ?? -1}`;
+    let kept = this.feasibleKept.get(topo);
+    if (!kept) this.feasibleKept.set(topo, (kept = new Map()));
+    const was = kept.get(key);
+    if (was !== undefined) return was;
+    if (kept.size > FEASIBLE_KEEP) kept.clear();
+    const answer = this.feasibleNow(st, info, way);
+    kept.set(key, answer);
+    return answer;
+  }
+  private readonly feasibleKept = new WeakMap<Topology, Map<string, number>>();
+
+  private feasibleNow(st: TrainState, info: LineInfo, way: Way): number {
     const topo = info.topo;
     const at = new Map<number, number>();
     const pending = new Map<number, number[]>();
