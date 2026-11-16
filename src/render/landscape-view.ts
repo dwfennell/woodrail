@@ -66,7 +66,7 @@ import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltTiles, type FeltTiles } from "./dressing/felt";
 import { buildRoadTiles, roadMaterials, type RoadTiles } from "./dressing/roads";
 import { buildScenery, disposeSceneryPart, sceneryPart, splitSurroundings, type SceneryPart } from "./dressing/surroundings";
-import { byTile, cullTiles, plotRect, setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./dressing/tiles";
+import { byTile, cullTiles, plotRect, setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt, townTilesOf } from "./dressing/tiles";
 import { buildTiledTrees, treePlacements, type PlaceTrees, type TreeAt, type TreePlacement, type TreeTile } from "./dressing/trees";
 import { easeInOutCubic, easeOutBack } from "../lib/tween";
 import { buildField } from "./dressing/fields";
@@ -274,7 +274,9 @@ export class LandscapeView {
       }
     }
     for (const slot of rebuilt) this.buildPlot(slot);
+    // (And the tile each town touched is drawn in: a town's greens go with the town, in its centre's tile.)
     const tiles = new Set([...rebuilt].map((slot) => this.tileOfSlot(slot)));
+    for (const key of townTilesOf(this.land.towns, slots)) tiles.add(key);
     for (const key of tiles) this.buildTile(key);
     this.cuts.plotsRebuilt(g.plots.map((_, slot) => slot).filter((slot) => tiles.has(this.tileOfSlot(slot))));
     this.buildTrees();

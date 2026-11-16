@@ -173,9 +173,9 @@ export class Editor {
     this.push({ do: c.redo, undo: c.undo, routes: true });
   }
 
-  /** Record a land edit, already done (by the caller, who redrew it), as one undo step. `slots` gives its plots. */
-  recordLand(c: { do(): void; undo(): void; slots: () => number[] }): void {
-    this.push({ do: c.do, undo: c.undo, land: c.slots });
+  /** Record a land edit, already done (by the caller, who redrew it), as one undo step. `slots` gives its plots. `refuse` as `Command`'s. */
+  recordLand(c: { do(): void; undo(): void; slots: () => number[]; refuse?: (way: "undo" | "redo") => string | null }): void {
+    this.push({ do: c.do, undo: c.undo, land: c.slots, ...(c.refuse ? { refuse: c.refuse } : {}) });
     this.onPropsChange?.();
   }
 
