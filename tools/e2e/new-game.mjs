@@ -207,7 +207,7 @@ const land = (p) =>
   await tap(p, ".hud button[title='Menu'], button[aria-label='Menu']");
   check("☰ New game is a tap", await tap(p, ".menu .menu-item", "New game"));
   s = await sheet(p);
-  check("…it asks with the screen: New game, saying in two lines that this game is kept in Your games and the new one starts afresh", s.open && s.title === "New game" && /This game is kept in Your games\.\nThe new one starts with no coins, research or goals\./.test(s.warn) && s.warnLines === 2, JSON.stringify({ open: s.open, warn: s.warn, lines: s.warnLines }));
+  check("…it asks with the screen: New game, saying in two lines that this game is kept in Your games and the new one starts afresh", s.open && s.title === "New game" && /This game is kept in Your games\.\nThe new one starts from scratch\./.test(s.warn) && s.warnLines === 2, JSON.stringify({ open: s.open, warn: s.warn, lines: s.warnLines }));
   await p.waitForTimeout(600);
   await p.screenshot({ path: `${OUT}/new-game-3-in-play.png` });
   await tap(p, ".new-game-back");
@@ -220,7 +220,7 @@ const land = (p) =>
   await tap(p, ".menu .menu-item", "New game");
   s = await sheet(p);
   const side = [s.back, s.start, s.seed, s.dice, ...s.all].filter((c) => c.t < 0 || c.b > 390 || c.l < 0 || c.r > 844 || c.h < 44);
-  check("on its side (844×390): the screen fills it, Back, the seed, every row's chips and Start all on it without a scroll, 44 px or more, the warning kept", s.open && s.card.w === 844 && s.card.h === 390 && side.length === 0 && s.bodyScroll <= 1 && /This game is kept in Your games\.\nThe new one starts with no coins, research or goals\./.test(s.warn) && s.warnLines >= 1 && s.warnLines <= 2, JSON.stringify({ card: s.card, side, scroll: s.bodyScroll, lines: s.warnLines }));
+  check("on its side (844×390): the screen fills it, Back, the seed, every row's chips and Start all on it without a scroll, 44 px or more, the warning kept", s.open && s.card.w === 844 && s.card.h === 390 && side.length === 0 && s.bodyScroll <= 1 && /This game is kept in Your games\.\nThe new one starts from scratch\./.test(s.warn) && s.warnLines >= 1 && s.warnLines <= 2, JSON.stringify({ card: s.card, side, scroll: s.bodyScroll, lines: s.warnLines }));
   await p.waitForTimeout(600);
   await p.screenshot({ path: `${OUT}/new-game-3b-in-play-sideways.png` });
   await tap(p, ".new-game-back");

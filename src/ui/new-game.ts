@@ -98,7 +98,7 @@ function safeStorage(): Storage | null {
 }
 
 /** Said when ☰ New game is opened in play: what starting now does (two lines on a phone). */
-export const NEW_GAME_WARNING = "This game is kept in Your games.\nThe new one starts with no coins, research or goals.";
+export const NEW_GAME_WARNING = "This game is kept in Your games.\nThe new one starts from scratch.";
 
 export interface NewGameAsk {
   mode: GameMode;
