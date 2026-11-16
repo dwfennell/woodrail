@@ -687,9 +687,31 @@ describe("stepping aside into a spare platform (the user's A1)", () => {
       }
     }
     expect(aside).toBe(true);
-    expect([...said]).toContain(`Letting the ${line.name} line by`);
+    expect([...said]).toContain(`Letting the ${line.name} train by`);
     // (Both come to both their stops: neither stands for good.)
     expect([...visits.a].sort()).toEqual([trunk[0], leg[1]].sort());
     expect([...visits.b].sort()).toEqual([trunk[0], leg[1]].sort());
+  });
+
+  it("after a reload, a train standing aside in a spare dead end still says whom it lets by (a save keeps no step-aside)", async () => {
+    // (A user's map, 2026-11-16, src/play/bugmaps/reports/: "This Rowan train on the Red line keeps on going into this
+    // dead-end track, unclear why." Rowan (engine 30) was saved standing in the ring's one spare dead end (the spur off
+    // the double slip at piece 301), stepped aside for engine 70 (line 7) coming round; loaded, its card said only
+    // "Waiting for the … train". Sections' step-aside isn't saved: the card now works it out from where it stands.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-16-rowan-dead-end.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const rowan = 30;
+    const spur = new Set([302, 303, 304, 400, 401, 402]);
+    const lineOf70 = economy.lines.get(economy.lineIdOf.get(70)!)!.name;
+    const said = new Set<string>();
+    for (let k = 0; k < 20 * 120; k++) {
+      sim.tick();
+      economy.tick();
+      const t = sim.findCar(rowan)!.train;
+      if (k % 30 === 29 && t.speed < 1 && t.bogies.every((x) => spur.has(x.pieceId))) said.add(engineStatus(sim, economy, rowan, () => "?"));
+    }
+    expect([...said]).toEqual([`Letting the ${lineOf70} train by`]);
   });
 });
