@@ -441,6 +441,12 @@ const OR_REMOVE = ", or remove a train";
 /** The fix for a line end too short for a train to turn in and come out the other way (`shortSkipOf`). */
 export const SHORT_END_FIX = "Lengthen it, or take a car off";
 
+
+/** A stop passed over, or none in reach, for a line end too short for the train (`Economy.shortSkipOf`): what its card says. */
+function shortEndText(short: { depotId: number; at: number }, nameOf: (depotId: number) => string): string {
+  const at = placeLabel(nameOf, short.at);
+  return `Can't reach ${nameOf(short.depotId)}: ${at ? `the line end at ${at}` : "a line end on the way"} is too short for it to turn and take the other road. ${SHORT_END_FIX}`;
+}
 /** The fix for a signal inside a passing loop holding a train over the points (issue #31): the engine and signal cards. */
 export const LOOP_SIGNAL_FIX = "Move that signal to the loop's end";
 /** The fix for a train kept waiting on a long single track lines share (`single-track`): somewhere to pass. */
@@ -588,8 +594,12 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       return "Slowing to a stop";
     case "starting":
       return "Starting";
-    case "stopped":
+    case "stopped": {
+      // (Stood, its levers off, for none of its stops in reach past a line end too short for it: said, as running.)
+      const short = economy.shortSkipOf(engineCarId);
+      if (short?.stood) return shortEndText(short, nameOf);
       return "Stopped";
+    }
     case "spacing":
       // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
@@ -659,10 +669,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (Gone on past a stop it can't reach for a line end too short for it to turn in and come out the other way: said,
       // naming both, and the fix.)
       const short = economy.shortSkipOf(engineCarId);
-      if (short) {
-        const at = placeLabel(nameOf, short.at);
-        return `Can't reach ${nameOf(short.depotId)}: ${at ? `the line end at ${at}` : "a line end on the way"} is too short for it to turn and take the other road. ${SHORT_END_FIX}`;
-      }
+      if (short) return shortEndText(short, nameOf);
       // (Heading for a stop beyond a train its line has no room for: it'll turn back short of it. Say why.)
       const full = economy.sections.unreachable(engineCarId) ? economy.sections.fullness(engineCarId) : null;
       if (full) return `Can't reach ${nameOf(route.stops[i].depotId)}: ${fullText(full)}`;

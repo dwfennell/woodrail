@@ -3619,16 +3619,26 @@ export class Economy {
       if (r.at || r.stops.length < 2) continue;
       const t = this.sim.findCar(engine)?.train;
       if (!t) continue;
+      // (First, as it's the cheap test: most trains fit every line end, and for them there's nothing to do.)
+      const rule = stubRule(this.layout, trainLength(t));
+      if (!rule) {
+        if (this.shortLooked.delete(engine) && this.shortSkips.get(engine)?.stood) this.shortSkips.delete(engine);
+        continue;
+      }
       const net = this.drive(t);
       const key = `${r.next}:${this.layout.revision}:${t.lastTurn?.tick ?? -1}:${Math.sign(net)}`;
       const was = this.shortLooked.get(engine);
       if (was === key) continue;
       this.shortLooked.set(engine, key);
       if (net === 0) continue;
-      const rule = stubRule(this.layout, trainLength(t));
-      if (!rule) continue;
+      // (Set going again after standing for none of its stops: looked at afresh.)
+      if (this.shortSkips.get(engine)?.stood) this.shortSkips.delete(engine);
       const from = this.frontOn(t, net);
-      if (!from) continue;
+      if (!from) {
+        // (Its front at the very end of the track, as it turns: looked at again next tick.)
+        this.shortLooked.delete(engine);
+        continue;
+      }
       const reach = (depotId: number) => {
         const d = this.liveDepot(depotId);
         return !d || from.pieceId === d.pieceId || plan(this.layout, from, d.pieceId, ROUTE_COSTS, undefined, undefined, rule) !== null;
@@ -3646,24 +3656,32 @@ export class Economy {
         i = j;
         break;
       }
-      if (i === r.next % r.stops.length) continue;
       // (Where it can't turn: the line end the way there turns at, too short for it.)
       const turn = plain.steps.find((x) => x.reverse && rule.turns.has(x.pieceId * MAX_CONNECTORS + x.entry));
+      const at = turn ? (this.depotAtPiece(turn.pieceId)?.id ?? -1) : -1;
+      if (i === r.next % r.stops.length) {
+        // None of its stops it can reach from here: it stands, its levers off, and its card says why (never round as the
+        // points lie, for good). Looked at again once the player sets it going or the track changes.
+        for (const car of t.cars) if (car.kind === "engine") this.sim.setLever(car.id, 0);
+        this.shortSkips.set(engine, { depotId: stop.depotId, next: i, at, stood: true });
+        continue;
+      }
       r.next = i;
       this.nextStamp++;
       resetVias(r);
-      this.shortSkips.set(engine, { depotId: stop.depotId, next: i, at: turn ? (this.depotAtPiece(turn.pieceId)?.id ?? -1) : -1 });
+      this.shortSkips.set(engine, { depotId: stop.depotId, next: i, at });
       this.shortLooked.set(engine, `${r.next}:${this.layout.revision}:${t.lastTurn?.tick ?? -1}:${Math.sign(net)}`);
     }
   }
   private readonly shortLooked = new Map<number, string>();
-  private readonly shortSkips = new Map<number, { depotId: number; next: number; at: number }>();
+  private readonly shortSkips = new Map<number, { depotId: number; next: number; at: number; stood?: true }>();
 
   /**
-   * The stop a routed train passed over for a line end too short for it (`skipShort`), while it heads for the stop after:
-   * that stop's depot, and the depot at the line end (−1: none there). For its card. Null: none.
+   * The stop a routed train passed over for a line end too short for it (`skipShort`), while it heads for the stop after
+   * (or stands, none of its stops in reach): that stop's depot, and the depot at the line end (−1: none there). For its
+   * card. Null: none.
    */
-  shortSkipOf(engine: number): { depotId: number; at: number } | null {
+  shortSkipOf(engine: number): { depotId: number; at: number; stood?: true } | null {
     const s = this.shortSkips.get(engine);
     if (!s) return null;
     const r = this.routes.get(engine);
