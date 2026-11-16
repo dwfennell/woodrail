@@ -4992,7 +4992,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const warnings = [...(line ? blockedTexts(stops, plan) : [])];
     const lostNames = [...new Set(stops.filter((st) => !names.some((x) => x.depotId === st.depotId)).map((st) => lostStopName(game.world, st.depotId)))];
     for (const n of lostNames) warnings.push(lostStopWords(n));
-    if (line && engines.length > 1) warnings.unshift(`Changes the line for all ${engines.length} of its trains`);
+    // (Said plainly, not as a warning: red is for stop and for what's wrong. Final critique 2026-11-16.)
+    const notes = line && engines.length > 1 ? [`Changes the line for all ${engines.length} of its trains`] : [];
     const trains: SheetTrain[] = engines.flatMap((e) => {
       const found = game.sim.findCar(e);
       if (!found) return [];
@@ -5036,6 +5037,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       carries: line ? carriesWords(line.id) : "",
       hint,
       warnings,
+      notes,
       viaAsked,
       insertAt,
       added: justAdded && { k: justAdded.k, text: justAdded.text, toEnd: justAdded.toEnd },
