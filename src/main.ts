@@ -17,7 +17,7 @@ import { mapCode, parseMapCode, type MapSettings } from "./landscape/water";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
+import { GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
@@ -127,7 +127,7 @@ import { renderThumbnails, renderThumbnailsAsync, ThumbnailStudio, type Thumbnai
 import { loadCached, saveCached } from "./render/piece-cache";
 import { forgetTextureCache, texturesMade, useTextureCache } from "./render/textures";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Ignore, type Layout, type PieceTypeId, type Pose } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, pieceOfRef, PIECE_TYPES, type Ignore, type Layout, type PieceTypeId, type Pose } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { installSwipeGuard } from "./ui/swipe-guard";
@@ -145,6 +145,8 @@ import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
+import { nameOfLand, PICTURE_MAX_CHARS, SlotStore } from "./persist/slots";
+import { GamesSheet, smallPicture } from "./ui/games-sheet";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
@@ -270,6 +272,32 @@ function takeResume(): string | null {
 }
 
 /**
+ * Game mode's games ("Your games": persist/slots.ts): the open one in the game's keys, the others parked. Mended (an
+ * old single save made game 1) before anything reads them, the cloud too.
+ */
+const slots = new SlotStore(
+  {
+    getItem: (k) => {
+      try {
+        return localStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    setItem: (k, v) => localStorage.setItem(k, v),
+    removeItem: (k) => {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        // no storage
+      }
+    },
+  },
+  GAME_SLOT_KEYS,
+);
+slots.startUp();
+
+/**
  * Cloud saves (see persist/cloud.ts), in a build with a cloud to save to (`VITE_CLOUD_URL`; not the artifact build):
  * else null, and nothing of them shows.
  */
@@ -277,7 +305,11 @@ const cloud = ((): CloudSync | null => {
   const url = import.meta.env.VITE_CLOUD_URL as string | undefined;
   if (!url || !cloudSupported()) return null;
   try {
-    return new CloudSync({ backend: new WorkerBackend(url, __BUILD_ID__ || "dev"), storage: localStorage, keys: { sandbox: modeKeys("sandbox"), game: modeKeys("game") }, saveVersion: SAVE_VERSION, merge: gameMerger(PROGRESS_KEYS), auto: true });
+    return new CloudSync({ backend: new WorkerBackend(url, __BUILD_ID__ || "dev"), storage: localStorage, keys: { sandbox: modeKeys("sandbox"), game: modeKeys("game") }, saveVersion: SAVE_VERSION, merge: gameMerger(PROGRESS_KEYS), auto: true, slots: {
+      isOther: (m, keys) => m === "game" && slots.isOther(keys),
+      keepOther: async (m, keys, at) => m !== "game" || (await slots.keepOther(keys, at)),
+      parkOpen: async (m) => m !== "game" || (await slots.park()),
+    } });
   } catch {
     // No storage.
     return null;
@@ -333,6 +365,7 @@ const CLOUD_NOTES: Record<Exclude<SyncNote, null>, string> = {
   "took-cloud": "Loaded your newer railway from the cloud. The other one is kept (Cloud save → Restore).",
   "kept-here": "This railway is newer than the one in the cloud, so it's kept. The other one is kept too (Cloud save → Restore).",
   "both-changed": "Your railway was changed on another device too. That one is kept (Cloud save → Restore).",
+  "other-game": "A game from your other device is in Your games (☰ Your games).",
   newer: "Your railway online was saved by a newer version of the game: update to carry on with it.",
 };
 
@@ -605,7 +638,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       restoreRuin: () => restoreShownRuin(),
       // (What `newGame` really resets, `resetGoals` and a fresh map: the map, its track and trains, and the progress
       // (coins, research, things owned), goals, stickers, tips and the Journal. Nothing of the game is kept.)
-      newGame: () => askNewMap("game", NEW_GAME_WARNING, (c, seed) => newGame(c, seed)),
+      newGame: () => askNewMap("game", NEW_GAME_WARNING, (c, seed) => void newGameBeside(c, seed)),
+      yourGames: () => openGames(),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
       copyMap: () => void copyMap(),
@@ -1476,9 +1510,46 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // theirs, one they could undo. A new map, the game's own deliveries and growth, aren't.)
     if (kind === "layout" && editor.canUndo) cloud?.autoOn();
     cloud?.edited(mode, kind);
-    if (kind === "layout" && mode === "game") snapshots.edited(goalDone, () => goals.doneCount);
+    if (kind === "layout" && mode === "game") {
+      snapshots.edited(goalDone, () => goals.doneCount);
+      if (performance.now() - pictureAt > PICTURE_EVERY_MS) void takePicture(false);
+    }
     clearTimeout(saveTimer);
     saveTimer = window.setTimeout(save, 600);
+  }
+
+  /** Another game is being opened or made (Your games): nothing's saved meanwhile, its keys are being written. */
+  let switching = false;
+  /** When Your games' goals and coins for the open game were last noted (`save`). */
+  let factsAt = -Infinity;
+  const FACTS_EVERY_MS = 30_000;
+  /** When the open game's picture was last asked for (after a layout edit: at most this often). */
+  let pictureAt = -Infinity;
+  const PICTURE_EVERY_MS = 120_000;
+  /** A game just made (`newGameBeside`), named after its map once that's made. */
+  let namePending: string | null = null;
+
+  /**
+   * Your games' picture of the open game: a small copy of the next frame drawn (`draw`: one drawn for it now; else the
+   * next one drawn anyway, which costs nothing while nothing moves). At most a moment's wait.
+   */
+  async function takePicture(draw: boolean): Promise<void> {
+    const id = slots.openId;
+    if (!id || mode !== "game") return;
+    pictureAt = performance.now();
+    const shot = game.grabSmall(192, 108, draw);
+    const c = draw ? await Promise.race([shot, sleep(500).then(() => null)]) : await shot;
+    const url = c ? smallPicture(c, PICTURE_MAX_CHARS) : null;
+    if (url && slots.openId === id) slots.setPicture(id, url);
+  }
+
+  /** The name a new game takes: its map's ("Starter map", or its code). */
+  function nameNewGame(): void {
+    if (namePending === null || namePending !== slots.openId) return;
+    slots.rename(namePending, nameOfLand(game.landscape));
+    namePending = null;
+    // (Its own picture with its first edit.)
+    pictureAt = -Infinity;
   }
 
   /** The menu's "Copy map for a bug report": saved first, then the mode's save as text on the clipboard. */
@@ -1494,14 +1565,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Save the railway under its mode (not while the title screen shows it turning behind: nothing is being played). */
   function save(): void {
-    if (!playing) return;
+    // (Not while another game is being opened or made: its keys are being written.)
+    if (!playing || switching) return;
     // (A drawn line lifted just before, waiting a frame to go down: down first, and saved with the rest.)
     interaction.flushDraw();
     saveToStorage(game.world, mode);
-    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() });
+    // (A Game railway no game is open for, the starter map from a first start: it becomes one.)
+    if (mode === "game" && slots.openId === null) slots.startUp();
+    const slot = mode === "game" ? slots.openTag() : null;
+    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON(), ...(slot ? { slot } : {}) });
     if (mode === "game") {
       const data = progress.toJSON();
       saveProgress(data);
+      // (Your games' goals and coins for it: now and then.)
+      if (performance.now() - factsAt > FACTS_EVERY_MS) {
+        factsAt = performance.now();
+        slots.noteOpen();
+      }
       // Progress the game made on its own (a delivery's coins, research studied, the first flour): an edit, of the
       // progress kind, though nothing called for a save (QA: delivery coins never went up).
       const sig = JSON.stringify(data);
@@ -1545,8 +1625,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** A stretch of play over (left for the title, or the page hidden): how long it was, in the stats. */
   function endStretch(): void {
     if (stretchFrom === null) return;
-    const minutes = Math.round((performance.now() - stretchFrom) / 6000) / 10;
+    const ms = performance.now() - stretchFrom;
+    const minutes = Math.round(ms / 6000) / 10;
     stretchFrom = null;
+    // (Your games: the time played, and when.)
+    if (mode === "game") slots.noteOpen({ addMs: ms, played: Date.now() });
     if (minutes > 0) stats.record({ e: "end", mode, minutes });
   }
   /** Asked once (see `askStats`); in Sandbox, which has no goals, after a while of play. */
@@ -1623,7 +1706,125 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     newGameSheet.open({ mode: next, seed: newMapSeed(next === "game"), roll: () => newMapSeed(false), warn, start });
   }
   // The title's New game and New map ask what the map's to be like first (the new-game screen), then make it.
-  const title = new TitleScreen(document.body, { play: (next, fresh) => (fresh ? askNewMap(next, undefined, (c, seed) => play(next, true, c, seed)) : play(next, false)), loadCloud, continueCloud: cloud ? continueCloud : undefined }, { thumbnails });
+  // (Game's New game makes a game beside the others, Continue opens the one last played: Your games.)
+  const title = new TitleScreen(
+    document.body,
+    {
+      play: (next, fresh) => (fresh ? askNewMap(next, undefined, (c, seed) => (next === "game" ? void newGameBeside(c, seed) : play(next, true, c, seed))) : next === "game" ? continueGame() : play(next, false)),
+      loadCloud,
+      continueCloud: cloud ? continueCloud : undefined,
+      games: () => openGames(),
+    },
+    { thumbnails },
+  );
+  /** The title's cards as storage has them now (Continue for a mode with a save, Your games while there's a game). */
+  function showTitleCards(): void {
+    const games = slots.list().length;
+    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") || games > 0 }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") }, games);
+  }
+
+  /** Your games: every Game-mode game kept on the device. */
+  const gamesSheet = new GamesSheet(document.body, {
+    list: () => slots.list(),
+    picture: (id) => slots.picture(id),
+    playing: () => (playing && mode === "game" ? slots.openId : null),
+    open: (id) => openGame(id),
+    rename: (id, name) => slots.rename(id, name),
+    copy: async (id) => {
+      // (The open game as it is now.)
+      if (playing && mode === "game" && id === slots.openId) save();
+      const r = await slots.copy(id);
+      return r.ok ? undefined : r.error;
+    },
+    remove: (id) => {
+      slots.remove(id);
+      if (title.shown) showTitleCards();
+    },
+    closed: () => {
+      if (playing) game.paused = gamesPaused;
+      hud.setPaused(game.paused);
+    },
+  });
+  /** Paused or not when Your games was opened in play (it pauses the game: nothing's drawn behind it). */
+  let gamesPaused = false;
+  function openGames(note?: string): void {
+    if (playing) {
+      gamesPaused = game.paused;
+      game.paused = true;
+    }
+    gamesSheet.open();
+    if (note) gamesSheet.say(note);
+  }
+
+  /** Before another game takes the game's keys: the open one's edits not yet sent go up (a moment's wait at most). */
+  async function flushCloud(): Promise<void> {
+    if (cloud?.code) await Promise.race([cloud.flush().catch(() => {}), sleep(3000)]);
+  }
+
+  /** Game's Continue: the game played last (opened first if it isn't the one in the game's keys). */
+  function continueGame(): void {
+    const last = slots.list()[0];
+    if (!last || last.id === slots.openId) play("game", false);
+    else void openGame(last.id).then((said) => said && openGames(said));
+  }
+
+  /**
+   * Open a game from Your games: the one in play, saved, parked (its picture taken), the other's keys written in, and
+   * the page started again on it, straight into Game mode. A message back: it couldn't (nothing changed).
+   */
+  async function openGame(id: string): Promise<string | void> {
+    const inPlay = playing && mode === "game";
+    if (id === slots.openId) {
+      gamesSheet.close();
+      if (!inPlay) play("game", false);
+      return;
+    }
+    if (inPlay) {
+      save();
+      await takePicture(true);
+      endStretch();
+    }
+    await flushCloud();
+    switching = true;
+    const r = await slots.open(id);
+    if (!r.ok) {
+      switching = false;
+      if (inPlay) stretchFrom = performance.now();
+      return r.error;
+    }
+    // (The game opened goes up to the cloud: it carries the game played last.)
+    cloud?.edited("game");
+    playing = false;
+    clearTimeout(saveTimer);
+    saveLastMode("game");
+    reloadInto("game");
+  }
+
+  /**
+   * New game (the title's, ☰'s): a new game beside the others, the one in play kept in Your games (parked, its picture
+   * taken). No room for it: nothing changes, and Your games says so (a game can be deleted there).
+   */
+  async function newGameBeside(c: NewGameChoices, seed: number): Promise<void> {
+    const inPlay = playing && mode === "game";
+    if (inPlay) {
+      save();
+      await takePicture(true);
+    }
+    await flushCloud();
+    switching = true;
+    const r = await slots.beginNew("New game");
+    switching = false;
+    if (!r.ok) {
+      openGames(r.error);
+      return;
+    }
+    namePending = r.value;
+    if (inPlay) {
+      endStretch();
+      stretchFrom = performance.now();
+      newGame(c, seed);
+    } else play("game", true, c, seed);
+  }
 
   /** The cloud railways the title offers (cloud-known.ts), from what's remembered: no waiting on the cloud. */
   function showCloudOffers(): void {
@@ -1697,7 +1898,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (Its cards wait unseen, and can't be pressed, till they're placed: moved under a finger, a tap on Continue
     // ended on the card round it and did nothing (QA).)
     title.root.classList.add("placing");
-    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
+    showTitleCards();
     refreshCloudOffers();
     // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
     toys?.showTrainOnly();
@@ -1808,7 +2009,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.director.glideTo(new Vector3((e.x0 + e.x1) / 2, 0, (e.z0 + e.z1) / 2), distance, { phi: 0.9, duration: 1.4 });
     pausedBeforeTitle = game.paused;
     game.paused = true;
-    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
+    // (Your games' picture of it: the wide view the glide out ends on, one frame drawn for it once it's still.)
+    if (mode === "game") {
+      const shoot = () => {
+        if (!title.shown || mode !== "game") return;
+        if (game.director.busy) setTimeout(shoot, 250);
+        else void takePicture(true);
+      };
+      setTimeout(shoot, 250);
+    }
+    showTitleCards();
     refreshCloudOffers();
   }
 
@@ -3811,12 +4021,49 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let tracksShown = "";
   let tracksRow: HTMLElement | null = null;
   const tracksCheck = (t: PieceTypeId, f: boolean, pose: Pose, y: number, ignore: Ignore) => interaction.placeWhyIgnoring(t, f, pose, y, ignore);
+  /**
+   * A further track not joined to the line yet, lit on the map while the card's open (its own ribbon, built when the
+   * card's key changes: nothing per frame), gone with the card.
+   */
+  let tracksView: RouteView | null = null;
+  let tracksLit = false;
+  function lightTracks(ids: readonly number[]): void {
+    if (ids.length === 0) {
+      if (tracksLit) {
+        tracksView?.clear();
+        if (tracksView) tracksView.group.userData.colours = [];
+        tracksLit = false;
+        game.redraw();
+      }
+      return;
+    }
+    if (!tracksView || tracksView.layoutOf !== game.layout) {
+      if (tracksView) {
+        game.scene.remove(tracksView.group);
+        tracksView.dispose();
+      }
+      tracksView = new RouteView(game.layout, game.mats);
+      tracksView.group.name = "depot-tracks-unjoined";
+      game.scene.add(tracksView.group);
+    }
+    const runs = ids.flatMap((pieceId) => {
+      const p = game.layout.getPiece(pieceId);
+      return p ? [{ pieceId, pathIndex: 0, s0: 0, s1: pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) }] : [];
+    });
+    const ribbons: RibbonSpec[] = [{ runs, colour: "#c27a22" }];
+    tracksView.show(ribbons, []);
+    // (For the e2e: what's lit.)
+    tracksView.group.userData.colours = ribbons.map((r) => r.colour);
+    tracksLit = true;
+    game.redraw();
+  }
   function showTracks(): void {
     const id = mode === "game" ? interaction.openDepotId : -1;
     const d = id === -1 ? undefined : game.economy.liveDepot(id);
     if (!d || !TRACK_ROLES.has(d.role) || !progress.learned.has(TRACKS_TECH)) {
       tracksShown = "";
       tracksRow = null;
+      lightTracks([]);
       return;
     }
     const n = game.economy.trackCount(d.id);
@@ -3831,6 +4078,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     title.className = "station-waiting";
     title.textContent = n === 1 ? "One track: a train waits on the line while another is loaded" : `${n} tracks: ${n} trains stand here, the crane serving each in turn`;
     box.append(title);
+    // A track laid beside it and not joined yet: say so, and how, and light it (its pieces: the middle, and the ends
+    // laid with it).
+    const unjoined = game.economy.unjoinedTracks(d);
+    const roads = game.economy.roadsOf(d.id).map((r) => r.pieceId);
+    const ends = new Set(game.economy.tracksOf(d.id)?.ends ?? []);
+    const lit = unjoined.flatMap((road) => [road, ...[0, 1].map((i) => pieceOfRef(game.layout.joinedConnector(connectorRef(road, i)))).filter((id) => ends.has(id))]);
+    lightTracks(lit);
+    if (unjoined.length > 0) {
+      const join = document.createElement("div");
+      join.className = "station-waiting depot-tracks-join";
+      const second = unjoined.includes(roads[0]);
+      join.textContent = second
+        ? "Join the second track to the line: drag a Split from the Switch shelf onto the line at each end of it (lit on the map), and trains load there too"
+        : "Join the third track: drag a Split from the Switch shelf onto each end of the second track, beside it (lit on the map)";
+      box.append(join);
+    }
     if (n < MAX_TRACKS) {
       const price = TRACK_PRICES[(n + 1) as 2 | 3];
       const plan = planTracks(game.world, d, tracksCheck);
@@ -3838,7 +4101,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       b.className = "chip text depot-tracks-btn";
       b.dataset.tracks = String(n + 1);
       b.innerHTML = `⬆ ${n === 1 ? "Second" : "Third"} track · ${costTag(price, 0)}`;
-      b.title = "Lay another track beside it, joined at both ends: its crane reaches over to load a train there too";
+      b.title = "Lay another track beside it, for you to join to the line: its crane reaches over to load a train there too";
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         addTrack(d);
@@ -3864,7 +4127,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * Give depot `d` one more track: the ladder laid in place of the straights at its ends, its record and its price,
+   * Give depot `d` one more track: laid beside its own (for the player to join to the line), its record and its price,
    * all one undo step (undone, the goods go back to the workshop; redone, they're taken again if they're there).
    */
   function addTrack(d: DepotState): void {
@@ -3915,7 +4178,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (game.depotView.syncTracks(game.economy, game.layout)) game.invalidate();
     // (The group's step goes on the undo stack only once it's whole: the Undo button is told after.)
     hud.setHistory(editor.canUndo, editor.canRedo);
-    hud.toast(`${depotName(game.world, d)} has ${plan.tracks} tracks now: its crane reaches over them all`, false, 3600);
+    hud.toast(`${depotName(game.world, d)} has ${plan.tracks} tracks now: join the new one to the line with points`, false, 3600);
     audio.chime();
     tracksShown = "";
     scheduleSave();
@@ -6729,6 +6992,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     resetGoals();
     saveLastBuilt("game", null);
     setWorld(freshGameWorld(Math.random, choices, seed));
+    nameNewGame();
     syncPlaceStyles();
     townLife.reset();
     passengersOn();
@@ -6761,6 +7025,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
       if (hasOlderSave(next)) loadFromStorage(next);
       setWorld(next === "game" ? freshGameWorld(Math.random, choices, seed ?? newMapSeed(true)) : createWorld(seed ?? newMapSeed(false), false, true, false, choices));
+      if (next === "game") nameNewGame();
       restoreSession(next, false);
       cloud?.edited(next);
     } else if (next !== mode) {
@@ -7379,7 +7644,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   hud.setHistory(false, false);
   updateConnections(false);
 
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving, slots });
   // (Its code is loaded the first time it's shown.)
   const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m)), lazyFailed) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));
@@ -7657,6 +7922,8 @@ requestAnimationFrame(() =>
           // No session storage: the title, with the map behind it.
         }
       }
+      // (The cloud's check and a pasted map may have written the game's keys: Your games mended to match.)
+      slots.startUp();
       const opening = initialWorld();
       const wanted = [...new Set([TITLE_ART_PIECE, ...[...opening.world.layout.pieceIds()].map((id) => opening.world.layout.getPiece(id)!.type)])];
       let ready = 0;

@@ -712,6 +712,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-art { width: 84px; height: 84px; border-radius: 8px; background: var(--maple) center / 112% no-repeat; box-shadow: var(--tile-face), var(--tile-drop); margin-bottom: 6px; }
 .title-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .title-buttons .chip { flex: 1; justify-content: center; }
+.title-buttons .title-games { flex-basis: 100%; }
+.title-buttons .title-games[hidden] { display: none; }
 /* A quiet way in for a railway saved on another device (a build with a cloud): a small pill under the cards, not a
    third big button. Its card opens over the title, in the middle. */
 .title-foot { display: flex; justify-content: center; }
@@ -799,6 +801,34 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .new-game-sheet .new-game-foot .new-game-start { height: 48px; }
 }
 @media (prefers-reduced-motion: reduce) { .new-game-sheet:not([hidden]) { animation: none; } }
+/* Your games (ui/games-sheet.ts): a page as the new-game screen is, a row a game, the last played first. */
+.games-sheet { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--wood-panel); padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.games-sheet[hidden] { display: none; }
+.games-sheet:not([hidden]) { animation: title-in 0.25s ease-out; }
+.games-sheet .games-back { height: 48px; min-width: 104px; padding: 0 16px 0 12px; }
+.games-head .new-game-title { white-space: nowrap; }
+@media (max-width: 440px) { .games-head .new-game-title { font-size: 24px; } }
+.games-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: min(560px, 100%); margin: 0 auto; padding: 18px 2px 16px; display: flex; flex-direction: column; gap: 12px; }
+.games-list { display: flex; flex-direction: column; gap: 12px; }
+.games-note { margin: 0; padding: 9px 8px; border-radius: 4px; text-align: center; font-weight: 800; font-size: 14px; line-height: 1.35; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2px var(--stamp-red); }
+.games-note[hidden] { display: none; }
+.games-empty { margin: 24px 0; text-align: center; color: #5c4632; }
+.games-row { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-radius: 10px; background: var(--maple); box-shadow: var(--groove-sh), inset 0 0 0 2px var(--maple-cut); }
+.games-top { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.games-pic { flex: none; width: 112px; height: 63px; border-radius: 6px; overflow: hidden; background: #c9a77a; box-shadow: inset 0 0 0 2px rgba(90, 60, 30, 0.25); }
+.games-pic.none { background: repeating-linear-gradient(90deg, #b48a5a 0 6px, #c9a77a 6px 14px); }
+.games-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.games-text { min-width: 0; flex: 1; }
+.games-name { margin: 0; font-family: var(--display); font-weight: 400; font-size: 20px; letter-spacing: 0.02em; color: var(--wood-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.games-facts { margin: 2px 0 0; font-size: 14px; line-height: 1.35; color: #5c4632; }
+.games-name-input { width: 100%; min-width: 0; height: 44px; padding: 0 10px; border: none; border-radius: 8px; font: inherit; font-weight: 800; font-size: 17px; color: var(--wood-ink); background: #fffaf0; box-shadow: inset 0 0 0 3px var(--green); -webkit-user-select: text; user-select: text; }
+.games-name-input:focus { outline: none; }
+.games-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.games-buttons .chip { flex: 1 1 0; min-width: 72px; min-height: 44px; justify-content: center; }
+.games-playing { flex: 1 1 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; color: var(--green); }
+.games-ask { flex: 1 1 100%; margin: 0; font-weight: 800; color: var(--stamp-red); }
+@media (max-height: 500px) { .games-sheet .games-back { height: 44px; } .games-body { width: min(820px, 100%); padding-top: 8px; } }
+@media (prefers-reduced-motion: reduce) { .games-sheet:not([hidden]) { animation: none; } }
 /* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening. The
    opening screen keeps its name and its train just where they were (the bar goes, keeping its room); the title's own
    name stays hidden, and its cards fade in below the train (their top set from where the train ends). */

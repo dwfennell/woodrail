@@ -40,6 +40,7 @@ export const SUITES = {
   growth: { script: "e2e:growth" },
   "copy-map": { script: "e2e:copy-map", minutes: 2 },
   "town-drag": { script: "e2e:town-drag", minutes: 4 },
+  "moved-house": { script: "e2e:moved-house", minutes: 5 },
   "town-shape": { script: "e2e:town-shape", minutes: 2 },
   school: { script: "e2e:school" },
   sites: { script: "e2e:sites", groups: true, minutes: 37 },
@@ -48,6 +49,7 @@ export const SUITES = {
   "not-loading": { script: "e2e:not-loading", minutes: 3 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
   "new-game": { script: "e2e:new-game", minutes: 8 },
+  saves: { script: "e2e:saves", minutes: 6 },
   civic: { script: "e2e:civic", minutes: 5 },
   "paint-picker": { script: "e2e:paint-picker", minutes: 4 },
   stickers: { script: "e2e:stickers" },
@@ -124,11 +126,11 @@ export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/routing/ca
 // Touch's groups that plan, run or show routes and lines.
 const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way,split";
 // Touch's groups for the tech tree's track pieces (scripts/e2e/track-pieces.mjs).
-const TOUCH_PIECES = "touch:slips,double-three-way,split,turntable-taps";
+const TOUCH_PIECES = "touch:slips,double-three-way,split,splice-points,turntable-taps";
 // Touch's groups that press, hold, drag and drop pieces and trains: what a change to input or picking can break.
 const TOUCH_INPUT = "touch:sandbox-shelves,game-shelves,map-taps,select-drag,redrawn,flick,lever-pins,under-car,toast-through,trap,place-facing,front-join,tight-curves";
 // Touch's groups that lay track, throw points and run trains over it: what a change to the track or the editor can break.
-const TOUCH_TRACK = "touch:map-taps,select-drag,flick,lever-pins,under-car,wye,place-facing,front-join,tight-curves,follow,stuck,slips,double-three-way,split,turntable-taps";
+const TOUCH_TRACK = "touch:map-taps,select-drag,flick,lever-pins,under-car,wye,place-facing,front-join,tight-curves,follow,stuck,slips,double-three-way,split,splice-points,turntable-taps";
 // Touch's groups that run trains (the sim's levers, points held, trains stopped, cards): with TOUCH_ROUTES, what a
 // change to the sim can break.
 const TOUCH_TRAINS = "touch:select-drag,lever-pins,under-car,wye,train-card,blocker,stuck,stuck-lines";
@@ -136,7 +138,7 @@ const TOUCH_TRAINS = "touch:select-drag,lever-pins,under-car,wye,train-card,bloc
 const TOUCH_UI = "touch:sandbox-shelves,game-shelves,tabs-reach,train-card,toast-through,trap,feedback";
 // Click's groups for a mouse and the tray's drags: what input, track and editor changes can break.
 const CLICK_INPUT = "click:desktop,touch-tray,tight-curves";
-const TOWNS = ["town-drag", "town-shape", "school", "growth", "station-upgrade", "sites"];
+const TOWNS = ["town-drag", "moved-house", "town-shape", "school", "growth", "station-upgrade", "sites"];
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
 export const RULES = [
@@ -302,6 +304,8 @@ export const RULES = [
   ["src/game/station-upgrade.ts", ["station-upgrade", "station-touches"]],
   ["src/game/departures.ts", ["station-touches"]],
   [["src/game/town-*", "src/game/towns.ts", "src/game/street-moves.ts", "src/game/growth-cards.ts", "src/game/upgrades.ts"], [...TOWNS]],
+  // A moved house or street and what's left behind: the undo guard, the save's heal, the town's tile redrawn.
+  [["src/game/road-hand.ts", "src/props/towns.ts", "src/render/dressing/tiles.ts", "src/editor/editor.ts", "src/persist/save.ts", "src/landscape/clearance.ts"], ["moved-house", "town-drag"]],
   [["src/game/crafting.ts", "src/game/workshop-text.ts"], ["workshop", "growth"]],
   [["src/game/warehouse-text.ts", "src/game/cargo-drop.ts", "src/game/supply.ts"], ["warehouse", "train-summary"]],
   [["src/game/map-sites.ts", "src/game/restore.ts", "src/game/across-river.ts", "src/game/map-markers.ts", "src/game/landmarks.ts", "src/game/harbours.ts"], ["sites"]],
@@ -340,6 +344,9 @@ export const RULES = [
   [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
   // The new-game sheet and how hilly a map is (chosen before a new game, saved with the map).
   [["src/ui/new-game.ts", "src/landscape/hills.ts", "src/landscape/water.ts", "src/landscape/edges.ts", "src/landscape/generate.ts", "src/ui/title.ts", "src/ui/hud.ts", "src/persist/landscape-data.ts", "src/persist/landscape-schema.ts"], ["new-game", "tutorial"]],
+  // Your games: several Game-mode games side by side (the slots, the list, the title's and ☰'s ways in, the cloud's).
+  [["src/persist/slots.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/persist/cloud.ts", "src/ui/title.ts", "src/ui/new-game.ts", "src/ui/hud.ts", "src/main.ts"], ["saves"]],
+  [["src/persist/slots.ts", "src/persist/cloud.ts"], ["cloud", "new-game", "stats"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).
   ["src/test-setup.ts", []],
 ];

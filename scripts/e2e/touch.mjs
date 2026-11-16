@@ -1,6 +1,7 @@
 // End-to-end touch tests on a phone (`npm run e2e:touch`): real touch taps (hasTouch, touchscreen.tap) at 390×844.
 // A tap's click lands 10–20 ms after the finger lifts, wherever the finger was: on touch, on whatever a tap's pointerup
 // put there (a tray shelf's Back, a card's Delete or Remove). The click shield (src/ui/click-shield.ts) drops it. Starts its own dev server on any free port. Chromium as for e2e:roads.
+import { openShelf } from "./lib/shelf.mjs";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
@@ -9,7 +10,7 @@ import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
 import { shot } from "./lib/shot.mjs";
 import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
-import { doubleThreeWayGroup, slipsGroup, splitGroup, turntableGroup } from "./track-pieces.mjs";
+import { doubleThreeWayGroup, slipsGroup, splicePointsGroup, splitGroup, turntableGroup } from "./track-pieces.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -550,8 +551,7 @@ async function flickOut(ctx, p, tapOn) {
   const cdp = await ctx.newCDPSession(p);
   const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   await p.keyboard.press("Escape");
-  const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Straight"));
-  await tapOn(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  await openShelf(p, tapOn, "Straight");
   const item = await p.evaluate(() => { const e = document.querySelector(".scroller .tray-item:not(.tray-back):not(.tray-group)"); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
   await p.evaluate(() => {
     const h = window.woodrail.hud;
@@ -1047,8 +1047,7 @@ async function wyeLevers(ctx, p, tapOn) {
   const facing = await p.evaluate(() => window.woodrail.interaction.cameraHeading());
   if (Math.abs(Math.sin((facing - spot.heading) / 2)) > 0.01) throw new Error(`wye: the view faces ${facing}, not ${spot.heading} as the room was found for`);
   // 1. Laid from the tray: the Switch shelf opened, the Wye dragged out onto the spot (stamped touches), let go there.
-  const shelf = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Switch"));
-  await tapOn(`.scroller .tray-group:nth-child(${shelf + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  await openShelf(p, tapOn, "Switch");
   await p.evaluate(() => document.querySelector('.scroller .tray-item[data-key="piece:wye"]')?.scrollIntoView({ inline: "center" }));
   await frames(p);
   const from = await p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key="piece:wye"]'); if (!e) return null; const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
@@ -1227,7 +1226,7 @@ async function wyeLevers(ctx, p, tapOn) {
 // game-shelves (a touch tap on each shelf and Back, in each mode), and Sandbox's checks by name: map-taps, select-drag, redrawn,
 // flick, lever-pins, under-car, toast-through, trap (the train-too-many trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
-// wait (a train waiting at points set for another), wye (a wye's three levers, #15), slips, double-three-way, split and turntable-taps (the tech tree's track pieces, track-pieces.mjs), stuck (two trains of a line head
+// wait (a train waiting at points set for another), wye (a wye's three levers, #15), slips, double-three-way, split, splice-points (points dropped onto a line from the tray take a straight's place) and turntable-taps (the tech tree's track pieces, track-pieces.mjs), stuck (two trains of a line head
 // on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
 // rather than into a dead-end spur, routing step 6), hand-wait (a hand-run train waits at points set for a routed one,
 // routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
@@ -3121,8 +3120,9 @@ async function placeFacing(ctx, p, tapSel) {
   const engineItem = () => p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key^="train:Engine"]'); if (!e) return null; e.scrollIntoView({ inline: "center" }); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
   for (let k = 0; k < 6 && !(await engineItem()); k++) {
     if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await tapSel(".scroller .tray-back");
-    const n = await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length);
-    await tapSel(`.scroller .tray-group:nth-child(${k + 1 + n})`);
+    const name = await p.evaluate((k) => document.querySelectorAll(".scroller .tray-group")[k]?.dataset.shelf, k);
+    if (!name) break;
+    await openShelf(p, tapSel, name);
   }
   await frames(p);
   const item = await engineItem();
@@ -3223,8 +3223,9 @@ async function frontJoin(ctx, p, tapSel) {
   const wagonItem = () => p.evaluate(() => { const e = document.querySelector('.scroller .tray-item[data-key="train:Flatbed wagon"]'); if (!e) return null; e.scrollIntoView({ inline: "center" }); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
   for (let k = 0; k < 8 && !(await wagonItem()); k++) {
     if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await tapSel(".scroller .tray-back");
-    const n = await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length);
-    await tapSel(`.scroller .tray-group:nth-child(${k + 1 + n})`);
+    const name = await p.evaluate((k) => document.querySelectorAll(".scroller .tray-group")[k]?.dataset.shelf, k);
+    if (!name) break;
+    await openShelf(p, tapSel, name);
   }
   await frames(p);
   const item = await wagonItem();
@@ -3778,13 +3779,8 @@ async function stuckHeadOn(ctx, p, tapSel, lines = false) {
   const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }], timestamp: (stamp += 0.016) });
   // (The Straight shelf, unless it's open already: left open by the run before, stuck then stuck-lines.)
   if (!(await p.evaluate(() => !!document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]')))) {
-    // (Another shelf left open by the run before, the wye's Switch shelf: Back to the shelves first.)
-    if (await p.evaluate(() => !document.querySelector(".scroller .tray-group") && !!document.querySelector(".scroller .tray-back"))) {
-      await tapSel(".scroller .tray-back");
-      await p.waitForFunction(() => document.querySelector(".scroller .tray-group") !== null, null, { timeout: 10000 });
-    }
-    const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Straight"));
-    await tapSel(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+    // (Another shelf left open by the run before, the wye's Switch shelf: openShelf goes Back to the shelves first.)
+    await openShelf(p, tapSel, "Straight");
   }
   const item = await p.evaluate(() => {
     const e = document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]');
@@ -3872,12 +3868,7 @@ async function tightCurves(ctx, p, tapSel) {
   for (const hand of ["left", "right"]) {
     // (The Curve shelf, unless it's open already.)
     if (!(await p.evaluate(() => !!document.querySelector('.scroller .tray-item[data-key="piece:curve-small"]')))) {
-      if (await p.evaluate(() => !document.querySelector(".scroller .tray-group") && !!document.querySelector(".scroller .tray-back"))) {
-        await tapSel(".scroller .tray-back");
-        await p.waitForFunction(() => document.querySelector(".scroller .tray-group") !== null, null, { timeout: 10000 });
-      }
-      const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Curve"));
-      await tapSel(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+      await openShelf(p, tapSel, "Curve");
     }
     // The second ring mirrored: the tray's Flip, tapped.
     if ((hand === "right") !== (await p.evaluate(() => window.woodrail.interaction.trayFlipped))) await tapSel(".tray-flip");
@@ -4080,12 +4071,7 @@ async function routeKeep(ctx, p, tapSel) {
   let stamp = Date.now() / 1000;
   const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }], timestamp: (stamp += 0.016) });
   if (!(await p.evaluate(() => !!document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]')))) {
-    if (await p.evaluate(() => !document.querySelector(".scroller .tray-group") && !!document.querySelector(".scroller .tray-back"))) {
-      await tapSel(".scroller .tray-back");
-      await p.waitForFunction(() => document.querySelector(".scroller .tray-group") !== null, null, { timeout: 10000 });
-    }
-    const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Straight"));
-    await tapSel(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+    await openShelf(p, tapSel, "Straight");
   }
   const item = await p.evaluate(() => {
     const e = document.querySelector('.scroller .tray-item[data-key="piece:straight-216"]');
@@ -5255,8 +5241,7 @@ async function openMode(mode, { settle = false } = {}) {
 async function shelves({ mode, p, tapOn }) {
   const inGroup = () => p.evaluate(() => document.querySelector(".tray").classList.contains("in-group"));
   for (const shelf of ["Straight", "Curve", "Switch"]) {
-    const index = await p.evaluate((name) => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === name), shelf);
-    await tapOn(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+    await tapOn(`.scroller .tray-group[data-shelf="${shelf}"]`);
     // (`tapOn` waited for the tap's click: the shelf must still be open after it.)
     check(`${mode}: a touch tap on the ${shelf} shelf opens it (and it stays open)`, await inGroup());
     if (!(await inGroup())) continue;
@@ -5349,6 +5334,7 @@ const SANDBOX = {
   slips: (f) => slipsGroup(f, check),
   "double-three-way": (f) => doubleThreeWayGroup(f, check),
   split: (f) => splitGroup(f, check),
+  "splice-points": (f) => splicePointsGroup(f, check),
   "turntable-taps": (f) => turntableGroup(f, check),
 };
 let fixture = null;

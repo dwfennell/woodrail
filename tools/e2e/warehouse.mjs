@@ -308,12 +308,13 @@ if (!setup.error && setup.engine !== -1) {
   const hint = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent));
   check("…the card points to the warehouse stop's options", hint.includes("Tap the warehouse stop to set whether it drops or picks up there"), JSON.stringify(hint));
   // (Its options are in the line sheet: the chip opens it at that stop.)
+  // (By its stop's number: its peg on the card's line.)
   await tapButton('.engine-extra .route-chip[data-stop="2"]');
   const opts = await p.evaluate(() => {
     const open = document.querySelector(".ls-stop.open");
-    return { words: open?.querySelector(".ls-says")?.textContent, ticks: [...(open?.querySelectorAll(".ls-tick") ?? [])].map((t) => `${t.textContent}:${t.getAttribute("aria-pressed")}`), what: [...(open?.querySelectorAll(".ls-note") ?? [])].map((e) => e.textContent), hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) };
+    return { stop: open?.dataset.stop, words: open?.querySelector(".ls-says")?.textContent, ticks: [...(open?.querySelectorAll(".ls-tick") ?? [])].map((t) => `${t.textContent}:${t.getAttribute("aria-pressed")}`), what: [...(open?.querySelectorAll(".ls-note") ?? [])].map((e) => e.textContent), hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) };
   });
-  check("…its chip tapped: the sheet at it, \"Drops planks\", Drop and Pick up ticked, and what that does at a warehouse", /^Drops .*planks( from Sawmill.*)?$/.test(opts.words ?? "") && opts.ticks.slice(0, 2).join(",") === "Drop:true,Pick up:true" && opts.what.includes("Leaves goods no later stop wants, takes what a later stop wants"), JSON.stringify(opts));
+  check("…its chip tapped: the sheet at it, \"Drops planks\", Drop and Pick up ticked, and what that does at a warehouse", opts.stop === "2" && /^Drops .*planks( from Sawmill.*)?$/.test(opts.words ?? "") && opts.ticks.slice(0, 2).join(",") === "Drop:true,Pick up:true" && opts.what.includes("Leaves goods no later stop wants, takes what a later stop wants"), JSON.stringify(opts));
   await shot("4-route-1-stop-options");
   await tapButton(".line-sheet .route-plan.on");
   await p.keyboard.press("Escape");

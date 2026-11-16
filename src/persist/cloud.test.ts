@@ -5,6 +5,7 @@ import { WORDS } from "./code-words";
 import { titleOffers } from "./cloud-known";
 import { gameMerger } from "./progress-merge";
 import { newCode, parseCode, showCode } from "./sync-code";
+import { parkedKey, SlotStore, unpackKeys, withTag } from "./slots";
 
 const KEYS: Record<GameMode, string[]> = { sandbox: ["s.save", "s.session"], game: ["g.save", "g.session", "g.goals", "g.prog"] };
 
@@ -1031,5 +1032,110 @@ describe("cloud saves on by themselves, and remembered", () => {
     expect(titleOffers(a.sync.known.list(), a.sync.currentCode(), 13)).toEqual([expect.objectContaining({ newer: true })]);
     expect(await a.sync.takeNewer("sandbox")).toEqual({ ok: false, error: "newer" });
     expect(a.store.getItem("s.save")).toBe(pieces(2));
+  });
+});
+
+describe("cloud saves with several games (persist/slots.ts)", () => {
+  const SLOT_KEYS = { live: KEYS.game, save: "g.save", session: "g.session", goals: "g.goals", progress: "g.prog" };
+  /** A device with Your games: its cloud told which game is open, as main.ts does. */
+  function gamesDevice(cloud: FakeCloud, clock = { t: 1_000_000 }) {
+    const store = new MemStore();
+    let n = 0;
+    const slots = new SlotStore(store, SLOT_KEYS, () => clock.t, () => `g${clock.t}-${++n}`);
+    const timers: (() => void)[] = [];
+    const sync = new CloudSync({
+      backend: cloud,
+      storage: store,
+      keys: KEYS,
+      saveVersion: 13,
+      now: () => clock.t,
+      setTimer: (fn) => timers.push(fn),
+      clearTimer: () => timers.splice(0),
+      slots: {
+        isOther: (m, keys) => m === "game" && slots.isOther(keys),
+        keepOther: async (m, keys, at) => m !== "game" || (await slots.keepOther(keys, at)),
+        parkOpen: async (m) => m !== "game" || (await slots.park()),
+      },
+    });
+    const notes: (string | null)[] = [];
+    sync.onNote = (_m, note) => notes.push(note);
+    /** The open game saved (its session tagged, as `save` does). */
+    const save = (text: string) => {
+      store.setItem("g.save", `{"version":13,"text":"${text}"}`);
+      store.setItem("g.session", withTag(store.getItem("g.session"), slots.openTag()!));
+      sync.edited("game");
+    };
+    return { store, slots, sync, clock, notes, save };
+  }
+
+  it("another device's game is parked in Your games, never written over the open one", async () => {
+    const cloud = new FakeCloud();
+    const a = gamesDevice(cloud, { t: 1_000_000 });
+    a.store.setItem("g.save", '{"version":13,"text":"A"}');
+    a.slots.startUp();
+    const gameA = a.slots.openId!;
+    const code = (await a.sync.enable())!;
+    a.save("A");
+    await a.sync.flush();
+
+    // B has a game of its own: taking the code parks it, and A is open there.
+    const b = gamesDevice(cloud, { t: 2_000_000 });
+    b.store.setItem("g.save", '{"version":13,"text":"B"}');
+    b.slots.startUp();
+    const gameB = b.slots.openId!;
+    expect((await b.sync.useCode(code)).ok).toBe(true);
+    b.slots.startUp();
+    expect(b.slots.openId).toBe(gameA);
+    expect(b.store.getItem("g.save")).toBe('{"version":13,"text":"A"}');
+    expect(b.slots.isParked(gameB)).toBe(true);
+
+    // A starts a new game, C: it goes up (the game played last).
+    a.clock.t = 3_000_000;
+    expect((await a.slots.beginNew("C")).ok).toBe(true);
+    const gameC = a.slots.openId!;
+    a.save("C");
+    await a.sync.flush();
+
+    // B plays on with A: C is parked there (a toast says so), A stays open and goes up over it.
+    b.clock.t = 4_000_000;
+    b.save("A, played on B");
+    await b.sync.flush();
+    expect(b.notes).toContain("other-game");
+    expect(b.store.getItem("g.save")).toBe('{"version":13,"text":"A, played on B"}');
+    expect(b.slots.list().map((g) => g.id).sort()).toEqual([gameA, gameB, gameC].sort());
+    expect(JSON.parse((await unpackKeys(b.store.getItem(parkedKey(gameC))!))!["g.save"]).text).toBe("C");
+    expect((await cloud.keysOf(code, "game"))["g.save"]).toBe('{"version":13,"text":"A, played on B"}');
+
+    // A, asked again: B's later A replaces the A parked there, C open as it was.
+    a.clock.t = 5_000_000;
+    const res = await a.sync.takeNewer("game");
+    expect(res).toMatchObject({ ok: true, changed: false, note: "other-game" });
+    expect(a.slots.openId).toBe(gameC);
+    expect(JSON.parse((await unpackKeys(a.store.getItem(parkedKey(gameA))!))!["g.save"]).text).toBe("A, played on B");
+  });
+
+  it("a deleted game's copy isn't brought back, and nothing goes up with no game open", async () => {
+    const cloud = new FakeCloud();
+    const a = gamesDevice(cloud);
+    a.store.setItem("g.save", '{"version":13,"text":"A"}');
+    a.slots.startUp();
+    const code = (await a.sync.enable())!;
+    a.save("A");
+    await a.sync.flush();
+    const puts = cloud.puts;
+    a.slots.remove(a.slots.openId!);
+    a.sync.edited("game");
+    await a.sync.flush();
+    expect(cloud.puts).toBe(puts);
+    expect((await cloud.keysOf(code, "game"))["g.save"]).toBe('{"version":13,"text":"A"}');
+    // (Another device's newer copy of it: still let be.)
+    const b = gamesDevice(cloud, { t: 9_000_000 });
+    expect((await b.sync.useCode(code)).ok).toBe(true);
+    b.slots.startUp();
+    b.save("A again");
+    await b.sync.flush();
+    await a.sync.takeNewer("game");
+    expect(a.store.getItem("g.save")).toBeNull();
+    expect(a.slots.list()).toEqual([]);
   });
 });
