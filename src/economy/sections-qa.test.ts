@@ -1372,9 +1372,8 @@ const KNOWN_BREAKS: { test: string; invariant: Invariant; why: string }[] = [
   { test: "QA's N2: a train taken off its line", invariant: "oneOwner", why: "trains put down by hand on the loop's points (0.0 s), and one taken off its line running onto points another is on (step 6)" },
   // (Load in place, 2026-11-16: trains' times at the line's ends changed (one pulls up to the end and turns back as it's
   // worked), and these harnesses put a train down by hand, at a set time, on a loop's points another is on just then:
-  // each break at the instant of a put-down (B4 at 68 and 72 s of its 4, 8, … 96; random at 110; pinned at 45).)
-  { test: "B4: a train put down on any loop road at any time", invariant: "oneOwner", why: "a train put down by hand (68.0, 72.0 s) on a loop's points another is on" },
-  { test: "random put-downs: no head-ons", invariant: "oneOwner", why: "a train put down by hand (110.0 s) on a loop's points another is on" },
+  // each break at the instant of a put-down (pinned at 45 s). B4's and random put-downs' (68, 72 and 110 s) went with the
+  // crane's runs kept to the yard's piece (2026-11-16: their trains' times moved again).)
   { test: "pinned loop: pinned both to the main road, 2 trains, one put down at 45 s in front of a running one, on the loop's road", invariant: "oneOwner", why: "a train put down by hand (45.0 s) on the loop while the runner is on its switch" },
   { test: "pinned loop: pinned both to the main road, 3 trains, one put down at 45 s in front of a running one, on the loop's road", invariant: "oneOwner", why: "a train put down by hand (45.0 s) on the loop while the runner is on its switch" },
 ];
