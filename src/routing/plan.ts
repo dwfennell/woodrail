@@ -6,6 +6,7 @@
  */
 import { getPieceDef, MAX_CONNECTORS, pathLength, pathLengthOf, pointsWayFrom, type Layout } from "../track";
 import { next, SEARCH, TURN_COST, waysFrom, type PinnedTest } from "./graph";
+import { outOfShort, type StubRule } from "./stubs";
 
 /** A stretch of one path of one piece, from s0 to s1 along the path's own geometry (s0 > s1 when run backwards). */
 export interface PathRun {
@@ -83,7 +84,16 @@ export interface PlanState {
   pieceId: number;
   entry: number;
   lead: boolean;
+  /**
+   * With a stub rule (stubs.ts): 0, or the road it came into a dead end too short for it by (`STUB_ROADS` × the mouth's
+   * index + the road's path + 1), and, once turned at that dead end's end, the road it must leave by (the same, plus
+   * `STUB_ROADS` × the number of mouths).
+   */
+  tag?: number;
 }
+
+/** Paths a points piece has, at most (for the stub tag). */
+const STUB_ROADS = 8;
 
 /** One piece of a plan: run through on `path` from `entry` out at `exit`; `reverse`: it turns back there (the end of a line). */
 export interface Step {
@@ -156,7 +166,7 @@ export interface Plan {
   steps: Step[];
 }
 
-const stateKey = (s: PlanState) => (s.pieceId * MAX_CONNECTORS + s.entry) * 2 + (s.lead ? 1 : 0);
+const stateKey = (s: PlanState, tags = 1) => ((s.pieceId * MAX_CONNECTORS + s.entry) * 2 + (s.lead ? 1 : 0)) * tags + (s.tag ?? 0);
 
 /** Searches done, states taken off the heap, and `planWay`'s choices worked out and taken from its cache (for measuring). */
 export const planStats = { searches: 0, states: 0, choices: 0, hits: 0 };
@@ -177,20 +187,24 @@ export interface Lap {
   against(pieceId: number, exit: number): boolean;
 }
 
-export function plan(layout: Layout, start: PlanState, target: number, costs: PlanCosts = ROUTE_COSTS, pinned?: PinnedTest, lap?: Lap): Plan | null {
+export function plan(layout: Layout, start: PlanState, target: number, costs: PlanCosts = ROUTE_COSTS, pinned?: PinnedTest, lap?: Lap, stubs?: StubRule): Plan | null {
   planStats.searches++;
   if (start.pieceId === target) return { cost: 0, steps: [] };
   const best = new Map<number, number>();
   const from = new Map<number, { prev: PlanState | null; step: Step | null }>();
   const heap = new Heap();
-  best.set(stateKey(start), 0);
-  from.set(stateKey(start), { prev: null, step: null });
+  // (A stub rule: states carry the road a train came into a short dead end by (`PlanState.tag`).)
+  const mouths = stubs ? stubs.mouths.size : 0;
+  const tags = stubs ? 1 + 2 * mouths * STUB_ROADS : 1;
+  const stateKey_ = (s: PlanState) => stateKey(s, tags);
+  best.set(stateKey_(start), 0);
+  from.set(stateKey_(start), { prev: null, step: null });
   heap.push(0, 0, start);
   let order = 1;
   const done = new Set<number>();
   while (heap.size > 0 && done.size < SEARCH) {
     const { cost, state } = heap.pop();
-    const key = stateKey(state);
+    const key = stateKey_(state);
     if (done.has(key)) continue;
     done.add(key);
     planStats.states++;
@@ -200,19 +214,32 @@ export function plan(layout: Layout, start: PlanState, target: number, costs: Pl
         const f = from.get(k)!;
         if (!f.prev) break;
         steps.push(f.step!);
-        k = stateKey(f.prev);
+        k = stateKey_(f.prev);
       }
       return { cost, steps: steps.reverse() };
     }
     const factor = state.lead ? 1 : costs.push;
-    for (const w of waysFrom(layout, state.pieceId, state.entry, pinned)) {
+    const tag = state.tag ?? 0;
+    // (Turned in a dead end too short for it, coming out of it at its mouth: only the road it came in by.)
+    const keepRoad = stubs && tag > mouths * STUB_ROADS && stubs.mouths.get(state.pieceId * MAX_CONNECTORS + state.entry) === Math.floor((tag - 1 - mouths * STUB_ROADS) / STUB_ROADS) ? (tag - 1) % STUB_ROADS : -1;
+    const outWays = waysFrom(layout, state.pieceId, state.entry, pinned);
+    // (Starting out of a dead end too short for it at its mouth: the points lie for the road it came in by, `planWay`.)
+    const lie = stubs && state === start && tag === 0 && outWays.length > 1 && outOfShort(stubs, state.pieceId, state.entry) ? pointsWayFrom(layout, state.pieceId, state.entry, outWays.length) : -1;
+    for (const w of outWays) {
       if (lap?.against(state.pieceId, w.exit)) continue;
+      if (keepRoad !== -1 && w.path !== keepRoad) continue;
+      if (lie !== -1 && w.option !== lie) continue;
       const n = next(layout, state.pieceId, w.exit);
       let to: PlanState | null;
       let c: number;
       let step: Step;
       if (n) {
         to = { pieceId: n.pieceId, entry: n.entry, lead: state.lead };
+        if (stubs) {
+          // (Into a short dead end through its mouth: the road it came in by, noted. Out of it: nothing noted.)
+          const into = stubs.mouths.get(state.pieceId * MAX_CONNECTORS + w.exit);
+          to.tag = into !== undefined ? 1 + into * STUB_ROADS + w.path : keepRoad !== -1 ? 0 : tag;
+        }
         c = cost + costs.through(layout, state.pieceId, w.path) * factor;
         step = { pieceId: state.pieceId, path: w.path, entry: state.entry, exit: w.exit };
       } else {
@@ -220,10 +247,16 @@ export function plan(layout: Layout, start: PlanState, target: number, costs: Pl
         const back = next(layout, state.pieceId, state.entry);
         if (!back) continue;
         to = { pieceId: back.pieceId, entry: back.entry, lead: costs.flip ? state.lead : !state.lead };
+        if (stubs) {
+          // (Turned at the end of a dead end too short for it, come into by a road noted: it leaves by that road. Any
+          // other end: nothing to keep.)
+          const i = stubs.turns.get(state.pieceId * MAX_CONNECTORS + state.entry);
+          to.tag = i !== undefined && tag > 0 && tag <= mouths * STUB_ROADS && Math.floor((tag - 1) / STUB_ROADS) === i ? tag + mouths * STUB_ROADS : 0;
+        }
         c = cost + costs.turn(layout, state.pieceId, w.path) * factor;
         step = { pieceId: state.pieceId, path: w.path, entry: state.entry, exit: w.exit, reverse: true };
       }
-      const k = stateKey(to);
+      const k = stateKey_(to);
       if (done.has(k) || (best.get(k) ?? Infinity) <= c) continue;
       best.set(k, c);
       from.set(k, { prev: state, step });
@@ -296,6 +329,7 @@ export function planChoice(
   out?: number[],
   pinned?: PinnedTest,
   lap?: Lap,
+  stubs?: StubRule,
 ): number {
   let best = -1;
   let bestC = Infinity;
@@ -303,7 +337,10 @@ export function planChoice(
     const n = next(layout, pieceId, w.exit);
     let c = Infinity;
     if (n && !lap?.against(pieceId, w.exit)) {
-      const rest = n.pieceId === target ? { cost: 0 } : plan(layout, { pieceId: n.pieceId, entry: n.entry, lead }, target, costs, pinned, lap);
+      // (Into a dead end too short for it through these points: the road it takes in, noted, as `plan` notes it.)
+      const into = stubs?.mouths.get(pieceId * MAX_CONNECTORS + w.exit);
+      const tag = into === undefined ? undefined : 1 + into * STUB_ROADS + w.path;
+      const rest = n.pieceId === target ? { cost: 0 } : plan(layout, { pieceId: n.pieceId, entry: n.entry, lead, tag }, target, costs, pinned, lap, stubs);
       if (rest) c = costs.through(layout, pieceId, w.path) * (lead ? 1 : costs.push) + rest.cost;
     }
     if (out) out[w.option] = c;
@@ -436,27 +473,43 @@ export function planWay(
   keep?: Keep | number,
   out?: { cost: number; best?: number },
   lap?: Lap,
+  stubs?: StubRule,
 ): number {
   let best: number;
   let costs: number[];
+  // (Coming out of a dead end too short for it at its mouth: the points lie for the road it came in by, under its nose
+  // since it turned (stubs.ts). That way only.)
+  // (Not cached: how they lie isn't in the cache's key.)
+  const out_ = stubs && outOfShort(stubs, pieceId, entry);
+  if (out_) {
+    const lie = pointsWayFrom(layout, pieceId, entry, ways.length);
+    ways = ways.filter((w) => w.option === lie);
+  }
   // (Round its line's lap where a way goes so (`Lap`); where none does, as if it had none.)
-  const lapped = lap && !pinned ? lapChoice(layout, pieceId, entry, ways, target, lap) : null;
+  const lapped = lap && !pinned && !out_ ? lapChoice(layout, pieceId, entry, ways, target, lap, stubs) : null;
   if (lapped && lapped.best !== -1) {
     best = lapped.best;
     costs = lapped.costs;
-  } else if (pinned) {
+  } else if (pinned || out_) {
     costs = [];
-    best = planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, costs, pinned, lap);
+    best = planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, costs, pinned, lap, stubs);
   } else {
     const cache = cacheOf(layout);
     const key = pieceId * MAX_CONNECTORS + entry;
-    let byTarget = cache.choices.get(target);
-    if (!byTarget) cache.choices.set(target, (byTarget = new Map()));
+    // (A train some dead end is too short for: its own choices, by which ones (`StubRule.id`).)
+    let choices = cache.choices;
+    if (stubs) {
+      let by = cache.stubChoices.get(stubs.id);
+      if (!by) cache.stubChoices.set(stubs.id, (by = new Map()));
+      choices = by;
+    }
+    let byTarget = choices.get(target);
+    if (!byTarget) choices.set(target, (byTarget = new Map()));
     let c = byTarget.get(key);
     if (c === undefined) {
       planStats.choices++;
       const o: number[] = [];
-      byTarget.set(key, (c = { best: planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, o), costs: o }));
+      byTarget.set(key, (c = { best: planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, o, undefined, undefined, stubs), costs: o }));
     } else planStats.hits++;
     best = c.best;
     costs = c.costs;
@@ -490,16 +543,17 @@ export function planWay(
 }
 
 /** `planWay`'s choice round a lap, cached with the layout's choices by the lap's id. */
-function lapChoice(layout: Layout, pieceId: number, entry: number, ways: readonly { option: number; path: number; exit: number }[], target: number, lap: Lap): { best: number; costs: number[] } {
+function lapChoice(layout: Layout, pieceId: number, entry: number, ways: readonly { option: number; path: number; exit: number }[], target: number, lap: Lap, stubs?: StubRule): { best: number; costs: number[] } {
   const cache = cacheOf(layout);
-  let byLap = cache.lapChoices.get(lap.id);
-  if (!byLap) cache.lapChoices.set(lap.id, (byLap = new Map()));
+  const lapKey = stubs ? `${lap.id}|${stubs.id}` : lap.id;
+  let byLap = cache.lapChoices.get(lapKey);
+  if (!byLap) cache.lapChoices.set(lapKey, (byLap = new Map()));
   const key = (target * 1_000_003 + pieceId) * MAX_CONNECTORS + entry;
   let c = byLap.get(key);
   if (c === undefined) {
     planStats.choices++;
     const o: number[] = [];
-    byLap.set(key, (c = { best: planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, o, undefined, lap), costs: o }));
+    byLap.set(key, (c = { best: planChoice(layout, pieceId, true, ways, target, ROUTE_COSTS, o, undefined, lap, stubs), costs: o }));
   } else planStats.hits++;
   return c;
 }
@@ -508,6 +562,8 @@ function lapChoice(layout: Layout, pieceId: number, entry: number, ways: readonl
 interface ChoiceCache {
   key: string;
   choices: Map<number, Map<number, { best: number; costs: number[] }>>;
+  /** Choices for trains some dead ends are too short for, by which (`StubRule.id`). */
+  stubChoices: Map<number, Map<number, Map<number, { best: number; costs: number[] }>>>;
   lapChoices: Map<string, Map<number, { best: number; costs: number[] }>>;
   switchesAt: number;
   piecesAt: number;
@@ -518,7 +574,7 @@ const caches = new WeakMap<Layout, ChoiceCache>();
 /** The layout's choice cache, emptied if the track, the pins or the decks have changed since it was filled. */
 function cacheOf(layout: Layout): ChoiceCache {
   let c = caches.get(layout);
-  if (!c) caches.set(layout, (c = { key: "", choices: new Map(), lapChoices: new Map(), switchesAt: -1, piecesAt: -1, decks: [] }));
+  if (!c) caches.set(layout, (c = { key: "", choices: new Map(), stubChoices: new Map(), lapChoices: new Map(), switchesAt: -1, piecesAt: -1, decks: [] }));
   // (Only when a switch has moved, or pieces come or gone, is the key worked out again: pins and decks are few.)
   if (c.switchesAt === layout.switchesVersion && c.piecesAt === layout.piecesVersion && c.key.startsWith(`${layout.revision}:${layout.jointsVersion}:`)) return c;
   if (c.piecesAt !== layout.piecesVersion) {
@@ -536,6 +592,7 @@ function cacheOf(layout: Layout): ChoiceCache {
   if (key !== c.key) {
     c.key = key;
     c.choices.clear();
+    c.stubChoices.clear();
     c.lapChoices.clear();
   }
   return c;

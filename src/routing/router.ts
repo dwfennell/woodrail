@@ -19,6 +19,7 @@ import { BookingTable } from "./bookings";
 import { STAND_SHORT } from "../economy/sections";
 import { next, walkOn, waysFrom, type PinnedTest } from "./graph";
 import { planWay, WayMemory, type Lap } from "./plan";
+import { stubRule } from "./stubs";
 import { mouthWay } from "./dead-ends";
 import { trainLength } from "../sim/train-cars";
 
@@ -1232,7 +1233,7 @@ export class Router {
     if (goal === -1) return -1;
     const grant = this.host.granted(engine);
     const followed = grant?.follow ? ways.filter((x) => grant.follow(pieceId, x.path)) : [];
-    const best = followed.length === 1 ? followed[0].option : planWay(layout, pieceId, entry, ways, grant?.aim ?? goal);
+    const best = followed.length === 1 ? followed[0].option : planWay(layout, pieceId, entry, ways, grant?.aim ?? goal, undefined, undefined, undefined, undefined, stubRule(layout, trainLength(train)));
     return best === -1 ? -1 : (ways[best]?.path ?? -1);
   }
 
@@ -1295,6 +1296,8 @@ export class Router {
     let trail = this.ways.trailOf(owner, target);
     const signals = sim.hasSignals;
     let inWay = false;
+    // (The dead ends too short for it to turn in and take another road out: its plan keeps it to the road it came in by.)
+    const stubs = stubRule(layout, length);
     for (let k = 0; k < WALK && clear < length; k++) {
       // (A signal on its way (signals spec §3.3): one that holds it for something else (held, its block taken), it asks
       // for nothing beyond; a path signal within its set distance, it asks for the locks beyond it, however far.)
@@ -1341,16 +1344,16 @@ export class Router {
         // (Its line's way kept where two cost nearly the same: stickiness, remembered as it's set.)
         const cost = this.costOut;
         const lap = this.host.lapRule?.(this.engineOfWalk);
-        let best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost, lap);
+        let best = followed.length === 1 ? followed[0].option : planWay(layout, n.pieceId, n.entry, ways, target, undefined, this.ways.get(owner, n.pieceId, n.entry, target), cost, lap, stubs);
         // (No way on leads there: nothing set, and nothing further asked for.)
         if (best === -1) break;
         // (Coming out of a dead end: a road no train faces it on, if one still gets there (routing spec §5 rule 8), as
         // sections granted it.)
         if (followed.length !== 1 && !lap) {
-          const out = mouthWay(layout, this.host.sim, train, n.pieceId, n.entry, ways, best, (x) => planWay(layout, n.pieceId, n.entry, [{ option: 0, path: x.path, exit: x.exit }], target) !== -1);
+          const out = mouthWay(layout, this.host.sim, train, n.pieceId, n.entry, ways, best, (x) => planWay(layout, n.pieceId, n.entry, [{ option: 0, path: x.path, exit: x.exit }], target, undefined, undefined, undefined, undefined, stubs) !== -1);
           if (out !== best) {
             const o = { cost: Infinity };
-            planWay(layout, n.pieceId, n.entry, [ways[out]], target, undefined, undefined, o);
+            planWay(layout, n.pieceId, n.entry, [ways[out]], target, undefined, undefined, o, undefined, stubs);
             best = out;
             cost.cost = o.cost;
           }
