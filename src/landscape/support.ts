@@ -168,17 +168,21 @@ export function archOpenings(land: Landscape, type: PieceTypeId, flipped: boolea
   const trims: number[] = [];
   let trimmed = false;
   const floors = arches.centres.map((at) => {
-    // The highest ground across the viaduct at each step along the opening.
+    // The lowest ground across the viaduct at each step along the opening: where a hill's edge runs under it at a
+    // slant (one side over the hilltop, the other over the felt), the opening goes down to the low side's ground, as
+    // its face is seen there; on the hill's side, it runs into the hill and the hill hides it. (Taking the highest, the
+    // opening stopped at the hilltop and the low side showed it as a window above a wall down to the felt: a second
+    // row of arches.)
     ground.length = 0;
     for (let k = 0; k <= n; k++) {
       samplePath(path, Math.min(len, Math.max(0, len * at - half + k * step)), bridgeSample);
-      let high = -Infinity;
+      let lowest = Infinity;
       for (const across of [-TRACK_WIDTH / 2, 0, TRACK_WIDTH / 2]) {
         const lx = bridgeSample.x - Math.sin(bridgeSample.heading) * across;
         const lz = bridgeSample.z + Math.cos(bridgeSample.heading) * across;
-        high = Math.max(high, hills.groundAt(pose.x + lx * ch - lz * sh, pose.z + lx * sh + lz * ch));
+        lowest = Math.min(lowest, hills.groundAt(pose.x + lx * ch - lz * sh, pose.z + lx * sh + lz * ch));
       }
-      ground.push(high);
+      ground.push(lowest);
     }
     // The lowest a track's width of it (the highest ground in each such stretch) gets.
     let low = Infinity;
