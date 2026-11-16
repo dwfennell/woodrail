@@ -2421,9 +2421,17 @@ export class Economy {
     return d.piles[CARGO[kind].index] > 0 || this.working(d);
   }
 
-  /** The car under the crane at a depot right now, or −1. */
+  /**
+   * The car being worked at a depot right now (the crane's, or with only riders getting off and on, a coach of theirs),
+   * or −1.
+   */
   servicedCar(depotId: number, pieceId = -1): number {
-    for (const s of this.services.values()) if (s.phase === HALTED && s.depotId === depotId && (pieceId === -1 || s.depot?.pieceId === pieceId)) return s.carId;
+    for (const s of this.services.values()) {
+      if (s.phase !== HALTED || s.depotId !== depotId || (pieceId !== -1 && s.depot?.pieceId !== pieceId)) continue;
+      if (s.carId !== -1) return s.carId;
+      const t = this.sim.getTrain(s.trainId);
+      for (const car of t?.cars ?? []) if (car.kind === "passenger" && !s.done.has(car.id)) return car.id;
+    }
     return -1;
   }
 

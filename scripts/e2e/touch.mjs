@@ -2228,7 +2228,10 @@ async function routeWait(ctx, p) {
       for (const [t, flip] of list) ids.push(appendPiece(s, t, flip, ids.length ? connectorRef(ids[ids.length - 1], 1) : from));
       return ids;
     };
-    const a = road(connectorRef(points, 1), [["straight-216", false], ["depot-sawmill", false], ["straight-216", false]]);
+    // (Load in place: the first train, longer than its sawmill, stands with its tail on the points as it unloads there,
+    // a stub past the sawmill leaving no room to pull clear of them; so it holds them a while, as it did creeping
+    // under the crane. Its card says so: "too long for its yard".)
+    const a = road(connectorRef(points, 1), [["straight-144", false], ["depot-sawmill", false], ["straight-72", false]]);
     const b = road(connectorRef(points, 2), [["curve-large", true], ["straight-216", false], ["depot-sawmill", false], ["straight-216", false]]);
     const order = [...trunk, points, ...a, ...b];
     const poses = order.map((id) => s.getPiece(id));
@@ -2260,8 +2263,8 @@ async function routeWait(ctx, p) {
       }
       throw new Error("no room for a train");
     };
-    // (The first five wagons long: it holds the points a while, so the second, keeping its follow gap (#6) behind it,
-    // still comes up to them while they're held and stands a second or more.)
+    // (The first five wagons long: it holds the points a while (standing on them as it unloads: see road A), so the
+    // second, keeping its follow gap (#6) behind it, comes up to them while they're held and stands a second or more.)
     const first = put(["engine", "timber", "timber", "timber", "timber", "timber"], [[6, 200]]);
     const second = put(["engine", "timber"], [[4, 200], [4, 150], [4, 100], [3, 200], [3, 100]]);
     w.invalidate();
@@ -2375,7 +2378,7 @@ async function routeWait(ctx, p) {
     const s = window.__wait;
     const r = w.economy.router;
     // (Its move granted by sections too: held at its slot's end, the points' lock is still the first's.)
-    for (let i = 0; i < 30 * 120 && !(r.locked(setup.points) && !r.waitOf(setup.second) && !w.economy.sections.waitOf(setup.second) && !w.sim.pointsHeld(setup.points)); i++) {
+    for (let i = 0; i < 60 * 120 && !(r.locked(setup.points) && !r.waitOf(setup.second) && !w.economy.sections.waitOf(setup.second) && !w.sim.pointsHeld(setup.points)); i++) {
       w.sim.tick();
       w.economy.tick();
       window.__waitWatch();
@@ -2496,7 +2499,10 @@ async function handWait(ctx, p) {
       for (const [t, flip] of list) ids.push(appendPiece(s, t, flip, ids.length ? connectorRef(ids[ids.length - 1], 1) : from));
       return ids;
     };
-    const a = road(connectorRef(points, 1), [["straight-216", false], ["depot-sawmill", false], ["straight-216", false]]);
+    // (Load in place: the first train, longer than its sawmill, stands with its tail on the points as it unloads there,
+    // a stub past the sawmill leaving no room to pull clear of them; so it holds them a while, as it did creeping
+    // under the crane. Its card says so: "too long for its yard".)
+    const a = road(connectorRef(points, 1), [["straight-144", false], ["depot-sawmill", false], ["straight-72", false]]);
     const b = road(connectorRef(points, 2), [["curve-large", true], ["straight-216", false], ["depot-sawmill", false], ["straight-216", false]]);
     const order = [...trunk, points, ...a, ...b];
     const poses = order.map((id) => s.getPiece(id));
@@ -2794,7 +2800,8 @@ async function toastTapsThrough(p) {
 }
 
 /**
- * A routed train held at a forest where the track just stops (waiting to fill, with no logs): its card offers
+ * A routed train held at a forest where the track just stops (waiting to fill, with no logs, set so once it got to the
+ * end): its card offers
  * Continue, and a touch tap on it turns the train round, engine first, and sends it back to its next stop.
  */
 async function deadEndContinue(p) {
@@ -2817,8 +2824,15 @@ async function deadEndContinue(p) {
     const placed = w.sim.addTrain(["engine", "timber"], { pieceId: run[3], pathIndex: 0, s: 150, reversed: false });
     if (placed.kind !== "placed") throw new Error("no room for the train");
     const engine = w.sim.getTrain(placed.trainId).cars[0].id;
-    w.economy.setRoute(engine, { stops: [{ depotId: forest.id, action: "both", waitFill: true }, { depotId: sawmill.id, action: "both" }], next: 0 });
+    // (Load in place: a train waiting to fill pulls up short of the track's end. So it runs to the end first, its
+    // stop not waiting, and is set to wait there: its crane holds it at the end, turning back.)
+    w.economy.setRoute(engine, { stops: [{ depotId: forest.id, action: "both" }, { depotId: sawmill.id, action: "both" }], next: 0 });
     w.sim.setLever(engine, 1);
+    for (let i = 0; i < 120 * 60 && w.sim.findCar(engine).train.turnback < 0; i++) {
+      w.sim.tick();
+      w.economy.tick();
+    }
+    w.economy.setRoute(engine, { stops: [{ depotId: forest.id, action: "both", waitFill: true }, { depotId: sawmill.id, action: "both" }], next: 0 });
     // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of the frames, which
     // SwiftShader draws only a few a second: to the forest, and a while held there.
     let held = 0;
