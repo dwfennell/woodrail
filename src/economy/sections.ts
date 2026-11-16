@@ -3049,7 +3049,21 @@ export class Sections {
   private swapMoveOf(engine: number): SwapMove | null {
     if (this.swaps.size === 0) return null;
     const lineId = this.host.lineOf(engine);
-    return lineId < 0 ? null : (this.swaps.get(lineId)?.moves.find((m) => m.engine === engine) ?? null);
+    return lineId < 0 ? null : (this.liveSwap(lineId)?.moves.find((m) => m.engine === engine) ?? null);
+  }
+
+  /**
+   * The swap planner's plan for a line, if it still holds: every train it was made for still on the line. `swapCap`
+   * gives a plan up as the line's trains change, but only while it manages the line; one of two trains taken off (the
+   * goals play-through's harness picked the people train up), the line was no longer managed and the plan stayed,
+   * steering the other to the stop it was moving to then (`steerHint`) for good: it ran round at full speed for 137
+   * minutes and never came to its next stop (2026-11-16).
+   */
+  private liveSwap(lineId: number): SwapState | undefined {
+    const sw = this.swaps.get(lineId);
+    if (!sw || sw.engines.every((e) => this.host.lineOf(e) === lineId && this.sim.findCar(e))) return sw;
+    this.swaps.delete(lineId);
+    return undefined;
   }
 
   /**
@@ -3059,7 +3073,7 @@ export class Sections {
   swapping(engine: number): boolean {
     if (this.swaps.size === 0 && this.swapSearches.size === 0) return false;
     const lineId = this.host.lineOf(engine);
-    return lineId >= 0 && (this.swaps.has(lineId) || this.swapSearches.has(lineId));
+    return lineId >= 0 && (!!this.liveSwap(lineId) || this.swapSearches.has(lineId));
   }
 
   /**
