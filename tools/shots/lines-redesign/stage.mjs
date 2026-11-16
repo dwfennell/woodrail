@@ -17,11 +17,11 @@ await server.listen();
 const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined;
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const SIZES = { phone: { width: 390, height: 844, touch: true }, desktop: { width: 1440, height: 900, touch: false } };
+const SIZES = { phone: { width: 390, height: 844, touch: true }, narrow: { width: 360, height: 740, touch: true }, side: { width: 844, height: 390, touch: true }, desktop: { width: 1440, height: 900, touch: false } };
 const scenes = (await import(`${DIR}${process.env.SCENES ?? "scenes.mjs"}?${Date.now()}`)).default;
 
 for (const [size, vp] of Object.entries(SIZES).filter(([k]) => !process.env.SIZE || process.env.SIZE === k)) {
-  const todo = scenes.filter((s) => (!s.size || s.size === size) && (!ONLY || ONLY.includes(s.name)));
+  const todo = scenes.filter((s) => (s.size ? [s.size].flat().includes(size) : size === "phone" || size === "desktop") && (!ONLY || ONLY.includes(s.name)));
   if (todo.length === 0) continue;
   const ctx = await b.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 2, hasTouch: vp.touch, isMobile: vp.touch });
   const p = await ctx.newPage();
