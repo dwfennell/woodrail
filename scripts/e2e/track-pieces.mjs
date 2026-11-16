@@ -10,6 +10,8 @@
 // What's tested is by the player's path (tray drags, taps on levers and roads); setup that isn't (the legs, the train
 // put down, the turntable laid) is a named harness shortcut, laid through the editor as dropping them would.
 
+import { openShelf } from "./lib/shelf.mjs";
+
 const frames = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 /** A fixture's touch helpers: a stamped touch, settled, a tap at a screen point, the screen point of a world point. */
@@ -102,9 +104,7 @@ async function roomFor(p, type, legTypes, frameMm = 640) {
 /** Drag `key`'s tile out of the Switch shelf by touch onto world point (x, z), let go: the new piece of `type`, or −1. */
 async function dragOut(f, h, key, type, spot) {
   const { p, tapOn } = f;
-  const shelf = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Switch"));
-  if (shelf < 0) throw new Error("no Switch shelf");
-  await tapOn(`.scroller .tray-group:nth-child(${shelf + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  await openShelf(p, tapOn, "Switch");
   await p.evaluate((key) => document.querySelector(`.scroller .tray-item[data-key="${key}"]`)?.scrollIntoView({ inline: "center" }), key);
   await frames(p);
   const from = await p.evaluate((key) => {
@@ -402,9 +402,7 @@ export async function splitGroup(f, check) {
   await h.still();
   await h.settled();
   // The tile on its shelf: its real picture, its name, not locked (Sandbox).
-  const shelf = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Switch"));
-  if (shelf < 0) throw new Error("no Switch shelf");
-  await f.tapOn(`.scroller .tray-group:nth-child(${shelf + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  await openShelf(p, f.tapOn, "Switch");
   await p.evaluate(() => document.querySelector('.scroller .tray-item[data-key="piece:split"]')?.scrollIntoView({ inline: "center" }));
   // (Its picture is drawn in the background: the drawn icon stands in for it till then.)
   await p.waitForFunction(() => { const e = document.querySelector('.scroller .tray-item[data-key="piece:split"]'); return e && e.querySelector("img") && !e.querySelector(".thumb-icon"); }, null, { timeout: 120000, polling: 500 }).catch(() => {});

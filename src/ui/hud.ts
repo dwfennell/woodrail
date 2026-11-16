@@ -932,6 +932,7 @@ export class Hud {
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.remove("in-group");
+      delete this.tray.dataset.shelf;
       // Favourites first: pieces to drag straight out, without opening a shelf.
       this.trayButtons = [];
       const favs = openDef?.favourites ? favouriteItems(this.favourites, groups) : [];
@@ -940,6 +941,8 @@ export class Hud {
       if (favs.length > 0) scroller.appendChild(el("span", "tray-divider"));
       for (const group of groups) {
         const b = el("button", "tray-item tray-group");
+        // (Its name, for tests to find a shelf by: the row's order changes with favourites and research.)
+        b.dataset.shelf = group.label;
         b.innerHTML = `<span class="icon">${picture(group.items[0])}</span><span class="label">${group.label}</span><span class="count">${group.items.length}</span>`;
         b.title = `${group.label}: ${group.items.map((i) => i.label).join(", ")}`;
         // A tap opens the shelf; a drag up takes out its first item (the first thing a new player tries).
@@ -960,6 +963,8 @@ export class Hud {
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.add("in-group");
+      if (back) this.tray.dataset.shelf = group.label;
+      else delete this.tray.dataset.shelf;
       if (back) {
         const b = el("button", "tray-item tray-back");
         b.innerHTML = `<span class="icon">‹</span><span class="label">Back</span>`;
