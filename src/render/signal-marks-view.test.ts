@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial } from "three";
-import { connectorRef, Layout, type PieceTypeId } from "../track";
+import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Vector3, type Object3D } from "three";
+import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { chain } from "../economy/loop-fixtures";
 import type { Materials } from "./materials";
 import { ARM_GLIDE_S, markSetGhost, placeSetGhost, SignalMarksView, type MarkModels } from "./signal-marks-view";
@@ -8,6 +8,13 @@ import { ARM_GLIDE_S, markSetGhost, placeSetGhost, SignalMarksView, type MarkMod
 const S: PieceTypeId = "straight-216";
 const plain = () => new MeshBasicMaterial();
 const mats = { lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
+
+/** Where a ghost's post stands (world plan x, z): its model's foot, the first part. */
+function ghostPost(post: Object3D): { x: number; z: number } {
+  post.updateWorldMatrix(true, true);
+  const v = post.getObjectByName("model")!.children[0].getWorldPosition(new Vector3());
+  return { x: v.x, z: v.z };
+}
 
 /** The sim's aspects, as a test sets them. */
 function aspects() {
@@ -124,7 +131,8 @@ describe("a signal set's ghost", () => {
     expect(placeSetGhost(ghost, layout, at, true)).toBe(true);
     expect(b.visible).toBe(true);
     // (Either side of the track: the posts stand on the drivers' right of opposite ways.)
-    expect(Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z)).toBeGreaterThan(30);
+    const [pa, pb] = [ghostPost(a), ghostPost(b)];
+    expect(Math.hypot(pa.x - pb.x, pa.z - pb.z)).toBeGreaterThan(30);
     expect(placeSetGhost(ghost, layout, at, false)).toBe(true);
     expect(b.visible).toBe(false);
     // (An open end has no other side: one post only.)
@@ -139,5 +147,38 @@ describe("a signal set's ghost", () => {
     view.hidden = [m1, m2];
     expect(view.sync()).toBe(true);
     expect([view.topOf(m1), view.topOf(m2)]).toEqual([null, null]);
+  });
+
+  it("a ghost in the hand stands just where the drawn signal does, mirrored to the left by a crossover", () => {
+    // (The user's report: a signal by a crossover put down on its other road, not where its preview stood.)
+    const layout = new Layout();
+    const [a] = chain(layout, [S]);
+    const x = appendPiece(layout, "crossover", false, connectorRef(a, 1));
+    chain(layout, [S], connectorRef(x, 1));
+    chain(layout, [S], connectorRef(x, 2));
+    chain(layout, [S], connectorRef(x, 3));
+    const view = new SignalMarksView(layout, aspects(), mats);
+    const ghost = markSetGhost(mats);
+    const post = ghost.getObjectByName("post0")!;
+    const ends = [connectorRef(a, 1), connectorRef(x, 0), connectorRef(x, 1), connectorRef(x, 2), connectorRef(x, 3)].filter((e) => layout.joinedConnector(e) !== -1);
+    expect(ends.length).toBe(5);
+    let mirrored = 0;
+    for (const at of ends) {
+      const id = layout.addSignal(at);
+      view.sync();
+      placeSetGhost(ghost, layout, at, false);
+      const g = ghostPost(post);
+      const top = view.topOf(id)!;
+      expect(Math.hypot(g.x - top.x, g.z - top.z)).toBeLessThan(0.01);
+      if ((post.getObjectByName("model")!.scale.z as number) < 0) mirrored++;
+      layout.removeSignal(id);
+    }
+    // (At the crossover's far end on its first line, and its second line's near end: the right is its board.)
+    expect(mirrored).toBe(2);
+    // (Drawn mirrored: the lit lamps' own mirrored batches, at most 2 more draws however many; the rest as the right's.)
+    for (const at of ends) layout.addSignal(at);
+    view.sync();
+    // (The toy light: foot, post, head, two dim lenses, and the lit lamps, red and green.)
+    expect(view.drawCalls).toBeLessThanOrEqual(7 + 2);
   });
 });
