@@ -1,7 +1,7 @@
 import { Group, PerspectiveCamera } from "three";
 import { describe, expect, it } from "vitest";
-import { PLOT_DEPTH, PLOT_WIDTH } from "../../landscape";
-import { cullTiles, detailReach, plotRect, setCullRects } from "./tiles";
+import { PLOT_CELLS, PLOT_DEPTH, PLOT_WIDTH, type Town } from "../../landscape";
+import { cullTiles, detailReach, plotRect, setCullRects, tileAt, townTilesOf } from "./tiles";
 
 /** A camera low over (x, z), looking straight down from `height`, seeing a small patch. */
 function cameraOver(x: number, z: number, height: number): PerspectiveCamera {
@@ -41,3 +41,18 @@ describe("culling tiles", () => {
     expect(core.visible).toBe(false);
   });
 });
+
+describe("the tiles a land edit redraws for its towns", () => {
+  // A town whose centre is in one tile, with a square (a green a house left) in a plot of another.
+  const town = { centre: { x: 10, z: 10 }, cells: [5 * PLOT_CELLS + 3], buildings: [{ cells: [7 * PLOT_CELLS + 1] }] } as unknown as Town;
+
+  it("an edit in a plot with a town's square (or one of its houses') redraws the town's own tile: its greens are drawn there", () => {
+    expect([...townTilesOf([town], [5])]).toEqual([tileAt(10, 10)]);
+    expect([...townTilesOf([town], [7])]).toEqual([tileAt(10, 10)]);
+  });
+
+  it("an edit away from every town's squares redraws no town", () => {
+    expect(townTilesOf([town], [4, 6]).size).toBe(0);
+  });
+});
+

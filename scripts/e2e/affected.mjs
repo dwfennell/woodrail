@@ -40,6 +40,7 @@ export const SUITES = {
   growth: { script: "e2e:growth" },
   "copy-map": { script: "e2e:copy-map", minutes: 2 },
   "town-drag": { script: "e2e:town-drag", minutes: 4 },
+  "moved-house": { script: "e2e:moved-house", minutes: 5 },
   "town-shape": { script: "e2e:town-shape", minutes: 2 },
   school: { script: "e2e:school" },
   sites: { script: "e2e:sites", groups: true, minutes: 37 },
@@ -83,6 +84,7 @@ export const SUITES = {
   metro: { script: "e2e:metro", minutes: 3 },
   "feature-tips": { script: "e2e:feature-tips", minutes: 6 },
   "routes-ux": { script: "e2e:routes-ux", minutes: 6 },
+  "route-insert": { script: "e2e:route-insert", minutes: 4 },
   "train-off-line": { script: "e2e:train-off-line", minutes: 4 },
   "tech-tree-5": { script: "e2e:tech-tree-5", minutes: 4 },
 };
@@ -135,7 +137,7 @@ const TOUCH_TRAINS = "touch:select-drag,lever-pins,under-car,wye,train-card,bloc
 const TOUCH_UI = "touch:sandbox-shelves,game-shelves,tabs-reach,train-card,toast-through,trap,feedback";
 // Click's groups for a mouse and the tray's drags: what input, track and editor changes can break.
 const CLICK_INPUT = "click:desktop,touch-tray,tight-curves";
-const TOWNS = ["town-drag", "town-shape", "school", "growth", "station-upgrade", "sites"];
+const TOWNS = ["town-drag", "moved-house", "town-shape", "school", "growth", "station-upgrade", "sites"];
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
 export const RULES = [
@@ -253,6 +255,8 @@ export const RULES = [
   // The routes UX (option B, 2026-11-06): the line sheet, its words, health, the rings round places to tap.
   [["src/ui/line-sheet.ts", "src/game/line-sheet-text.ts", "src/game/line-health.ts", "src/render/place-rings.ts", "src/economy/line-tally.ts"], ["routes-ux", TOUCH_ROUTES]],
   [["src/game/lines.ts", "src/game/interaction.ts", "src/main.ts", "src/persist/save.ts", "src/render/depot-view.ts"], ["routes-ux"]],
+  // A stop put into a running line (route-insert, 2026-11-16): where it fits, the sheet's and the card rail's +.
+  [["src/game/lines.ts", "src/ui/line-sheet.ts", "src/main.ts"], ["route-insert"]],
   // A train taken off its line (the card's Leave line, the sheet's Take off): it stands clear of points.
   [["src/game/lines.ts", "src/ui/line-sheet.ts"], ["train-off-line"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
@@ -299,6 +303,8 @@ export const RULES = [
   ["src/game/station-upgrade.ts", ["station-upgrade", "station-touches"]],
   ["src/game/departures.ts", ["station-touches"]],
   [["src/game/town-*", "src/game/towns.ts", "src/game/street-moves.ts", "src/game/growth-cards.ts", "src/game/upgrades.ts"], [...TOWNS]],
+  // A moved house or street and what's left behind: the undo guard, the save's heal, the town's tile redrawn.
+  [["src/game/road-hand.ts", "src/props/towns.ts", "src/render/dressing/tiles.ts", "src/editor/editor.ts", "src/persist/save.ts", "src/landscape/clearance.ts"], ["moved-house", "town-drag"]],
   [["src/game/crafting.ts", "src/game/workshop-text.ts"], ["workshop", "growth"]],
   [["src/game/warehouse-text.ts", "src/game/cargo-drop.ts", "src/game/supply.ts"], ["warehouse", "train-summary"]],
   [["src/game/map-sites.ts", "src/game/restore.ts", "src/game/across-river.ts", "src/game/map-markers.ts", "src/game/landmarks.ts", "src/game/harbours.ts"], ["sites"]],

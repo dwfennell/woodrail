@@ -58,7 +58,7 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
-import { createLine, deleteLine, editLine, editLineById, isRingLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
 import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui/line-sheet";
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
@@ -4256,6 +4256,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let viaPicked: { k: number; i: number } | null = null;
   /** Planning, "+ via" was tapped: the hint says to tap the track now (till a via point is added, or it's tapped again). */
   let viaAsked = false;
+  /** Planning, a + between stops was tapped: the next place tapped goes in at this index of the stops (−1: none). */
+  let insertAt = -1;
+  /**
+   * The sheet's line had two stops or more when it opened: a place tapped goes in where it fits the line best
+   * (`bestInsert`), not at the end. (A line being made, tapped in order, keeps that order.)
+   */
+  let sheetFits = false;
+  /** A place just put in by a tap: where it went, said under the stops (while the stops are as it left them). */
+  let justAdded: { key: string; k: number; text: string; toEnd: boolean } | null = null;
+  /** A list of stops as a short key (what's at each, what it does, its via points). */
+  const stopsKey = (stops: readonly RouteStopDef[]) => stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",");
   /**
    * "Pass by" (routing spec §3.5): stop `k` becomes a via point on the way from the stop before (its own via points after
    * it), so trains go by its station without stopping.
@@ -4417,6 +4428,38 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       viaAsked = !viaAsked;
       viaPicked = null;
       stopPicked = -1;
+      insertAt = -1;
+      showSheet();
+    },
+    insert: (k) => {
+      insertAt = insertAt === k + 1 ? -1 : k + 1;
+      viaAsked = false;
+      viaPicked = null;
+      stopPicked = -1;
+      justAdded = null;
+      showSheet();
+    },
+    addedToEnd: () => {
+      const j = justAdded;
+      const line = game.economy.lines.get(sheetLine);
+      if (!j || !line || stopsKey(line.stops) !== j.key) return;
+      const depotId = line.stops[j.k].depotId;
+      // (Its via points go back to the stop before, as they were; at the end it goes on by the last stop's.)
+      sheetEdit((l) => {
+        const [st] = l.splice(j.k, 1);
+        const prev = l[(j.k - 1 + l.length) % l.length];
+        if (st.via) prev.via = [...(prev.via ?? []), ...st.via];
+        delete st.via;
+        l.push(st);
+      });
+      const stops = game.economy.lines.get(sheetLine)?.stops ?? [];
+      justAdded = { key: stopsKey(stops), k: stops.length - 1, text: `Moved ${placeName(depotId)} to the end, after ${placeName(stops.at(-2)?.depotId ?? -1)}`, toEnd: false };
+      showSheet();
+    },
+    addedUndo: () => {
+      justAdded = null;
+      interaction.undo();
+      showRoute();
       showSheet();
     },
     startRename: () => ((sheetRenaming = true), (sheetPalette = false), (sheetMenu = false), showSheet()),
@@ -4652,7 +4695,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (sheetLine !== -1 && !line) sheetLine = -1;
     const engines = line ? trainsOn(game.economy, line.id) : [];
     const now = performance.now();
-    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}|${engines.length > 0 ? game.economy.routeOf(engines[0])?.next : ""}`;
+    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}|${engines.length > 0 ? game.economy.routeOf(engines[0])?.next : ""}|${insertAt}|${justAdded?.text ?? ""}`;
     // (Built again on a change, and, on the Trains tab while the game runs, 4 times a second: the trains' doings.)
     if (key === sheetKey && (sheetTab !== "trains" || game.paused || now - sheetAt < 250)) return;
     sheetKey = key;
@@ -4688,13 +4731,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       };
     });
     const insertAfter = stopPicked >= 0 && stopPicked < stops.length - 1 ? stopNames[stopPicked] : "";
+    // (Said only while the stops are as the tap left them: any other change, and it's gone.)
+    if (justAdded && (!line || stopsKey(stops) !== justAdded.key)) justAdded = null;
+    if (insertAt > stops.length) insertAt = -1;
     const hint = viaAsked
       ? "Now tap the track or place to pass by"
+      : insertAt > 0
+        ? insertAt < stops.length
+          ? `Now tap a place: it goes between ${stopNames[insertAt - 1]} and ${stopNames[insertAt]}`
+          : `Now tap a place: it goes at the end, after ${stopNames[insertAt - 1]}`
       : stops.length === 0
         ? "Tap places on the map (a station, a town or an industry), in the order to visit them"
         : insertAfter
           ? `Places you tap now go after ${insertAfter}`
-          : "Tap places on the map to add stops, or a stop above for its options";
+          : sheetFits && stops.length >= 2
+            ? "Tap a place on the map: it goes in where it fits the line. Or tap + on the line first"
+            : "Tap places on the map to add stops, or a stop above for its options";
     const warnings = [...(line ? blockedTexts(stops, plan) : [])];
     const lostNames = [...new Set(stops.filter((st) => !names.some((x) => x.depotId === st.depotId)).map((st) => lostStopName(game.world, st.depotId)))];
     for (const n of lostNames) warnings.push(lostStopWords(n));
@@ -4729,6 +4781,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hint,
       warnings,
       viaAsked,
+      insertAt,
+      added: justAdded && { k: justAdded.k, text: justAdded.text, toEnd: justAdded.toEnd },
       menu: sheetMenu,
       palette: sheetPalette,
       renaming: sheetRenaming,
@@ -5559,6 +5613,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           via.style.setProperty("--line", line.colour);
           strip.append(via);
         });
+        // A + after it on the rail (route-insert): the sheet opens with a place tapped next going in here.
+        if (line.stops.length > 1) {
+          const last = k === line.stops.length - 1;
+          const here = last ? `at the end, after ${nameOf(st.depotId)}` : `between ${nameOf(st.depotId)} and ${nameOf(line.stops[k + 1].depotId)}`;
+          const plus = button("", `route-insert${last ? " last" : ""}`, `Add a stop ${here}`, () => {
+            setPlanning(true);
+            insertAt = k + 1;
+            showRoute();
+          });
+          plus.className = `route-insert${last ? " last" : ""}`;
+          plus.setAttribute("aria-label", `Add a stop ${here}`);
+          plus.dataset.after = String(k);
+          plus.style.setProperty("--line", line.colour);
+          plus.append(Object.assign(document.createElement("span"), { className: "route-insert-peg", textContent: "+" }));
+          strip.append(plus);
+        }
       });
       box.append(strip);
       stopDropped = -1;
@@ -5756,6 +5826,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     sheetChosen = false;
     sheetMenu = sheetPalette = sheetRenaming = sheetDeleteAsked = false;
+    insertAt = -1;
+    justAdded = null;
+    sheetFits = on && (game.economy.lines.get(sheetLine)?.stops.length ?? 0) >= 2;
     hud.setMapTaps("planning", on);
     stopPicked = -1;
     // (A piece carried, or waiting at an end, is put away: a click on the map picks a stop now.)
@@ -5821,19 +5894,34 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           // "+ Pass by…" asked: the place is passed by, not stopped at.
           const piece = game.economy.depot(depotId)?.pieceId;
           if (viaAsked && piece !== undefined) return addVia(piece);
-          // A stop open: places tapped go in after it, in order (audit F13). Else at the end.
+          // A + tapped: the place goes in there. A stop open: places tapped go in after it, in order (audit F13). Else,
+          // on a line that had two stops or more, where it fits the line best (route-insert 2026-11-16: the least
+          // track added, between the stops it lies between); on a line being made, at the end (the order tapped).
           const after = stopPicked;
+          const armed = insertAt;
+          const smart = armed < 0 && after < 0 && sheetFits && sheetStops().length >= 2;
           let at = -1;
           sheetEdit((l) => {
-            at = after >= 0 && after < l.length ? after + 1 : l.length;
+            const fit = smart ? bestInsert(game.economy, l, depotId) : null;
+            at = armed >= 0 ? Math.min(armed, l.length) : after >= 0 && after < l.length ? after + 1 : fit ? fit.at : l.length;
             // The same place twice in a row is one visit: not added again.
             if (l[at - 1]?.depotId === depotId || (at < l.length && l[at].depotId === depotId)) {
               at = -1;
               return;
             }
-            l.splice(at, 0, { depotId, action: "auto" });
+            insertStop(l, at, { depotId, action: "auto" }, fit ? fit.keep : armed >= 0 ? keepAt(game.economy, l, depotId, at) : Infinity);
           });
+          insertAt = -1;
           if (at !== -1 && after >= 0 && at < sheetStops().length - 1) stopPicked = at;
+          justAdded = null;
+          if (at !== -1 && (smart || armed >= 0)) {
+            const stops = sheetStops();
+            const n = stops.length;
+            const before = placeName(stops[(at - 1 + n) % n].depotId);
+            const between = at < n - 1;
+            const text = between ? `Added ${placeName(depotId)} between ${before} and ${placeName(stops[at + 1].depotId)}` : `Added ${placeName(depotId)} at the end, after ${before}`;
+            justAdded = { key: stopsKey(stops), k: at, text, toEnd: smart && between };
+          }
           sheetTab = "stops";
           showSheet();
           // The whole line stays in view, not just the place tapped (audit F5). Measured once the sheet has grown.

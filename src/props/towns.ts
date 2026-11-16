@@ -1,5 +1,5 @@
 import { rng } from "../lib/rng";
-import { CELL, FEAT_BUILDING, FEAT_NONE, SURF_TOWN, type Building, type Landscape, type Town } from "../landscape";
+import { CELL, FEAT_BUILDING, FEAT_NONE, SURF_GRASS, SURF_TOWN, type Building, type Landscape, type Town } from "../landscape";
 import { footprintOf, townLooks, type Look } from "../render/dressing/buildings";
 import { COLOR_VARIANTS } from "../render/props/library";
 import type { PropStore } from "./store";
@@ -347,6 +347,51 @@ export function addTownProps(land: Landscape, props: PropStore, levelOf?: (town:
     }
   }
   return added;
+}
+
+/**
+ * Make the grid's house squares and the towns' house records agree again (a save made while they didn't: the town
+ * grew onto the green a moved house left and the move was then undone, before undo checked for that). A square marked
+ * a house that no record claims (a house would block track there with none drawn) is a town green again, or grass
+ * outside a town; a record's square left unmarked is marked again (its house is drawn there); of two records on one
+ * square, the one the grid names keeps it and the other goes, with its prop (it was drawn on top of the first). Returns
+ * how many squares or records it changed (0 for a save that was whole, the usual case). Load time only.
+ */
+export function healTownSquares(land: Landscape, props: PropStore): number {
+  const g = land.grid;
+  let fixed = 0;
+  const claimed = new Map<number, number>();
+  for (const town of land.towns) {
+    for (let k = town.buildings.length - 1; k >= 0; k--) {
+      const b = town.buildings[k];
+      // (Another record holds one of its squares, and the grid names that one: this one is the house drawn on top.)
+      const clash = b.cells.some((i) => claimed.has(i) || (g.feature[i] === FEAT_BUILDING && g.owner[i] !== b.id && town.buildings.some((o) => o !== b && o.id === g.owner[i] && o.cells.includes(i))));
+      if (clash) {
+        town.buildings.splice(k, 1);
+        for (const p of [...props.all()]) if (p.building === b.id) props.remove(p.id);
+        fixed++;
+        continue;
+      }
+      for (const i of b.cells) claimed.set(i, b.id);
+    }
+  }
+  for (const [i, id] of claimed) {
+    if (g.feature[i] === FEAT_BUILDING && g.owner[i] === id) continue;
+    if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_BUILDING) continue;
+    g.feature[i] = FEAT_BUILDING;
+    g.owner[i] = id;
+    g.surface[i] = SURF_TOWN;
+    fixed++;
+  }
+  const inTown = new Set(land.towns.flatMap((t) => t.cells));
+  for (let i = 0; i < g.feature.length; i++) {
+    if (g.feature[i] !== FEAT_BUILDING || claimed.has(i)) continue;
+    g.feature[i] = FEAT_NONE;
+    g.owner[i] = -1;
+    if (!inTown.has(i) && g.surface[i] === SURF_TOWN) g.surface[i] = SURF_GRASS;
+    fixed++;
+  }
+  return fixed;
 }
 
 /** The town and record of a building, by id. */
