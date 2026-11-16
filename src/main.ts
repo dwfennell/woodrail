@@ -4644,11 +4644,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (sheetLine !== -1 && !line) sheetLine = -1;
     const engines = line ? trainsOn(game.economy, line.id) : [];
     const now = performance.now();
-    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}|${engines.length > 0 ? game.economy.routeOf(engines[0])?.next : ""}|${insertAt}|${justAdded?.text ?? ""}|${trainPicked}`;
+    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}|${engines.length > 0 ? game.economy.routeOf(engines[0])?.next : ""}|${insertAt}|${justAdded?.text ?? ""}|${trainPicked}|${game.sim.trainCount}`;
     // (Built again on a change, and, on the Trains tab while the game runs, 4 times a second: the trains' doings.)
     // (Its trains ride its spine: where they are and what they're doing, 4 times a second while they run; placed and
     // said in place by the sheet, not built again.)
-    if (key === sheetKey && (engines.length === 0 || game.paused || now - sheetAt < 250)) return;
+    // (A line no train runs: its free trains looked at again once a second, as they come and go near it; a train put
+    // on the map or taken off is in the key.)
+    if (key === sheetKey && (game.paused || now - sheetAt < (engines.length === 0 ? 1000 : 250))) return;
     sheetKey = key;
     sheetAt = now;
     const names = routeStops(game.world);
