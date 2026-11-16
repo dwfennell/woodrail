@@ -2,9 +2,11 @@
 //  1. Two goods trains running one line round an oval (forest, sawmill, workshop). A tap on the first opens its card:
 //     the line's box has Leave line beside Edit, 44 px.
 //  2. Leave line: the train is off the line and hand-run, its toast says so (and Undo); it stands where it is, not
-//     on points; the line is kept, its other train still on it and still running. The card now offers Run a line….
+//     on points; the line is kept, its other train still on it and still running. Standing on the line's track (one
+//     loop, no passing place), a second toast says the other train can't get by. The card now offers Run a line….
 //  3. Undo puts it back on the line; Redo takes it off again.
-//  4. The line sheet (☰ Lines, the line): the second train's row on its spine, Take off line; the Lines list says No trains;
+//  4. The line sheet (☰ Lines, the line): the second train's row on its spine, Take off line (the line's last train:
+//     no toast says it's in the way); the Lines list says No trains;
 //     a reload keeps the line with no train, both trains hand-run.
 //  5. Both put back on the line from their cards (Run a line…, the line, Go), the second first (one loop, no passing
 //     place: a train left standing is in the other's way); they carry logs to the sawmill again (the payoff).
@@ -270,6 +272,11 @@ const stood = await trainState(first);
 const secondAfter = await trainState(second);
 check("2. …it stands where it is (its lever off, still), not on points", stood?.lever === 0 && stood.speed < 1e-6 && !stood.onPoints, JSON.stringify(stood));
 check("2. the line is kept, its other train still on it and running", (await p.evaluate((id) => window.woodrail.economy.lines.has(id), setup.line)) && secondAfter?.line === setup.line && Math.hypot(secondAfter.x - secondBefore.x, secondAfter.z - secondBefore.z) > 50, JSON.stringify({ secondBefore, secondAfter }));
+// (One loop, no passing place: stood on the line's track, it's in the other train's way, and a toast says so once it stands.)
+const firstName = await p.evaluate((e) => window.woodrail.sim.nameOf(e), first);
+await p.waitForFunction((name) => [...document.querySelectorAll(".toast")].some((t) => t.textContent.includes(name) && t.textContent.includes("can't get by")), firstName, { timeout: 20000 }).catch(() => {});
+const inWay = await toastText();
+check("2. …once it stands on the line's track, a toast says its other train can't get by, and to move it", /stopped on .*track: its other train can't get by\. Move it/.test(inWay) && inWay.includes(firstName), inWay);
 await p.waitForTimeout(500);
 await frames();
 const offCard = await p.evaluate(() => ({ off: !!document.querySelector(".engine-card:not([hidden]) .route-off"), run: document.querySelector(".engine-card:not([hidden]) .route-join-open")?.textContent ?? "", label: document.querySelector(".engine-card:not([hidden]) .route-head .engine-extra-label")?.textContent ?? "" }));
@@ -299,6 +306,11 @@ check("4. Take off in the sheet: that train off the line, hand-run (the same as 
 await run(6, setup.forest, setup.mill);
 const secondStood = await trainState(second);
 check("4. …and it stands, not on points", secondStood?.lever === 0 && secondStood.speed < 1e-6 && !secondStood.onPoints, JSON.stringify(secondStood));
+// (The line's last train: in nobody's way, so nothing more is said.)
+await p.waitForTimeout(1500);
+const secondName = await p.evaluate((e) => window.woodrail.sim.nameOf(e), second);
+const lastSaid = await toastText();
+check("4. …the line's last train: no toast says it's in the way", !(lastSaid.includes(secondName) && lastSaid.includes("can't get by")), lastSaid);
 await tap(".ls-done");
 await p.waitForFunction(() => { const v = document.querySelector(".lines-view"); return v && !v.hidden; }, null, { timeout: 15000 }).catch(() => {});
 await p.waitForTimeout(600);
