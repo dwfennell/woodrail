@@ -288,6 +288,16 @@ describe("archOpenings", () => {
     expect(o[3]).toBe(0);
   });
 
+  it("a hill's edge running under the bridge's width doesn't hold the openings up on the hill's side", () => {
+    // A one-level hill under the bridge's near side all along it (z up to 72; its edge at z = 62), the felt under the
+    // rest: the openings go down to the felt, where they're seen, not stop at the hilltop over a wall down to the felt
+    // (a window in the masonry, a second row of arches). On the hill's side the hill hides them.
+    const land = flat();
+    hill(land, -216, 1200, -144, 72);
+    expect(archOpenings(land, "bridge", false, P(0, 82), 2 * RISER_HEIGHT, 2)).toBeNull();
+    expect(archOpenings(land, "ramp", false, P(0, 82), RISER_HEIGHT, 1)).toBeNull();
+  });
+
   it("an opening wholly over one level of ground isn't trimmed", () => {
     const land = flat();
     expect(archOpenings(land, "bridge", false, P(0, Z), RISER_HEIGHT, 1)).toBeNull();
