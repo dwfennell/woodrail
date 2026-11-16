@@ -192,6 +192,9 @@ const DEAD_END = -2;
 const FOLLOW_LOOK = 48;
 /** The room (mm) a train following another into a slot leaves (the sim's `FOLLOW_GAP`, and some to stop in). */
 const FOLLOW_ROOM = 150;
+/** Waiting points on a train's way looked at by `feasible`, and its rounds of moving up. */
+const FEASIBLE_ON = 4;
+const FEASIBLE_STATES = 2000;
 /** How long (ticks) all a line's trains stand held for one another before the swap planner looks (`swapCap`). */
 const SWAP_AFTER = 3 * SIM_HZ;
 /** After a search that found no plan, how long (ticks) before the next (the track unchanged). */
@@ -2330,6 +2333,151 @@ export class Sections {
     return -1;
   }
 
+  /**
+   * The waiting points a train comes to on from `at` (as steering takes it, `walkOnward`), in order, at most `FEASIBLE_ON`:
+   * up to the next place two trains can pass or turn (a loop's road, a line end), where it leaves the reckoning.
+   */
+  private nextWaits(engine: number, topo: Topology, at: { pieceId: number; entry: number } | null, from: number): number[] {
+    const out: number[] = [];
+    const own = this.sim.findCar(engine)?.train;
+    if (!at || !own) return out;
+    const need = trainLength(own) + ROAD_MARGIN;
+    const walk = this.walkOnward(engine, topo, new Map(), at);
+    // (Only those it waits in: going its signal's way, where it fits, the plain track of the waiting points just behind
+    // counted too, as `wayOn` has it; a short one, or one facing the other way, it runs through.)
+    let run = 0;
+    let last = -1;
+    for (const [p, entry] of walk) {
+      const sl = topo.slotOf.get(p);
+      if (sl === undefined) {
+        run = 0;
+        last = -1;
+        continue;
+      }
+      if (topo.slots[sl].kind !== "signal") break;
+      const s = topo.slots[sl];
+      // (Going its signal's way: one facing the other way it runs through.)
+      if (sl !== last && sl !== from && !!s.ways?.some((w) => w.back === connectorRef(p, entry)) && s.length + run >= need) {
+        out.push(sl);
+        if (out.length >= FEASIBLE_ON) break;
+        run = 0;
+      }
+      last = sl;
+      const ws = waysFrom(this.layout, p, entry);
+      if (ws.length === 1) run += lengthOfPath(this.layout, p, ws[0].path);
+    }
+    return out;
+  }
+
+  /**
+   * Can every train working the track still make its next moves, waiting point to waiting point, in some order, with
+   * this one's move into `way.dest` granted? Each train's next waiting points (`nextWaits`, at most `FEASIBLE_ON`; past
+   * its last it reaches a loop or a line end and is out of the reckoning), and a search over the orders they could move
+   * up in (one into a waiting point only while no other is in it), for one where every train makes its moves. Asked only
+   * where it can be made so now, without the move; a move refused waits where it is (a waiting point, or short of the
+   * points ahead), never on points. A user's maps
+   * (2026-11-16): four trains of four lines let one by one into a circuit of four waiting points none of the lines goes
+   * round alone; each grant looked safe, the last wait closed the ring, and none moved again. −1: yes (or no either
+   * way); else a train left unable to move.
+   */
+  private feasible(st: TrainState, info: LineInfo, way: Way): number {
+    const topo = info.topo;
+    const at = new Map<number, number>();
+    const pending = new Map<number, number[]>();
+    const taken = new Map<number, number>();
+    for (const t of info.foreign) for (const b of t.bogies) {
+      const sl = topo.slotOf.get(b.pieceId);
+      if (sl !== undefined) taken.set(sl, -2 - t.id);
+    }
+    for (const u of info.users) {
+      if (u === st.engine) continue;
+      const us = this.states.get(u);
+      if (!us || us.topo !== topo) continue;
+      if (us.move && us.move.dest >= 0) {
+        const out = this.alongOf(us.move.steps, topo);
+        at.set(u, us.move.dest);
+        pending.set(u, this.nextWaits(u, topo, this.onPast(out), us.move.dest));
+      } else if (us.slot >= 0 && topo.slots[us.slot].kind === "signal") {
+        at.set(u, us.slot);
+        pending.set(u, us.exitPiece < 0 ? [] : this.nextWaits(u, topo, { pieceId: us.exitPiece, entry: us.exitEntry }, us.slot));
+      } else if (us.slot >= 0) at.set(u, us.slot);
+    }
+    // (Searched over the orders they could move in, depth first, each state once, at most `FEASIBLE_STATES`: past that,
+    // it's let go (no answer is no reason to hold a train).)
+    const run = (with_: boolean): number => {
+      const us: number[] = [];
+      const lists: number[][] = [];
+      const starts: number[] = [];
+      for (const [u, l] of pending) {
+        if (u === st.engine) continue;
+        us.push(u);
+        lists.push(l);
+        starts.push(at.get(u) ?? -1);
+      }
+      if (with_) {
+        us.push(st.engine);
+        lists.push(this.nextWaits(st.engine, topo, this.onPast(this.alongOf(way.steps, topo)), way.dest));
+        starts.push(way.dest);
+      } else if (st.slot >= 0 && topo.slots[st.slot].kind === "signal") {
+        us.push(st.engine);
+        lists.push([way.dest, ...this.nextWaits(st.engine, topo, this.onPast(this.alongOf(way.steps, topo)), way.dest)].slice(0, FEASIBLE_ON));
+        starts.push(st.slot);
+      }
+      // (Trains standing with nothing to look at (in a loop's road, a line end): where they stand, for good.)
+      const fixed = new Map<number, number>();
+      for (const [sl, u] of taken) fixed.set(sl, u);
+      for (const [u, sl] of at) if (!us.includes(u)) fixed.set(sl, u);
+      const n = us.length;
+      const pos = (k: number, i: number) => (i === 0 ? starts[k] : i >= lists[k].length ? -1 : lists[k][i - 1]);
+      const idx = new Array<number>(n).fill(0);
+      // (Its next place a loop or a line end: out of the reckoning already.)
+      for (let k = 0; k < n; k++) if (lists[k].length === 0) idx[k] = 1;
+      const seen = new Set<string>();
+      let worst = -1;
+      let most = -1;
+      const dfs = (): boolean => {
+        const key = idx.join(",");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        if (seen.size > FEASIBLE_STATES) return true;
+        let done = true;
+        let left = 0;
+        for (let k = 0; k < n; k++) if (idx[k] < Math.max(1, lists[k].length)) { done = false; left++; }
+        if (done) return true;
+        if (n - left > most) {
+          most = n - left;
+          worst = -1;
+          for (let k = 0; k < n; k++) if (idx[k] < Math.max(1, lists[k].length)) { worst = us[k]; break; }
+        }
+        for (let k = 0; k < n; k++) {
+          if (idx[k] >= lists[k].length) continue;
+          const to = lists[k][idx[k]];
+          if (fixed.has(to)) continue;
+          let free = true;
+          for (let j = 0; j < n && free; j++) if (j !== k && pos(j, idx[j]) === to) free = false;
+          if (!free) continue;
+          idx[k]++;
+          if (dfs()) return true;
+          idx[k]--;
+        }
+        return false;
+      };
+      return dfs() ? -1 : worst === -1 ? us[0] : worst;
+    };
+    const r0 = run(false);
+    if (r0 !== -1) return -1;
+    return run(true);
+  }
+
+  /** Where a way's steps (`alongOf`) lead on to past their last piece (the one road on), or null. */
+  private onPast(out: ReadonlyMap<number, number>): { pieceId: number; entry: number } | null {
+    let last = -1;
+    for (const p of out.keys()) last = p;
+    if (last < 0) return null;
+    const ws = waysFrom(this.layout, last, out.get(last)!);
+    return ws.length === 1 && ws[0].exit >= 0 ? next(this.layout, last, ws[0].exit) : null;
+  }
+
   /** Is train `u` under way (moving, or holding a move)? */
   private underWay(u: number): boolean {
     return (this.sim.findCar(u)?.train.speed ?? 0) >= 1 || !!this.states.get(u)?.move;
@@ -2491,6 +2639,14 @@ export class Sections {
         }
         if (this.stepAside(st, info, v)) return true;
         this.hold(st, { kind: "section", engine: v });
+        return false;
+      }
+    }
+    // (Not a move after which the trains about could no longer all make their next moves: `feasible`.)
+    if (info.topo.slots[way.dest]?.kind === "signal") {
+      const stuck = this.feasible(st, info, way);
+      if (stuck !== -1) {
+        this.hold(st, { kind: "section", engine: stuck });
         return false;
       }
     }
@@ -3150,6 +3306,11 @@ export class Sections {
     // (Round its line's lap into a dead end: after a line-mate going round the other way, as `ask`.)
     const against = this.lapYield(st, info, way);
     if (against !== -1) return this.recoverWait(st, against, info);
+    // (Not a move after which the trains about could no longer all make their next moves, as `ask`.)
+    if (info.topo.slots[way.dest]?.kind === "signal") {
+      const stuck = this.feasible(st, info, way);
+      if (stuck !== -1) return this.recoverWait(st, stuck, info);
+    }
     this.grant(st, way);
     return true;
   }
