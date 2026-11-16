@@ -3158,23 +3158,26 @@ export class Sections {
     this.gateTick = this.sim.ticks;
     const now = this.gateNext;
     now.clear();
-    if (this.enabled && this.layout.signalCount > 0)
+    if (this.enabled && this.layout.signalCount > 0) {
+      // (A mark a train in front owns, its move granted past it: not gated for one behind it in the same waiting point,
+      // which a plain signal would show red to all, the one in front too (a user's map, 2026-11-16: Dandelion, its move
+      // granted, stood for good at a red kept for the train following it into the sawmill's waiting point, which waited
+      // on it). The sim keeps the one behind back from it; once it's gone from the waiting point, the gate is set again.)
+      const owned = this.gateOwned;
+      owned.clear();
       for (const st of this.states.values()) {
-        if (st.slot < 0 || st.exitPiece < 0) continue;
+        const mark = this.gateMark(st);
+        if (mark !== -1 && this.ownsAhead(st)) owned.add(mark);
+      }
+      for (const st of this.states.values()) {
+        const mark = this.gateMark(st);
+        if (mark === -1 || owned.has(mark) || this.ownsAhead(st)) continue;
         const sl = st.topo.slots[st.slot];
-        if (!sl) continue;
-        // (A waiting point's signal; or a signal the player put at the far end of another slot (a loop road's, a line
-        // end's), facing out of it: held at its end, the train is held at that signal too, and it shows red to it.)
-        let mark = sl.kind === "signal" ? (signalWayOut(sl, connectorRef(st.exitPiece, st.exitEntry))?.mark ?? -1) : -1;
-        if (sl.kind !== "signal") {
-          const at = this.layout.joinedConnector(connectorRef(st.exitPiece, st.exitEntry));
-          if (at !== -1 && sl.pieces.has(pieceOfRef(at)) && this.layout.signalAt(at)) mark = at;
-        }
-        if (mark === -1 || this.ownsAhead(st)) continue;
         const t = this.sim.getTrain(st.trainId);
         if (!t || t.derailed || !t.bogies.some((b) => sl.pieces.has(b.pieceId))) continue;
         now.set(mark, t.id);
       }
+    }
     if (this.enabled && this.layout.signalCount > 0) for (const c of this.convoyMarks.values()) if (c.mark !== -1 && !now.has(c.mark)) now.set(c.mark, c.trainId);
     let same = now.size === this.gate.size;
     if (same) for (const [k, v] of now) if (this.gate.get(k) !== v) same = false;
@@ -3182,6 +3185,21 @@ export class Sections {
     this.gateNext = this.gate;
     this.gate = now;
     this.gateVer++;
+  }
+  private readonly gateOwned = new Set<number>();
+
+  /**
+   * The signal a train in a slot is held at the end of (a connector ref; −1: none): a waiting point's signal at its way
+   * out; or a signal the player put at the far end of another slot (a loop road's, a line end's), facing out of it: held
+   * at its end, the train is held at that signal too, and it shows red to it.
+   */
+  private gateMark(st: TrainState): number {
+    if (st.slot < 0 || st.exitPiece < 0) return -1;
+    const sl = st.topo.slots[st.slot];
+    if (!sl) return -1;
+    if (sl.kind === "signal") return signalWayOut(sl, connectorRef(st.exitPiece, st.exitEntry))?.mark ?? -1;
+    const at = this.layout.joinedConnector(connectorRef(st.exitPiece, st.exitEntry));
+    return at !== -1 && sl.pieces.has(pieceOfRef(at)) && this.layout.signalAt(at) ? at : -1;
   }
   private gateTick = -1;
   private gateVer = 0;

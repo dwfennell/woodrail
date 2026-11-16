@@ -22,6 +22,47 @@ const run = (sim: Sim, seconds: number) => {
 };
 
 describe("the engine card's status line", () => {
+  it("at a red signal, says why: the train in the block ahead", () => {
+    // ══ ══ signal ══ ══ ⊏, a train left standing beyond the signal: the one coming stops at its red.
+    const { layout, ids } = chain(["straight-216", "straight-216", "signal", "straight-216", "straight-216", "buffer"]);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const put = (pieceId: number) => {
+      const r = sim.addTrain(["engine"], { pieceId, pathIndex: 0, reversed: false, s: 60 });
+      if (r.kind !== "placed") throw new Error();
+      return sim.getTrain(r.trainId)!.cars[0].id;
+    };
+    put(ids[4]);
+    const engine = put(ids[0]);
+    sim.setLever(engine, 1);
+    run(sim, 6);
+    expect(engineStatus(sim, economy, engine, () => "Oakhollow")).toBe("Waiting at a red signal: a parked train is in the block ahead");
+  });
+
+  it("a train at the front of a waiting point, its move granted, isn't held at red for one behind it (a user's map)", async () => {
+    // (A user's map, 2026-11-16, src/play/bugmaps/reports/: "why is Dandelion waiting at a red signal? I don't see what
+    // that should be red." Dandelion (engine 88, Blue line 2) stood at the plain signal out of the sawmill's waiting
+    // point, its move on granted, its block empty; engine 44 had followed it into the waiting point and waited on it.
+    // Sections kept the signal's gate for 44, and a plain signal gated shows red to all: both stood for good.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-16-dandelion-red-signal.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const dandelion = 88;
+    const said = new Set<string>();
+    let left = -1;
+    for (let k = 0; k < 30 * 120 && left < 0; k++) {
+      sim.tick();
+      economy.tick();
+      const t = sim.findCar(dandelion)!.train;
+      if (k % 60 === 0) said.add(engineStatus(sim, economy, dandelion, () => "?"));
+      if (!t.bogies.some((b) => b.pieceId === 13 || b.pieceId === 299)) left = k / 120;
+    }
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect(left).toBeLessThan(10);
+    expect([...said].filter((x) => x.startsWith("Waiting at a red signal"))).toEqual([]);
+  }, 60_000);
+
   it("says what the train's doing: stopped, running, at a red signal, turning back at the end of the line", () => {
     const { layout, ids } = chain(["straight-216", "straight-216", "signal", "straight-216", "straight-216", "buffer"]);
     const sim = new Sim(layout);

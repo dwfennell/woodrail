@@ -2279,6 +2279,22 @@ export class Sim {
     return at !== undefined && this.ticks - at <= CALL_ON_KEEP;
   }
 
+  /**
+   * Why the red signal a train is held by or braking for is red (for the engine card): the train in its block, the
+   * train sections keep it red for (`gated`: a waiting point's way out held for that one), or none (held by hand, or
+   * no red ahead). A train id.
+   */
+  redCause(trainId: number): { by: number; gated: boolean } {
+    const t = this.byId.get(trainId);
+    const red = t ? this.redAhead(t) : null;
+    if (!red) return { by: -1, gated: false };
+    if (red.by >= 0) return { by: red.by, gated: false };
+    // (A plain signal with its block empty: red for the train sections keep its waiting point's way out for, if any.)
+    const g = this.signals?.find((x) => x.key === red.key);
+    const gated = g && !g.junction && !this.isHeld(g) ? this.gatedFor(g) : -1;
+    return gated >= 0 && gated !== trainId ? { by: gated, gated: true } : { by: -1, gated: false };
+  }
+
   /** The red signal (its piece) a train is held by or braking for, or −1 (for the engine card and reports). */
   redSignalAhead(trainId: number): number {
     const t = this.byId.get(trainId);
