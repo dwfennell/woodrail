@@ -9,7 +9,7 @@
 //  3. The + on the line after B tapped (painted, the hint says where), then D: in between B and C again.
 //  4. The train runs the line (the payoff): it calls at B, then D, then C, in that order; logs are unloaded at the
 //     sawmill, and planks at the workshop.
-//  5. The card's rail: a + between two stops opens the sheet with it armed (the hint says where).
+//  5. The card's line, read only: a peg a stop, where the train's going, no +; a peg tapped opens the sheet at its stop.
 //  6. Every sheet button 44 px or more (the + pegs too); 0 frames drawn idle with the sheet open; no page errors.
 // Pictures in the out dir (route-insert-*.jpg). Starts its own dev server.
 import { existsSync, mkdirSync } from "node:fs";
@@ -290,32 +290,26 @@ const order = ran.calls.map((d) => names[d] ?? "?").join("");
 check("4. the train calls at B, then D, then C, round and round", /BDC/.test(order) && !/BC/.test(order) && !/DB/.test(order), JSON.stringify({ order }));
 check("4. …logs unloaded at the sawmill and planks at the workshop (the payoff)", ran.logsToMill > 0 && ran.planksToWorkshop > 0, JSON.stringify(ran));
 
-// ---- 5. The card's rail: a + between two stops --------------------------------------------------------------------
+// ---- 5. The card: its line read only, a stop's peg opens the sheet at that stop --------------------------------------
 await tap(".ls-done");
 await p.waitForTimeout(600);
 await p.keyboard.press("Escape");
 // (Harness shortcut: the train's card opened as a tap on it would.)
 await p.evaluate((e) => window.woodrail.interaction.openEngineCard(e), engine);
-await p.waitForSelector(".engine-extra .route-insert", { timeout: 15000 }).catch(() => {});
+await p.waitForSelector(".engine-extra .route-mini .route-chip", { timeout: 15000 }).catch(() => {});
 await p.waitForTimeout(700); // (the card's scale-in)
-const rail = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-insert")].map((b) => ({ after: Number(b.dataset.after), label: b.getAttribute("aria-label") })));
-check("5. the card's rail has a + after each stop", rail.length === 4 && /^Add a stop between Forest yard.* and Sawmill/.test(rail[1]?.label ?? ""), JSON.stringify(rail));
-const railSmall = await small(".engine-extra .route-stops");
-check("5. …44 px or more", railSmall.length === 0, JSON.stringify(railSmall) + JSON.stringify(await p.evaluate(() => { const b = document.querySelector(".engine-extra .route-insert"); const c = getComputedStyle(b); const chain = []; for (let e = b; e; e = e.parentElement) { const s = getComputedStyle(e); if (s.zoom !== "1" || s.transform !== "none" || s.scale !== "none") chain.push(`${e.className}:${s.zoom}:${s.transform}:${s.scale}`); } return { w: c.width, h: c.height, box: c.boxSizing, chain }; })));
-// (The rail from its start, for the picture; the card fully in.)
-await p.evaluate(() => { const s = document.querySelector(".engine-extra .route-stops"); if (s) s.scrollLeft = 0; });
-await p.waitForTimeout(1500);
-await shot("5-card-rail");
-// (Scrolled into view first, and let settle: the rail snaps to its chips.)
-await p.evaluate(() => document.querySelector(".engine-extra .route-insert[data-after='2']")?.scrollIntoView({ block: "nearest", inline: "center" }));
-await p.waitForTimeout(500);
-const plusAt = await p.evaluate(() => { const r = document.querySelector(".engine-extra .route-insert[data-after='2']").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
-await p.touchscreen.tap(plusAt.x, plusAt.y);
-await p.waitForTimeout(600);
-await frames();
-const fromRail = { ...(await sheetState()), open: await p.evaluate(() => !document.querySelector(".line-sheet").hidden) };
-check("5. …the + after D tapped: the sheet opens, its + after D painted, the hint says between D and C", fromRail.open && same(fromRail.armed, [2]) && /^Now tap a place: it goes between Sawmill.* and Workshop/.test(fromRail.hint), JSON.stringify(fromRail));
-await shot("6-from-rail");
+const rail = await p.evaluate(() => ({
+  pegs: [...document.querySelectorAll(".engine-extra .route-mini .route-chip")].map((b) => b.getAttribute("aria-label")),
+  plus: document.querySelectorAll(".engine-extra .route-insert").length,
+  where: document.querySelector(".engine-extra .route-where")?.textContent ?? "",
+}));
+check("5. the card's line: a peg a stop (named for a screen reader), where the train's going, no + (the sheet edits)", rail.pegs.length === 4 && /^Stop 3, Sawmill/.test(rail.pegs[2] ?? "") && rail.plus === 0 && /^(Going to|At) /.test(rail.where), JSON.stringify(rail));
+check("5. …its pegs 44 px or more", (await small(".engine-extra .route-mini")).length === 0, JSON.stringify(await small(".engine-extra .route-mini")));
+await shot("5-card-line");
+await tap('.engine-extra .route-chip[data-stop="2"]');
+const fromPeg = await p.evaluate(() => ({ open: !document.querySelector(".line-sheet").hidden, stop: document.querySelector(".ls-stop.open")?.dataset.stop }));
+check("5. …stop 3's peg tapped: the sheet opens at it", fromPeg.open && fromPeg.stop === "2", JSON.stringify(fromPeg));
+await shot("6-from-peg");
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 await b.close();

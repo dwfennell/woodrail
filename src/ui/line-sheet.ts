@@ -441,18 +441,12 @@ export class LineSheet {
     );
     if (st.pick) row.append(tick("Wait to fill", st.waitFill, "ls-wait route-wait", "Wait here till the wagons are full (of goods a later stop wants)", () => this.h.wait(k)));
     opts.append(row);
-    opts.append(el("div", "ls-note", st.canPass ? "Untick both: the train passes by without stopping" : "A stop must drop or pick up (pass by needs 3 stops)"));
     if (st.note) opts.append(el("div", "ls-note", st.note));
+    // (Reordering is the grip's (and ← → with a keyboard); Remove stop a stamp at the end of the row, after a word on
+    // passing by. Critique 2026-11-16: ↑ ↓ and Take off fell below the sheet's foot on a phone.)
     const acts = el("div", "ls-acts");
-    const up = this.button("↑", "ls-up-btn route-move", "Move this stop earlier", () => this.h.move(k, k - 1));
-    up.setAttribute("aria-label", "Move earlier");
-    up.disabled = k === 0;
-    const down = this.button("↓", "ls-down-btn route-move", "Move this stop later", () => this.h.move(k, k + 1));
-    down.setAttribute("aria-label", "Move later");
-    down.disabled = k === m.stops.length - 1;
-    const remove = this.button("Take off", "ls-remove route-remove", "Take this stop off the line", () => this.h.remove(k));
-    if (m.stops.length > 1) acts.append(up, down);
-    acts.append(remove);
+    acts.append(el("div", "ls-note", st.canPass ? "Take both pegs out: it passes by" : "A stop must drop or pick up"));
+    acts.append(this.button("Remove stop", "ls-remove route-remove", "Take this stop off the line", () => this.h.remove(k)));
     opts.append(acts);
     li.append(opts);
     return li;
@@ -534,7 +528,7 @@ export class LineSheet {
       const text = el("div", "ls-train-text");
       text.append(el("b", "", t.name), el("span", "ls-train-status", t.status));
       const show = this.button("Show", "ls-train-show", `Show ${t.name} on the map`, () => this.h.showTrain(t.engine));
-      const off = this.button("Take off", "ls-train-off", `Take ${t.name} off this line: it stops and is run by hand`, () => this.h.takeOff(t.engine));
+      const off = this.button("Take off line", "ls-train-off", `Take ${t.name} off this line: it stops and is run by hand`, () => this.h.takeOff(t.engine));
       li.append(text, show, off);
       list.append(li);
     }

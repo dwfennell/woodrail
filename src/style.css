@@ -1661,6 +1661,27 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops::-webkit-scrollbar { display: none; }
 /* The line's colour is the stop number's lacquer ring (filled on the next stop), not a stripe down the side (audit F11). */
 .route-chip { padding-inline: 8px; }
+/* The card's line, read only (lines UI redesign 2026-11-16): numbered pegs on a painted line, the train between the
+   stop it left and the one it's going to; a peg tapped opens the sheet at that stop. */
+.route-mini { position: relative; display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 2px; overflow-x: auto; scrollbar-width: none; }
+.route-mini::-webkit-scrollbar { display: none; }
+.route-mini::before { content: ""; position: absolute; left: 24px; right: 24px; top: calc(50% - 3px); height: 6px; background: var(--line, #888); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
+.route-mini > .route-chip { position: relative; z-index: 1; flex: 0 0 44px; width: 44px; min-width: 44px; height: 44px; padding: 0; border-radius: 50%; background: transparent; box-shadow: none; display: grid; place-items: center; }
+.route-mini > .route-chip:active { transform: none; box-shadow: none; }
+.route-mini .route-num { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-weight: 400; font-size: 14px; line-height: 1; box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); }
+.route-mini .route-chip.next .route-num { color: #fff; background: var(--sheen), var(--line, #888); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
+.route-mini .route-chip.at .route-num { outline: 3px solid var(--wood-ink); outline-offset: 2px; }
+.route-mini .route-chip.lost .route-num { opacity: 0.7; text-decoration: line-through; }
+.route-mini > .route-chip::before, .route-mini > .route-chip::after, .route-mini > .route-chip[data-wait]::before { content: none; }
+.route-mini .route-num { position: relative; }
+.route-mini .route-goods { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.route-mini .route-chip[data-wait] .route-num::after { content: "⏳"; position: absolute; right: -9px; top: -8px; font-family: "Woodrail Icons", sans-serif; font-size: 12px; line-height: 1; }
+/* The train: a small dark engine block on the line, its cab to the front. */
+.route-mini-train { position: relative; z-index: 1; flex: 0 0 26px; width: 26px; height: 16px; margin: 0 -4px; border-radius: 4px 7px 3px 3px; background: var(--sheen), var(--dark); box-shadow: inset 0 -3px 0 var(--dark-cut), 0 2px 2px -1px rgba(40, 22, 6, 0.5), 0 0 0 2px var(--maple); }
+.route-mini-train::before { content: ""; position: absolute; left: 4px; top: -6px; width: 5px; height: 7px; border-radius: 1px; background: var(--dark); }
+.route-mini-train::after { content: ""; position: absolute; right: 3px; top: 3px; width: 7px; height: 5px; border-radius: 1px; background: var(--yellow); }
+.route-where { font-size: 14.5px; font-weight: 700; line-height: 1.3; color: var(--wood-ink-soft); }
+.route-where b { color: var(--wood-ink); font-weight: 800; }
 /* + between two stops on the card's rail (route-insert): a peg, a 44 px target (46 on a card drawn at 0.96) that tucks
    into the gaps beside it. */
 .route-stops > .route-insert { flex: 0 0 46px; width: 46px; min-width: 46px; height: 46px; min-height: 46px; box-sizing: border-box; margin: -6px -13px 0; padding: 0; border: 0; background: transparent; box-shadow: none; position: relative; z-index: 1; align-self: flex-start; display: flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -1862,7 +1883,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lines-count { font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lines-head .lines-new { flex: 0 0 auto; }
 /* + New line: the panel's one painted block. */
-.lines-view .chip.lines-new { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
+.lines-view .chip.lines-new { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; background: var(--sheen), #23722f; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 #164a1e, var(--block-drop); }
 .lines-view > .lines-head .lines-close { top: 12px; right: 8px; }
 .lines-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
@@ -1914,6 +1935,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .line-sheet:not([hidden]) { animation: ls-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1); }
 @keyframes ls-up { from { opacity: 0; translate: 0 24px; } }
 @media (prefers-reduced-motion: reduce) { .line-sheet:not([hidden]) { animation: none; } }
+/* Desktop: the sheet docks on the right, the screen's height (below the top bar), its list never capped (critique
+   2026-11-16: a 780 px board mid-screen, its list capped at four stops). The map frames itself left of it. */
+@media (min-width: 900px) and (min-height: 600px) { .line-sheet { left: auto; right: 12px; top: 96px; bottom: 12px; width: 420px; max-width: none; max-height: none; margin: 0; border-radius: 12px; padding-bottom: 14px; } }
 @media (orientation: landscape) and (max-height: 500px) { .line-sheet { left: auto; right: max(8px, env(safe-area-inset-right)); width: min(400px, 52vw); max-height: calc(100vh - 80px); border-radius: 12px; bottom: 8px; } }
 .ls-head { display: flex; align-items: center; gap: 6px; min-height: 44px; flex: 0 0 auto; }
 /* The line's colour: a painted disc, a peg seen from above. */
@@ -1926,7 +1950,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-more { width: 44px; padding: 0; font-size: 20px; flex: 0 0 auto; }
 .ls-done { flex: 0 0 auto; }
 /* Done: the sheet's one painted block. */
-.line-sheet .chip.ls-done { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
+/* (A deeper green than the bar's, and Lilita at 19 px: paint ink on it holds 4.5:1 under the sheen. Critique 2026-11-16
+   measured 3.6:1 on the bar's green at 17 px.) */
+.line-sheet .chip.ls-done { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; background: var(--sheen), #23722f; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 #164a1e, var(--block-drop); }
 .ls-palette, .ls-menu { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 0 0 auto; }
 .ls-colour { width: 44px; height: 44px; border: 0; border-radius: 50%; padding: 0; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.25), 0 3px 3px -1px rgba(40, 22, 6, 0.4); cursor: pointer; }
 .ls-colour[aria-pressed="true"] { outline: 3px solid var(--wood-ink); outline-offset: 2px; }
@@ -1965,13 +1991,23 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-ticks, .ls-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .ls-tick { display: inline-flex; align-items: center; gap: 8px; padding: 0 12px 0 8px; font-size: 15px; }
 /* A tick box: a square hole; ticked, painted green. */
-.ls-box { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; background: var(--hole); box-shadow: var(--hole-sh); font-size: 15px; font-weight: 900; line-height: 1; color: var(--paint-ink); }
-.ls-tick.on .ls-box { background: var(--sheen), var(--green); box-shadow: inset 0 -2px 0 var(--green-cut); }
-.ls-tick.on .ls-box::after { content: "✓"; }
+/* A stop's choice: a hole; on, a painted peg in it (green; gold for Wait to fill). Never lacquer: Done is the sheet's one
+   painted block (critique 2026-11-16: Wait to fill read as a second Done). */
+.ls-box { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--hole); box-shadow: var(--hole-sh); transition: transform 0.12s ease-out; }
+.ls-tick.on .ls-box { background: var(--peg-green); box-shadow: 0 2px 1px rgba(40, 22, 6, 0.45); }
+.line-sheet .ls-tick.ls-wait.on { background: var(--sheen), var(--maple); color: var(--wood-ink); }
+.ls-tick.ls-wait.on .ls-box { background: var(--peg-yellow); }
+.ls-tick:active .ls-box { transform: scale(0.88); }
+@media (prefers-reduced-motion: reduce) { .ls-box { transition: none; } }
 .ls-note { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); line-height: 1.3; }
 .ls-note.warn { color: var(--warn-ink, #b0391f); }
-.ls-acts .route-move { width: 44px; padding: 0; font-size: 18px; }
 .ls-acts .ls-remove, .ls-acts .ls-via-remove { margin-left: auto; }
+.ls-acts > .ls-note { flex: 1 1 140px; align-self: center; }
+/* An open stop: its goods said in its sentences (the short line goes), and the sheet grows to hold it, Remove stop and
+   all, without a scroll on a phone (critique 2026-11-16). */
+.ls-stop.open .ls-goods { display: none; }
+.line-sheet:has(.ls-stop.open) { max-height: min(64vh, 560px); }
+@media (min-width: 900px) and (min-height: 600px) { .line-sheet:has(.ls-stop.open) { max-height: none; } }
 /* Take off: a destructive ask, stamped in red (as Remove on a train card). */
 .line-sheet .chip.ls-remove, .line-sheet .chip.ls-via-remove { color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
 .ls-via { min-height: 40px; }

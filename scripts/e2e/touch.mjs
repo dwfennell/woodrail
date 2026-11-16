@@ -1238,7 +1238,7 @@ async function wyeLevers(ctx, p, tapOn) {
 // a mocked Worker whose map loads as the same railway), route-ux (the route card's UX fixes, F1–F7,
 // by taps at 360 px), route-ux-more (the roadmap's phases B and C: a route from a place's card, a stop put in the
 // middle, the ribbon's edge and arrows, tools in view on a phone on its side, the Lines view's actions, a line sent
-// another way), route-reorder (a stop's chip held and dragged to another place in the order, Undo, the train running
+// another way), route-reorder (a stop held by its grip in the line sheet and dragged to another place in the order, Undo, the train running
 // the new order; a shuttle's legs as two lanes), route-share (☰ Lines: Copy a line for a free train, the two drawn
 // side by side, Reverse and Undo, the copy's train on the oval turned round and running its stops the other way round),
 // route-ring (Reverse on a ring whose train can't be turned round: why, under the line, and Turn round once it can).)
@@ -4400,7 +4400,7 @@ async function routeUx(ctx, p) {
   }));
   check("route-ux (F7): the chips show 1 2 3, the next one marked (aria-current), no ▶", JSON.stringify(chips.nums) === '["1","2","3"]' && chips.next.length === 1 && chips.next[0] === "step" && !chips.arrows, JSON.stringify(chips));
   // F2 (the line sheet, 2026-11-06): the sawmill's chip opens the sheet at its stop: two ticks (Drop, Pick up), both on,
-  // a finger's size, inside the sheet at 360 px; ↑ ↓ to move it; untick both to pass by.
+  // a finger's size, inside the sheet at 360 px; its grip to move it; both pegs out to pass by.
   await tapButton('.engine-extra .route-chip[data-stop="1"]');
   const modes = await p.evaluate(() => {
     const sheet = document.querySelector(".line-sheet").getBoundingClientRect();
@@ -4409,11 +4409,13 @@ async function routeUx(ctx, p) {
       stop: open?.dataset.stop,
       ticks: [...(open?.querySelectorAll(".ls-ticks .ls-tick") ?? [])].map((b) => { const r = b.getBoundingClientRect(); return { t: b.textContent, on: b.getAttribute("aria-pressed"), h: Math.round(r.height), w: Math.round(r.width), inside: r.left >= sheet.left && r.right <= sheet.right + 0.5, clipped: b.scrollWidth > b.clientWidth + 1 }; }),
       moves: [...(open?.querySelectorAll(".route-move") ?? [])].map((b) => b.textContent),
-      pass: open?.querySelector(".ls-note")?.textContent ?? "",
+      grip: !!open?.querySelector(".ls-handle"),
+      pass: [...(open?.querySelectorAll(".ls-note") ?? [])].map((n) => n.textContent).join(" | "),
     };
   });
-  check("route-ux (F2): a stop's chip opens the sheet at it: Drop and Pick up ticked, Wait to fill, 44 px or more, inside the sheet at 360 px, and how to pass by", modes.stop === "1" && modes.ticks.slice(0, 2).map((m) => `${m.t}:${m.on}`).join(",") === "Drop:true,Pick up:true" && modes.ticks.every((m) => m.h >= 44 && m.w >= 44 && m.inside && !m.clipped) && /^Untick both/.test(modes.pass), JSON.stringify(modes));
-  check("route-ux (F7): its moves are ↑ and ↓", modes.moves.length === 2 && modes.moves.every((m) => m === "↑" || m === "↓"), JSON.stringify(modes.moves));
+  check("route-ux (F2): a stop's chip opens the sheet at it: Drop and Pick up ticked, Wait to fill, 44 px or more, inside the sheet at 360 px, and how to pass by", modes.stop === "1" && modes.ticks.slice(0, 2).map((m) => `${m.t}:${m.on}`).join(",") === "Drop:true,Pick up:true" && modes.ticks.every((m) => m.h >= 44 && m.w >= 44 && m.inside && !m.clipped) && /passes by/.test(modes.pass), JSON.stringify(modes));
+  // (Lines UI redesign 2026-11-16: ↑ ↓ gave way to the grip, and ← → with a keyboard; they fell below the foot.)
+  check("route-ux (F7): it moves by its grip, no ↑ ↓", modes.moves.length === 0 && modes.grip, JSON.stringify(modes));
   // Ticked on and off, round and round, one at a time: the stop never leaves the route.
   for (const t of ["pick", "pick", "drop", "drop", "pick"]) await tapButton(`.ls-stop.open .ls-${t}`);
   const after = await route();
@@ -4711,84 +4713,59 @@ async function routeReorder(ctx, p) {
   const planned = await route();
   check("route-reorder: a three-stop route planned by taps", JSON.stringify(planned.stops) === JSON.stringify(setup.places), JSON.stringify(planned));
   const lanesOval = await p.evaluate(() => window.woodrail.routeLanes());
-  const chipAt = (k) => p.evaluate((k) => {
-    const c = document.querySelector(`.engine-extra .route-chip[data-stop="${k}"]`);
-    const s = c.closest(".route-stops").getBoundingClientRect();
-    const r = c.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left, right: r.right, h: r.height, w: r.width, inStrip: r.left >= s.left - 1 && r.right <= s.right + 1, stripRight: s.right };
-  }, k);
-  // (Each event stamped with when it happens: a loaded machine handles them late, and a swipe mustn't look like a hold.)
+  // (Lines UI redesign 2026-11-16: the card's line is read only, its pegs open the sheet; stops are reordered there, by
+  // the grip at a row's end.)
   const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: Date.now() / 1000, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
-  /** A finger on stop `from`'s chip, held `hold` ms (0: a swipe), moved to `toX` in steps; `mid` runs before it lifts. */
-  const drag = async (from, toX, hold, mid) => {
-    await p.waitForTimeout(300);
-    const c = await chipAt(from);
-    // (On what of the chip shows in the strip: the last may run on past its edge, scrolled sideways.)
-    const a = { x: (c.left + Math.min(c.right, c.stripRight)) / 2, y: c.y };
-    if (hold) {
-      await touch("touchStart", a.x, a.y);
-      await p.waitForTimeout(hold);
-      for (let k = 1; k <= 10; k++) {
-        await touch("touchMove", a.x + ((toX - a.x) * k) / 10, a.y + 2);
-        await p.waitForTimeout(16);
-      }
-    } else {
-      // A swipe: sent at once, not each awaited (CDP waits for the page to take each event: on SwiftShader's slow frames
-      // an awaited start and first move would be a finger held still for longer than a hold).
-      await Promise.all([touch("touchStart", a.x, a.y), ...Array.from({ length: 10 }, (_, k) => touch("touchMove", a.x + ((toX - a.x) * (k + 1)) / 10, a.y + 2))]);
+  const openSheet = async () => {
+    await tapOn({ engine: setup.engine });
+    await tapButton(".engine-extra .route-plan");
+    await p.waitForSelector(".line-sheet:not([hidden]) .ls-stop", { timeout: 15000 });
+  };
+  /** Stop `from`'s grip held and dragged to the top of stop `to`'s row; `mid` runs before it lifts. */
+  const dragRow = async (from, to, mid) => {
+    const pts = await p.evaluate(([from, to]) => {
+      const row = (k) => document.querySelector(`.ls-stop[data-stop='${k}']`);
+      row(from).scrollIntoView({ block: "nearest" });
+      const h = row(from).querySelector(".ls-handle").getBoundingClientRect();
+      const t = row(to).getBoundingClientRect();
+      return { x: h.x + h.width / 2, y: h.y + h.height / 2, ty: to < from ? t.top + 6 : t.bottom - 6, h: h.height, w: h.width };
+    }, [from, to]);
+    await touch("touchStart", pts.x, pts.y);
+    for (let k = 1; k <= 12; k++) {
+      await touch("touchMove", pts.x, pts.y + ((pts.ty - pts.y) * k) / 12);
+      await p.waitForTimeout(25);
     }
     await frames(p);
     const seen = mid ? await mid() : null;
     await touch("touchEnd", 0, 0);
+    await p.waitForTimeout(500);
     await frames(p);
-    await p.waitForTimeout(300);
-    return seen;
+    return { pts, seen };
   };
-  if (process.env.E2E_SHOTS) {
-    // (Pictures only: a stop picked, with the drag hint; then stop 1 held over the gap between stops 2 and 3, and
-    // taken back where it was before it's let go: no change.)
-    await tapButton('.engine-extra .route-chip[data-stop="1"]');
-    await shot(p, `${process.env.E2E_SHOTS}/route-reorder-hint.jpg`, { type: "jpeg", quality: 80 });
-    await tapButton('.engine-extra .route-chip[data-stop="1"]');
-    const [c0, c1] = [await chipAt(0), await chipAt(1)];
-    await touch("touchStart", c0.x, c0.y);
-    await p.waitForTimeout(600);
-    for (let k = 1; k <= 10; k++) (await touch("touchMove", c0.x + ((c1.right + 4 - c0.x) * k) / 10, c0.y + 2), await p.waitForTimeout(16));
-    await frames(p);
-    await shot(p, `${process.env.E2E_SHOTS}/route-reorder-drag-mid.jpg`, { type: "jpeg", quality: 80 });
-    for (let k = 1; k <= 10; k++) (await touch("touchMove", c1.right + 4 + ((c0.x - c1.right - 4) * k) / 10, c0.y + 2), await p.waitForTimeout(16));
-    await touch("touchEnd", 0, 0);
-    await frames(p);
-    await p.waitForTimeout(300);
-  }
-  const sizes = await Promise.all([0, 1, 2].map(chipAt));
-  // (The strip scrolls sideways: a chip past its edge shows at least a finger's width of itself.)
-  check("route-reorder: the stops' chips are a finger's size (44 px), each showing 44 px or more in the strip at 390 px", sizes.every((c) => c.h >= 44 && c.w >= 44 && Math.min(c.right, c.stripRight) - c.left >= 44), JSON.stringify(sizes));
-  // A swipe across the chips, no hold: no stop moves.
-  await drag(2, sizes[0].left + 4, 0);
-  check("route-reorder: a swipe across the chips (no hold) moves no stop", JSON.stringify((await route()).stops) === JSON.stringify(setup.places), JSON.stringify(await route()));
-  // Held, stop 3's chip lifts; dragged before stop 1, the bar shows there; let go, it's first.
-  const target = (await chipAt(0)).left + 4;
-  const mid = await drag(2, target, 600, async () => {
+  await openSheet();
+  if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/route-reorder-hint.jpg`, { type: "jpeg", quality: 80 });
+  // Held by its grip, stop 3 lifts; dragged above stop 1, the bar shows there; let go, it's first.
+  const { pts, seen: mid } = await dragRow(2, 0, async () => {
     if (process.env.E2E_SHOTS) await shot(p, `${process.env.E2E_SHOTS}/route-reorder-drag.jpg`, { type: "jpeg", quality: 80 });
-    return p.evaluate(() => {
-      const mark = document.querySelector(".engine-extra .route-drop-mark");
-      const first = document.querySelector('.engine-extra .route-chip[data-stop="0"]').getBoundingClientRect();
-      const m = mark?.getBoundingClientRect();
-      return { lifted: document.querySelector(".engine-extra .route-chip.lifted")?.dataset.stop, mark: !!mark && !mark.hidden, blocked: mark?.classList.contains("blocked"), markX: m && Math.round(m.left + m.width / 2), firstLeft: Math.round(first.left) };
-    });
+    return p.evaluate(() => ({ lifted: document.querySelector(".ls-stop.lifted")?.dataset.stop, bar: !!document.querySelector(".ls-drop-bar") }));
   });
+  check("route-reorder: a stop's grip in the sheet is a finger high (44 px)", pts.h >= 44, JSON.stringify(pts));
   const moved = await route();
-  check("route-reorder: held, stop 3's chip lifts and a bar shows it going before stop 1", mid.lifted === "2" && mid.mark && !mid.blocked && Math.abs(mid.markX - mid.firstLeft) <= 8, JSON.stringify(mid));
-  check("route-reorder: let go, it's stop 1 now, and the train heads where it did", JSON.stringify(moved.stops) === JSON.stringify([setup.places[2], setup.places[0], setup.places[1]]) && moved.heading === planned.heading, JSON.stringify({ moved, planned }));
-  const chips = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip[data-stop]")].map((c) => `${c.querySelector(".route-num").textContent}${c.classList.contains("picked") ? "*" : ""}`));
-  check("route-reorder: the chips read 1 2 3, the dropped one picked", JSON.stringify(chips) === '["1*","2","3"]', JSON.stringify(chips));
+  check("route-reorder: held by its grip, stop 3 lifts and a bar shows where it goes", mid.lifted === "2" && mid.bar, JSON.stringify(mid));
+  check("route-reorder: let go above stop 1, it's stop 1 now, and the train heads where it did", JSON.stringify(moved.stops) === JSON.stringify([setup.places[2], setup.places[0], setup.places[1]]) && moved.heading === planned.heading, JSON.stringify({ moved, planned }));
+  await tapButton(".line-sheet .route-plan.on");
+  await still();
+  const chips = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip[data-stop]")].map((c) => c.querySelector(".route-num").textContent));
+  check("route-reorder: back on the card, its line's pegs read 1 2 3", JSON.stringify(chips) === '["1","2","3"]', JSON.stringify(chips));
   await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
   await frames(p);
   const undone = await route();
   check("route-reorder: Undo puts the order back, the train heading where it did", JSON.stringify(undone.stops) === JSON.stringify(setup.places) && undone.heading === planned.heading, JSON.stringify(undone));
   // Again, and the payoff: the train runs the stops in the new order.
-  await drag(2, (await chipAt(0)).left + 4, 600);
+  await openSheet();
+  await dragRow(2, 0);
+  await tapButton(".line-sheet .route-plan.on");
+  await still();
   const order = (await route()).stops;
   await p.keyboard.press("Escape");
   const run = await p.evaluate((o) => {
