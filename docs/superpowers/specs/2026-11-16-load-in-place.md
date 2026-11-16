@@ -92,3 +92,6 @@ have is lost). Nothing in the save's format changes.
 - e2e: depot-tracks, crane, train-summary, hopper-load, warehouse and what `e2e:affected` picks, still asserting the
   goods delivered; pictures of a train loading in place.
 - perf: 0 idle frames, draw calls within budget.
+
+Pictures: `docs/agents/shots/load-in-place-{1,2,3}.jpg` (`npm run e2e:load-in-place`, the crane at each wagon of a
+standing train at the sawmill, its gantry clear of the saw shed).
