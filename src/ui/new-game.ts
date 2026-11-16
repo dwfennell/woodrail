@@ -97,8 +97,8 @@ function safeStorage(): Storage | null {
   }
 }
 
-/** Said when ☰ New game is opened in play: what starting now ends (two lines on a phone). */
-export const NEW_GAME_WARNING = "Ends this game: new map, no track or trains.\nCoins, research, goals, stickers start over.";
+/** Said when ☰ New game is opened in play: what starting now does (two lines on a phone). */
+export const NEW_GAME_WARNING = "This game is kept in Your games.\nThe new one starts with no coins, research or goals.";
 
 export interface NewGameAsk {
   mode: GameMode;

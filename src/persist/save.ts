@@ -812,6 +812,12 @@ export function loadSession(mode: GameMode): SessionData | null {
 /** Game mode's progress and goals keys (what two devices' cloud copies merge: `persist/progress-merge.ts`). */
 export const PROGRESS_KEYS = { progress: PROGRESS_KEY, goals: GOALS_KEY, stickers: STICKERS_KEY } as const;
 
+/**
+ * Game mode's open game's keys (`persist/slots.ts`): `modeKeys("game")` less the device's own flag (a game started
+ * here before), which isn't any one game's.
+ */
+export const GAME_SLOT_KEYS = { live: [STORAGE_KEYS.game, sessionKey("game"), GOALS_KEY, STICKERS_KEY, PROGRESS_KEY], save: STORAGE_KEYS.game, session: sessionKey("game"), goals: GOALS_KEY, progress: PROGRESS_KEY } as const;
+
 export function modeKeys(mode: GameMode): string[] {
   const keys = [STORAGE_KEYS[mode], sessionKey(mode)];
   return mode === "game" ? [...keys, GOALS_KEY, STICKERS_KEY, PROGRESS_KEY, GAMES_KEY] : keys;

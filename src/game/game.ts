@@ -1472,10 +1472,9 @@ export class Game {
     this.post.render(now);
     this.framesDrawn++;
     // A picture of this frame wanted (a debug report): taken now, while the drawing buffer still holds it.
-    if (this.grabFrame) {
-      const take = this.grabFrame;
-      this.grabFrame = null;
-      take(this.canvas);
+    if (this.grabs.length > 0) {
+      const takes = this.grabs.splice(0);
+      for (const take of takes) take(this.canvas);
     }
     // Too slow at this resolution: step down (the next frame draws at the new size).
     const ratio = this.resolution.frameDrawn(this.lastFrameAt, this.drewLastTick);
@@ -1491,19 +1490,45 @@ export class Game {
     this.resolution.rest(performance.now() + ms);
   }
 
-  private grabFrame: ((canvas: HTMLCanvasElement) => void) | null = null;
+  /** Pictures of the next frame drawn, wanted (each copies it out as it's drawn). */
+  private readonly grabs: ((canvas: HTMLCanvasElement) => void)[] = [];
+
+  /**
+   * A small copy of the next frame drawn, fitted in `w`×`h` (a game's picture in Your games), copied as it's drawn.
+   * `draw`: draw one now for it; else it waits for the next frame drawn anyway (none while nothing moves: it costs
+   * nothing till then). One waiting at a time: a second ask while one waits gets null.
+   */
+  grabSmall(w: number, h: number, draw: boolean): Promise<HTMLCanvasElement | null> {
+    if (this.smallWaiting) return Promise.resolve(null);
+    this.smallWaiting = true;
+    return new Promise((resolve) => {
+      this.grabs.push((canvas) => {
+        this.smallWaiting = false;
+        const k = Math.min(w / canvas.width, h / canvas.height, 1);
+        const copy = document.createElement("canvas");
+        copy.width = Math.max(1, Math.round(canvas.width * k));
+        copy.height = Math.max(1, Math.round(canvas.height * k));
+        const g = copy.getContext("2d");
+        if (!g) return resolve(null);
+        g.drawImage(canvas, 0, 0, copy.width, copy.height);
+        resolve(copy);
+      });
+      if (draw) this.redraw();
+    });
+  }
+  private smallWaiting = false;
 
   /** A picture of the next frame drawn (it's drawn at once), as a WebP or PNG. */
   capture(): Promise<Blob | null> {
     return new Promise((resolve) => {
-      this.grabFrame = (canvas) => {
+      this.grabs.push((canvas) => {
         // Copied out synchronously: the drawing buffer is cleared once this task ends.
         const copy = document.createElement("canvas");
         copy.width = canvas.width;
         copy.height = canvas.height;
         copy.getContext("2d")?.drawImage(canvas, 0, 0);
         copy.toBlob((b) => resolve(b), "image/webp", 0.85);
-      };
+      });
       this.invalidate();
     });
   }
