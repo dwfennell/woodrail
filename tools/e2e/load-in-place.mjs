@@ -142,14 +142,15 @@ const setup = await p.evaluate(async (view) => {
   };
   window.__loads = () => wagons.map((id) => w.economy.cargoOf(id));
   window.__workshop = () => workshop.piles[CARGO.planks.index];
-  // Where the sawmill's crane is drawn: its trolley (at home now, idle, the train not there yet).
+  // Where the sawmill's crane is drawn: its trolley.
   window.__trolley = () => w.depotView.craneOf(sawmill.id).trolley.position.clone();
-  window.__home = window.__trolley();
   w.invalidate();
   return { engine, wagons, sawmill: sawmill.id, workshop: workshop.id };
 }, { dist: vd, phi: vp, turn: vt });
 await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
 await settle();
+// (At home, idle, the train not there yet: placed by the frames since the sawmill was laid.)
+await p.evaluate(() => (window.__home = window.__trolley()));
 
 // Sent on (its lever, as Go sets it: Go is e2e:touch's).
 await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), setup.engine);
