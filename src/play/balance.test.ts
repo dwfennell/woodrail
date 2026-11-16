@@ -214,7 +214,6 @@ export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
 export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {
-  "open-harbour": "On the gentler starter map (the new default) everything after the quarry comes about 40 minutes later for this player (the mine at 206, 160 on the old land: see open-mine), and the harbour, at about 397 on the old land, is past 440. BALANCE_HILLS=hilly reaches it as before",
   "ship-abroad": "Cargo ships needs River barges as well as Harbours, which this player never learns (see float-goods), and a harbour, which stands only in the long part at about minute 397. The ship's payoff is harbours.test.ts's (24 loads at a town's full price) and e2e:water's (a ship at the quay takes goods off it)",
   "float-goods": "River barges needs Train routes and Cranes 1, and a river landing wants a straight run of river by the line on both ends of a barge's route: this player's one line between the starter towns has none, and it researches what its line needs (`GOALS_WISH`). The player's path is e2e:water's (a landing from the tray, a barge bought on its card, a route by taps, logs carried and delivered)",
 };
