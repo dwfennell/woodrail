@@ -1,6 +1,6 @@
 // End-to-end: depot tracks (docs/superpowers/specs/2026-11-04-depot-tracks.md), Game mode on a 390×844 phone with
 // touch. Setup (shortcuts, not what's tested): Sidings and Routes learned; on open ground a line laid by the editor:
-// five straights at an eighth's turn, a curve, a short straight (2 squares) and a mill, then three straights, a
+// four straights at an eighth's turn, a curve, a short straight (2 squares) and a mill, then three straights, a
 // workshop and a straight: the curve 2 squares from the mill's end (where the ladder of crossovers needed 4½); the
 // workshop stocked with the planks and stone the upgrades cost; the mill with flour.
 // Then, by the player's taps:
@@ -161,7 +161,7 @@ await p.goto(PAGE);
 await enterGame();
 
 // Setup (shortcuts, not what's tested): Sidings and Routes learned; the line, its pieces asked of the game's drop
-// rule: five straights at an eighth's turn, a curve, a short straight, the mill, three straights, the workshop, a
+// rule: four straights at an eighth's turn, a curve, a short straight, the mill, three straights, the workshop, a
 // straight; the workshop's planks and stone; the mill's flour. And the harness's run-ahead (the game's own ticks).
 const setup = await p.evaluate(async () => {
   const w = window.woodrail;
@@ -178,9 +178,10 @@ const setup = await p.evaluate(async () => {
     const sn = Math.sin(pose.heading);
     return { x: pose.x + cs * c.x - sn * c.z, z: pose.z + sn * c.x + cs * c.z, heading: pose.heading + c.heading };
   };
+  const why = {};
   for (let d = 300; d < 9000; d += 72) {
     for (let a = 0; a < Math.max(1, Math.round(d / 72) * 4); a++) {
-      for (const h of [0, Math.PI / 2]) {
+      for (const [h, bend] of [0, 1, 2, 3].flatMap((q) => [[(q * Math.PI) / 2, true], [(q * Math.PI) / 2, false]])) {
         const c = Math.cos(h);
         const sn = Math.sin(h);
         const X0 = Math.round((t.x + d * Math.cos(a)) / 18) * 18;
@@ -191,23 +192,30 @@ const setup = await p.evaluate(async () => {
         const after = ["straight-216", "straight-216", "straight-216", "depot-workshop", "straight-216"];
         const pieces = [{ type: "depot-mill", pose: at(0, 0), y: 0, flipped: false }, ...after.map((type, k) => ({ type, pose: at(216 * (k + 1), 0), y: 0, flipped: false }))];
         // Back from the mill: the short straight, the curve (bending to the yard's side, away from the new tracks),
-        // and five straights at its eighth's turn, each joined to the last.
+        // and four straights at its eighth's turn, each joined to the last.
         const back = [{ type: "straight-144", pose: at(-144, 0), y: 0, flipped: false }];
         let end = { x: back[0].pose.x, z: back[0].pose.z, heading: h + Math.PI };
-        const curve = { type: "curve-large", pose: { ...end }, y: 0, flipped: true };
+        const curve = { type: "curve-large", pose: { ...end }, y: 0, flipped: bend };
         back.push(curve);
-        end = endOf("curve-large", true, curve.pose, 1);
-        for (let k = 0; k < 5; k++) {
+        end = endOf("curve-large", bend, curve.pose, 1);
+        for (let k = 0; k < 4; k++) {
           const q = { type: "straight-216", pose: { ...end }, y: 0, flipped: false };
           back.push(q);
           end = endOf("straight-216", false, q.pose, 1);
         }
         const probes = [];
         for (let i = -1; i <= 4; i++) for (const l of [-72, -144]) probes.push({ type: "straight-216", pose: at(i * 216, l), y: 0, flipped: false });
+        // (Room for the line laid straight back from the turnout later, and the third track's turnouts beside it.)
+        for (let k = 1; k <= 4; k++) for (const l of [0, -72]) probes.push({ type: "straight-216", pose: at(-144 - 216 * k, l), y: 0, flipped: false });
         const all = [...back.slice().reverse(), ...pieces];
-        if ([...all, ...probes].some((q) => w.interaction.placeWhyIgnoring(q.type, q.flipped, q.pose, q.y, -1) !== null)) continue;
+        const no = [...all, ...probes].map((q) => [q.type, w.interaction.placeWhyIgnoring(q.type, q.flipped, q.pose, q.y, -1)]).find((x) => x[1] !== null);
+        if (no) {
+          const k = no.join(": ").slice(0, 60);
+          why[k] = (why[k] ?? 0) + 1;
+          continue;
+        }
         const ids = w.editor().placeRun(all);
-        const [approach, millPiece, shopPiece] = [ids.slice(0, 5).reverse(), ids[7], ids[11]];
+        const [approach, millPiece, shopPiece] = [ids.slice(0, 4).reverse(), ids[6], ids[10]];
         const mill = w.economy.depotAtPiece(millPiece) ?? w.economy.addDepot("mill", millPiece);
         const shop = w.economy.depotAtPiece(shopPiece) ?? w.economy.addDepot("workshop", shopPiece);
         shop.piles[CARGO.planks.index] = 22;
@@ -219,7 +227,7 @@ const setup = await p.evaluate(async () => {
         window.__shop = shop.id;
         window.__ids = ids;
         window.__approach = approach;
-        window.__curve = ids[5];
+        window.__curve = ids[4];
         window.__at = { X0, Z0, h };
         window.__run = (secs, watch) => {
           let both = 0;
@@ -247,7 +255,7 @@ const setup = await p.evaluate(async () => {
       }
     }
   }
-  return { error: "no open ground" };
+  return { error: "no open ground", why };
 });
 check("setup: a mill with a curve 2 squares from its end, and a workshop", !setup.error, JSON.stringify(setup));
 if (!setup.error) {
@@ -308,7 +316,7 @@ if (!setup.error) {
       return t.cars[0].id;
     };
     const a = put(window.__approach[0], ["engine", "hopper", "hopper"]);
-    const b = put(window.__approach[3], ["engine", "hopper", "hopper"]);
+    const b = put(window.__approach[2], ["engine", "hopper", "hopper"]);
     for (const e of [a, b]) if (e !== -1) for (const c of w.sim.findCar(e).train.cars) if (c.kind === "hopper") w.economy.setCargo(c.id, "grain", 3);
     w.economy.depot(window.__mill).piles[CARGO.grain.index] = 0;
     w.trainView?.sync?.();
