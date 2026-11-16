@@ -399,6 +399,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-actions { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .engine-actions > .chip { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 8px; font-size: 14px; white-space: nowrap; }
 .engine-actions > .chip[hidden] { display: none; }
+/* The card's foot: where the card is cut short and scrolls (a small phone, a long line's box), its Swap ends, Decouple
+   and Remove stay in view at its bottom edge, the rest scrolling above them (lines UI harden 2026-11-16: at 360x740
+   the row was cut by the card's own edge, reading as under the tray). On the board, its end grain under it. */
+.engine-card > .engine-actions { position: sticky; bottom: -20px; z-index: 2; margin: 0 -14px -20px; padding: 8px 14px 20px; background: var(--wood-panel); box-shadow: inset 0 -6px 0 var(--end-grain); border-radius: 0 0 12px 12px; }
 .engine-actions > .chip.remove { flex: 0 0 auto; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
 /* (a pencil line between the train's tools and Remove) */
 .engine-actions .engine-actions-gap { flex: 0 0 0; height: 28px; margin: 0 3px; border-left: 1.5px dashed var(--pencil); }
