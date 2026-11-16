@@ -83,6 +83,7 @@ export const SUITES = {
   metro: { script: "e2e:metro", minutes: 3 },
   "feature-tips": { script: "e2e:feature-tips", minutes: 6 },
   "routes-ux": { script: "e2e:routes-ux", minutes: 6 },
+  "route-insert": { script: "e2e:route-insert", minutes: 4 },
   "train-off-line": { script: "e2e:train-off-line", minutes: 4 },
   "tech-tree-5": { script: "e2e:tech-tree-5", minutes: 4 },
 };
@@ -253,6 +254,8 @@ export const RULES = [
   // The routes UX (option B, 2026-11-06): the line sheet, its words, health, the rings round places to tap.
   [["src/ui/line-sheet.ts", "src/game/line-sheet-text.ts", "src/game/line-health.ts", "src/render/place-rings.ts", "src/economy/line-tally.ts"], ["routes-ux", TOUCH_ROUTES]],
   [["src/game/lines.ts", "src/game/interaction.ts", "src/main.ts", "src/persist/save.ts", "src/render/depot-view.ts"], ["routes-ux"]],
+  // A stop put into a running line (route-insert, 2026-11-16): where it fits, the sheet's and the card rail's +.
+  [["src/game/lines.ts", "src/ui/line-sheet.ts", "src/main.ts"], ["route-insert"]],
   // A train taken off its line (the card's Leave line, the sheet's Take off): it stands clear of points.
   [["src/game/lines.ts", "src/ui/line-sheet.ts"], ["train-off-line"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
