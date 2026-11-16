@@ -2228,10 +2228,7 @@ async function routeWait(ctx, p) {
       for (const [t, flip] of list) ids.push(appendPiece(s, t, flip, ids.length ? connectorRef(ids[ids.length - 1], 1) : from));
       return ids;
     };
-    // (Load in place: the first train, longer than its sawmill, stands with its tail on the points as it unloads there,
-    // a stub past the sawmill leaving no room to pull clear of them; so it holds them a while, as it did creeping
-    // under the crane. Its card says so: "too long for its yard".)
-    const a = road(connectorRef(points, 1), [["straight-144", false], ["depot-sawmill", false], ["straight-72", false]]);
+    const a = road(connectorRef(points, 1), [["straight-216", false], ["depot-sawmill", false], ["straight-216", false]]);
     const b = road(connectorRef(points, 2), [["curve-large", true], ["straight-216", false], ["depot-sawmill", false], ["straight-216", false]]);
     const order = [...trunk, points, ...a, ...b];
     const poses = order.map((id) => s.getPiece(id));
@@ -2263,8 +2260,8 @@ async function routeWait(ctx, p) {
       }
       throw new Error("no room for a train");
     };
-    // (The first five wagons long: it holds the points a while (standing on them as it unloads: see road A), so the
-    // second, keeping its follow gap (#6) behind it, comes up to them while they're held and stands a second or more.)
+    // (The first five wagons long: it holds the points while it crosses them, so the second, keeping its follow gap (#6)
+    // behind it, comes up to them while they're held and stands there.)
     const first = put(["engine", "timber", "timber", "timber", "timber", "timber"], [[6, 200]]);
     const second = put(["engine", "timber"], [[4, 200], [4, 150], [4, 100], [3, 200], [3, 100]]);
     w.invalidate();
@@ -2321,7 +2318,9 @@ async function routeWait(ctx, p) {
     w.sim.setLever(setup.first, 1);
     w.sim.setLever(setup.second, 1);
     const s = window.__wait;
-    for (let i = 0; i < 60 * 120 && s.stood < 120; i++) {
+    // (Till it has stood there a tenth of a second: load in place, the first no longer creeps over the points into its
+    // sawmill but pulls up past them, so the wait is short; the run stops while it still waits, for its card.)
+    for (let i = 0; i < 60 * 120 && s.stood < 12; i++) {
       w.sim.tick();
       w.economy.tick();
       window.__waitWatch();
@@ -2340,7 +2339,7 @@ async function routeWait(ctx, p) {
       if (sw && "engine" in sw && t.speed === 0 && !w.sim.piecesUnder(t.id).has(setup.points)) {
         s.held++;
         s.by = sw.engine;
-        if (s.held >= 120) s.stood = Math.max(s.stood, s.held);
+        if (s.held >= 12) s.stood = Math.max(s.stood, s.held);
       }
     }
     // (Paused while its card is opened and read: the game's own frames would run the sim on meanwhile, and the first
@@ -2354,8 +2353,8 @@ async function routeWait(ctx, p) {
   }, { setup, watch });
   // (Short of the points by the router (its nose 30–40 mm short), or held by sections at its slot's end, which is
   // where two lines' trains sharing the track now wait: the first holds the section with the points.)
-  const shortOf = waited.held >= 120 || (waited.near >= 30 && waited.far <= 40);
-  check("wait: the second train stops short of the points while the first has them (a second or more, never on them)", waited.stood >= 120 && shortOf && !waited.onPoints && waited.by === setup.first && waited.way === 0, JSON.stringify(waited));
+  const shortOf = waited.held >= 12 || (waited.near >= 30 && waited.far <= 40);
+  check("wait: the second train stops short of the points while the first has them (standing there, never on them)", waited.stood >= 12 && shortOf && !waited.onPoints && waited.by === setup.first && waited.way === 0, JSON.stringify(waited));
   // Its card, opened by a tap on it while it waits, says who for.
   await tapOn({ engine: setup.second });
   await p.waitForFunction(() => !!document.querySelector(".engine-status")?.textContent, null, { timeout: 30000 }).catch(() => {});
@@ -2437,7 +2436,8 @@ async function routeWait(ctx, p) {
   await p.waitForTimeout(1000);
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   // (A station clock in view moves its hands as the game's minute turns, and a sawmill in view saws the logs it was
-  // given: frames for those are counted, not routing's. Routing's own part is watched too: no points set or put back.)
+  // given: frames for those are counted, not routing's, a pile that changed asking for its frame (`invalidate`) too.
+  // Routing's own part is watched too: no points set or put back.)
   const f0 = await p.evaluate(() => {
     const w = window.woodrail;
     const r = w.economy.router;
@@ -2470,7 +2470,7 @@ async function routeWait(ctx, p) {
     const i = window.__waitIdle;
     return { f: w.framesDrawn, why: i.why, depots: window.__waitDepots.length, clock: i.clock, switched: i.switched, granted: r.granted - i.granted, restored: r.restored - i.restored, moving: [...w.sim.trainIds()].map((k) => w.sim.getTrain(k).speed).filter((v) => v > 0).length };
   });
-  check("wait: no frames drawn once settled (no train moving), but for a working depot or a clock; routing moves nothing", idle.moving > 0 || (idle.f - f0 <= idle.clock + idle.depots && idle.why.length === 0 && idle.switched === 0 && idle.granted === 0 && idle.restored === 0), JSON.stringify({ f0, ...idle }));
+  check("wait: no frames drawn once settled (no train moving), but for a working depot or a clock; routing moves nothing", idle.moving > 0 || (idle.f - f0 <= idle.clock + idle.depots && idle.why.length <= idle.depots && idle.switched === 0 && idle.granted === 0 && idle.restored === 0), JSON.stringify({ f0, ...idle }));
   await p.keyboard.press("Escape");
 }
 
@@ -2499,10 +2499,7 @@ async function handWait(ctx, p) {
       for (const [t, flip] of list) ids.push(appendPiece(s, t, flip, ids.length ? connectorRef(ids[ids.length - 1], 1) : from));
       return ids;
     };
-    // (Load in place: the first train, longer than its sawmill, stands with its tail on the points as it unloads there,
-    // a stub past the sawmill leaving no room to pull clear of them; so it holds them a while, as it did creeping
-    // under the crane. Its card says so: "too long for its yard".)
-    const a = road(connectorRef(points, 1), [["straight-144", false], ["depot-sawmill", false], ["straight-72", false]]);
+    const a = road(connectorRef(points, 1), [["straight-216", false], ["depot-sawmill", false], ["straight-216", false]]);
     const b = road(connectorRef(points, 2), [["curve-large", true], ["straight-216", false], ["depot-sawmill", false], ["straight-216", false]]);
     const order = [...trunk, points, ...a, ...b];
     const poses = order.map((id) => s.getPiece(id));
