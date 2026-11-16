@@ -59,6 +59,7 @@
     "e2e:growth": "node scripts/e2e/lib/run.mjs tools/e2e/growth-menu.mjs",
     "e2e:copy-map": "node scripts/e2e/lib/run.mjs tools/e2e/copy-map.mjs",
     "e2e:town-drag": "node scripts/e2e/lib/run.mjs tools/e2e/town-drag.mjs",
+    "e2e:moved-house": "node scripts/e2e/lib/run.mjs tools/e2e/moved-house.mjs",
     "e2e:town-shape": "node scripts/e2e/lib/run.mjs tools/e2e/town-shape.mjs",
     "e2e:school": "node scripts/e2e/lib/run.mjs tools/e2e/school-growth.mjs",
     "e2e:sites": "node tools/e2e/map-sites.mjs",

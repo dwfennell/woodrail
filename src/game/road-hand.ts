@@ -1,3 +1,4 @@
+import { townMoveGuard } from "./town-moves";
 import type { Group } from "three";
 import type { Editor } from "../editor/editor";
 import { CELL, FEAT_TREE, SURF_LANE, SURF_RIVER, type LandscapeGrid, type Town } from "../landscape";
@@ -263,6 +264,8 @@ export class RoadHand {
     });
     const looks = turned.length > 0 ? looksOf(land, town) : null;
     const slots = [...new Set([lot.from, lot.cell, ...lot.roads.map(([i]) => i)].map(plotSlotOf))];
+    // (Undone or redone only while its squares are as it left them: the town may have grown onto them since.)
+    const guard = townMoveGuard(land, [lot.from, lot.cell, ...lot.roads.map(([i]) => i), ...lot.turns.flatMap((t) => town.buildings.find((x) => x.id === t.id)?.cells ?? [])]);
     let putBack = () => {};
     const doIt = () => {
       putBack = moveStreet(land, town, lot);
@@ -273,10 +276,12 @@ export class RoadHand {
       }
       g.roadsEdited(slots, false);
       if (turned.length > 0) g.propsChanged();
+      guard.done();
     };
     doIt();
     g.editLand(slots);
     this.editor().recordLand({
+      refuse: guard.refuse,
       do: doIt,
       undo: () => {
         putBack();

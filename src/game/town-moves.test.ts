@@ -3,7 +3,11 @@ import { buildStarterWorld } from "./world";
 import { FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_GRASS, SURF_ROAD, SURF_TOWN, type Landscape, type Town } from "../landscape";
 import { LandEditor } from "../landscape/edit";
 import { looksOf, releaseBuilding } from "../props/towns";
-import { lotFor, moveBuilding, movableBuilding, townMoveMessage, type TownLot } from "./town-moves";
+import { lotFor, moveBuilding, movableBuilding, townMoveGuard, townMoveMessage, TOWN_MOVED_ON, type TownLot } from "./town-moves";
+import { buildOnLots } from "./town-growth";
+import { Editor } from "../editor/editor";
+import { checkPlacement } from "../landscape";
+import { healTownSquares } from "../props/towns";
 import { MAX_REACH } from "./town-growth";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { nextLots } from "./town-growth";
@@ -324,5 +328,116 @@ describe("moving a town's houses (Game mode)", () => {
     const t = r.value.landscape.towns.find((x) => x.id === town.id)!;
     expect(t.buildings.find((x) => x.id === a)!.cells).toEqual([cb]);
     expect(r.value.landscape.grid.owner[cb]).toBe(a);
+  });
+});
+
+/** Every house square is one record's, and every record's square is marked its: what blocks track is what's drawn. */
+function whole(land: Landscape): string[] {
+  const g = land.grid;
+  const out: string[] = [];
+  const owner = new Map<number, number>();
+  for (const t of land.towns)
+    for (const b of t.buildings)
+      for (const i of b.cells) {
+        if (owner.has(i)) out.push(`square ${i}: houses ${owner.get(i)} and ${b.id}`);
+        owner.set(i, b.id);
+        if (g.feature[i] !== FEAT_BUILDING || g.owner[i] !== b.id) out.push(`house ${b.id}'s square ${i} isn't marked its`);
+      }
+  for (let i = 0; i < g.feature.length; i++) if (g.feature[i] === FEAT_BUILDING && !owner.has(i)) out.push(`square ${i} marked a house with none`);
+  return out;
+}
+
+describe("a moved house and its town growing after (the squares stay whole)", () => {
+  /** A house moved onto a green, recorded as the game records it (one undo step, guarded), then the town grows onto the green it left. */
+  const movedThenGrown = () => {
+    const { w, land, editor } = world();
+    const { town, a, b } = houses(land);
+    const free = green(land, town, [a, b]);
+    const old = town.buildings.find((x) => x.id === a)!.cells[0];
+    const lot = lotFor(land, a, free, editor) as TownLot;
+    const history = new Editor(w.layout, w.sim, () => {});
+    const refused: string[] = [];
+    history.onRefused = (why) => refused.push(why);
+    const guard = townMoveGuard(land, [old, ...lot.cells]);
+    let putBack = () => {};
+    const doIt = () => {
+      putBack = moveBuilding(land, a, lot);
+      guard.done();
+    };
+    doIt();
+    history.recordLand({ refuse: guard.refuse, do: doIt, undo: () => putBack(), slots: () => [] });
+    const front = lotFor(land, b, old, editor) as TownLot;
+    buildOnLots(land, town, [{ cells: [old], front: front.front }]);
+    return { w, land, town, a, old, free, history, refused, putBack: () => putBack() };
+  };
+
+  it("undo is refused once the town has built on the green the house left: never two houses on one square", () => {
+    const { land, a, old, history, refused } = movedThenGrown();
+    expect(whole(land)).toEqual([]);
+    expect(history.undo()).toBe(false);
+    expect(refused).toEqual([TOWN_MOVED_ON]);
+    expect(whole(land)).toEqual([]);
+    // (The house stays where it was moved, the new one on its old square.)
+    expect(land.grid.owner[old]).not.toBe(a);
+  });
+
+  it("without the town changing them, undo and redo still work", () => {
+    const { w, land, editor } = world();
+    const { town, a, b } = houses(land);
+    const free = green(land, town, [a, b]);
+    const A = town.buildings.find((x) => x.id === a)!;
+    const old = A.cells[0];
+    const lot = lotFor(land, a, free, editor) as TownLot;
+    const history = new Editor(w.layout, w.sim, () => {});
+    const guard = townMoveGuard(land, [old, ...lot.cells]);
+    let putBack = () => {};
+    const doIt = () => {
+      putBack = moveBuilding(land, a, lot);
+      guard.done();
+    };
+    doIt();
+    history.recordLand({ refuse: guard.refuse, do: doIt, undo: () => putBack(), slots: () => [] });
+    expect(history.undo()).toBe(true);
+    expect(A.cells).toEqual([old]);
+    expect(history.redo()).toBe(true);
+    expect(A.cells).toEqual([free]);
+    expect(whole(land)).toEqual([]);
+  });
+
+  it("a save made in that state (undone before undo was guarded) loads whole: the stale square takes track again", () => {
+    const { w, land, town, a, old, free, putBack } = movedThenGrown();
+    // As the unguarded undo did: the snapshot put back over the new house.
+    putBack();
+    expect(whole(land).length).toBeGreaterThan(0);
+    // A square marked a house with none on it (a moved house's undo after its own move away, say).
+    const g = land.grid;
+    g.feature[free] = FEAT_BUILDING;
+    g.owner[free] = a;
+    const before = town.buildings.length;
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const loaded = r.value.landscape;
+    expect(whole(loaded)).toEqual([]);
+    const t = loaded.towns.find((x) => x.id === town.id)!;
+    // One of the two houses drawn on one square went (with its prop); the other stands there.
+    expect(t.buildings.length).toBe(before - 1);
+    expect(loaded.grid.feature[old]).toBe(FEAT_BUILDING);
+    // Each house left has its one prop; the one that went took its prop with it.
+    const props = [...r.value.props.all()];
+    for (const x of t.buildings) expect(props.filter((p) => p.building === x.id).length).toBe(1);
+    const gone = town.buildings.find((x) => !t.buildings.some((y) => y.id === x.id))!;
+    expect(props.some((p) => p.building === gone.id)).toBe(false);
+    // The square marked a house with none is a green: not refused as a house.
+    expect([loaded.grid.feature[free], loaded.grid.surface[free]]).toEqual([FEAT_NONE, SURF_TOWN]);
+    const x = loaded.grid.centreX(loaded.grid.colOf(free));
+    const z = loaded.grid.centreZ(loaded.grid.rowOf(free));
+    const across = [0, Math.PI / 2].map((heading) => checkPlacement(loaded, "straight-54", false, { x, z, heading }, loaded.grid.groundY(free)));
+    // (It lies between a street and the station: refused for those, as any green there is, but not as a house.)
+    expect(across.map((c) => c.kind === "blocked" && c.reason)).not.toContain("building");
+    const was = [0, Math.PI / 2].map((heading) => checkPlacement(land, "straight-54", false, { x, z, heading }, g.groundY(free)));
+    expect(was.map((c) => c.kind === "blocked" && c.reason)).toContain("building");
+    // A whole save is left as it was.
+    expect(healTownSquares(loaded, r.value.props)).toBe(0);
   });
 });

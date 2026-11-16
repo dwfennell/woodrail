@@ -40,6 +40,7 @@ export const SUITES = {
   growth: { script: "e2e:growth" },
   "copy-map": { script: "e2e:copy-map", minutes: 2 },
   "town-drag": { script: "e2e:town-drag", minutes: 4 },
+  "moved-house": { script: "e2e:moved-house", minutes: 5 },
   "town-shape": { script: "e2e:town-shape", minutes: 2 },
   school: { script: "e2e:school" },
   sites: { script: "e2e:sites", groups: true, minutes: 37 },
@@ -135,7 +136,7 @@ const TOUCH_TRAINS = "touch:select-drag,lever-pins,under-car,wye,train-card,bloc
 const TOUCH_UI = "touch:sandbox-shelves,game-shelves,tabs-reach,train-card,toast-through,trap,feedback";
 // Click's groups for a mouse and the tray's drags: what input, track and editor changes can break.
 const CLICK_INPUT = "click:desktop,touch-tray,tight-curves";
-const TOWNS = ["town-drag", "town-shape", "school", "growth", "station-upgrade", "sites"];
+const TOWNS = ["town-drag", "moved-house", "town-shape", "school", "growth", "station-upgrade", "sites"];
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
 export const RULES = [
@@ -299,6 +300,8 @@ export const RULES = [
   ["src/game/station-upgrade.ts", ["station-upgrade", "station-touches"]],
   ["src/game/departures.ts", ["station-touches"]],
   [["src/game/town-*", "src/game/towns.ts", "src/game/street-moves.ts", "src/game/growth-cards.ts", "src/game/upgrades.ts"], [...TOWNS]],
+  // A moved house or street and what's left behind: the undo guard, the save's heal, the town's tile redrawn.
+  [["src/game/road-hand.ts", "src/props/towns.ts", "src/render/dressing/tiles.ts", "src/editor/editor.ts", "src/persist/save.ts", "src/landscape/clearance.ts"], ["moved-house", "town-drag"]],
   [["src/game/crafting.ts", "src/game/workshop-text.ts"], ["workshop", "growth"]],
   [["src/game/warehouse-text.ts", "src/game/cargo-drop.ts", "src/game/supply.ts"], ["warehouse", "train-summary"]],
   [["src/game/map-sites.ts", "src/game/restore.ts", "src/game/across-river.ts", "src/game/map-markers.ts", "src/game/landmarks.ts", "src/game/harbours.ts"], ["sites"]],
