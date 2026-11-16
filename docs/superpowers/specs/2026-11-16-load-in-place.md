@@ -24,12 +24,17 @@ never over a signal or points ahead. Then it stands still till its work there is
 queued behind another that hasn't had anything moved for it yet pulls up once the way is clear (it is still one stop,
 the train's first). A visit that begins with the train already standing (a train set going on the depot, a game loaded
 mid-load) is served where it stands. Once it has stood this visit it doesn't move again for the crane: lever off and on
-again, a load waited for, a wagon gone back to (a pile with room again): all where it stands.
+again, a load waited for, a wagon gone back to (a pile with room again): all where it stands. Work that turns up just
+as it sets off (its route's next stop the same depot: drop, then pick up) stops it again where it is while it's no
+faster than a crawl; going faster, it's left for its next visit. A "Wait here till full" stop with nothing coming (the
+depot idle) is pulled up at, then left.
 
 **Too long for the depot.** A depot is one piece (216 mm: an engine and one wagon). A longer train stands with its nose
-at the far end and the rest behind, on the track it came in on, as a train stopped at a signal does. Points or a
-signal behind it are passed already; what it stands on behind is the one place it may be in another train's way, and
-only while it loads (as at a red signal). Nothing moves it forward over the far joint.
+at the far end and the rest behind, on the track it came in on, as a train stopped at a signal does. If its tail would
+rest on points or a crossing there (another train's way), it pulls on just far enough for the tail to clear them, but
+only over plain track: no points, crossing, signal or end of the line under its nose (`pullUpExtra`, worked out once a
+visit). Where that isn't so (points close at both ends, a terminus), its tail stands on the points behind while it
+loads, as at a red signal: the one place it may be in another train's way.
 
 **The crane travels along the train.** Every wagon is served where it stands, the nearest with work first (each wagon
 done, unloading before loading, before the next, as today). The crane runs along its depot to the next wagon at
@@ -52,15 +57,17 @@ wagon stands.
 
 ## How it's drawn
 
-The crane's frame travels: a gantry's legs and beam run along two rails (at its legs, over the yard's length), a jib's
-mast along one; the trolley, rope and hook as before. While a unit is moved the frame follows the hook along the
-depot, clamped to its rails (a wagon beyond them is reached for: the hook goes on to it); between moves it runs to the
-next wagon (the economy's `craneRun`: from, to and progress, through `craneMove`). The hook goes back empty from where it
-left the last unit to the next one's source as the move begins (it jumped there before). The frame is the crane's own
-mesh (one more draw per crane site; the rails are with the yard's static parts). Its motion asks for frames only as
-the trolley does today: while a crane is working, not paused, and its site's moving parts are in view (`cullTiles`);
-paused, nothing moves; zoomed out past the cull, nothing is drawn. A standing train, the crane idle (waiting for goods),
-asks for nothing.
+The crane's frame travels: a gantry's legs and beam run along two rails (at its legs), a jib's mast along one; the
+trolley, rope and hook as before. The rails run the stretch of the yard round the crane's home that the frame passes
+clear of everything standing there (the sawmill's shed and its posts, a building, an upgrade's machine): worked out
+from the yard's own static parts, once per kind of yard (`DepotView.railsOf`). While a unit is moved the frame follows
+the hook along the depot, clamped to its rails; a wagon beyond them is reached for, the rope slanting from the trolley
+on the beam. Between moves it runs to the next wagon (`craneMove`'s `run`: the run's progress, `phase` −1). The hook
+goes back empty from where it left the last unit to the next one's source as a move begins (it jumped there before).
+The frames are instanced, one mesh per part (gantry legs, beams; jib feet, masts, caps) for every depot: five draws
+in all, however many depots; the rails are with the yard's static parts. Its motion asks for frames only as the
+trolley does: while a crane is working, not paused, and its site's moving parts are in view; paused, nothing moves. A
+standing train, the crane idle (waiting for goods), asks for nothing; the frames are placed again only when one moved.
 
 ## Save compatibility
 
