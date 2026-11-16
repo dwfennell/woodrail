@@ -1214,6 +1214,11 @@ export class Sections {
     return !!t && t.bogies.every((b) => standing.has(b.pieceId)) && !t.bogies.some((b) => along.has(b.pieceId));
   }
 
+  /** Is train `u` standing with no move, waiting (along a chain of waits) on `engine`? */
+  private waitsHere(u: number, engine: number): boolean {
+    return this.standing(u) && this.waitsFor(u, engine);
+  }
+
   /** Is train `u` standing, with no move held? */
   private standing(u: number): boolean {
     if (this.states.get(u)?.move) return false;
@@ -2347,6 +2352,10 @@ export class Sections {
       if (u === engine) continue;
       // (Standing in the section with no room (`heldIn`), off its way: not in it.)
       if (along && standing && this.offWay(u, along, standing)) continue;
+      // (Standing in the section off its way, waiting on it: not in its way (a user's map, 2026-11-16: Conker, turned
+      // in a line end too short for it, its front out in the junction past it, waiting on Dandelion; Dandelion waiting on
+      // it as the junction's user, though its way through it, one piece, was clear of Conker).)
+      if (along && this.waitsHere(u, engine) && !this.sim.findCar(u)?.train.bogies.some((b) => along.has(b.pieceId))) continue;
       if (along && this.follows(info, engine, u) && this.sameWayAhead(u, along)) continue;
       if (along && info.loose.includes(u) && this.clearOfCircling(u, along)) continue;
       // (Coming out of a dead end: a train standing outside, waiting to go in, isn't in its way unless it stands on its
@@ -2393,7 +2402,7 @@ export class Sections {
     // (Trains on no line about: those in it going its way ahead of it, it may follow (`follows`).)
     let along: Map<number, number> | undefined;
     let ahead: Way | null = null;
-    if (u !== -1 && !short && (this.mayFollow(info, st.engine, u) || this.comingOut(st.engine) || !info.users.includes(u))) {
+    if (u !== -1 && !short && (this.mayFollow(info, st.engine, u) || this.comingOut(st.engine) || !info.users.includes(u) || this.waitsHere(u, st.engine))) {
       ahead = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
       if (ahead && ahead.dest !== DEAD_END) {
         along = this.alongOf(ahead.steps, topo);
