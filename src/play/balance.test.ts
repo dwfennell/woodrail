@@ -3163,6 +3163,14 @@ class Playthrough {
     expect.soft(researched, `researched by 180 at least main's ${floor}`).toBeGreaterThanOrEqual(floor);
     expect.soft(city, `City at minute ${CITY_BAND[0]} or later`).toBeGreaterThanOrEqual(CITY_BAND[0]);
     expect.soft(city, `City by minute ${CITY_BAND[1]}`).toBeLessThanOrEqual(CITY_BAND[1]);
+    // (Load in place, 2026-11-16, spec docs/superpowers/specs/2026-11-16-load-in-place.md: on 0-200 this band misses 7
+    // seeds that main (8b2e339) passes, 71, 91, 106, 141, 176, 187, 195, all at 47.6-47.8 min, and every one this
+    // player's one goods train on an 18-20 stop line (the plank famine the stall band exempts), two towns at 14/14
+    // planks waiting for flour. It's that line's delivery mix, not the game carrying less: on seed 91 the train's time
+    // in yards is the same as main's (52.5 against 52.9 min, 352 visits against 349) but its wagons are worked at towns
+    // 69 times against 105, at the school 40 against 13, the workshop 22 against 4 (sawmill 152/156, forest 67/75,
+    // mill 55/51, farm 21/19); main's one stray plank delivery mid-famine splits its gap in two. On a fixed line
+    // (load-in-place.test.ts) a train carries at least main's goods with 1-5 flatbeds.)
     expect.soft(gap, "no planks into a town for 45 min").toBeLessThan(45);
     const famine = P.plankFamine();
     if (!famine) expect.soft(stall, "no research stall over 15 min").toBeLessThanOrEqual(15);
