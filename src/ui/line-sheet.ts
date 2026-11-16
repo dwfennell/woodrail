@@ -445,7 +445,7 @@ export class LineSheet {
     // (Reordering is the grip's (and ← → with a keyboard); Remove stop a stamp at the end of the row, after a word on
     // passing by. Critique 2026-11-16: ↑ ↓ and Take off fell below the sheet's foot on a phone.)
     const acts = el("div", "ls-acts");
-    acts.append(el("div", "ls-note", st.canPass ? "Take both pegs out: it passes by" : "A stop must drop or pick up"));
+    acts.append(el("div", "ls-note", st.canPass ? "Take both pegs out: it passes by" : "A stop must drop or pick up: pass by needs 3 stops"));
     acts.append(this.button("Remove stop", "ls-remove route-remove", "Take this stop off the line", () => this.h.remove(k)));
     opts.append(acts);
     li.append(opts);

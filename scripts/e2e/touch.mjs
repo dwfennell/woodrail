@@ -4720,6 +4720,9 @@ async function routeReorder(ctx, p) {
     await tapOn({ engine: setup.engine });
     await tapButton(".engine-extra .route-plan");
     await p.waitForSelector(".line-sheet:not([hidden]) .ls-stop", { timeout: 15000 });
+    // (The sheet slides up as it opens: its rows measured once it's still.)
+    await p.waitForTimeout(700);
+    await frames(p);
   };
   /** Stop `from`'s grip held and dragged to the top of stop `to`'s row; `mid` runs before it lifts. */
   const dragRow = async (from, to, mid) => {

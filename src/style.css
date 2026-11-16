@@ -2009,6 +2009,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-stop.open .ls-goods { display: none; }
 .line-sheet:has(.ls-stop.open) { max-height: min(64vh, 560px); }
 @media (min-width: 900px) and (min-height: 600px) { .line-sheet:has(.ls-stop.open) { max-height: none; } }
+@media (orientation: landscape) and (max-height: 500px) { .line-sheet:has(.ls-stop.open) { max-height: calc(100vh - 80px); } }
 /* Take off: a destructive ask, stamped in red (as Remove on a train card). */
 .line-sheet .chip.ls-remove, .line-sheet .chip.ls-via-remove { color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
 .ls-via { min-height: 40px; }
