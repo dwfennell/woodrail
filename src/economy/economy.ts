@@ -2739,7 +2739,8 @@ export class Economy {
     s.still = train.speed === 0 ? s.still + 1 : 0;
     if (s.extra < 0) s.extra = train.bogies[0].pieceId === d.pieceId ? this.pullUpExtra(train, d) : 0;
     const room = this.pullUpRoom(train, d);
-    if (room <= AT_CRANE) {
+    // (There, or up against the line's end just past it: `endPast`.)
+    if (room <= AT_CRANE || train.turnback >= 0) {
       s.stood = true;
       return this.halt(s, train, d);
     }
@@ -2785,6 +2786,12 @@ export class Economy {
    * Asked once a visit. (Spec: docs/superpowers/specs/2026-11-16-load-in-place.md, "Too long for the depot".)
    */
   private pullUpExtra(train: Train, d: DepotState): number {
+    // The line's end just past the depot (a terminus): it pulls up to it, so it turns back while it's worked, as it did
+    // creeping under the crane (stopping short, it ran on to the end after, waited and came back: 5 s a round trip).
+    const end = this.endPast(train, d);
+    // (Its front axle a little into it, so it runs up against the end (as the sim stops a train: by its front axle)
+    // and its wait to turn back begins as it stops.)
+    if (end >= 0) return end + STOP_SHORT + CAR_SPECS[train.cars[0].kind].bogieInset + 2;
     const front = train.bogies[0];
     const len = this.depotLength(d);
     let length = 0;
@@ -2821,6 +2828,33 @@ export class Economy {
       if (to < over + 2 && (out === -1 || layout.signalAt(connectorRef(pieceId, out)))) return (clear = false);
     });
     return clear && ended === ADV_OK ? need : 0;
+  }
+
+  /**
+   * How far past depot `d`'s far end (in this train's way) the line ends (a buffer, or track that just stops), over plain
+   * track (no points, crossing or signal), within `END_REACH`; −1 if it doesn't.
+   */
+  private endPast(train: Train, d: DepotState): number {
+    const layout = this.layout;
+    const front = train.bogies[0];
+    const len = this.depotLength(d);
+    const piece = layout.getPiece(d.pieceId);
+    if (!piece) return -1;
+    const exit = pathExitConnector(getPieceDef(piece.type, piece.flipped), front.pathIndex, front.reversed);
+    if (exit === -1) return 0;
+    if (layout.signalAt(connectorRef(d.pieceId, exit))) return -1;
+    let plain = true;
+    let far = 0;
+    const ended = walkTrack(layout, { pieceId: d.pieceId, pathIndex: front.pathIndex, reversed: front.reversed, s: len }, END_REACH, (pieceId, path, reversed, _from, to) => {
+      if (pieceId === d.pieceId) return;
+      const p = layout.getPiece(pieceId)!;
+      const def = getPieceDef(p.type, p.flipped);
+      if (def.paths.length > 1 || def.signal) return (plain = false);
+      far = to;
+      const out = pathExitConnector(def, path, reversed);
+      if (out !== -1 && layout.signalAt(connectorRef(pieceId, out))) return (plain = false);
+    });
+    return plain && ended !== ADV_OK ? far : -1;
   }
 
   /** The speed a train may run in at to stop at its pull-up spot (as at a red signal), landing on it exactly. */
@@ -3667,6 +3701,8 @@ function cycleTicks(seconds: number, rate: number): number {
 /** A cursor's distance from its path's `from` end. */
 /** A train braking to wait at its stop (auto-spacing) stops this far (mm) short of the stop's far end. */
 const STOP_SHORT = 6;
+/** A line's end this near past a depot's far end: a train pulls up to it there (`endPast`). */
+const END_REACH = 300;
 
 /** `queuedBehind`'s answers. */
 const FREE = 0;

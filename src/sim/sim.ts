@@ -1745,10 +1745,11 @@ export class Sim {
       if (train.derailed) continue;
       // Riding a turning deck: held where it stands till the deck's there.
       if (this.rides.size > 0 && this.riding(train)) continue;
-      // Waiting at the end of the line beside a crane with work for it (a depot at the line's end): the wait holds
-      // until the crane's done (it's asked each tick, as when moving, so it can see the train has stopped).
+      // Waiting at the end of the line beside a crane with work for it (a depot at the line's end): it turns round only
+      // once the crane's done (it's asked each tick, as when moving, so it can see the train has stopped). Its wait
+      // counts down meanwhile (load in place: it stood there loading; the wait was held till the crane was done).
       const craneHolds = train.turnback >= 0 && this.speedCap !== null && this.speedCap(train) === 0;
-      if (train.turnback >= 0 && !craneHolds && --train.turnback < 0) {
+      if (train.turnback >= 0 && (train.turnback > 0 || !craneHolds) && --train.turnback < 0) {
         // Waited long enough at the end of the line: lift the train and turn it round, so it heads back out the way
         // it came, its engine leading as before.
         const turned = this.turnAround(train);

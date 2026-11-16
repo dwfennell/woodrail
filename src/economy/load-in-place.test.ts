@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CAR_SPECS, Sim, SIM_HZ, type CarKind, type Train } from "../sim";
-import { connectorRef, Layout, pieceOfRef } from "../track";
+import { appendPiece, connectorRef, getPieceDef, Layout, pieceOfRef, type PieceTypeId } from "../track";
 import { engineStatus } from "../game/engine-status";
 import { CARGO } from "./cargo";
 import { PILE_CAP } from "./constants";
@@ -255,4 +255,57 @@ describe("load in place: points behind the depot", () => {
     expect(r.standing.bogies[0].pieceId).toBe(r.mill);
     expect(r.said).toMatch(/^(Loading and unloading|Unloading) at the sawmill: too long for its yard, its tail is on the points$/);
   });
+});
+
+describe("load in place: goods carried on a fixed line, against creeping under the crane", () => {
+  const lay = (layout: Layout, ref: number, type: PieceTypeId): number => {
+    const end = layout.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+    return appendPiece(layout, type, false, ref, getPieceDef(type, false).connectors.findIndex((c) => c.kind !== end.kind));
+  };
+  const freeEnd = (layout: Layout, id: number) => [0, 1].map((k) => connectorRef(id, k)).find((r) => layout.joinedConnector(r) === -1)!;
+  const endAt = (layout: Layout, ref: number) => {
+    const end = layout.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+    lay(layout, end.kind === "peg" ? ref : freeEnd(layout, lay(layout, ref, "adapter-peg")), "buffer-turnback");
+  };
+  /**
+   * A forest, six straights, a sawmill, six straights and a town's station, a turnback past each end; a train of `n`
+   * flatbeds on the line forest → sawmill → town for 20 minutes, the forest always full and the sawmill taking all its
+   * logs (so the train's round trip sets the pace): logs it brought the sawmill.
+   */
+  const logsIn20 = (n: number) => {
+    const L = new Layout();
+    const types: PieceTypeId[] = ["depot-forest", ...Array<PieceTypeId>(6).fill("straight-216"), "depot-sawmill", ...Array<PieceTypeId>(6).fill("straight-216"), "station"];
+    const ids = [L.addPiece(types[0], { x: 0, z: 0, heading: 0 })];
+    for (const t of types.slice(1)) ids.push(lay(L, freeEnd(L, ids[ids.length - 1]), t));
+    endAt(L, freeEnd(L, ids[0]));
+    endAt(L, freeEnd(L, ids[ids.length - 1]));
+    const sim = new Sim(L);
+    const placed = sim.addTrain(["engine", ...Array<CarKind>(n).fill("timber")], { pieceId: ids[3], pathIndex: 0, reversed: false, s: 100 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const e = new Economy(L, sim);
+    const forest = e.addDepot("forest", ids[0]);
+    const mill = e.addDepot("sawmill", ids[7]);
+    const town = e.addDepot("town", ids[14], 0, 30);
+    const engine = sim.getTrain(placed.trainId)!.cars[0].id;
+    e.setRoute(engine, { stops: [forest, mill, town].map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
+    sim.setLever(engine, 1);
+    let logs = 0;
+    for (let i = 0; i < 20 * 60 * SIM_HZ; i++) {
+      forest.piles[CARGO.log.index] = PILE_CAP;
+      mill.piles[CARGO.log.index] = 0;
+      mill.piles[CARGO.planks.index] = PILE_CAP;
+      sim.tick();
+      e.tick();
+      for (const ev of e.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === mill.id) logs++;
+    }
+    return logs;
+  };
+
+  it("carries at least what it did creeping under the crane (main, 2026-11-16: 51, 135, 180 logs with 1, 3, 5 flatbeds)", () => {
+    // (It pulls up to the line's end at the forest and the town, turning back as it's worked; short of the end it ran
+    // on after and turned back then, 2 s a stop: the balance sweep's coins 12% down.)
+    expect(logsIn20(1)).toBeGreaterThanOrEqual(51);
+    expect(logsIn20(3)).toBeGreaterThanOrEqual(135);
+    expect(logsIn20(5)).toBeGreaterThanOrEqual(180);
+  }, 120_000);
 });
