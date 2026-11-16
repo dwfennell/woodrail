@@ -34,7 +34,14 @@ at the far end and the rest behind, on the track it came in on, as a train stopp
 rest on points or a crossing there (another train's way), it pulls on just far enough for the tail to clear them, but
 only over plain track: no points, crossing, signal or end of the line under its nose (`pullUpExtra`, worked out once a
 visit). Where that isn't so (points close at both ends, a terminus), its tail stands on the points behind while it
-loads, as at a red signal: the one place it may be in another train's way.
+loads, as at a red signal: the one place it may be in another train's way. Points are never a place to wait (the
+user's rule), so this is said: its engine card reads "Loading at the sawmill: too long for its yard, its tail is on the
+points", and the depot's card "A train too long for this yard stands on the points as it loads: lay track between the
+yard and the points" while one does (`Economy.standsOnPoints`, `pointsAt`; found once as it halts). Counted on
+2026-11-16 (600 s replays of the user's four maps, and the goals play-through to minute 175): standing at stops with
+an axle on points, 309 s on the user's maps and 0 s in the play-through, against main's 347 s and 122 s; on the
+user's maps all but a handful at the starter map's sawmill, which has a switch joined to one end and the user's
+signal on the other (no spot clears both).
 
 **The crane travels along the train.** Every wagon is served where it stands, the nearest with work first (each wagon
 done, unloading before loading, before the next, as today). The crane runs along its depot to the next wagon at

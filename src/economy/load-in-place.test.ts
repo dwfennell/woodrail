@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CAR_SPECS, Sim, SIM_HZ, type CarKind, type Train } from "../sim";
-import { Layout } from "../track";
+import { connectorRef, Layout, pieceOfRef } from "../track";
+import { engineStatus } from "../game/engine-status";
 import { CARGO } from "./cargo";
 import { PILE_CAP } from "./constants";
 import { Economy, type DepotRole } from "./economy";
@@ -192,5 +193,66 @@ describe("load in place", () => {
     // Its last stop (where it was served) is its pull-up spot by the far end.
     secondStandsAt = secondStandsAt.slice(-1);
     expect(Math.abs(secondStandsAt[0] - (w.far - 6))).toBeLessThan(2);
+  });
+});
+
+describe("load in place: points behind the depot", () => {
+  /**
+   * Straights, a switch (its straight road along +x), a sawmill, then `after` along +x (a signal on the sawmill's far
+   * joint, or not): a train of an engine and three flatbeds of logs (much longer than the sawmill) comes in over the switch.
+   */
+  function pointsBehind(signal: boolean) {
+    const layout = new Layout();
+    const ids: number[] = [];
+    let x = 0;
+    for (let i = 0; i < 4; i++, x += P) ids.push(layout.addPiece("straight-216", { x, z: 0, heading: 0 }));
+    const sw = layout.addPiece("switch", { x, z: 0, heading: 0 });
+    const swEnd = [0, 1, 2].map((c) => layout.worldConnector(connectorRef(sw, c), { x: 0, z: 0, heading: 0, y: 0, kind: "peg" })).reduce((a, b) => (b.x > a.x && Math.abs(b.z) < 1 ? b : a));
+    const mill = layout.addPiece("depot-sawmill", { x: swEnd.x, z: 0, heading: 0 });
+    for (let i = 0; i < 4; i++) layout.addPiece("straight-216", { x: swEnd.x + P * (i + 1), z: 0, heading: 0 });
+    const far = [0, 1].find((c) => layout.worldConnector(connectorRef(mill, c), { x: 0, z: 0, heading: 0, y: 0, kind: "peg" }).x > swEnd.x + 100)!;
+    expect(layout.joinedConnector(connectorRef(mill, far))).not.toBe(-1);
+    expect([0, 1].some((c) => pieceOfRef(layout.joinedConnector(connectorRef(mill, c))) === sw)).toBe(true);
+    if (signal) expect(layout.addSignal(connectorRef(mill, far))).toBeGreaterThanOrEqual(0);
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine", "timber", "timber", "timber"], { pieceId: ids[2], pathIndex: 0, reversed: false, s: 150 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    const depot = economy.addDepot("sawmill", mill, 0);
+    const train = () => sim.getTrain([...sim.trainIds()][0])!;
+    const engine = train().cars[0].id;
+    sim.setLever(engine, 1);
+    const wagons = train().cars.slice(1).map((c) => c.id);
+    for (const id of wagons) economy.setCargo(id, "log", 3);
+    let flagged = false;
+    let said = "";
+    let standing: Train | null = null;
+    for (let i = 0; i < 60 * SIM_HZ && wagons.some((id) => economy.cargoOf(id).count > 0); i++) {
+      sim.tick();
+      economy.tick();
+      if (economy.servicedCar(depot.id) !== -1) {
+        standing = train();
+        if (economy.standsOnPoints(train().id)) flagged = true;
+        said = engineStatus(sim, economy, engine, () => "the sawmill");
+      }
+    }
+    return { layout, sw, mill, flagged, said, standing: standing!, unloaded: wagons.every((id) => economy.cargoOf(id).count === 0), economy, depot };
+  }
+
+  it("with plain track past the depot it pulls on till its tail is clear of the points behind", () => {
+    const r = pointsBehind(false);
+    expect(r.unloaded).toBe(true);
+    expect(r.flagged).toBe(false);
+    expect(r.standing.bogies.some((b) => b.pieceId === r.sw)).toBe(false);
+    expect(r.said).not.toMatch(/points/);
+  });
+
+  it("with a signal at the depot's far end there's no such spot: it loads standing on the points, and its card says why", () => {
+    const r = pointsBehind(true);
+    expect(r.unloaded).toBe(true);
+    expect(r.flagged).toBe(true);
+    // Its nose not past the signal.
+    expect(r.standing.bogies[0].pieceId).toBe(r.mill);
+    expect(r.said).toMatch(/^(Loading and unloading|Unloading) at the sawmill: too long for its yard, its tail is on the points$/);
   });
 });

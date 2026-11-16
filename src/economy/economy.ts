@@ -67,6 +67,11 @@ interface Service {
    * worked out once a visit, as its nose first runs onto the depot (−1: not yet).
    */
   extra: number;
+  /**
+   * Standing for the crane with some of it on points or a crossing: no spot there clears them (the depot too short for
+   * it, a signal or points just past its far end). Found as it halts; it doesn't move till it goes. Said on its card.
+   */
+  onPoints?: boolean;
   /** Cars already served (or sent on) during this visit. */
   readonly done: Set<number>;
   /** Has it halted at the depot this visit (a "halted" station event said so, and a "left" one is owed)? */
@@ -2845,6 +2850,52 @@ export class Economy {
     return along(b, len) - (b.reversed ? -1 : 1) * (atC - atK);
   }
 
+  /**
+   * Is any of this train (its cars' bodies, end to end) over points or a crossing (a piece where ways meet)? A walk over
+   * the pieces under it; asked once as it halts.
+   */
+  private overPoints(train: Train): boolean {
+    const layout = this.layout;
+    const meets = (pieceId: number) => {
+      const p = layout.getPiece(pieceId);
+      return !!p && getPieceDef(p.type, p.flipped).paths.length > 1;
+    };
+    for (const b of train.bogies) if (meets(b.pieceId)) return true;
+    // The overhang past each end axle.
+    const first = train.bogies[0];
+    const last = train.bogies[train.bogies.length - 1];
+    const lp = layout.getPiece(last.pieceId);
+    const ends: [Cursor, number][] = [[first, CAR_SPECS[train.cars[0].kind].bogieInset]];
+    if (lp) {
+      const len = pathLength(getPieceDef(lp.type, lp.flipped).paths[last.pathIndex].geom);
+      ends.push([{ pieceId: last.pieceId, pathIndex: last.pathIndex, reversed: !last.reversed, s: len - last.s }, CAR_SPECS[train.cars[train.cars.length - 1].kind].bogieInset]);
+    }
+    for (const [c, over] of ends) {
+      let hit = false;
+      walkTrack(layout, c, over, (pieceId) => {
+        if (pieceId !== c.pieceId && meets(pieceId)) hit = true;
+        return !hit;
+      });
+      if (hit) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The depot where this train stands for the crane with some of it on points or a crossing (no spot there clears
+   * them: the depot is too short for it), or null. Its card says so.
+   */
+  standsOnPoints(trainId: number): DepotState | null {
+    const s = this.services.get(trainId);
+    return s && s.phase === HALTED && s.onPoints && s.depot ? s.depot : null;
+  }
+
+  /** Is a train standing for the crane at this depot with some of it on points or a crossing (`standsOnPoints`)? */
+  pointsAt(depotId: number): boolean {
+    for (const s of this.services.values()) if (s.phase === HALTED && s.onPoints && s.depotId === depotId) return true;
+    return false;
+  }
+
   /** The next wagon for the crane at this standing train: the nearest the crane with work (not done this visit), or −1. */
   private nextCar(s: Service, train: Train, d: DepotState): number {
     const at = this.craneAtNow.get(d.id) ?? d.craneAt;
@@ -2925,6 +2976,7 @@ export class Economy {
       s.carId = -1;
       s.ticks = 0;
       s.run = -1;
+      s.onPoints = this.overPoints(train);
     }
     s.turnAt ??= this.ticksRun;
     if (!s.halted) {

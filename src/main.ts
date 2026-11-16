@@ -3857,6 +3857,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.depotExtra.append(box);
   }
 
+  // ---- load in place: a train standing on points as it loads (no spot at this depot clears them), said on the card ---
+  // docs/superpowers/specs/2026-11-16-load-in-place.md. A row of its own, put back if another row cleared it; written
+  // only when it changes (a look at the depot's trains each frame while its card is open).
+  let pointsShown = -1;
+  let pointsRow: HTMLElement | null = null;
+  function showOnPoints(): void {
+    const id = interaction.openDepotId;
+    const on = id !== -1 && game.economy.pointsAt(id);
+    if (!on) {
+      pointsRow?.remove();
+      pointsRow = null;
+      pointsShown = -1;
+      return;
+    }
+    if (pointsShown === id && pointsRow?.isConnected) return;
+    pointsShown = id;
+    pointsRow?.remove();
+    const row = (pointsRow = document.createElement("div"));
+    row.className = "station-waiting depot-on-points";
+    row.textContent = "A train too long for this yard stands on the points as it loads: lay track between the yard and the points";
+    hud.depotExtra.hidden = false;
+    hud.depotExtra.append(row);
+  }
+
   /** Put goods back on the first workshop's piles (an upgrade undone). */
   function giveToWorkshops(bag: Partial<Record<CargoKind, number>>): void {
     const shop = workshops(game.world)[0];
@@ -7280,6 +7304,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showTracks();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
+    showOnPoints();
     // Goals after the towns: a delivery that grows a town is announced (with its tick folded in) before the poll could
     // see the new size and tick it on its own.
     if (now - goalsCheckedAt > 1000) {
