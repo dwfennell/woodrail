@@ -4,10 +4,11 @@
 //  2. Leave line: the train is off the line and hand-run, its toast says so (and Undo); it stands where it is, not
 //     on points; the line is kept, its other train still on it and still running. The card now offers Run a line….
 //  3. Undo puts it back on the line; Redo takes it off again.
-//  4. The line sheet (☰ Lines, the line): the second train's row on its spine, Take off line; the Lines list says No trains.
-//  5. The first train put back on the line from its card (Run a line…, the line), Go: it carries logs to the sawmill
-//     again (the payoff).
-//  6. 0 frames drawn idle with the card open, paused; a reload keeps the line and which train runs it; no page errors.
+//  4. The line sheet (☰ Lines, the line): the second train's row on its spine, Take off line; the Lines list says No trains;
+//     a reload keeps the line with no train, both trains hand-run.
+//  5. Both put back on the line from their cards (Run a line…, the line, Go), the second first (one loop, no passing
+//     place: a train left standing is in the other's way); they carry logs to the sawmill again (the payoff).
+//  6. 0 frames drawn idle with the card open, paused; a reload keeps the line and both trains on it; no page errors.
 // Pictures in the out dir (off-line-*.jpg; the cards: docs/agents/shots/off-line-*.jpg). Starts its own dev server.
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -164,6 +165,16 @@ const trainState = (engine) =>
 // goods trains on it running one line (harness shortcuts, as e2e:routes-ux's: what's tested is taking a train off).
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+/** Save, reload the page and start the game again (its save opened as Continue). */
+const reload = async () => {
+  await p.evaluate(() => window.woodrail.saveNow?.());
+  await p.waitForTimeout(2500);
+  await p.reload();
+  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+  await start();
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  await settle();
+};
 const start = () => p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
 await start();
 await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
@@ -297,8 +308,26 @@ await shot("4-lines-no-trains");
 await p.keyboard.press("Escape");
 await p.evaluate(() => document.querySelector(".lines-view:not([hidden]) .lines-close, .lines-view:not([hidden]) .close")?.click());
 await p.waitForTimeout(400);
+// (Kept after a reload: the line, run by no train now, and both trains hand-run where they stood.)
+await reload();
+const kept = await p.evaluate(({ first, second }) => {
+  const w = window.woodrail;
+  return { lines: [...w.economy.lines.values()].map((l) => l.name), handRun: [first, second].map((e) => !!w.sim.findCar(e) && !w.economy.lineIdOf.has(e)) };
+}, { first, second });
+check("4. after a reload: the line kept with no train, both trains hand-run", kept.lines.length === 1 && kept.lines[0] === setup.lineName && kept.handRun.every(Boolean), JSON.stringify(kept));
 
 // ---- 5. Back on the line from the card, and it delivers ----------------------------------------------------------
+// (Both trains stand on the oval, one loop with no passing place: whichever stands still is in the other's way, as
+// the card says ("the train parked by … is in the way"). A player puts it back to work: the second train first, from
+// its own card, so the first, put back after it, runs the line with it and the payoff doesn't hang on where they
+// happened to stand. The test used to leave the second standing: the first then delivered only when it stood behind.)
+check("5. the second train's card opens", await tapEngine(second));
+await tap(".engine-card:not([hidden]) .route-join-open");
+await tap(".engine-card:not([hidden]) .route-join-line", setup.lineName);
+if ((await trainState(second))?.lever === 0) await tap(".engine-card:not([hidden]) .chip.go");
+const secondBack = await trainState(second);
+check("5. …Run a line…, the line, Go: it runs it again", secondBack?.line === setup.line && secondBack.routed && secondBack.lever !== 0, JSON.stringify(secondBack));
+await tap(".engine-card:not([hidden]) .close");
 check("5. the first train's card opens again", await tapEngine(first));
 await tap(".engine-card:not([hidden]) .route-join-open");
 await tap(".engine-card:not([hidden]) .route-join-line", setup.lineName);
@@ -323,19 +352,13 @@ const idle = await p.evaluate(async (e) => {
   return { n, open: w.hud.engineCardOpen };
 }, first);
 check("6. 0 frames drawn idle with the card open, paused", idle.n === 0, JSON.stringify(idle));
-await p.evaluate(() => window.woodrail.saveNow?.());
-await p.waitForTimeout(2500);
-await p.reload();
-await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await start();
-await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-await settle();
+await reload();
 const back = await p.evaluate(() => {
   const w = window.woodrail;
   const engines = w.sim.trainIds().map((id) => w.sim.getTrain(id).cars[0].id);
-  return { lines: [...w.economy.lines.values()].map((l) => l.name), onLine: engines.filter((e) => w.economy.lineIdOf.has(e)).length, handRun: engines.filter((e) => !w.economy.lineIdOf.has(e)).length };
+  return { lines: [...w.economy.lines.values()].map((l) => l.name), onLine: engines.filter((e) => w.economy.lineIdOf.has(e)).length };
 });
-check("6. after a reload: the line, one train on it, the other hand-run", back.lines.length === 1 && back.lines[0] === setup.lineName && back.onLine === 1 && back.handRun >= 1, JSON.stringify(back));
+check("6. after a reload: the line, both trains on it again", back.lines.length === 1 && back.lines[0] === setup.lineName && back.onLine === 2, JSON.stringify(back));
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 await b.close();
 await server.close();
