@@ -184,7 +184,9 @@ export class LinesView {
     meta.className = "lines-meta";
     const trains = document.createElement("span");
     trains.className = "lines-trains";
+    // (No trains: the stamp beside it says so; a 🚂 0 said it twice. Final critique 2026-11-16.)
     trains.textContent = `🚂 ${r.trains}`;
+    trains.hidden = r.trains === 0;
     trains.setAttribute("aria-label", `${r.trains} ${r.trains === 1 ? "train" : "trains"}`);
     meta.append(trains);
     if (r.carries) {

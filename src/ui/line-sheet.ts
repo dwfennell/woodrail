@@ -78,6 +78,8 @@ export interface SheetModel {
   /** Under the stops: what a tap on the map does now. */
   hint: string;
   warnings: string[];
+  /** Plain words under the stops, not a warning ("Changes the line for all 2 of its trains"). */
+  notes: string[];
   /** "+ Pass by…" asked: the next track tapped is passed by. */
   viaAsked: boolean;
   /** A + between stops tapped: the next place tapped goes in here (an index into the stops), or −1. */
@@ -369,6 +371,7 @@ export class LineSheet {
       via.setAttribute("aria-pressed", String(m.viaAsked));
       foot.append(hint, via);
     }
+    for (const n of m.notes) body.append(el("div", "ls-note", n));
     for (const w of m.warnings) body.append(el("div", "ls-note warn", w));
     if (m.added) {
       const added = el("div", "ls-added");
