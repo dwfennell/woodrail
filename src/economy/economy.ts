@@ -1342,6 +1342,24 @@ export class Economy {
     const c = this.cargoOf(carId);
     const out = { kind: c.kind!, count: c.count };
     this.setCargo(carId, null, 0);
+    // Beside a depot, the wagon's done there this visit (as Continue and Leave now do for a whole train): tipped out by
+    // hand at a yard that gives the goods, the crane doesn't load it again as the train sets off (e2e:train-summary:
+    // logs deleted in the forest yard, Go, and the crane put logs back on). Its next visit there works it as ever.
+    const d = this.depotUnder(train);
+    if (d) {
+      const s = this.service(train.id);
+      if (s.depot !== d) {
+        this.endVisit(s);
+        s.depotId = d.id;
+        s.depot = d;
+      }
+      s.done.add(carId);
+      if (s.phase === HALTED && s.carId === carId) {
+        this.letCraneGo(s);
+        s.phase = CRAWLING;
+        s.ticks = 0;
+      }
+    }
     const p = this.passes.get(train.id);
     const i = CARGO[out.kind].index;
     if (p && p.loaded[i] >= 0) {
