@@ -12,7 +12,6 @@ import { kitModelKey } from "./props/library";
 import type { Materials } from "./materials";
 import { SEMAPHORE_CLEAR } from "./kit-motions";
 
-const POST_H = 46;
 
 /** What the view reads of the sim: each mark's aspect (true: clear). */
 export interface MarkAspects {
@@ -28,14 +27,20 @@ const PIECE_LENGTH = 144;
 /** The toy colour light: where its post stands in the piece's frame (the driver's right: `standAt`'s), and how tall it is. */
 const TOY_SIDE = POST_SIDE;
 const TOY_BACK = POST_BACK;
-const TOY_HEIGHT = 54;
+/**
+ * Toy scale, a level crossing's height (the user: signals "kind of overwhelm the ui", a forest of tall black posts on a
+ * busy map): 40 mm, below an engine's chimney, where it was 54 with a head half as big again.
+ */
+const TOY_HEIGHT = 40;
 /** Its head: deep (along the track), tall and wide; its lamps' radius and heights. */
-const HEAD_D = 7;
-const HEAD_H = 22;
-const HEAD_W = 11;
-const LENS_R = 3.6;
-const RED_Y = TOY_HEIGHT - 6;
-const GREEN_Y = TOY_HEIGHT - 16;
+const HEAD_D = 6;
+const HEAD_H = 16;
+const HEAD_W = 9;
+const LENS_R = 2.9;
+const RED_Y = TOY_HEIGHT - 4.5;
+const GREEN_Y = TOY_HEIGHT - 11.5;
+/** The head's colour: a dark stained wood, as the toys' (it was near black, which read as a hole in the felt). */
+export const SIGNAL_HEAD = "#5e4636";
 /** The lenses lean back this far (rad) toward the sky, so a camera above sees into them (signals audit U1). */
 const LENS_TILT = Math.PI / 6;
 /**
@@ -45,9 +50,9 @@ const LENS_TILT = Math.PI / 6;
  * the track, not before the post along it, where on a curve it went under the track. Part of the lit lamp's geometry.
  */
 const CHEVRON_L = 12;
-const CHEVRON_W = 13;
-const CHEVRON_TIP = 7;
-const CHEVRON_OUT = 15;
+const CHEVRON_W = 11;
+const CHEVRON_TIP = 6;
+const CHEVRON_OUT = 10;
 
 /** A flat arrowhead pointing +x (a filled wedge, notched at its back: a V read as a tick), its tip at x = 0, lying on the ground. */
 function chevron(): BufferGeometry {
@@ -167,9 +172,9 @@ function toyLight(mats: Materials): Part[] {
   };
   const headX = -HEAD_D / 2;
   return [
-    fixed(new CylinderGeometry(5, 6, 3, 16).translate(0, 1.5, 0), mats.naturalWood),
-    fixed(new CylinderGeometry(1.8, 2, TOY_HEIGHT - HEAD_H, 10).translate(0, (TOY_HEIGHT - HEAD_H) / 2, 0), mats.lacquer("#f6f1e6")),
-    fixed(new BoxGeometry(HEAD_D, HEAD_H, HEAD_W).translate(0, TOY_HEIGHT - HEAD_H / 2, 0), mats.lacquer("#2e2a27")),
+    fixed(new CylinderGeometry(4, 4.6, 2.5, 16).translate(0, 1.25, 0), mats.naturalWood),
+    fixed(new CylinderGeometry(1.3, 1.5, TOY_HEIGHT - HEAD_H, 10).translate(0, (TOY_HEIGHT - HEAD_H) / 2, 0), mats.lacquer("#f6f1e6")),
+    fixed(new BoxGeometry(HEAD_D, HEAD_H, HEAD_W).translate(0, TOY_HEIGHT - HEAD_H / 2, 0), mats.lacquer(SIGNAL_HEAD)),
     fixed(lens(LENS_R, RED_Y, headX - 0.4), mats.lacquer("#5b1d16"), false),
     fixed(lens(LENS_R, GREEN_Y, headX - 0.4), mats.lacquer("#1b4424"), false),
     lit(lamp(RED_Y), LIT_RED, "red"),
@@ -437,7 +442,7 @@ export class SignalMarksView {
     const v = new Vector3();
     for (const s of this.shown) {
       for (const h of [0, 0.5, 1]) {
-        v.set(s.top.x, s.top.y - POST_H * (1 - h), s.top.z).project(camera);
+        v.set(s.top.x, s.top.y - TOY_HEIGHT * (1 - h), s.top.z).project(camera);
         if (v.z > 1) continue;
         const d = Math.hypot((v.x * 0.5 + 0.5) * width - x, (-v.y * 0.5 + 0.5) * height - y);
         if (d < bestD) {

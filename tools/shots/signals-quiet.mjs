@@ -4,7 +4,8 @@
 // zoomed out. Setup only: the pieces laid by the editor where `placement` allows, the signals by `addSignals` on every
 // joint end with room (as the Signal tool would put them), the camera placed by the director, the game paused.
 //
-// Usage: node tools/shots/signals-quiet.mjs [<out dir>] [<prefix>]   (default out: docs/agents/shots, prefix signals-quiet)
+// Usage: node tools/shots/signals-quiet.mjs [<out dir>] [<prefix>]   (default out: docs/agents/shots, prefix signals-quiet;
+// THETAS=a,b,… takes the close-up from each of those camera angles)
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
@@ -37,9 +38,10 @@ const look = async (at, dist, phi, theta) => {
 };
 
 try {
-  await p.goto(PAGE);
-  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => !b.hidden && b.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="flat"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
+  // (A linked map, the same each run, so the before and after pictures frame the same place: flat, no water.)
+  await p.goto(`${PAGE}#seed-4242-flat-water-none-nocoast`);
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && (window.woodrail.title?.shown || !!document.querySelector("#loading.done")), null, { timeout: 240000 });
+  await p.evaluate(() => window.woodrail.title?.shown && [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => !b.hidden && b.classList.contains("primary"))?.click());
   await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
   await p.keyboard.press("Escape");
   const built = await p.evaluate(async () => {
@@ -94,6 +96,8 @@ try {
           const mod = await import("/src/game/signal-place.ts");
           const room = mod.hasRoom ? (e) => mod.hasRoom(w.layout, e) : () => true;
           w.editor().addSignals(ends.filter((e) => !w.layout.signalAt(e) && room(e)));
+          // (Every third held red, to see both aspects.)
+          [...w.layout.signals()].forEach((m, i) => i % 3 === 0 && w.sim.setMarkMode(m.id, "red"));
           w.paused = true;
           w.invalidate();
           const x0 = c(xs[0], 1);
@@ -111,8 +115,10 @@ try {
   console.log(JSON.stringify(built));
   if (built.error) throw new Error(built.error);
   // The close-up at the first crossover's far end (the user's picture), the line at a phone's zoom, zoomed out.
-  await look(built.crossover, 560, 0.95, 0.9);
-  await shot("1-crossover");
+  for (const th of (process.env.THETAS ?? "-2.2").split(",").map(Number)) {
+    await look(built.crossover, 560, 0.95, th);
+    await shot(process.env.THETAS ? `1-crossover-${th}` : "1-crossover");
+  }
   await look(built.mid, 1600, 0.7, 0.6);
   await shot("2-phone");
   await look(built.mid, 3400, 0.6, 0.6);
