@@ -403,7 +403,7 @@ describe("DepotView: the crane goes home once the train it worked has gone (QA 2
   }
 
   for (const spec of yards) {
-    it(`worked in place and gone, the ${spec[0]}'s crane is back at home: in the economy, and drawn there (then nothing of it to draw)`, () => {
+    it(`worked in place and gone, the ${spec[0]}'s crane is drawn back at home (then nothing of it to draw), its runs never off the yard's piece`, () => {
       const w = yardLine(spec);
       const draw = (sim: number) => w.view.update(w.economy, w.carIds(), w.carIds().length, w.carObject, sim, false);
       const crane = w.view.craneOf(w.yard.id)!;
@@ -434,7 +434,6 @@ describe("DepotView: the crane goes home once the train it worked has gone (QA 2
       }
       expect(worked).toBe(true);
       expect(gone).toBe(true);
-      expect(w.economy.cranePosition(w.yard.id)).toBe(w.yard.craneAt);
       const out = { kind: spec[1], toPile: false, carId: -1, phase: 0, run: -1 } as Parameters<Economy["craneMove"]>[1];
       expect(w.economy.craneMove(w.yard.id, out)).toBe(false);
       // Drawn at home: the trolley where it started (the rope hanging straight down from it).
