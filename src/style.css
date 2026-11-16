@@ -1663,10 +1663,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-chip { padding-inline: 8px; }
 /* The card's line, read only (lines UI redesign 2026-11-16): numbered pegs on a painted line, the train between the
    stop it left and the one it's going to; a peg tapped opens the sheet at that stop. */
-.route-mini { position: relative; display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 2px; overflow-x: auto; scrollbar-width: none; }
+.route-mini { position: relative; display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 2px; overflow-x: auto; scrollbar-width: none; }
 .route-mini::-webkit-scrollbar { display: none; }
 .route-mini::before { content: ""; position: absolute; left: 24px; right: 24px; top: calc(50% - 3px); height: 6px; background: var(--line, #888); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
-.route-mini > .route-chip { position: relative; z-index: 1; flex: 0 0 44px; width: 44px; min-width: 44px; height: 44px; padding: 0; border-radius: 50%; background: transparent; box-shadow: none; display: grid; place-items: center; }
+/* (46 px: the card is drawn at 0.96 on a phone, and a peg must stay a finger's 44.) */
+.route-mini > .route-chip { position: relative; z-index: 1; flex: 0 0 46px; width: 46px; min-width: 46px; height: 46px; padding: 0; border-radius: 50%; background: transparent; box-shadow: none; display: grid; place-items: center; }
 .route-mini > .route-chip:active { transform: none; box-shadow: none; }
 .route-mini .route-num { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-weight: 400; font-size: 14px; line-height: 1; box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); }
 .route-mini .route-chip.next .route-num { color: #fff; background: var(--sheen), var(--line, #888); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
