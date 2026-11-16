@@ -128,7 +128,7 @@ import { renderThumbnails, renderThumbnailsAsync, ThumbnailStudio, type Thumbnai
 import { loadCached, saveCached } from "./render/piece-cache";
 import { forgetTextureCache, texturesMade, useTextureCache } from "./render/textures";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Ignore, type Layout, type PieceTypeId, type Pose } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, pieceOfRef, PIECE_TYPES, type Ignore, type Layout, type PieceTypeId, type Pose } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { installSwipeGuard } from "./ui/swipe-guard";
@@ -4022,12 +4022,49 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let tracksShown = "";
   let tracksRow: HTMLElement | null = null;
   const tracksCheck = (t: PieceTypeId, f: boolean, pose: Pose, y: number, ignore: Ignore) => interaction.placeWhyIgnoring(t, f, pose, y, ignore);
+  /**
+   * A further track not joined to the line yet, lit on the map while the card's open (its own ribbon, built when the
+   * card's key changes: nothing per frame), gone with the card.
+   */
+  let tracksView: RouteView | null = null;
+  let tracksLit = false;
+  function lightTracks(ids: readonly number[]): void {
+    if (ids.length === 0) {
+      if (tracksLit) {
+        tracksView?.clear();
+        if (tracksView) tracksView.group.userData.colours = [];
+        tracksLit = false;
+        game.redraw();
+      }
+      return;
+    }
+    if (!tracksView || tracksView.layoutOf !== game.layout) {
+      if (tracksView) {
+        game.scene.remove(tracksView.group);
+        tracksView.dispose();
+      }
+      tracksView = new RouteView(game.layout, game.mats);
+      tracksView.group.name = "depot-tracks-unjoined";
+      game.scene.add(tracksView.group);
+    }
+    const runs = ids.flatMap((pieceId) => {
+      const p = game.layout.getPiece(pieceId);
+      return p ? [{ pieceId, pathIndex: 0, s0: 0, s1: pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) }] : [];
+    });
+    const ribbons: RibbonSpec[] = [{ runs, colour: "#c27a22" }];
+    tracksView.show(ribbons, []);
+    // (For the e2e: what's lit.)
+    tracksView.group.userData.colours = ribbons.map((r) => r.colour);
+    tracksLit = true;
+    game.redraw();
+  }
   function showTracks(): void {
     const id = mode === "game" ? interaction.openDepotId : -1;
     const d = id === -1 ? undefined : game.economy.liveDepot(id);
     if (!d || !TRACK_ROLES.has(d.role) || !progress.learned.has(TRACKS_TECH)) {
       tracksShown = "";
       tracksRow = null;
+      lightTracks([]);
       return;
     }
     const n = game.economy.trackCount(d.id);
@@ -4042,6 +4079,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     title.className = "station-waiting";
     title.textContent = n === 1 ? "One track: a train waits on the line while another is loaded" : `${n} tracks: ${n} trains stand here, the crane serving each in turn`;
     box.append(title);
+    // A track laid beside it and not joined yet: say so, and how, and light it (its pieces: the middle, and the ends
+    // laid with it).
+    const unjoined = game.economy.unjoinedTracks(d);
+    const roads = game.economy.roadsOf(d.id).map((r) => r.pieceId);
+    const ends = new Set(game.economy.tracksOf(d.id)?.ends ?? []);
+    const lit = unjoined.flatMap((road) => [road, ...[0, 1].map((i) => pieceOfRef(game.layout.joinedConnector(connectorRef(road, i)))).filter((id) => ends.has(id))]);
+    lightTracks(lit);
+    if (unjoined.length > 0) {
+      const join = document.createElement("div");
+      join.className = "station-waiting depot-tracks-join";
+      const second = unjoined.includes(roads[0]);
+      join.textContent = second
+        ? "Join the second track to the line: drag a Split from the Switch shelf onto the line at each end of it (lit on the map), and trains load there too"
+        : "Join the third track: drag a Split from the Switch shelf onto each end of the second track, beside it (lit on the map)";
+      box.append(join);
+    }
     if (n < MAX_TRACKS) {
       const price = TRACK_PRICES[(n + 1) as 2 | 3];
       const plan = planTracks(game.world, d, tracksCheck);
@@ -4049,7 +4102,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       b.className = "chip text depot-tracks-btn";
       b.dataset.tracks = String(n + 1);
       b.innerHTML = `⬆ ${n === 1 ? "Second" : "Third"} track · ${costTag(price, 0)}`;
-      b.title = "Lay another track beside it, joined at both ends: its crane reaches over to load a train there too";
+      b.title = "Lay another track beside it, for you to join to the line: its crane reaches over to load a train there too";
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         addTrack(d);
@@ -4075,7 +4128,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * Give depot `d` one more track: the ladder laid in place of the straights at its ends, its record and its price,
+   * Give depot `d` one more track: laid beside its own (for the player to join to the line), its record and its price,
    * all one undo step (undone, the goods go back to the workshop; redone, they're taken again if they're there).
    */
   function addTrack(d: DepotState): void {
@@ -4126,7 +4179,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (game.depotView.syncTracks(game.economy, game.layout)) game.invalidate();
     // (The group's step goes on the undo stack only once it's whole: the Undo button is told after.)
     hud.setHistory(editor.canUndo, editor.canRedo);
-    hud.toast(`${depotName(game.world, d)} has ${plan.tracks} tracks now: its crane reaches over them all`, false, 3600);
+    hud.toast(`${depotName(game.world, d)} has ${plan.tracks} tracks now: join the new one to the line with points`, false, 3600);
     audio.chime();
     tracksShown = "";
     scheduleSave();

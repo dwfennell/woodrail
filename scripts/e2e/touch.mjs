@@ -10,7 +10,7 @@ import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
 import { shot } from "./lib/shot.mjs";
 import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
-import { doubleThreeWayGroup, slipsGroup, splitGroup, turntableGroup } from "./track-pieces.mjs";
+import { doubleThreeWayGroup, slipsGroup, splicePointsGroup, splitGroup, turntableGroup } from "./track-pieces.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;
@@ -1226,7 +1226,7 @@ async function wyeLevers(ctx, p, tapOn) {
 // game-shelves (a touch tap on each shelf and Back, in each mode), and Sandbox's checks by name: map-taps, select-drag, redrawn,
 // flick, lever-pins, under-car, toast-through, trap (the train-too-many trap), dead-end (Continue), routes (two trains'
 // routes), defaults (a lever's default kept through a reload), restore (a route setting points and putting them back),
-// wait (a train waiting at points set for another), wye (a wye's three levers, #15), slips, double-three-way, split and turntable-taps (the tech tree's track pieces, track-pieces.mjs), stuck (two trains of a line head
+// wait (a train waiting at points set for another), wye (a wye's three levers, #15), slips, double-three-way, split, splice-points (points dropped onto a line from the tray take a straight's place) and turntable-taps (the tech tree's track pieces, track-pieces.mjs), stuck (two trains of a line head
 // on, the loop laid from the tray), stuck-lines (the same, two lines' trains), forward (a route round a wye's loop
 // rather than into a dead-end spur, routing step 6), hand-wait (a hand-run train waits at points set for a routed one,
 // routing step 7), via (a route by taps with a via point on the top of two ways: the train keeps to it), follow (a
@@ -5356,6 +5356,7 @@ const SANDBOX = {
   slips: (f) => slipsGroup(f, check),
   "double-three-way": (f) => doubleThreeWayGroup(f, check),
   split: (f) => splitGroup(f, check),
+  "splice-points": (f) => splicePointsGroup(f, check),
   "turntable-taps": (f) => turntableGroup(f, check),
 };
 let fixture = null;

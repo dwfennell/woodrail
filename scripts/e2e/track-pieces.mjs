@@ -374,6 +374,60 @@ export async function doubleThreeWayGroup(f, check) {
  * tapped back, onto the straight line and back; then 0 frames drawn while it stands idle. Pictures (E2E_SHOTS, or
  * `SPLIT_SHOTS` for docs/agents/shots): the tile, the piece laid, a train on each branch.
  */
+/**
+ * Group `splice-points` (2026-11-16): points dropped onto a line from the tray take a straight's place, as a depot
+ * does. Setup (a shortcut, not what's tested): a straight line of five straights on open ground, laid by the editor.
+ * Then by touch: a Split dragged from the Switch shelf over the line's middle straight (turned as held) splices in
+ * there, its line joined through it, its link off to the side open; the straight back in the box; a pointer move while
+ * held over the line costs a few ms; Undo puts the straight back. A Switch the same way (half a straight, a 72 filling
+ * the rest).
+ */
+export async function splicePointsGroup(f, check) {
+  const { p } = f;
+  const h = helpers(f.ctx, p);
+  const { dragPointsOnto } = await import("./lib/points-onto-line.mjs");
+  await p.keyboard.press("Escape");
+  const spot = await roomFor(p, "straight-216", ["straight-216", "straight-216"], 900);
+  if (!spot) throw new Error("splice-points: no open ground for a line");
+  await h.still().catch(() => {});
+  await h.settled();
+  const line = await p.evaluate((o) => {
+    const w = window.woodrail;
+    w.learn?.("junctions");
+    const c = Math.cos(o.heading);
+    const sn = Math.sin(o.heading);
+    const pieces = [0, 1, 2, 3, 4].map((k) => ({ type: "straight-216", pose: { x: o.x + (-540 + 216 * k) * c, z: o.z + (-540 + 216 * k) * sn, heading: o.heading }, y: 0, flipped: false }));
+    const why = pieces.map((q) => w.interaction.placeWhyIgnoring(q.type, q.flipped, q.pose, q.y, -1)).filter(Boolean);
+    if (why.length > 0) return { why };
+    const ids = w.editor().placeRun(pieces);
+    w.invalidate();
+    return { ids, mid: pieces[2].pose };
+  }, spot);
+  check("splice-points: setup: a line of five straights", !!line.ids, JSON.stringify(line));
+  if (!line.ids) return;
+  const count = (type) => p.evaluate((type) => [...window.woodrail.layout.pieceIds()].filter((id) => window.woodrail.layout.getPiece(id).type === type).length, type);
+  const straights0 = await count("straight-216");
+  const cdp = await f.ctx.newCDPSession(p);
+  const r = await dragPointsOnto(p, cdp, h.screenOf, { type: "split", pose: line.mid, flipped: false });
+  console.log(`(splice-points: a Split held over the line, a pointer move ${r.cost.toFixed(2)} ms median)`);
+  check("splice-points: a Split dragged from the Switch shelf onto a line's middle straight takes its place", r.id !== -1 && r.why === null, JSON.stringify(r));
+  const ends = await p.evaluate((id) => (window.woodrail.layout.getPiece(id) ? [0, 1, 2].map((i) => window.woodrail.layout.joinedConnector(id * 8 + i) !== -1) : null), r.id);
+  check("splice-points: …the line joined through it, its link to the side open", JSON.stringify(ends) === JSON.stringify([true, true, false]), JSON.stringify(ends));
+  check("splice-points: …the straight it took the place of back in the box", (await count("straight-216")) === straights0 - 1, `${await count("straight-216")} of ${straights0}`);
+  check("splice-points: …a pointer move while held over the line costs a few ms", r.cost < 8, `${r.cost.toFixed(2)} ms`);
+  await h.settled();
+  await p.screenshot({ path: `${process.env.E2E_SHOTS ?? "e2e-out/touch"}/splice-points-split.jpg`, type: "jpeg", quality: 85 }).catch(() => {});
+  await p.waitForTimeout(800);
+  await f.tapOn('button[aria-label="Undo (Ctrl+Z)"]');
+  await h.settled();
+  const undone = { split: await count("split"), straights: await count("straight-216") };
+  check("splice-points: Undo takes the Split up and puts the straight back", undone.split === 0 && undone.straights === straights0, JSON.stringify(undone));
+  // A switch on the line's second straight: half of it, a 72 laid for the rest.
+  const second = await p.evaluate((ids) => ({ ...window.woodrail.layout.getPiece(ids[1]).pose }), line.ids);
+  const sw = await dragPointsOnto(p, cdp, h.screenOf, { type: "switch", pose: second, flipped: false });
+  check("splice-points: a Switch the same way, a short straight filling the rest", sw.id !== -1 && sw.why === null && (await count("straight-72")) === 1, JSON.stringify(sw));
+}
+
 export async function splitGroup(f, check) {
   const { p } = f;
   const h = helpers(f.ctx, p);

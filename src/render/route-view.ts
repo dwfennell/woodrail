@@ -261,6 +261,11 @@ export class RouteView {
     this.group.name = "route";
   }
 
+  /** The layout it draws on (a new world's needs a new view). */
+  get layoutOf(): Layout {
+    return this.layout;
+  }
+
   /** Draw these ribbons and discs (replacing what was drawn). Builds geometry once per call; nothing per frame. */
   show(ribbons: readonly RibbonSpec[], discs: readonly DiscSpec[], gaps: readonly GapSpec[] = [], scale = 1): void {
     this.clear(true);
