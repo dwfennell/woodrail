@@ -3369,7 +3369,27 @@ export class Sections {
    */
   lettingBy(engine: number): number {
     if (!this.enabled) return -1;
-    return this.states.get(engine)?.lettingBy ?? -1;
+    const st = this.states.get(engine);
+    if (!st) return -1;
+    if (st.lettingBy !== -1) return st.lettingBy;
+    return this.standsAside(st);
+  }
+
+  /**
+   * A train standing in a refuge of its line (`refugesOf`: a spare siding or platform, none of its stops) waiting for
+   * another train: the one it lets by, for its card (or −1). Sections' own step-aside (`lettingBy`) isn't kept in a
+   * save, so a game loaded with a train standing aside said only "Waiting for the … train" (a user's map, 2026-11-16:
+   * a train in a ring's spare dead end, "unclear why"). Only for the card: what the train does is sections' own.
+   */
+  private standsAside(st: TrainState): number {
+    const w = st.wait;
+    if (st.slot < 0 || !w || (w.kind !== "slot" && w.kind !== "section") || w.engine < 0 || w.engine === st.engine) return -1;
+    const lineId = this.host.lineOf(st.engine);
+    const train = this.sim.findCar(st.engine)?.train;
+    if (lineId < 0 || !train || train.speed >= 1) return -1;
+    if (!this.refugesOf(lineId, st.topo, trainLength(train)).includes(st.slot)) return -1;
+    if (st.topo.slots[st.slot].pieces.has(this.host.target(st.engine))) return -1;
+    return w.engine;
   }
 
     waitOf(engine: number): BlockWait | null {
