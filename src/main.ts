@@ -137,7 +137,7 @@ import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, SIGNAL_ITEM, TRACK_ITEMS, TRAIN_ITEMS
 import { ROAD_COINS, ROAD_TECH, roadShortText, roadsOnMap, roadsPrice, roadsSpare } from "./game/road-box";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { LANDSCAPING, lowerPrice, lowerQuestion, lowerRefusal } from "./game/landscaping";
-import { MAX_TRACKS, planTracks, TRACK_PRICES, TRACK_ROLES, TRACKS_TECH, tracksAfter, type TracksPlan } from "./game/depot-tracks";
+import { MAX_TRACKS, planTracks, TRACK_PRICES, TRACK_ROLES, TRACKS_TECH, tracksAfter, type TracksLook, type TracksPlan } from "./game/depot-tracks";
 import { TURNTABLE_CONTROLS } from "./game/deck-roads";
 import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
@@ -3812,12 +3812,56 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let tracksShown = "";
   let tracksRow: HTMLElement | null = null;
   const tracksCheck = (t: PieceTypeId, f: boolean, pose: Pose, y: number, ignore: Ignore) => interaction.placeWhyIgnoring(t, f, pose, y, ignore);
+  /**
+   * The stretch of line another track takes, shown on the map while the card's open: the straight it takes the place
+   * of (green), and what's in the way (red: the curve, points or slope, or a train). Its own ribbon, built once a
+   * change of the card's key (nothing per frame), gone with the card.
+   */
+  let tracksView: RouteView | null = null;
+  let tracksLit = false;
+  const tracksLook: TracksLook = { room: [], block: [] };
+  function lightTracks(look: TracksLook | null): void {
+    if (!look || (look.room.length === 0 && look.block.length === 0)) {
+      if (tracksLit) {
+        tracksView?.clear();
+        if (tracksView) tracksView.group.userData.colours = [];
+        tracksLit = false;
+        game.redraw();
+      }
+      return;
+    }
+    if (!tracksView || tracksView.layoutOf !== game.layout) {
+      if (tracksView) {
+        game.scene.remove(tracksView.group);
+        tracksView.dispose();
+      }
+      tracksView = new RouteView(game.layout, game.mats);
+      tracksView.group.name = "depot-tracks-stretch";
+      game.scene.add(tracksView.group);
+    }
+    const runs = (ids: readonly number[], every: boolean) =>
+      ids.flatMap((pieceId) => {
+        const p = game.layout.getPiece(pieceId);
+        if (!p) return [];
+        const paths = getPieceDef(p.type, p.flipped).paths;
+        return (every ? paths : paths.slice(0, 1)).map((q, pathIndex) => ({ pieceId, pathIndex, s0: 0, s1: pathLength(q.geom) }));
+      });
+    const blocked = new Set(look.block);
+    const ribbons: RibbonSpec[] = [{ runs: runs(look.room.filter((id) => !blocked.has(id)), false), colour: "#4f8a3c" }];
+    if (look.block.length > 0) ribbons.push({ runs: runs(look.block, true), colour: "#c23b22" });
+    tracksView.show(ribbons, []);
+    // (For the e2e: what's lit.)
+    tracksView.group.userData.colours = ribbons.filter((r) => r.runs.length > 0).map((r) => r.colour);
+    tracksLit = true;
+    game.redraw();
+  }
   function showTracks(): void {
     const id = mode === "game" ? interaction.openDepotId : -1;
     const d = id === -1 ? undefined : game.economy.liveDepot(id);
     if (!d || !TRACK_ROLES.has(d.role) || !progress.learned.has(TRACKS_TECH)) {
       tracksShown = "";
       tracksRow = null;
+      lightTracks(null);
       return;
     }
     const n = game.economy.trackCount(d.id);
@@ -3834,7 +3878,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.append(title);
     if (n < MAX_TRACKS) {
       const price = TRACK_PRICES[(n + 1) as 2 | 3];
-      const plan = planTracks(game.world, d, tracksCheck);
+      const plan = planTracks(game.world, d, tracksCheck, tracksLook);
+      lightTracks(tracksLook);
       const b = document.createElement("button");
       b.className = "chip text depot-tracks-btn";
       b.dataset.tracks = String(n + 1);
@@ -3852,7 +3897,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         why.textContent = plan;
         box.append(why);
       }
-    }
+    } else lightTracks(null);
     hud.depotExtra.hidden = false;
     hud.depotExtra.append(box);
   }

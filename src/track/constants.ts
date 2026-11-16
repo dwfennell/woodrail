@@ -12,6 +12,8 @@ export const WIDE_CURVE_RADIUS = 270; // 15 × 18 mm: a gentle sweep for wide lo
 export const CURVE_SWEEP = Math.PI / 4; // eight curves make a circle
 
 export const SWITCH_LENGTH = 144;
+/** The short split's length (`split-short`): two squares, a switch's. */
+export const SPLIT_SHORT_LENGTH = 144;
 export const CROSSING_SIZE = 144;
 export const RISER_HEIGHT = 48;
 export const RAMP_LENGTH = 144;

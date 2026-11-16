@@ -17,6 +17,7 @@ import {
   RAMP_LENGTH,
   RISER_HEIGHT,
   SMALL_CURVE_RADIUS,
+  SPLIT_SHORT_LENGTH,
   SWITCH_LENGTH,
   WIDE_CURVE_RADIUS,
   UNDERPASS_DIP,
@@ -94,6 +95,7 @@ export type PieceTypeId =
   | "double-straight"
   | "crossover"
   | "split"
+  | "split-short"
   | "double-curve"
   | "ramp-curve"
   | "ramp-curve-small"
@@ -376,20 +378,20 @@ function crossing45(): PieceDef {
  * trunk (0) a hole; its two ends pegs, `DOUBLE_TRACK_SPACING` apart (1 straight on, 2 the other line), as a double
  * track's. Its board is filled in between them, tapering to the trunk (`web`: an S to the middle of the two-track end).
  */
-function split(): PieceDef {
+function split(type: PieceTypeId = "split", length = 216): PieceDef {
   const s = (offset: number): PathGeom => {
-    const sweep = 2 * Math.atan(offset / 216);
-    return { kind: "s", start: pose(0, 0, 0), sweep, radius: 216 / (2 * Math.sin(sweep)), y0: 0, rise: 0 };
+    const sweep = 2 * Math.atan(offset / length);
+    return { kind: "s", start: pose(0, 0, 0), sweep, radius: length / (2 * Math.sin(sweep)), y0: 0, rise: 0 };
   };
   return {
-    type: "split",
+    type,
     connectors: [
       { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
-      { kind: "peg", pose: pose(216, 0, 0), y: 0 },
-      { kind: "peg", pose: pose(216, DOUBLE_TRACK_SPACING, 0), y: 0 },
+      { kind: "peg", pose: pose(length, 0, 0), y: 0 },
+      { kind: "peg", pose: pose(length, DOUBLE_TRACK_SPACING, 0), y: 0 },
     ],
     // Straight on first, so the lever's "over" (state 1) picks the link, as a switch's does its curve.
-    paths: [linePath(1, 216), { from: 0, to: 2, geom: s(DOUBLE_TRACK_SPACING) }],
+    paths: [linePath(1, length), { from: 0, to: 2, geom: s(DOUBLE_TRACK_SPACING) }],
     flippable: true,
     isSwitch: true,
     supportHeight: 0,
@@ -688,6 +690,9 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   // A split: one line in, two out a double track's width apart (a crossover without the line beside its single end),
   // so its two-track end joins double track. The lever sends trains straight on (0) or over to the other line (1).
   split: split(),
+  // A short split (2026-11-16): the same in two squares (144), its link over two tight curves (the small curve's
+  // radius, 90). Not in the tray: the turnout an industry's further tracks are joined by (depot tracks).
+  "split-short": split("split-short", SPLIT_SHORT_LENGTH),
   // A turning loop: in at its one end, round, and back out the same end facing the other way.
   "balloon-loop": {
     type: "balloon-loop",

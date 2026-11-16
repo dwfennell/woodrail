@@ -56,6 +56,7 @@ const PIECES: Partial<Record<PieceTypeId, ItemInfo>> = {
   signal: p("Signal", "Tap it for red or green. Trains stop at red."),
   crossover: p("Crossover", "Double track with a link: trains can change lines."),
   split: p("Split", "One line splits into two, side by side. Tap to change the way."),
+  "split-short": p("Short split", "A short split onto a track beside: how an industry's second and third tracks join the line. Tap to change the way."),
   "double-straight": p("Double track", "Two straight lines side by side."),
   "double-curve": p("Double curve", "Two lines bending side by side."),
   "ramp-curve": p("Curved ramp", "Turns a corner and goes up one level."),
