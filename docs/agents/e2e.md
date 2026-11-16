@@ -36,7 +36,7 @@ pictures) isn't cached by run.mjs: it's run for its pictures.
 
 ## Groups in the split suites
 
-**touch** (`scripts/e2e/touch.mjs`): `sandbox-shelves`, the 37 Sandbox checks (`map-taps`, `select-drag`, … `turntable-taps`;
+**touch** (`scripts/e2e/touch.mjs`): `sandbox-shelves`, the 38 Sandbox checks (`map-taps`, `select-drag`, … `turntable-taps`;
 the comment above `openGroundScript` says what each is) and `game-shelves`. The Sandbox groups share one page, as
 before, opened when the first of them that runs needs it (after `sandbox-shelves`'s taps, or without them when that one
 is cached or not selected); each one's `step` takes up what it laid. With `E2E_FRESH=1` each opens a page of its own:

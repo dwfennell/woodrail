@@ -4,14 +4,19 @@
 // mill with flour; two trains put down on the line (as the tray would), each with two hoppers of grain.
 // Then, by the player's taps:
 //   1. A tap on the mill: its card says one track, and offers "Second track · 10 planks".
-//   2. A tap on it: a second track beside the mill (crossovers at both ends), the crane's gantry over both, 10 planks
-//      taken from the workshop. Undo (the top bar) takes it all back and gives the planks back; a tap lays it again.
-//   3. "Third track · 12 planks 10 stone": a third, the gantry over all three; no button after.
+//   2. A tap on it: a second track beside the mill and only that (no points: its ends open), the crane's gantry over
+//      both, 10 planks taken; the card says it needs joining to the line, the track lit on the map. Undo (the top
+//      bar) takes it back and gives the planks back; a tap lays it again.
+//   3. Joined to the line by the player: a Split dragged by touch from the Switch shelf onto the line at each end of
+//      the new track (turned and flipped as held) splices in there and joins it; the pointer move's cost while held;
+//      the card no longer asks, nothing lit.
 //   4. Each train given a route by taps (Plan a route, the mill, the workshop, Done) and set going: they stand at the
 //      mill on two tracks at once, the one crane serving each in turn (never two loads at once), and both trains'
 //      grain lands on the mill's pile (the payoff).
-//   5. Reloaded, the game continued from its save: the mill still has three tracks, its gantry over them.
-//   6. Idle: nothing moving draws no frames.
+//   5. "Third track · 12 planks 10 stone": a third beside the second, the gantry over all three, the card asking for
+//      it to be joined; no button after.
+//   6. Reloaded, the game continued from its save: the mill still has three tracks, its gantry over them.
+//   7. Idle: nothing moving draws no frames.
 //
 // Usage: npm run e2e:depot-tracks [-- <out dir>]   (default out: e2e-out/depot-tracks)
 import { existsSync, mkdirSync } from "node:fs";
@@ -19,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { dragPointsOnto } from "../../scripts/e2e/lib/points-onto-line.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/depot-tracks";
@@ -134,6 +140,15 @@ const state = () =>
       crane: crane && { l: Math.round(crane.l) },
       row: document.querySelector(".depot-tracks")?.innerText ?? null,
       button: document.querySelector(".depot-tracks-btn")?.innerText ?? null,
+      join: document.querySelector(".depot-tracks-join")?.innerText ?? null,
+      // (A track not joined yet, lit on the map: its ribbon's colours.)
+      lit: w.scene.getObjectByName("depot-tracks-unjoined")?.userData.colours ?? [],
+      roads: w.economy.roadsOf(mill.id).map((r) => {
+        const piece = w.layout.getPiece(r.pieceId);
+        return { open: [0, 1].every((i) => w.layout.joinedConnector(r.pieceId * 8 + i) === -1), type: piece?.type };
+      }),
+      ends: w.economy.tracksOf(mill.id)?.ends.length ?? 0,
+      pieces: [...w.layout.pieceIds()].length,
     };
   });
 
@@ -148,6 +163,8 @@ const setup = await p.evaluate(async () => {
   const w = window.woodrail;
   w.learn("routes");
   w.learn("sidings");
+  // (Splits: the Switch shelf's, learned with Junctions and loops, which Sidings needs.)
+  w.learn("junctions");
   const { CARGO } = await import("/src/economy/cargo.ts");
   const types = [...Array(8).fill("straight-216"), "depot-mill", ...Array(3).fill("straight-216"), "depot-workshop", "straight-216"];
   const t = w.controls.target;
@@ -171,7 +188,7 @@ const setup = await p.evaluate(async () => {
       const ids = w.editor().placeRun(pieces);
       const mill = w.economy.depotAtPiece(ids[8]) ?? w.economy.addDepot("mill", ids[8]);
       const shop = w.economy.depotAtPiece(ids[12]) ?? w.economy.addDepot("workshop", ids[12]);
-      shop.piles[CARGO.planks.index] = 22;
+      shop.piles[CARGO.planks.index] = 32; // (10 for the second track, 2 × 5 for the Splits, 12 for the third)
       shop.piles[CARGO.stone.index] = 10;
       mill.piles[CARGO.flour.index] = 12;
       w.depotView.setWorld(w.economy, w.layout);
@@ -222,44 +239,89 @@ if (!setup.error) {
   await settle();
   await shot("1-one-track");
 
-  // 2. A tap: a second track; undo takes it back with its planks; a tap lays it again.
+  // 2. A tap: a second track beside it, only that; undo takes it back with its planks; a tap lays it again.
+  const before = s.pieces;
   await tapButton(".depot-tracks-btn");
   await p.waitForTimeout(600);
   s = await state();
-  check("a tap lays a second track, 10 planks taken", s.tracks === 2 && s.planks === 12, JSON.stringify(s));
+  check("a tap lays a second track, 10 planks taken", s.tracks === 2 && s.planks === 22, JSON.stringify(s));
+  check("…only the track beside it, 648 long (three straights), nothing taken up", s.pieces === before + 3 && s.roads.length === 1 && s.roads[0].type === "straight-216" && s.ends === 2, JSON.stringify(s));
   check("…the crane's gantry spans both tracks (its middle moved over the line)", s.crane?.l === 6, JSON.stringify(s.crane));
-  check("…and the card says so, offering a third for 12 planks and 10 stone", /2 tracks/.test(s.row ?? "") && /Third track · 12/.test(s.button ?? "") && /10/.test(s.button ?? ""), JSON.stringify(s));
+  check("…the card says to join it with a Split at each end, the track lit on the map", /Join the second track to the line: drag a Split from the Switch shelf/.test(s.join ?? "") && s.lit.length === 1, JSON.stringify(s));
+  check("…and offers a third for 12 planks and 10 stone", /2 tracks/.test(s.row ?? "") && /Third track · 12/.test(s.button ?? "") && /10/.test(s.button ?? ""), JSON.stringify(s));
   const toastOk = await p.evaluate(() => [...document.querySelectorAll(".toast")].some((t) => /has 2 tracks now/.test(t.textContent)));
   check("…with a toast", toastOk);
+  await showing({ depot: mill, across: -40 }, 1250, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
+  await settle();
+  await shot("2-two-tracks-unjoined");
   await p.keyboard.press("Escape");
   // (Past the card's closing, and the click shield after it.)
   await p.waitForTimeout(1200);
+  s = await state();
+  check("the card closed: nothing lit", s.lit.length === 0, JSON.stringify(s.lit));
   await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
   await p.waitForTimeout(600);
   s = await state();
-  check("Undo: one step takes the track back, and gives the planks back", s.tracks === 1 && s.planks === 22 && s.crane?.l === 45, JSON.stringify(s));
-  const pieces = await p.evaluate(() => [...window.woodrail.layout.pieceIds()].filter((id) => window.woodrail.layout.getPiece(id).type === "crossover").length);
-  check("…and its crossovers", pieces === 0, `${pieces} crossovers`);
+  check("Undo: one step takes the track back, and gives the planks back", s.tracks === 1 && s.planks === 32 && s.crane?.l === 45 && s.pieces === before, JSON.stringify(s));
   await tapOn({ depot: mill });
   await tapButton(".depot-tracks-btn");
   await p.waitForTimeout(600);
   s = await state();
-  check("a tap again: two tracks", s.tracks === 2 && s.planks === 12, JSON.stringify(s));
+  check("a tap again: two tracks", s.tracks === 2 && s.planks === 22, JSON.stringify(s));
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(1200);
+
+  // 3. Joined by the player: a Split dragged from the Switch shelf onto the line at each end of the new track, by
+  // touch, turned and flipped as held (R, F) so its link goes over to it: each splices in place of the line's straight
+  // there (as a depot does) and joins the track's end.
+  const want = await p.evaluate(() => {
+    const w = window.woodrail;
+    const m = w.layout.getPiece(w.economy.depot(window.__mill).pieceId).pose;
+    const c = Math.cos(m.heading);
+    const sn = Math.sin(m.heading);
+    const at = (t, turn) => ({ x: m.x + t * c, z: m.z + t * sn, heading: m.heading + turn });
+    return [
+      { type: "split", pose: at(-432, 0), flipped: true },
+      { type: "split", pose: at(648, Math.PI), flipped: false },
+    ];
+  });
+  const cdp = await ctx.newCDPSession(p);
+  const screen = (x, y, z) =>
+    p.evaluate(([x, y, z]) => {
+      const w = window.woodrail;
+      const c = new w.camera.position.constructor(x, y, z).project(w.camera);
+      return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
+    }, [x, y, z]);
+  const laid = [];
+  for (const [k, wnt] of want.entries()) {
+    await showing({ depot: mill, along: k === 0 ? -324 : 540, across: 0 }, 700, { phi: 0.9 });
+    await settle();
+    const r = await dragPointsOnto(p, cdp, screen, wnt);
+    laid.push(r);
+    console.log(`(a Split held over the line: a pointer move ${r.cost.toFixed(2)} ms median)`);
+    check(`a Split dragged from the Switch shelf onto the line at the ${k === 0 ? "near" : "far"} end splices in there`, r.id !== -1 && r.why === null, JSON.stringify(r));
+    if (k === 0) {
+      await settle();
+      await shot("3-split-spliced");
+    }
+  }
+  check("…a pointer move while it's held over the line costs a few ms", laid.every((r) => r.cost < 8), laid.map((r) => r.cost.toFixed(2)).join(", "));
+  const joined = await p.evaluate((ids) => {
+    const w = window.woodrail;
+    return ids.map((id) => (w.layout.getPiece(id) ? [0, 1, 2].map((i) => w.layout.joinedConnector(id * 8 + i) !== -1) : null));
+  }, laid.map((r) => r.id));
+  check("…each joined at all three ends: the line through it, and the new track's end", joined.every((j) => j && j.every(Boolean)), JSON.stringify(joined));
+  s = await state();
+  check("…paid for as from the tray: 5 planks each", s.planks === 12, JSON.stringify(s.planks));
+  await tapOn({ depot: mill });
+  await p.waitForFunction(() => !!document.querySelector(".depot-tracks-btn"), null, { timeout: 20000 }).catch(() => {});
+  s = await state();
+  check("joined: the card no longer asks for it, nothing lit", s.join === null && s.lit.length === 0, JSON.stringify(s));
   await showing({ depot: mill, across: -40 }, 1250, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
   await settle();
-  await shot("2-two-tracks");
-
-  // 3. The third.
-  await tapButton(".depot-tracks-btn");
-  await p.waitForTimeout(600);
-  s = await state();
-  check("a tap lays a third track, 12 planks and 10 stone taken", s.tracks === 3 && s.planks === 0 && s.stone === 0, JSON.stringify(s));
-  check("…the gantry spans all three", s.crane?.l === -30, JSON.stringify(s.crane));
-  check("…and there's no fourth", s.button === null && /3 tracks/.test(s.row ?? ""), JSON.stringify(s));
-  await showing({ depot: mill, across: -70 }, 1300, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
-  await settle();
-  await shot("3-three-tracks");
+  await shot("3-two-tracks-joined");
   await p.keyboard.press("Escape");
+  await p.waitForTimeout(1200);
 
   // 4. Two trains, each routed by taps to the mill and on to the workshop: served at once, the crane in turn.
   const trains = await p.evaluate(async () => {
@@ -324,7 +386,22 @@ if (!setup.error) {
   check("the payoff: both trains' grain is unloaded at the mill (each served)", payoff.a === 0 && payoff.b === 0, JSON.stringify(payoff));
   check("…onto its pile, to be milled", payoff.grain + (payoff.flour - 12) > 0, JSON.stringify(payoff));
 
-  // 5. Saved, reloaded, continued: three tracks still, the gantry over them.
+  // 5. The third: beside the second, asking to be joined.
+  await tapOn({ depot: mill });
+  await tapButton(".depot-tracks-btn");
+  await p.waitForTimeout(600);
+  s = await state();
+  check("a tap lays a third track, 12 planks and 10 stone taken", s.tracks === 3 && s.planks === 0 && s.stone === 0, JSON.stringify(s));
+  check("…beside the second, its ends open, the card saying to join it with Splits on the second's ends", s.roads.length === 2 && s.roads[1].open && /Join the third track: drag a Split/.test(s.join ?? "") && s.lit.length === 1, JSON.stringify(s));
+  check("…the gantry spans all three", s.crane?.l === -30, JSON.stringify(s.crane));
+  check("…and there's no fourth", s.button === null && /3 tracks/.test(s.row ?? ""), JSON.stringify(s));
+  await showing({ depot: mill, across: -70 }, 1300, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
+  await settle();
+  await shot("6-three-tracks");
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(1200);
+
+  // 6. Saved, reloaded, continued: three tracks still, the gantry over them.
   await p.waitForTimeout(3000); // (saved)
   await p.reload();
   await enterGame();
@@ -335,7 +412,7 @@ if (!setup.error) {
   });
   check("after a reload the mill still has three tracks, its gantry over them", back?.tracks === 3 && back.crane === -30, JSON.stringify(back));
 
-  // 6. Idle: nothing drawn while nothing moves.
+  // 7. Idle: nothing drawn while nothing moves.
   await p.evaluate(() => {
     const w = window.woodrail;
     for (const id of w.sim.trainIds()) for (const c of w.sim.getTrain(id).cars) if (c.kind === "engine") w.sim.setLever(c.id, 0);

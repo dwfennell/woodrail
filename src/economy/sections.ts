@@ -2156,26 +2156,34 @@ export class Sections {
    * way ahead would meet it nose to nose.
    */
   private onwardStretch(st: TrainState, topo: Topology, way: Way): Map<number, number> {
-    const { layout } = this;
     const out = this.alongOf(way.steps, topo);
-    // (Its aims round a lap, in order (the host's `lap`): past one stop, on toward the next, as steering takes it.)
-    const aims = this.host.lap?.(st.engine) ?? [this.host.target(st.engine)];
-    let aim = 0;
-    for (const p of out.keys()) if (aim < aims.length && p === aims[aim]) aim++;
-    const keep = this.host.keep?.(st.engine);
-    const lap = this.lapFor(st.engine);
-    const own = this.sim.findCar(st.engine)?.train;
-    // (From the last piece taken in, on.)
     let lastPiece = -1;
     for (const p of out.keys()) lastPiece = p;
     if (lastPiece < 0) return out;
-    const ways0 = waysFrom(layout, lastPiece, out.get(lastPiece)!);
+    const ways0 = waysFrom(this.layout, lastPiece, out.get(lastPiece)!);
     if (ways0.length !== 1 || ways0[0].exit < 0) return out;
-    let at: { pieceId: number; entry: number } | null = next(layout, lastPiece, ways0[0].exit);
+    return this.walkOnward(st.engine, topo, out, next(this.layout, lastPiece, ways0[0].exit));
+  }
+
+  /**
+   * On from `at` (`out` the pieces taken so far), as steering would take a train past its stops toward the next (the
+   * host's `lap`), through waiting points and the sections between, up to the next place two trains can pass (a loop's
+   * road, a line end or a refuge), or the end of the look (`onwardStretch`). Into `out`: piece → the end it comes onto
+   * it by. `meet`: stop at the first piece of it come onto, by any end.
+   */
+  private walkOnward(engine: number, topo: Topology, out: Map<number, number>, at: { pieceId: number; entry: number } | null, meet?: ReadonlyMap<number, number>): Map<number, number> {
+    const { layout } = this;
+    const aims = this.host.lap?.(engine) ?? [this.host.target(engine)];
+    let aim = 0;
+    for (const p of out.keys()) if (aim < aims.length && p === aims[aim]) aim++;
+    const keep = this.host.keep?.(engine);
+    const lap = this.lapFor(engine);
+    const own = this.sim.findCar(engine)?.train;
     for (let k = 0; at && k < SEARCH && !out.has(at.pieceId); k++) {
       const sl = topo.slotOf.get(at.pieceId);
       if (sl !== undefined && topo.slots[sl].kind !== "signal") break;
       out.set(at.pieceId, at.entry);
+      if (meet?.has(at.pieceId)) break;
       if (aim < aims.length && at.pieceId === aims[aim]) aim++;
       if (aim >= aims.length) aim = 0;
       const ways = waysFrom(layout, at.pieceId, at.entry);
@@ -2211,7 +2219,7 @@ export class Sections {
       if (alt.sections.some((x) => this.sectionUser(info, x, st.engine, this.alongOf(alt.steps, info.topo)) !== -1)) continue;
       const onward = this.onwardStretch(st, info.topo, alt);
       if (!onward.has(target) && !info.topo.slots[alt.dest].pieces.has(target)) continue;
-      if (this.comingAt(st.engine, info, onward) !== -1) continue;
+      if (this.comingAt(st.engine, info, onward) !== -1 || this.comingOnto(st.engine, info, onward) !== -1) continue;
       return alt;
     }
     return null;
@@ -2259,6 +2267,48 @@ export class Sections {
       if ((on || !!m?.steps.some((x) => along.has(x.pieceId))) && !this.sameWayAhead(u, along)) return u;
     }
     for (const t of info.foreign) if (t.bogies.some((b) => along.has(b.pieceId)) && !this.sameWayAhead(engineOf(t), along)) return engineOf(t);
+    return -1;
+  }
+
+  /**
+   * A train moving into a waiting point, not yet on a way (`along`) but heading onto it head on: its move and on
+   * from there as steering takes it (`walkOnward`) come onto a piece of it by the end `along` leaves it by. −1: none.
+   * Single-line working: one running up to the far end of the single track, its next way onto it, is coming at a train
+   * let in at this end as surely as one already on it (a user's maps, 2026-11-16: Rowan let into a waiting point going
+   * south as engine 70 ran up to the one past the track's far end, going north; they met on it and stood for good).
+   * Only one moving: one standing with a move held (at a red, in a jam of its own) isn't coming, and on a user's map
+   * held two lines that ran well past it for good.
+   */
+  private comingOnto(engine: number, info: LineInfo, along: ReadonlyMap<number, number>): number {
+    const own = this.sim.findCar(engine)?.train;
+    if (along.size === 0 || !own) return -1;
+    const mine = new Set(own.bogies.map((b) => b.pieceId));
+    for (const u of info.users) {
+      if (u === engine) continue;
+      const st = this.states.get(u);
+      const t = this.sim.findCar(u)?.train;
+      if (!st || !t || st.topo !== info.topo || t.bogies.some((b) => along.has(b.pieceId))) continue;
+      // (Moving into a waiting point: a train with no move, or one running into a loop's road or a line end, can wait
+      // there; only one let into a waiting point is on its way to the single track beyond.)
+      const m = st.move;
+      if (t.speed < 1 || !m || m.dest < 0 || info.topo.slots[m.dest]?.kind !== "signal") continue;
+      const out = this.alongOf(m.steps, info.topo);
+      let last = -1;
+      for (const p of out.keys()) last = p;
+      const ws = last < 0 ? [] : waysFrom(this.layout, last, out.get(last)!);
+      const at = ws.length === 1 && ws[0].exit >= 0 ? next(this.layout, last, ws[0].exit) : null;
+      this.walkOnward(u, info.topo, out, at);
+      // (Its way on comes to where this one stands first: it's held for this one (`comingAt`, its side), not coming.)
+      let meets = false;
+      for (const [p, entry] of out) {
+        if (mine.has(p)) break;
+        const e = along.get(p);
+        if (e === undefined) continue;
+        meets = e !== entry;
+        break;
+      }
+      if (meets) return u;
+    }
     return -1;
   }
 
@@ -2406,7 +2456,9 @@ export class Sections {
     // trains follow one another; they're no place to pass. Two let in from either end of a stretch met nose to nose:
     // a user's map, 2026-11-16, nine lines sharing track, Rowan and engine 70 in waiting points side by side, for good.)
     if (info.topo.slots[way.dest]?.kind === "signal") {
-      const v = this.comingAt(st.engine, info, this.onwardStretch(st, info.topo, way));
+      const onward = this.onwardStretch(st, info.topo, way);
+      let v = this.comingAt(st.engine, info, onward);
+      if (v === -1) v = this.comingOnto(st.engine, info, onward);
       if (v !== -1) {
         // (The other way round, where the points it leaves by give one that also reaches its stop: it follows round
         // behind, not meeting it (`otherWayRound`).)
@@ -3537,6 +3589,18 @@ export class Sections {
       if (!this.firstSeen.has(e)) this.firstSeen.set(e, e);
       const t = this.sim.findCar(e)?.train;
       if (t) longest = Math.max(longest, trainLength(t));
+      // (Stopped by the player, its levers off, and standing: a move it was granted is let go, and it asks again once
+      // it's sent on (`capOf` isn't asked for a train with no drive). Kept, it held the way it was granted for good: a
+      // user's map (2026-11-16), a hopper train stopped in a balloon loop by the quarry with its move to the forest yard
+      // granted, and a timber train waited for it ever after, "Stuck: the train parked by the quarry is in the way",
+      // though it stood nowhere on its way.)
+      const st = t && t.speed < 1 ? this.states.get(e) : undefined;
+      if (st?.move && this.host.drive(t!) === 0) {
+        st.move = null;
+        this.movesVer++;
+        st.askedAt = -Infinity;
+        st.frontKey = -1;
+      }
     }
     // (Sharing its network with other lines: one topology for them all (for the longest train of any), and their trains
     // work the single track with its own.)

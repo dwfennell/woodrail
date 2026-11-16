@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
-import { connectorRef, Layout, type PieceTypeId } from "../track";
+import { connectorRef, findSplice, Layout, type PieceTypeId } from "../track";
 import { CARGO } from "../economy/cargo";
 import { Economy, type DepotState } from "../economy";
-import { END, planTracks, TRACK_ROLES, tracksAfter, type PlaceCheck, type TracksPlan } from "./depot-tracks";
+import { planTracks, TRACK_ROLES, tracksAfter, type PlaceCheck, type TracksPlan } from "./depot-tracks";
 import { INDUSTRY_ROLE } from "./world";
 
 /**
- * Depot tracks (docs/superpowers/specs/2026-11-04-depot-tracks.md): the ladder laid, one crane serving each track's
+ * Depot tracks (docs/superpowers/specs/2026-11-04-depot-tracks.md): the track laid beside, joined by the player's points (here a pair of splits, as from the tray), one crane serving each track's
  * train in turn, what that does to the time two trains take, routed trains sent to the first free track and waiting
- * short of the ladder when all are taken.
+ * short of the points when all are taken.
  */
 
 /** A mill in a straight line along +x: `before` straights, the mill, `after` straights. No room rules (`open`). */
@@ -36,11 +36,25 @@ function apply(w: Pick<W, "layout" | "economy">, mill: DepotState, plan: TracksP
   const after = tracksAfter(plan, ids);
   w.economy.setTracks(mill, after.roads, after.ends, after.ladder);
 }
+/**
+ * The second track joined to the line as a player would, by a pair of splits from the tray: one in place of the
+ * line's straight two out from each end of the mill (where the track's ends end), its link over to the track. The
+ * tracks run 648 clear of points. Returns the splits.
+ */
+function loop(w: W): number[] {
+  const mx = w.millAt * 216;
+  const L = w.layout;
+  L.removePiece(w.ids[w.millAt - 2]);
+  L.removePiece(w.ids[w.millAt + 2]);
+  const splits = [L.addPiece("split", { x: mx - 432, z: 0, heading: 0 }, 0, true), L.addPiece("split", { x: mx + 648, z: 0, heading: Math.PI })];
+  return splits;
+}
 function upgrade(w: W, to: 2 | 3): void {
   for (let n = w.economy.trackCount(w.mill.id); n < to; n++) {
     const plan = planTracks(w, w.mill, open);
     if (typeof plan === "string") throw new Error(plan);
     apply(w, w.mill, plan);
+    if (n === 1) loop(w);
   }
 }
 /** A train on piece `pieceId`, its front `s` along it (+x), lever on. */
@@ -53,50 +67,109 @@ function put(w: W, pieceId: number, kinds: CarKind[], s = 150): Train {
 }
 const roadOf = (w: W, k: number) => w.economy.roadsOf(w.mill.id)[k].pieceId;
 const sec = (n: number) => Math.round(n * SIM_HZ);
+const count = (layout: Layout, type: PieceTypeId) => [...layout.pieceIds()].filter((id) => layout.getPiece(id)!.type === type).length;
 
-describe("depot tracks: the ladder", () => {
-  it("lays a second, then a third track, 432 long, joined at both ends by crossovers", () => {
+describe("depot tracks: the track beside it", () => {
+  it("lays a second, then a third track beside the yard: one straight each, nothing taken up, its ends open", () => {
     const w = line();
+    const before = [...w.layout.pieceIds()].length;
     const two = planTracks(w, w.mill, open);
     if (typeof two === "string") throw new Error(two);
     expect(two.tracks).toBe(2);
-    expect(two.pieces.filter((p) => p.type === "crossover")).toHaveLength(2);
-    expect(two.pieces.filter((p) => p.type === "buffer")).toHaveLength(2);
+    expect(two.covers).toEqual([]);
+    // 648 long: the yard's length under the crane, and 216 on past each end.
+    expect(two.pieces.map((p) => [p.type, Math.round(p.pose.x - 4 * 216), Math.round(p.pose.z)])).toEqual([
+      ["straight-216", -216, -72],
+      ["straight-216", 0, -72],
+      ["straight-216", 216, -72],
+    ]);
     apply(w, w.mill, two);
+    expect([...w.layout.pieceIds()].length).toBe(before + 3);
+    expect(w.economy.tracksOf(w.mill.id)!.ends).toHaveLength(2);
     expect(w.economy.trackCount(w.mill.id)).toBe(2);
-    // Every crossover's four ends are joined (the stubs end at buffers), and the new track is one square over.
-    for (const id of w.layout.pieceIds()) if (w.layout.getPiece(id)!.type === "crossover") for (let i = 0; i < 4; i++) expect(w.layout.joinedConnector(connectorRef(id, i))).not.toBe(-1);
     const road = w.layout.getPiece(roadOf(w, 0))!;
     expect(road.pose.z).toBeCloseTo(-72);
-    expect(w.economy.tracksOf(w.mill.id)!.ends).toHaveLength(2);
-    upgrade(w, 3);
+    expect(road.pose.x).toBeCloseTo(4 * 216);
+    // Its ends open.
+    const ends = w.economy.tracksOf(w.mill.id)!.ends;
+    for (const e of ends) expect([0, 1].filter((i) => w.layout.joinedConnector(connectorRef(e, i)) === -1)).toHaveLength(1);
+    // Not joined: no track of the industry to routes yet, and the card says so (`unjoinedTracks`).
+    expect(w.economy.unjoinedTracks(w.mill)).toEqual([road.id]);
+    expect(w.economy.reachableTracks(w.mill)).toEqual([w.ids[w.millAt]]);
+    // Joined by the player's points: it is.
+    loop(w);
+    expect(w.economy.unjoinedTracks(w.mill)).toEqual([]);
+    expect(w.economy.reachableTracks(w.mill)).toEqual([w.ids[w.millAt], road.id]);
+    const three = planTracks(w, w.mill, open);
+    if (typeof three === "string") throw new Error(three);
+    apply(w, w.mill, three);
     expect(w.economy.trackCount(w.mill.id)).toBe(3);
-    expect([...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id)!.type === "crossover")).toHaveLength(4);
-    // The second track and its ends are kept as they were.
+    const third = w.layout.getPiece(roadOf(w, 1))!;
+    expect(third.pose.z).toBeCloseTo(-144);
+    // The yard's length: Splits in place of the second's ends join it.
+    expect(three.pieces).toHaveLength(1);
     expect(roadOf(w, 0)).toBe(road.id);
+    expect(w.economy.unjoinedTracks(w.mill)).toEqual([third.id]);
     expect(planTracks(w, w.mill, open)).toMatch(/3 tracks already/);
   });
 
-  it("says why, in squares, when the line ends, bends or has points too near", () => {
-    const short = line(1, 4);
-    expect(planTracks(short, short.mill, open)).toMatch(/needs 4½ squares of straight track on the line at each end: the track stops short there/);
-    // Nothing joined at all at one end (a yard dropped on its own): lay track there first (QA 2026-11-05 #6).
-    const bare = line(0, 4);
-    expect(planTracks(bare, bare.mill, open)).toMatch(/at each end: lay track there first$/);
-    const layout = new Layout();
-    const ids = (["straight-216", "straight-216", "depot-mill", "curve-large"] as PieceTypeId[]).map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
-    const sim = new Sim(layout);
-    const economy = new Economy(layout, sim);
-    expect(planTracks({ layout, sim, economy }, economy.addDepot("mill", ids[2]), open)).toMatch(/it bends/);
-    // Room: what the drop rule says.
+  it("a Split dropped from the tray onto the line at each end of it splices in and joins it (the player's path)", () => {
     const w = line();
-    expect(planTracks(w, w.mill, (t) => (t === "crossover" ? "That's a hill" : null))).toBe("No room for a second track: that's a hill");
+    const plan = planTracks(w, w.mill, open);
+    if (typeof plan === "string") throw new Error(plan);
+    apply(w, w.mill, plan);
+    const mx = w.millAt * 216;
+    // Held over the line beyond each end of the new track, turned so its link goes to the track's side: what the
+    // drag does (`findSplice`, as for a depot), then dropped (its straights taken up, the split put down).
+    for (const [x, heading, flipped] of [
+      [mx - 324, 0, true],
+      [mx + 540, Math.PI, false],
+    ] as const) {
+      const s = findSplice(w.layout, "split", flipped, { x, z: -10 }, heading, 40);
+      if (s.kind !== "splice") throw new Error(s.kind);
+      expect(s.covers).toHaveLength(1);
+      for (const id of s.covers) w.layout.removePiece(id);
+      w.layout.addPiece("split", s.pose, s.y, flipped);
+    }
+    expect(count(w.layout, "split")).toBe(2);
+    expect(w.economy.unjoinedTracks(w.mill)).toEqual([]);
+    for (const id of w.layout.pieceIds()) if (w.layout.getPiece(id)!.type === "split") for (const i of [0, 1, 2]) expect(w.layout.joinedConnector(connectorRef(id, i))).not.toBe(-1);
   });
 
-  it("a train on the straights it would take up: not till it's moved", () => {
+  it("needs no straight on the line: a curve or points right at the yard's ends, or no line at all", () => {
+    const layout = new Layout();
+    const ids = (["switch", "depot-mill", "curve-large"] as PieceTypeId[]).map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    expect(typeof planTracks({ layout, sim, economy }, economy.addDepot("mill", ids[1]), open)).toBe("object");
+    const bare = line(0, 0);
+    expect(typeof planTracks(bare, bare.mill, open)).toBe("object");
+  });
+
+  it("asks the drop rule for the spot beside the yard (at its level), and says what's there", () => {
     const w = line();
-    put(w, w.ids[w.millAt - 1], ["engine"], 100);
-    expect(planTracks(w, w.mill, open)).toMatch(/A train is standing/);
+    let asked: { y: number; z: number } | null = null;
+    const rule: PlaceCheck = (_t, _f, pose, y) => {
+      asked = { y, z: pose.z };
+      return "That's a hill";
+    };
+    expect(planTracks(w, w.mill, rule)).toBe("No room for a second track: that's a hill");
+    expect(asked).toEqual({ y: 0, z: -72 });
+  });
+
+  it("a routed train goes to the yard's own track while the one beside it isn't joined", () => {
+    const w = line(6, 4);
+    const plan = planTracks(w, w.mill, open);
+    if (typeof plan === "string") throw new Error(plan);
+    apply(w, w.mill, plan);
+    const far = w.layout.addPiece("depot-farm", { x: w.ids.length * 216, z: 0, heading: 0 });
+    const farm = w.economy.addDepot("farm", far);
+    w.mill.piles[CARGO.flour.index] = 12;
+    const t = put(w, w.ids[2], ["engine", "van", "van"], 200);
+    w.economy.setRoute(t.cars[0].id, { stops: [{ depotId: w.mill.id, action: "pick" }, { depotId: farm.id, action: "auto" }], next: 0 });
+    for (let i = 0; i < sec(60); i++) w.step();
+    expect(t.derailed).toBe(false);
+    expect(t.cars.some((c) => w.economy.cargoOf(c.id).kind === "flour")).toBe(true);
   });
 });
 
@@ -202,10 +275,11 @@ describe("depot tracks: routed trains", () => {
     for (const t of trains) expect(t.cars.some((c) => w.economy.cargoOf(c.id).kind === "flour")).toBe(true);
   });
 
-  it("waits short of the ladder while every track is taken, then goes in", () => {
+  it("waits short of the points while every track is taken, then goes in", () => {
     const { w, trains } = routed(2, 3);
     const c = trains[2];
-    const ladder = new Set(w.economy.tracksOf(w.mill.id)!.ladder);
+    // (The player's points into its tracks: the router stands it short of them.)
+    const ladder = new Set([...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id)!.type === "split"));
     let waited = false;
     let inAfter = false;
     for (let i = 0; i < sec(240); i++) {
@@ -232,7 +306,74 @@ describe("depot tracks: routed trains", () => {
   });
 });
 
-it(`END is the extra length at each end of a depot's tracks (${END} mm)`, () => expect(END).toBe(108));
+
+describe("depot tracks: an older save's ladder of crossovers", () => {
+  /** The second track as the ladder laid it (before 2026-11-16): crossovers 216 out, buffers on their spare ends. */
+  function oldLadder(w: W): void {
+    const mx = w.millAt * 216;
+    const L = w.layout;
+    for (const k of [-2, -1, 1, 2]) L.removePiece(w.ids[w.millAt + k]);
+    const at = (t: number, l: number, h = 0) => ({ x: mx + t, z: l, heading: h });
+    const ladder = [
+      L.addPiece("straight-108", at(-432, 0)),
+      L.addPiece("crossover", at(-324, 0), 0, true),
+      L.addPiece("straight-108", at(-108, 0)),
+      L.addPiece("straight-108", at(216, 0)),
+      L.addPiece("crossover", at(540, 0, Math.PI)),
+      L.addPiece("straight-108", at(540, 0)),
+      L.addPiece("buffer", at(-324, -72, Math.PI)),
+      L.addPiece("buffer", at(540, -72)),
+    ];
+    const ends = [L.addPiece("straight-108", at(-108, -72)), L.addPiece("straight-108", at(216, -72))];
+    const road = L.addPiece("straight-216", at(0, -72));
+    w.economy.setTracks(w.mill, [road], ends, ladder);
+  }
+
+  it("keeps working: two routed trains stand on its two tracks, both served", () => {
+    const w = line(11, 6);
+    const far = w.layout.addPiece("depot-farm", { x: w.ids.length * 216, z: 0, heading: 0 });
+    const farm = w.economy.addDepot("farm", far);
+    oldLadder(w);
+    expect(w.economy.trackCount(w.mill.id)).toBe(2);
+    for (const id of w.layout.pieceIds()) if (w.layout.getPiece(id)!.type === "crossover") for (let i = 0; i < 4; i++) expect(w.layout.joinedConnector(connectorRef(id, i))).not.toBe(-1);
+    w.mill.piles[CARGO.flour.index] = 12;
+    const trains = [0, 1].map((k) => {
+      const t = put(w, w.ids[6 - 3 * k], ["engine", "van", "van"], 200);
+      w.economy.setRoute(t.cars[0].id, { stops: [{ depotId: w.mill.id, action: "pick" }, { depotId: farm.id, action: "auto" }], next: 0 });
+      return t;
+    });
+    const tracks = [w.ids[w.millAt], roadOf(w, 0)];
+    const seen = new Set<number>();
+    for (let i = 0; i < sec(120); i++) {
+      w.step();
+      for (const t of trains) {
+        expect(t.derailed).toBe(false);
+        const k = tracks.findIndex((p) => t.bogies.some((b) => b.pieceId === p));
+        if (k !== -1) seen.add(k);
+      }
+    }
+    expect([...seen].sort()).toEqual([0, 1]);
+    for (const t of trains) expect(t.cars.some((c) => w.economy.cargoOf(c.id).kind === "flour")).toBe(true);
+  });
+
+  it("a third track added to it goes beside the second, the ladder kept", () => {
+    const w = line(6, 6);
+    oldLadder(w);
+    const road = roadOf(w, 0);
+    const before = w.economy.tracksOf(w.mill.id)!;
+    const plan = planTracks(w, w.mill, open);
+    if (typeof plan === "string") throw new Error(plan);
+    apply(w, w.mill, plan);
+    expect(w.economy.trackCount(w.mill.id)).toBe(3);
+    expect(count(w.layout, "crossover")).toBe(2);
+    expect(roadOf(w, 0)).toBe(road);
+    const after = w.economy.tracksOf(w.mill.id)!;
+    expect(after.ladder).toEqual(before.ladder);
+    expect(after.ends).toEqual(before.ends);
+    // Its ladder still the points a full stop's trains wait short of.
+    expect(w.economy.reachableTracks(w.mill)).toContain(road);
+  });
+});
 
 describe("depot tracks: saves", () => {
   it("keeps an industry's tracks through a save; an old save (none) has one", async () => {
@@ -301,6 +442,12 @@ describe("depot tracks: which industries", () => {
     if (typeof plan === "string") throw new Error(plan);
     apply({ layout, economy }, well, plan);
     expect(economy.trackCount(well.id)).toBe(2);
+    // (Joined by a pair of splits, as a player would.)
+    layout.removePiece(ids[2]);
+    layout.removePiece(ids[6]);
+    layout.addPiece("split", { x: 2 * 216, z: 0, heading: 0 }, 0, true);
+    layout.addPiece("split", { x: 7 * 216, z: 0, heading: Math.PI });
+
     well.piles[CARGO.oil.index] = 6;
     const road = economy.roadsOf(well.id)[0].pieceId;
     // (Run in to the track's end, as the mill's second train in "one crane serves each track in turn".)

@@ -1,4 +1,4 @@
-import { connectorRef, getPieceDef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathExitConnector, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { connectorRef, getPieceDef, indexOfRef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathExitConnector, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, brakeTo, CAR_SPECS, COUPLER_GAP, SIM_DT, SIM_HZ, walkTrack, type Cursor, type Sim, type Train } from "../sim";
 import { LineTally } from "./line-tally";
 
@@ -813,7 +813,7 @@ export class Economy {
     const found = this.sim.findCar(engine);
     if (!found) return d.pieceId;
     const mine = this.sim.piecesUnder(found.train.id);
-    const tracks = [d.pieceId, ...this.roadsOf(d.id).map((r) => r.pieceId)];
+    const tracks = this.reachableTracks(d);
     const on = tracks.find((p) => mine.has(p));
     if (on !== undefined) {
       this.trackOf.set(engine, { depotId: d.id, pieceId: on });
@@ -859,7 +859,80 @@ export class Economy {
       if (by !== -1) break;
     }
     if (by === -1) for (const [e, g] of this.trackOf) if (g.depotId === id && e !== engine) by = e;
-    return { ladder: new Set(t.ladder), by };
+    return { ladder: this.joinsOf(d).points, by };
+  }
+
+  /**
+   * Depot `d`'s tracks a train can reach: its own, then each further track joined to the same track as it (laid
+   * beside it by the card, joined by the player's points: until then it's no track of the industry to routes).
+   */
+  reachableTracks(d: DepotState): number[] {
+    const j = this.joinsOf(d);
+    return [d.pieceId, ...this.roadsOf(d.id).map((r) => r.pieceId).filter((p) => j.reach.has(p))];
+  }
+
+  /** Depot `d`'s further tracks no train can reach yet (none joined to its track). */
+  unjoinedTracks(d: DepotState): number[] {
+    const j = this.joinsOf(d);
+    return this.roadsOf(d.id).map((r) => r.pieceId).filter((p) => !j.reach.has(p));
+  }
+
+  /** Per depot of several tracks, at a layout revision: the pieces joined to its track, and the points into its tracks. */
+  private joins = new Map<number, { rev: number; reach: ReadonlySet<number>; points: ReadonlySet<number> }>();
+  /**
+   * What's joined to depot `d`'s own track (all the track a train there could run on), and the points a train comes
+   * to first on its way into any of its tracks: walking out from each track's ends past plain track to the first
+   * points (and an older save's ladder). Worked out once a change of the track (a walk of the line), not per tick.
+   */
+  private joinsOf(d: DepotState): { reach: ReadonlySet<number>; points: ReadonlySet<number> } {
+    const rev = this.layout.revision;
+    const had = this.joins.get(d.id);
+    if (had && had.rev === rev) return had;
+    const L = this.layout;
+    const reach = new Set<number>([d.pieceId]);
+    const todo = [d.pieceId];
+    while (todo.length > 0) {
+      const id = todo.pop()!;
+      const p = L.getPiece(id);
+      if (!p) continue;
+      const n = getPieceDef(p.type, p.flipped).connectors.length;
+      for (let i = 0; i < n; i++) {
+        const o = L.joinedConnector(connectorRef(id, i));
+        if (o === -1) continue;
+        const q = pieceOfRef(o);
+        if (!reach.has(q)) {
+          reach.add(q);
+          todo.push(q);
+        }
+      }
+    }
+    const t = this.tracks.get(d.id);
+    const points = new Set<number>(t?.ladder ?? []);
+    const tracks = [d.pieceId, ...(t?.roads ?? []).map((r) => r.pieceId)];
+    const mine = new Set(tracks);
+    for (const start of tracks) {
+      const p = L.getPiece(start);
+      if (!p) continue;
+      for (const end of [0, 1]) {
+        let ref = connectorRef(start, end);
+        for (let guard = 0; guard < 24; guard++) {
+          const o = L.joinedConnector(ref);
+          if (o === -1) break;
+          const q = pieceOfRef(o);
+          const qp = L.getPiece(q);
+          if (!qp || mine.has(q)) break;
+          const def = getPieceDef(qp.type, qp.flipped);
+          if (def.isSwitch || def.connectors.length !== 2) {
+            points.add(q);
+            break;
+          }
+          ref = connectorRef(q, indexOfRef(o) === 0 ? 1 : 0);
+        }
+      }
+    }
+    const out = { rev, reach, points };
+    this.joins.set(d.id, out);
+    return out;
   }
 
   /** Are pieces `a` and `b` tracks of the same depot (a depot of several tracks: any two of them)? */
@@ -1299,6 +1372,24 @@ export class Economy {
     const c = this.cargoOf(carId);
     const out = { kind: c.kind!, count: c.count };
     this.setCargo(carId, null, 0);
+    // Beside a depot, the wagon's done there this visit (as Continue and Leave now do for a whole train): tipped out by
+    // hand at a yard that gives the goods, the crane doesn't load it again as the train sets off (e2e:train-summary:
+    // logs deleted in the forest yard, Go, and the crane put logs back on). Its next visit there works it as ever.
+    const d = this.depotUnder(train);
+    if (d) {
+      const s = this.service(train.id);
+      if (s.depot !== d) {
+        this.endVisit(s);
+        s.depotId = d.id;
+        s.depot = d;
+      }
+      s.done.add(carId);
+      if (s.phase === HALTED && s.carId === carId) {
+        this.letCraneGo(s);
+        s.phase = CRAWLING;
+        s.ticks = 0;
+      }
+    }
     const p = this.passes.get(train.id);
     const i = CARGO[out.kind].index;
     if (p && p.loaded[i] >= 0) {

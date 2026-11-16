@@ -560,3 +560,41 @@ describe("findSplice: skip", () => {
     expect(findSplice(l, "depot-workshop", false, { x: 324, z: 0 }, 0, 40, () => true, new Set(ids)).kind).toBe("none");
   });
 });
+
+describe("points dropped onto a line from the tray (2026-11-16)", () => {
+  it("a split or a switch has a splice length (its straight-on leg); curves and Y's don't", async () => {
+    const { spliceLength } = await import("./splice");
+    expect(spliceLength("split", false)).toBe(216);
+    expect(spliceLength("split", true)).toBe(216);
+    expect(spliceLength("switch", false)).toBe(144);
+    expect(spliceLength("switch-y", false)).toBe(0);
+    expect(spliceLength("curve-large", false)).toBe(0);
+    // (Not straight pieces: walks along a line still stop at them.)
+    expect(straightLength("split", false)).toBe(0);
+  });
+
+  it("a split held over a line takes a straight's place, its straight-on leg along the line, as held", () => {
+    const l = new Layout();
+    const ids = line(l, ["straight-216", "straight-216", "straight-216"]);
+    const s = findSplice(l, "split", false, { x: 324, z: 10 }, 0, 40);
+    expect(s.kind).toBe("splice");
+    if (s.kind !== "splice") return;
+    expect(s.covers).toEqual([ids[1]]);
+    expect(s.pose.x).toBeCloseTo(216);
+    expect(s.pose.z).toBeCloseTo(0);
+    expect(normalizeAngle(s.pose.heading)).toBeCloseTo(0);
+    // Held the other way round: its trunk at the other end.
+    const back = findSplice(l, "split", false, { x: 324, z: 10 }, Math.PI, 40);
+    expect(back.kind === "splice" && Math.abs(back.pose.x - 432) < 1e-6).toBe(true);
+  });
+
+  it("a switch on a 216: the half nearer where it's held, a 72 filling the rest", () => {
+    const l = new Layout();
+    const ids = line(l, ["straight-216", "straight-216", "straight-216"]);
+    const s = findSplice(l, "switch", false, { x: 260, z: 0 }, 0, 40);
+    expect(s.kind).toBe("splice");
+    if (s.kind !== "splice") return;
+    expect(s.covers).toEqual([ids[1]]);
+    expect(s.rest?.map((r) => r.type)).toEqual(["straight-72"]);
+  });
+});

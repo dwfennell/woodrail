@@ -6,7 +6,7 @@
 // its load ("🪵 Logs: 3 of 3"). Empty: the engine card has Delete cargo beside the load; while the train moves the wagon
 // card's Empty is greyed ("Stop the train first") and a tap tips nothing out; stopped, the wagon card's Empty tips its logs out ("Tipped out 3 🪵"), the card
 // says "Empty" and the button goes. Last, the engine card's Delete cargo: a first tap asks ("Delete cargo? Tap again") and
-// throws nothing away; a second does.
+// throws nothing away; a second does, and the wagon stays empty standing and as Go sends the train off.
 //
 // Usage: npm run e2e:train-summary [-- <out dir>]   (default out: e2e-out/train-summary)
 import { existsSync, mkdirSync } from "node:fs";
@@ -338,17 +338,50 @@ if (!setup.error) {
   }, { engine, wagon });
   await p.waitForFunction(() => { const b = document.querySelector(".engine-card .empty-all"); return !!b && !b.hidden && b.getAttribute("aria-disabled") === null; }, null, { timeout: 10000 }).catch(() => {});
   await tapButton(".engine-card .empty-all");
+  const askedAt = Date.now();
   const asked = await p.evaluate((id) => ({ text: document.querySelector(".engine-card .empty-all")?.textContent, asking: document.querySelector(".engine-card .empty-all")?.classList.contains("asking"), count: window.woodrail.economy.cargoOf(id).count }), wagon);
   check("Delete cargo: the first tap asks, and throws nothing away", asked.asking && asked.text === "Delete cargo? Tap again" && asked.count === 3, JSON.stringify(asked));
-  await shot("4-throw-away-asks");
-  // (The second press straight on the button, as its tap's click: it asks for 4 s, and on a busy page a touch's click
-  // can come later than that. Not before 400 ms: the card's tap guard drops a click on a button that just changed size
-  // (asking, its words are longer), as it should a double tap.)
+  // (The second press straight on the button, as its tap's click, and soon, as a player's second tap: it asks for only
+  // 4 s (ASK_MS in hud.ts), so nothing slow goes between the taps. The picture of it asking was taken here once, and on
+  // a busy machine the screenshot alone outlasted the 4 s: the button had stopped asking, the click found no
+  // `.asking` and nothing was thrown away (the flake: 3 logs left, the button still there). Not before 400 ms either:
+  // the card's tap guard drops a click on a button that just changed size (asking, its words are longer), as it should
+  // a double tap.)
   await p.waitForTimeout(400);
-  await p.evaluate(() => document.querySelector(".engine-card .empty-all.asking")?.click());
+  const second = await p.evaluate(() => {
+    const b = document.querySelector(".engine-card .empty-all.asking");
+    b?.click();
+    return { asking: !!b };
+  });
+  const between = Date.now() - askedAt;
+  check("…still asking at the second tap", second.asking, JSON.stringify({ ...second, ms: between }));
   await p.waitForFunction((id) => window.woodrail.economy.cargoOf(id).count === 0, wagon, { timeout: 10000 }).catch(() => {});
   const thrown = await p.evaluate((id) => ({ count: window.woodrail.economy.cargoOf(id).count, hidden: document.querySelector(".engine-card .empty-all")?.hidden, toasts: window.woodrail.__toasts }), wagon);
-  check("…the second throws the logs away, the button goes, a toast says what went", thrown.count === 0 && thrown.hidden === true && thrown.toasts.some((t) => t.startsWith("Tipped out 3 🪵")), JSON.stringify(thrown));
+  check("…the second throws the logs away, the button goes, a toast says what went", thrown.count === 0 && thrown.hidden === true && thrown.toasts.some((t) => t.startsWith("Tipped out 3 🪵")), JSON.stringify({ ...thrown, ms: between }));
+  await shot("4-cargo-deleted");
+
+  // 11. The payoff: the logs stay gone. Standing a while, nothing puts them back; then Go (the card's own button) sends
+  // the train off, and the wagon leaves empty.
+  await p.waitForTimeout(2000);
+  const stood = await p.evaluate((id) => window.woodrail.economy.cargoOf(id).count, wagon);
+  await tapButton(".engine-card .chip.go");
+  const from = await p.evaluate((e) => window.woodrail.sim.findCar(e)?.train.world[0]?.x ?? null, engine);
+  await p.waitForFunction((e) => window.woodrail.sim.findCar(e)?.train.speed > 0, engine, { timeout: 30000 }).catch(() => {});
+  const left = await p.evaluate(
+    async ({ engine, wagon }) => {
+      const w = window.woodrail;
+      let most = 0;
+      const t0 = performance.now();
+      while (performance.now() - t0 < 3000) {
+        most = Math.max(most, w.economy.cargoOf(wagon).count);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      const t = w.sim.findCar(engine)?.train;
+      return { moving: (t?.speed ?? 0) > 0, x: t?.world[0]?.x ?? null, most, count: w.economy.cargoOf(wagon).count };
+    },
+    { engine, wagon },
+  );
+  check("…and stay gone: the wagon empty standing, and as Go sends the train off", stood === 0 && left.moving && left.x !== from && left.most === 0 && left.count === 0, JSON.stringify({ stood, from, ...left }));
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
