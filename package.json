@@ -66,6 +66,7 @@
     "e2e:train-parts": "node scripts/e2e/lib/run.mjs tools/e2e/train-parts.mjs",
     "e2e:train-summary": "node scripts/e2e/lib/run.mjs tools/e2e/train-summary.mjs",
     "e2e:not-loading": "node scripts/e2e/lib/run.mjs tools/e2e/not-loading.mjs",
+    "e2e:load-in-place": "node scripts/e2e/lib/run.mjs tools/e2e/load-in-place.mjs",
     "e2e:engine-names": "node scripts/e2e/lib/run.mjs tools/e2e/engine-names.mjs",
     "e2e:new-game": "node scripts/e2e/lib/run.mjs tools/e2e/new-game.mjs",
     "e2e:saves": "node scripts/e2e/lib/run.mjs tools/e2e/saves.mjs",

@@ -784,17 +784,19 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     let off = -1;
     const r = show(
       "stopLine",
+      // (From 90 s, the first moment a train is running: load in place, at 90 s itself all may be standing at a stop.)
       scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: l.side[1], next: 1, s: 100 }], [q.a, q.b], 300, cars, [
-        {
-          at: 90,
-          fn: (E) => {
+        ...Array.from({ length: 80 }, (_, k) => ({
+          at: 90 + k * 0.25,
+          fn: (E: readonly number[]) => {
+            if (off > 0) return;
             const e = ENV.OFFE ? Number(ENV.OFFE) : E.find((x) => (q.sim.findCar(x)?.train.speed ?? 0) >= 1 && !q.economy.routeOf(x)?.at);
             if (e !== undefined) {
               off = e;
               stopLine(q.economy, e);
             }
           },
-        },
+        })),
       ],
         true,
       ),
@@ -1148,7 +1150,9 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const q = line0({ loops: 1, ends: 2 });
       const l = q.loops[0];
       pinEach(q, l, w);
-      const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: q.west[1], next: 1, s: 100, at: 30 }], [q.a, q.b], 300, cars);
+      // (The third put down at 30 s, or as soon after as there's room there: load in place, a train turns back at the
+      // forest end as it loads there, so at 30 s the spot may be taken.)
+      const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: q.west[1], next: 1, s: 100, when: () => q.sim.ticks >= 30 * SIM_HZ }], [q.a, q.b], 300, cars);
       const loads = r.E.map((e) => r.cardLog.filter((x) => x.e === e && x.t > 60 && /at forest/.test(x.c)).length);
       if (ENV.SHOW) console.log(`N1 ${w.join("/")}: ${r.arrivals.join("/")} loading at the forest after 60 s ${loads.join("/")}`);
       expect(r.meet).toBe(0);
@@ -1366,6 +1370,13 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
 const KNOWN_BREAKS: { test: string; invariant: Invariant; why: string }[] = [
   // (Routing redesign step 0's invariants, known to break today: docs/superpowers/specs/2026-11-07-routing-redesign.md §4.)
   { test: "QA's N2: a train taken off its line", invariant: "oneOwner", why: "trains put down by hand on the loop's points (0.0 s), and one taken off its line running onto points another is on (step 6)" },
+  // (Load in place, 2026-11-16: trains' times at the line's ends changed (one pulls up to the end and turns back as it's
+  // worked), and these harnesses put a train down by hand, at a set time, on a loop's points another is on just then:
+  // each break at the instant of a put-down (B4 at 68 and 72 s of its 4, 8, … 96; random at 110; pinned at 45).)
+  { test: "B4: a train put down on any loop road at any time", invariant: "oneOwner", why: "a train put down by hand (68.0, 72.0 s) on a loop's points another is on" },
+  { test: "random put-downs: no head-ons", invariant: "oneOwner", why: "a train put down by hand (110.0 s) on a loop's points another is on" },
+  { test: "pinned loop: pinned both to the main road, 2 trains, one put down at 45 s in front of a running one, on the loop's road", invariant: "oneOwner", why: "a train put down by hand (45.0 s) on the loop while the runner is on its switch" },
+  { test: "pinned loop: pinned both to the main road, 3 trains, one put down at 45 s in front of a running one, on the loop's road", invariant: "oneOwner", why: "a train put down by hand (45.0 s) on the loop while the runner is on its switch" },
 ];
 
 describe("the train invariants (src/sim/invariants.ts)", () => {

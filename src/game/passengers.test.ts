@@ -112,7 +112,7 @@ describe("passengers", () => {
     expect(economy.ridersOf(coach)).toEqual({ count: SEATS.classic!, from: B.id });
     expect(B.waiting).toBe(6 - SEATS.classic!);
     // Back to A (turned back past B): they get off and pay.
-    run(40);
+    for (let i = 0; i < 400 && p.riders < SEATS.classic!; i++) run(0.1);
     expect(p.riders).toBe(SEATS.classic);
     const fare = fareFor(w, B, A, coach);
     expect(fare).toBeGreaterThanOrEqual(1);

@@ -2259,8 +2259,8 @@ async function routeWait(ctx, p) {
       }
       throw new Error("no room for a train");
     };
-    // (The first five wagons long: it holds the points a while, so the second, keeping its follow gap (#6) behind it,
-    // still comes up to them while they're held and stands a second or more.)
+    // (The first five wagons long: it holds the points while it crosses them, so the second, keeping its follow gap (#6)
+    // behind it, comes up to them while they're held and stands there.)
     const first = put(["engine", "timber", "timber", "timber", "timber", "timber"], [[6, 200]]);
     const second = put(["engine", "timber"], [[4, 200], [4, 150], [4, 100], [3, 200], [3, 100]]);
     w.invalidate();
@@ -2317,7 +2317,9 @@ async function routeWait(ctx, p) {
     w.sim.setLever(setup.first, 1);
     w.sim.setLever(setup.second, 1);
     const s = window.__wait;
-    for (let i = 0; i < 60 * 120 && s.stood < 120; i++) {
+    // (Till it has stood there a tenth of a second: load in place, the first no longer creeps over the points into its
+    // sawmill but pulls up past them, so the wait is short; the run stops while it still waits, for its card.)
+    for (let i = 0; i < 60 * 120 && s.stood < 12; i++) {
       w.sim.tick();
       w.economy.tick();
       window.__waitWatch();
@@ -2336,7 +2338,7 @@ async function routeWait(ctx, p) {
       if (sw && "engine" in sw && t.speed === 0 && !w.sim.piecesUnder(t.id).has(setup.points)) {
         s.held++;
         s.by = sw.engine;
-        if (s.held >= 120) s.stood = Math.max(s.stood, s.held);
+        if (s.held >= 12) s.stood = Math.max(s.stood, s.held);
       }
     }
     // (Paused while its card is opened and read: the game's own frames would run the sim on meanwhile, and the first
@@ -2350,8 +2352,8 @@ async function routeWait(ctx, p) {
   }, { setup, watch });
   // (Short of the points by the router (its nose 30–40 mm short), or held by sections at its slot's end, which is
   // where two lines' trains sharing the track now wait: the first holds the section with the points.)
-  const shortOf = waited.held >= 120 || (waited.near >= 30 && waited.far <= 40);
-  check("wait: the second train stops short of the points while the first has them (a second or more, never on them)", waited.stood >= 120 && shortOf && !waited.onPoints && waited.by === setup.first && waited.way === 0, JSON.stringify(waited));
+  const shortOf = waited.held >= 12 || (waited.near >= 30 && waited.far <= 40);
+  check("wait: the second train stops short of the points while the first has them (standing there, never on them)", waited.stood >= 12 && shortOf && !waited.onPoints && waited.by === setup.first && waited.way === 0, JSON.stringify(waited));
   // Its card, opened by a tap on it while it waits, says who for.
   await tapOn({ engine: setup.second });
   await p.waitForFunction(() => !!document.querySelector(".engine-status")?.textContent, null, { timeout: 30000 }).catch(() => {});
@@ -2374,7 +2376,7 @@ async function routeWait(ctx, p) {
     const s = window.__wait;
     const r = w.economy.router;
     // (Its move granted by sections too: held at its slot's end, the points' lock is still the first's.)
-    for (let i = 0; i < 30 * 120 && !(r.locked(setup.points) && !r.waitOf(setup.second) && !w.economy.sections.waitOf(setup.second) && !w.sim.pointsHeld(setup.points)); i++) {
+    for (let i = 0; i < 60 * 120 && !(r.locked(setup.points) && !r.waitOf(setup.second) && !w.economy.sections.waitOf(setup.second) && !w.sim.pointsHeld(setup.points)); i++) {
       w.sim.tick();
       w.economy.tick();
       window.__waitWatch();
@@ -2433,7 +2435,8 @@ async function routeWait(ctx, p) {
   await p.waitForTimeout(1000);
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   // (A station clock in view moves its hands as the game's minute turns, and a sawmill in view saws the logs it was
-  // given: frames for those are counted, not routing's. Routing's own part is watched too: no points set or put back.)
+  // given: frames for those are counted, not routing's, a pile that changed asking for its frame (`invalidate`) too.
+  // Routing's own part is watched too: no points set or put back.)
   const f0 = await p.evaluate(() => {
     const w = window.woodrail;
     const r = w.economy.router;
@@ -2466,7 +2469,7 @@ async function routeWait(ctx, p) {
     const i = window.__waitIdle;
     return { f: w.framesDrawn, why: i.why, depots: window.__waitDepots.length, clock: i.clock, switched: i.switched, granted: r.granted - i.granted, restored: r.restored - i.restored, moving: [...w.sim.trainIds()].map((k) => w.sim.getTrain(k).speed).filter((v) => v > 0).length };
   });
-  check("wait: no frames drawn once settled (no train moving), but for a working depot or a clock; routing moves nothing", idle.moving > 0 || (idle.f - f0 <= idle.clock + idle.depots && idle.why.length === 0 && idle.switched === 0 && idle.granted === 0 && idle.restored === 0), JSON.stringify({ f0, ...idle }));
+  check("wait: no frames drawn once settled (no train moving), but for a working depot or a clock; routing moves nothing", idle.moving > 0 || (idle.f - f0 <= idle.clock + idle.depots && idle.why.length <= idle.depots && idle.switched === 0 && idle.granted === 0 && idle.restored === 0), JSON.stringify({ f0, ...idle }));
   await p.keyboard.press("Escape");
 }
 
@@ -2793,7 +2796,8 @@ async function toastTapsThrough(p) {
 }
 
 /**
- * A routed train held at a forest where the track just stops (waiting to fill, with no logs): its card offers
+ * A routed train held at a forest where the track just stops (waiting to fill, with no logs, set so once it got to the
+ * end): its card offers
  * Continue, and a touch tap on it turns the train round, engine first, and sends it back to its next stop.
  */
 async function deadEndContinue(p) {
@@ -2816,8 +2820,15 @@ async function deadEndContinue(p) {
     const placed = w.sim.addTrain(["engine", "timber"], { pieceId: run[3], pathIndex: 0, s: 150, reversed: false });
     if (placed.kind !== "placed") throw new Error("no room for the train");
     const engine = w.sim.getTrain(placed.trainId).cars[0].id;
-    w.economy.setRoute(engine, { stops: [{ depotId: forest.id, action: "both", waitFill: true }, { depotId: sawmill.id, action: "both" }], next: 0 });
+    // (Load in place: a train waiting to fill pulls up short of the track's end. So it runs to the end first, its
+    // stop not waiting, and is set to wait there: its crane holds it at the end, turning back.)
+    w.economy.setRoute(engine, { stops: [{ depotId: forest.id, action: "both" }, { depotId: sawmill.id, action: "both" }], next: 0 });
     w.sim.setLever(engine, 1);
+    for (let i = 0; i < 120 * 60 && w.sim.findCar(engine).train.turnback < 0; i++) {
+      w.sim.tick();
+      w.economy.tick();
+    }
+    w.economy.setRoute(engine, { stops: [{ depotId: forest.id, action: "both", waitFill: true }, { depotId: sawmill.id, action: "both" }], next: 0 });
     // Harness shortcut: the game's own sim and economy ticks (as `Game.frame` runs them), run ahead of the frames, which
     // SwiftShader draws only a few a second: to the forest, and a while held there.
     let held = 0;

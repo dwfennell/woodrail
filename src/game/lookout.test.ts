@@ -84,8 +84,12 @@ describe("the lookout halt", () => {
     // Back to A first: two get on there, then on to the lookout, where they get off.
     const coach = car("passenger").id;
     sim.setLever(car("engine").id, -1);
-    run(12);
-    const boarded = economy.ridersOf(coach).count;
+    // (The most aboard at once: the first may be off at the lookout by the time the second has got on elsewhere.)
+    let boarded = 0;
+    for (let i = 0; i < 120; i++) {
+      run(0.1);
+      boarded = Math.max(boarded, economy.ridersOf(coach).count);
+    }
     run(14);
     expect(boarded).toBe(2);
     expect(p.riders).toBe(2);

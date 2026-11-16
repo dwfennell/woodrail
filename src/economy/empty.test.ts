@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { Economy } from "./economy";
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
+import { CARGO } from "./cargo";
 import { Layout, type PieceTypeId } from "../track";
 import { addTipped, emptyWords, type Tipped } from "../game/empty-words";
 
@@ -77,6 +78,46 @@ describe("Empty", () => {
     expect(w.economy.heldForSchool(w.train().id, "planks")).toBe(6);
     w.economy.dump(w.timber);
     expect(w.economy.heldForSchool(w.train().id, "planks")).toBe(0);
+  });
+
+  it("stays thrown away at a yard that gives the goods: the crane doesn't load them again this visit", () => {
+    // (e2e:train-summary: a train standing in the forest yard, its logs deleted, Go, and the crane put logs back on.)
+    const layout = new Layout();
+    const types: PieceTypeId[] = ["straight-216", "straight-216", "depot-forest", "straight-216", "straight-216", "straight-216", "straight-216"];
+    const ids = types.map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine", "timber"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 100 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    const forest = economy.addDepot("forest", ids[2], 0);
+    forest.piles[CARGO.log.index] = 20;
+    const train = () => sim.getTrain([...sim.trainIds()][0]) as Train;
+    const [engine, timber] = train().cars.map((c) => c.id);
+    const run = (secs: number, until: () => boolean = () => false) => {
+      for (let i = 0; i < secs * SIM_HZ && !until(); i++) {
+        sim.tick();
+        economy.tick();
+      }
+    };
+    // Into the yard: the crane loads logs.
+    sim.setLever(engine, 1);
+    run(60, () => economy.cargoOf(timber).count >= 2);
+    expect(economy.cargoOf(timber).count).toBeGreaterThanOrEqual(2);
+    // Stopped there by hand (still beside the yard), the logs deleted.
+    sim.setLever(engine, 0);
+    run(10, () => train().speed === 0);
+    expect(economy.dump(timber)?.kind).toBe("log");
+    // Set going again: it leaves the yard with the wagon empty, not loaded afresh.
+    sim.setLever(engine, 1);
+    const inYard = () => train().bogies.some((b) => b.pieceId === ids[2]);
+    let most = 0;
+    for (let i = 0; i < 30 * SIM_HZ && inYard(); i++) {
+      sim.tick();
+      economy.tick();
+      most = Math.max(most, economy.cargoOf(timber).count);
+    }
+    expect(inYard()).toBe(false);
+    expect(most).toBe(0);
   });
 
   it("names a place that takes the goods (the mill takes grain), and none where nothing does", () => {

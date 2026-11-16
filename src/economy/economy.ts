@@ -1,11 +1,11 @@
-import { connectorRef, getPieceDef, indexOfRef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, SIM_DT, SIM_HZ, type Cursor, type Sim, type Train } from "../sim";
+import { connectorRef, getPieceDef, indexOfRef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathExitConnector, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { ACCELERATION, ADV_OK, brakeTo, CAR_SPECS, COUPLER_GAP, SIM_DT, SIM_HZ, walkTrack, type Cursor, type Sim, type Train } from "../sim";
 import { LineTally } from "./line-tally";
 
 /** A game month in sim ticks (calendar.ts's `MONTH_S`, 120 s): the span the Lines list counts a line's loads over. */
 export const LINE_TALLY_TICKS = 120 * SIM_HZ;
 import { CARGO, CARGO_KINDS, CARGO_SLOTS, canCarry, POSTAL, type CargoKind } from "./cargo";
-import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
+import { ticks, CRANE_RUN, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
@@ -23,9 +23,9 @@ import { addTo } from "./goods";
 const NONE = 0;
 const CRAWLING = 1;
 const HALTED = 2;
-/** A wagon centre this close to the crane point (mm) counts as under the crane. */
+/** A train's nose this close to its pull-up spot (mm) counts as there. */
 const AT_CRANE = 0.5;
-/** A train crawling through a depot that has stood still this long is held up short of the crane. */
+/** A train running in to its pull-up spot that has stood still this long is held up short of it (served where it stands). */
 const STUCK_TICKS = ticks(1);
 /** A rider gets on or off a coach in this time. */
 const RIDER_TICKS = ticks(0.3);
@@ -40,12 +40,38 @@ interface Service {
    * with several tracks is its own object (its own piece and crane), so two trains are worked at once. Null: none.
    */
   depot: DepotState | null;
-  /** The car under the crane while halted. */
+  /** The car the crane is working on while halted (−1: choosing the next, or only coaches at work). */
   carId: number;
   /** Ticks into the current crane move. */
   ticks: number;
-  /** Ticks it has stood still while crawling (held up short of the crane). */
+  /** Ticks it has stood still while running in (held up short of its pull-up spot). */
   still: number;
+  /** Has it stood for the crane this visit (pulled up, or stood where it was)? Then it doesn't move again for it. */
+  stood?: boolean;
+  /**
+   * Halted short of its pull-up spot (a train ahead, a buffer) with nothing moved for it yet: once the way is clear it
+   * pulls up (`depotCap`); if it stays held, it's served where it stands.
+   */
+  waitUp?: boolean;
+  /** Has anything been moved for it this visit (a unit, a rider, the crane's run to it)? */
+  served?: boolean;
+  /** The crane's run along the train to `carId`: ticks left (−1: not begun), of `runOf`, from and to (along the depot). */
+  run: number;
+  runOf: number;
+  runFrom: number;
+  runTo: number;
+  /** Ticks toward the next rider getting off or on (every coach at once). */
+  riderTicks: number;
+  /**
+   * How much further on than the depot's far end its nose pulls up, so its tail clears points behind (`pullUpExtra`):
+   * worked out once a visit, as its nose first runs onto the depot (−1: not yet).
+   */
+  extra: number;
+  /**
+   * Standing for the crane with some of it on points or a crossing: no spot there clears them (the depot too short for
+   * it, a signal or points just past its far end). Found as it halts; it doesn't move till it goes. Said on its card.
+   */
+  onPoints?: boolean;
   /** Cars already served (or sent on) during this visit. */
   readonly done: Set<number>;
   /** Has it halted at the depot this visit (a "halted" station event said so, and a "left" one is owed)? */
@@ -456,8 +482,10 @@ export interface CraneMove {
   /** From the wagon to a pile (true), or the other way. */
   toPile: boolean;
   carId: number;
-  /** 0–1 through the move. */
+  /** 0–1 through the move; −1 while the crane runs along the train to the car (`run`), nothing in its hook yet. */
   phase: number;
+  /** 0–1 through the crane's run to the car (−1: not running; it's moving a unit). */
+  run: number;
 }
 
 /** Something the crane did this tick (for sounds and small effects). */
@@ -1046,6 +1074,8 @@ export class Economy {
   private readonly tracks = new Map<number, DepotTracks>();
   /** Depot id → the train whose wagon its one crane is moving a unit for now (a depot of several tracks). */
   private readonly craneBy = new Map<number, number>();
+  /** Depot id → where its crane stands now, along its track (mm; its home, `craneAt`, till it first runs). Not saved. */
+  private readonly craneAtNow = new Map<number, number>();
   /** Routed engine → the track (a piece of a depot's) it's sent to at its next stop, a depot of several tracks. */
   private readonly trackOf = new Map<number, { depotId: number; pieceId: number }>();
   /** Routed engines whose next stop's tracks are all taken: they wait short of its ladder (`fullAt`). */
@@ -1342,6 +1372,24 @@ export class Economy {
     const c = this.cargoOf(carId);
     const out = { kind: c.kind!, count: c.count };
     this.setCargo(carId, null, 0);
+    // Beside a depot, the wagon's done there this visit (as Continue and Leave now do for a whole train): tipped out by
+    // hand at a yard that gives the goods, the crane doesn't load it again as the train sets off (e2e:train-summary:
+    // logs deleted in the forest yard, Go, and the crane put logs back on). Its next visit there works it as ever.
+    const d = this.depotUnder(train);
+    if (d) {
+      const s = this.service(train.id);
+      if (s.depot !== d) {
+        this.endVisit(s);
+        s.depotId = d.id;
+        s.depot = d;
+      }
+      s.done.add(carId);
+      if (s.phase === HALTED && s.carId === carId) {
+        this.letCraneGo(s);
+        s.phase = CRAWLING;
+        s.ticks = 0;
+      }
+    }
     const p = this.passes.get(train.id);
     const i = CARGO[out.kind].index;
     if (p && p.loaded[i] >= 0) {
@@ -2464,9 +2512,17 @@ export class Economy {
     return d.piles[CARGO[kind].index] > 0 || this.working(d);
   }
 
-  /** The car under the crane at a depot right now, or −1. */
+  /**
+   * The car being worked at a depot right now (the crane's, or with only riders getting off and on, a coach of theirs),
+   * or −1.
+   */
   servicedCar(depotId: number, pieceId = -1): number {
-    for (const s of this.services.values()) if (s.phase === HALTED && s.depotId === depotId && (pieceId === -1 || s.depot?.pieceId === pieceId)) return s.carId;
+    for (const s of this.services.values()) {
+      if (s.phase !== HALTED || s.depotId !== depotId || (pieceId !== -1 && s.depot?.pieceId !== pieceId)) continue;
+      if (s.carId !== -1) return s.carId;
+      const t = this.sim.getTrain(s.trainId);
+      for (const car of t?.cars ?? []) if (car.kind === "passenger" && !s.done.has(car.id)) return car.id;
+    }
     return -1;
   }
 
@@ -2478,16 +2534,22 @@ export class Economy {
 
   /**
    * What the crane at a depot is carrying right now: the cargo, which way (from the wagon to a pile, or the other
-   * way), the car, and progress 0–1, written into `out`. False when the crane is idle or waiting.
+   * way), the car, and progress 0–1, written into `out`; or, running along a standing train to its next wagon, that
+   * wagon and the run's progress (`run`; `phase` −1), with what it will move there. False when the crane is idle or
+   * waiting.
    */
   craneMove(depotId: number, out: CraneMove, pieceId?: number): boolean {
     // (A depot of several tracks: its one crane, at whichever track it's working; `pieceId`: only at that track.)
     for (const s of this.services.values()) {
-      if (s.phase !== HALTED || s.depotId !== depotId || s.ticks === 0 || (pieceId !== undefined && s.depot?.pieceId !== pieceId)) continue;
+      if (s.phase !== HALTED || s.depotId !== depotId || s.carId === -1 || (pieceId !== undefined && s.depot?.pieceId !== pieceId)) continue;
+      // (Moving a unit, or running along the train to the wagon.)
+      const running = s.ticks === 0 && s.run > 0;
+      if (s.ticks === 0 && !running) continue;
       const d = s.depot;
       if (!d) continue;
       out.carId = s.carId;
-      out.phase = s.ticks / this.craneTicks;
+      out.phase = running ? -1 : s.ticks / this.craneTicks;
+      out.run = running ? 1 - s.run / s.runOf : -1;
       if (this.canUnload(d, s.carId)) {
         out.kind = this.cargoOf(s.carId).kind!;
         out.toPile = true;
@@ -2655,7 +2717,7 @@ export class Economy {
 
   private service(trainId: number): Service {
     let s = this.services.get(trainId);
-    if (!s) this.services.set(trainId, (s = { trainId, phase: NONE, depotId: -1, depot: null, carId: -1, ticks: 0, still: 0, done: new Set() }));
+    if (!s) this.services.set(trainId, (s = { trainId, phase: NONE, depotId: -1, depot: null, carId: -1, ticks: 0, still: 0, done: new Set(), run: -1, runOf: 0, runFrom: 0, runTo: 0, riderTicks: 0, extra: -1 }));
     return s;
   }
 
@@ -2703,9 +2765,12 @@ export class Economy {
   }
 
   /**
-   * The speed limit a depot puts on a powered train: on an automatic depot where one of its wagons has work, crawl,
-   * and slow so the next wagon needing the crane stops exactly under it, then hold it there (0) while the crane works.
-   * A train with nothing to do there runs through at full speed.
+   * The speed limit a depot puts on a powered train: on an automatic depot where one of its cars has work, it pulls up
+   * once, braking to stand with its nose just short of the depot's far end (`pullUpRoom`), and stands there (0) while
+   * the crane runs along it and works each wagon where it stands (`work`). A train with nothing to do there runs through
+   * at full speed. Held up short of the spot (a train ahead, a buffer), it's served where it stands, or, held by a train
+   * ahead with nothing moved for it yet, pulls up once that's gone. Once it has stood, it doesn't move for the crane
+   * again this visit. (Spec: docs/superpowers/specs/2026-11-16-load-in-place.md.)
    */
   private depotCap(train: Train): number {
     const d = this.depotUnder(train);
@@ -2719,6 +2784,9 @@ export class Economy {
       s.depotId = d.id;
       s.depot = d;
       s.phase = CRAWLING;
+      // A visit begun standing (set going on the depot, a game loaded mid-load, the next depot of two end to end):
+      // served where it stands.
+      s.stood = train.speed === 0;
     }
     // Reversing the lever sends the train on: nothing more for it here this visit (and it isn't being worked).
     if (this.drive(train) < 0) {
@@ -2726,15 +2794,24 @@ export class Economy {
       s.phase = NONE;
       return Infinity;
     }
-    if (s.phase === HALTED) return 0;
+    if (s.phase === HALTED) {
+      if (!s.waitUp || s.served) return 0;
+      // Held short by a train ahead, nothing moved for it yet: it pulls up once it can (moving, it's running in again).
+      s.still = train.speed === 0 ? s.still + 1 : 0;
+      if (train.speed > 0) {
+        s.phase = CRAWLING;
+        s.waitUp = false;
+        this.letCraneGo(s);
+      } else return this.pullUpCap(train, d);
+    }
     // Nothing for the crane in this train (this visit): it won't stop, so it needn't slow (nor is it being worked:
     // `servingDepot`).
     // (A routed train's stop where it would neither drop nor pick up anything is run through: "skip if nothing to do",
     // decided afresh each tick as it comes up to the stop, so a pile that fills meanwhile is seen.)
     if (!train.cars.some((car) => !s.done.has(car.id) && this.needsService(d, car.id))) {
-      // But a routed train's "Wait here till full" stop never is: it crawls in (goods may yet come, and a wagon that can
-      // take them stops under the crane), while a wagon could take some.
-      if (!this.waitsHere(train, d)) {
+      // But a routed train's "Wait here till full" stop never is: it pulls up (goods may yet come), while a wagon could
+      // take some. (Pulled up, with none coming (the depot idle), it goes on.)
+      if (s.stood || !this.waitsHere(train, d)) {
         // Its work here done after a halt: it sets off (the guard's flag).
         if (s.halted) this.departed(s);
         s.phase = NONE;
@@ -2742,50 +2819,230 @@ export class Economy {
         return this.spacingCap(train, d);
       }
     }
+    if (s.stood) {
+      // Its work here done, it set off. Work found again as it goes (its route's next stop the same depot, or a depot
+      // end to end with it; a pile that filled): it stops again where it is (from faster than a crawl, slowing to one
+      // first, as it crept before). (Leaving that for its next visit lost a third of the goods moved: the sweep.)
+      if (train.speed > CRAWL_SPEED && s.phase === NONE) return CRAWL_SPEED;
+      return this.halt(s, train, d);
+    }
     s.phase = CRAWLING;
-    let cap = CRAWL_SPEED;
-    const len = this.depotLength(d);
-    const crane = d.craneAt;
-    // A wagon the crane can't stop under (rolled past it, or off the depot's track on a long train): served where it
-    // stands, once no other wagon is still coming up to the crane.
-    // The train runs front first (its cars in order): cars after the last one on the depot are still to come.
-    let lastOn = -1;
-    for (let c = 0; c < train.cars.length; c++) if (train.bogies[2 * c].pieceId === d.pieceId || train.bogies[2 * c + 1].pieceId === d.pieceId) lastOn = c;
-    // Stopped short of the crane (a buffer, a train ahead): the ones still to come won't, so they're reached for too.
     s.still = train.speed === 0 ? s.still + 1 : 0;
-    const stuck = s.still > STUCK_TICKS;
-    let reach = -1;
-    let coming = false;
+    if (s.extra < 0) s.extra = train.bogies[0].pieceId === d.pieceId ? this.pullUpExtra(train, d) : 0;
+    const room = this.pullUpRoom(train, d);
+    // (There, or up against the line's end just past it: `endPast`.)
+    if (room <= AT_CRANE || train.turnback >= 0) {
+      s.stood = true;
+      return this.halt(s, train, d);
+    }
+    // Held up short of the spot: served where it stands, or pulls up once a train ahead has gone.
+    if (s.still > STUCK_TICKS) {
+      s.waitUp = true;
+      s.still = 0;
+      return this.halt(s, train, d);
+    }
+    return this.pullUpCap(train, d, room);
+  }
+
+  /**
+   * How far (mm) this train's nose still has to go to its pull-up spot at depot `d`: `STOP_SHORT` short of the end of
+   * the depot it's heading for, or that and its visit's `extra` on (its tail clear of points behind). Negative (or 0)
+   * once there, or with its nose past the spot already (it's served where it stands).
+   */
+  private pullUpRoom(train: Train, d: DepotState): number {
+    const front = train.bogies[0];
+    const extra = this.services.get(train.id)?.extra ?? 0;
+    const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
+    const len = this.depotLength(d);
+    if (front.pieceId === d.pieceId) return (front.reversed ? along(front, len) : len - along(front, len)) - inset - STOP_SHORT + Math.max(0, extra);
+    if (extra <= 0) return -1;
+    // Its nose over the far joint, pulling up a little further on: how far past the joint its front axle is.
+    const k = leadOn(train, d.pieceId);
+    if (k < 0) return -1;
+    const b = train.bogies[k];
+    const end: Cursor = { pieceId: d.pieceId, pathIndex: b.pathIndex, reversed: b.reversed, s: len };
+    let past = -1;
+    walkTrack(this.layout, end, extra + inset + 1, (pieceId, _path, reversed, from) => {
+      if (pieceId === d.pieceId || pieceId !== front.pieceId || reversed !== front.reversed) return;
+      past = from + front.s;
+      return false;
+    });
+    return past < 0 ? -1 : extra - STOP_SHORT - inset - past;
+  }
+
+  /**
+   * A train longer than depot `d` standing with its nose by the far end has its tail back on the track it came in on.
+   * If points or a crossing are there, it pulls up further on, just far enough for its tail to clear them, but only
+   * over plain track (no points, crossing, signal or end of the line under its nose): how much further (mm), or 0.
+   * Asked once a visit. (Spec: docs/superpowers/specs/2026-11-16-load-in-place.md, "Too long for the depot".)
+   */
+  private pullUpExtra(train: Train, d: DepotState): number {
+    // The line's end just past the depot (a terminus): it pulls up to it, so it turns back while it's worked, as it did
+    // creeping under the crane (stopping short, it ran on to the end after, waited and came back: 5 s a round trip).
+    const end = this.endPast(train, d);
+    let length = 0;
+    for (const car of train.cars) length += CAR_SPECS[car.kind].length + COUPLER_GAP;
+    // (Its front axle a little into it, so it runs up against the end (as the sim stops a train: by its front axle)
+    // and its wait to turn back begins as it stops. Only while its last car still stands wholly in the yard: a short
+    // train pulled up to an end well past the depot would leave it, and be worked nowhere.)
+    const pull = end + CAR_SPECS[train.cars[0].kind].bogieInset + 2;
+    if (end >= 0 && pull - (length - COUPLER_GAP) + CAR_SPECS[train.cars[train.cars.length - 1].kind].length <= 0) return pull + STOP_SHORT;
+    const front = train.bogies[0];
+    const len = this.depotLength(d);
+    const behind = length - COUPLER_GAP - (len - STOP_SHORT);
+    if (behind <= 0) return 0;
+    const layout = this.layout;
+    const meets = (pieceId: number) => {
+      const p = layout.getPiece(pieceId);
+      const def = p && getPieceDef(p.type, p.flipped);
+      return !def || def.paths.length > 1 || !!def.signal;
+    };
+    // Back from the depot's near end along the way it came: where the first points or crossing begins.
+    let q = -1;
+    walkTrack(layout, { pieceId: d.pieceId, pathIndex: front.pathIndex, reversed: !front.reversed, s: len }, behind, (pieceId, _path, _rev, from) => {
+      if (pieceId === d.pieceId || !meets(pieceId)) return;
+      q = from;
+      return false;
+    });
+    if (q < 0) return 0;
+    const need = behind - q + 4;
+    // On from the far end: plain track for its nose, no signal at a joint it would stand over.
+    const over = need - STOP_SHORT;
+    if (over <= 0) return need;
+    const def = getPieceDef(layout.getPiece(d.pieceId)!.type, layout.getPiece(d.pieceId)!.flipped);
+    const exit = pathExitConnector(def, front.pathIndex, front.reversed);
+    if (exit === -1 || layout.signalAt(connectorRef(d.pieceId, exit))) return 0;
+    let clear = true;
+    const ended = walkTrack(layout, { pieceId: d.pieceId, pathIndex: front.pathIndex, reversed: front.reversed, s: len }, over + 2, (pieceId, path, reversed, _from, to) => {
+      if (pieceId === d.pieceId) return;
+      if (meets(pieceId)) return (clear = false);
+      const p = layout.getPiece(pieceId)!;
+      const out = pathExitConnector(getPieceDef(p.type, p.flipped), path, reversed);
+      if (to < over + 2 && (out === -1 || layout.signalAt(connectorRef(pieceId, out)))) return (clear = false);
+    });
+    return clear && ended === ADV_OK ? need : 0;
+  }
+
+  /**
+   * How far past depot `d`'s far end (in this train's way) the line ends (a buffer, or track that just stops), over plain
+   * track (no points, crossing or signal), within `END_REACH`; −1 if it doesn't.
+   */
+  private endPast(train: Train, d: DepotState): number {
+    const layout = this.layout;
+    const front = train.bogies[0];
+    const len = this.depotLength(d);
+    const piece = layout.getPiece(d.pieceId);
+    if (!piece) return -1;
+    const exit = pathExitConnector(getPieceDef(piece.type, piece.flipped), front.pathIndex, front.reversed);
+    if (exit === -1) return 0;
+    if (layout.signalAt(connectorRef(d.pieceId, exit))) return -1;
+    let plain = true;
+    let far = 0;
+    const ended = walkTrack(layout, { pieceId: d.pieceId, pathIndex: front.pathIndex, reversed: front.reversed, s: len }, END_REACH, (pieceId, path, reversed, _from, to) => {
+      if (pieceId === d.pieceId) return;
+      const p = layout.getPiece(pieceId)!;
+      const def = getPieceDef(p.type, p.flipped);
+      if (def.paths.length > 1 || def.signal) return (plain = false);
+      far = to;
+      const out = pathExitConnector(def, path, reversed);
+      if (out !== -1 && layout.signalAt(connectorRef(pieceId, out))) return (plain = false);
+    });
+    return plain && ended !== ADV_OK ? far : -1;
+  }
+
+  /** The speed a train may run in at to stop at its pull-up spot (as at a red signal), landing on it exactly. */
+  private pullUpCap(train: Train, d: DepotState, room = this.pullUpRoom(train, d)): number {
+    if (room <= AT_CRANE) return 0;
+    return Math.max(brakeTo(room), Math.min(CRAWL_SPEED, room / SIM_DT));
+  }
+
+  /**
+   * Where along depot `d`'s piece (mm from its path's start) car `c` of this train stands, its middle: from its bogies
+   * when it's on the piece, else counted along the train from a bogie that is (cars off the depot, a long train). For
+   * the crane's run to it, and so the nearest wagon is worked first.
+   */
+  private carAlong(train: Train, c: number, d: DepotState): number {
+    const len = this.depotLength(d);
+    const front = train.bogies[2 * c];
+    const rear = train.bogies[2 * c + 1];
+    if (front.pieceId === d.pieceId && rear.pieceId === d.pieceId) return (along(front, len) + along(rear, len)) / 2;
+    const k = leadOn(train, d.pieceId);
+    if (k < 0) return d.craneAt;
+    // Distances from the train's nose, along it.
+    let nose = 0;
+    let atK = 0;
+    let atC = 0;
+    for (let i = 0; i < train.cars.length; i++) {
+      const spec = CAR_SPECS[train.cars[i].kind];
+      if (i === k >> 1) atK = nose + ((k & 1) === 0 ? spec.bogieInset : spec.length - spec.bogieInset);
+      if (i === c) atC = nose + spec.length / 2;
+      nose += spec.length + COUPLER_GAP;
+    }
+    const b = train.bogies[k];
+    return along(b, len) - (b.reversed ? -1 : 1) * (atC - atK);
+  }
+
+  /**
+   * Is any of this train (its cars' bodies, end to end) over points or a crossing (a piece where ways meet)? A walk over
+   * the pieces under it; asked once as it halts.
+   */
+  private overPoints(train: Train): boolean {
+    const layout = this.layout;
+    const meets = (pieceId: number) => {
+      const p = layout.getPiece(pieceId);
+      return !!p && getPieceDef(p.type, p.flipped).paths.length > 1;
+    };
+    for (const b of train.bogies) if (meets(b.pieceId)) return true;
+    // The overhang past each end axle.
+    const first = train.bogies[0];
+    const last = train.bogies[train.bogies.length - 1];
+    const lp = layout.getPiece(last.pieceId);
+    const ends: [Cursor, number][] = [[first, CAR_SPECS[train.cars[0].kind].bogieInset]];
+    if (lp) {
+      const len = pathLength(getPieceDef(lp.type, lp.flipped).paths[last.pathIndex].geom);
+      ends.push([{ pieceId: last.pieceId, pathIndex: last.pathIndex, reversed: !last.reversed, s: len - last.s }, CAR_SPECS[train.cars[train.cars.length - 1].kind].bogieInset]);
+    }
+    for (const [c, over] of ends) {
+      let hit = false;
+      walkTrack(layout, c, over, (pieceId) => {
+        if (pieceId !== c.pieceId && meets(pieceId)) hit = true;
+        return !hit;
+      });
+      if (hit) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The depot where this train stands for the crane with some of it on points or a crossing (no spot there clears
+   * them: the depot is too short for it), or null. Its card says so.
+   */
+  standsOnPoints(trainId: number): DepotState | null {
+    const s = this.services.get(trainId);
+    return s && s.phase === HALTED && s.onPoints && s.depot ? s.depot : null;
+  }
+
+  /** Is a train standing for the crane at this depot with some of it on points or a crossing (`standsOnPoints`)? */
+  pointsAt(depotId: number): boolean {
+    for (const s of this.services.values()) if (s.phase === HALTED && s.onPoints && s.depotId === depotId) return true;
+    return false;
+  }
+
+  /** The next wagon for the crane at this standing train: the nearest the crane with work (not done this visit), or −1. */
+  private nextCar(s: Service, train: Train, d: DepotState): number {
+    const at = this.craneAtNow.get(d.id) ?? d.craneAt;
+    let best = -1;
+    let bestGap = Infinity;
     for (let c = 0; c < train.cars.length; c++) {
       const car = train.cars[c];
-      if (s.done.has(car.id) || !this.needsService(d, car.id)) continue;
-      const front = train.bogies[2 * c];
-      const rear = train.bogies[2 * c + 1];
-      if (front.pieceId !== d.pieceId || rear.pieceId !== d.pieceId) {
-        // Running onto the depot (its leading end on it), or not there yet: it will come up to the crane.
-        const arriving = front.pieceId === d.pieceId || (rear.pieceId !== d.pieceId && c > lastOn);
-        if (arriving && !stuck) coming = true;
-        else if (reach === -1) reach = car.id;
-        continue;
+      if (car.kind === "passenger" || s.done.has(car.id) || !this.needsService(d, car.id)) continue;
+      const gap = Math.abs(this.carAlong(train, c, d) - at);
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = car.id;
       }
-      // Distance still to go before the car's centre is under the crane.
-      const centre = (along(front, len) + along(rear, len)) / 2;
-      const ahead = (crane - centre) * (front.reversed ? -1 : 1);
-      if (ahead < -AT_CRANE) {
-        if (reach === -1) reach = car.id;
-        continue;
-      }
-      if (ahead <= AT_CRANE) return this.halt(s, car.id);
-      if (stuck) {
-        if (reach === -1) reach = car.id;
-        continue;
-      }
-      coming = true;
-      if (ahead / SIM_DT < cap) cap = ahead / SIM_DT;
     }
-    // Beside the depot at all, every wagon gets its turn: the train stops for the ones the crane must reach to.
-    if (!coming && reach !== -1) return this.halt(s, reach);
-    return cap;
+    return best;
   }
 
   /**
@@ -2844,18 +3101,21 @@ export class Economy {
     return Infinity;
   }
 
-  /** Stop the train for the crane to work on this car. */
-  private halt(s: Service, carId: number): number {
-    if (s.phase !== HALTED) this.depotHalts++;
+  /** Stop the train for the crane: it works each wagon where it stands (`work` picks them). */
+  private halt(s: Service, train: Train, d: DepotState): number {
+    if (s.phase !== HALTED) {
+      this.depotHalts++;
+      s.carId = -1;
+      s.ticks = 0;
+      s.run = -1;
+      s.onPoints = this.overPoints(train);
+    }
     s.turnAt ??= this.ticksRun;
     if (!s.halted) {
       s.halted = true;
-      const d = s.depot;
-      if (d) this.stationNote("halted", d.pieceId, s.trainId, carId);
+      this.stationNote("halted", d.pieceId, s.trainId, this.nextCar(s, train, d));
     }
     s.phase = HALTED;
-    s.carId = carId;
-    s.ticks = 0;
     return 0;
   }
 
@@ -2879,6 +3139,12 @@ export class Economy {
     s.carId = -1;
     s.ticks = 0;
     s.still = 0;
+    s.stood = false;
+    s.waitUp = false;
+    s.served = false;
+    s.run = -1;
+    s.riderTicks = 0;
+    s.extra = -1;
     s.done.clear();
   }
 
@@ -2904,40 +3170,38 @@ export class Economy {
         this.services.delete(s.trainId);
         continue;
       }
-      if (train.derailed || !d || !d.auto || !this.onMap(d) || !this.sim.findCar(s.carId)) {
+      if (train.derailed || !d || !d.auto || !this.onMap(d)) {
         this.endVisit(s);
         continue;
       }
-      // Lever off: the train stays put and the crane stops; it carries on when the train is set going again.
+      // Lever off: the train stays put and the crane stops; it carries on when the train is set going again (where it
+      // stands: it has stood).
       if (this.drive(train) === 0) {
         s.phase = CRAWLING;
         s.ticks = 0;
+        s.run = -1;
         this.letCraneGo(s);
         continue;
       }
-      // People get off a coach, then on, by themselves (no crane).
-      const off = this.alightWho(d, s.carId);
-      const on = off < 0 ? this.boardWho(d, s.carId) : -1;
-      if (off >= 0 || on >= 0) {
-        if (++s.ticks < RIDER_TICKS) continue;
+      // Held short of its pull-up spot with nothing moved for it yet: served here only once it has stood a while (a
+      // train ahead gone, it pulls up instead: `depotCap`).
+      if (s.waitUp && !s.served && s.still <= STUCK_TICKS) continue;
+      // People get off every coach, then on, by themselves (no crane), all at once.
+      const riders = this.ridersStep(s, train, d);
+      if (s.carId !== -1 && (s.done.has(s.carId) || !this.sim.findCar(s.carId))) {
+        s.carId = -1;
         s.ticks = 0;
-        const r = this.riders.get(s.carId);
-        if (off >= 0) {
-          const from = this.depots[r!.froms ? r!.froms[off] : r!.from];
-          // (Paid while still aboard: the fare reads what the coach's riders have had, `Riders.scenic`.)
-          // (At an airport they wait in its lounge for a plane.)
-          if (d.role === "airport" || d.role === "mast") d.flyers++;
-          if (from) this.onAlight?.(from, d, s.carId);
-          this.takeRider(s.carId, off);
-          this.stationNote("off", d.pieceId, s.trainId, s.carId);
-        } else {
-          const place = d.wants[on];
-          d.wants.splice(on, 1);
-          d.waiting--;
-          this.addRider(s.carId, d.id, place);
-          this.stationNote("on", d.pieceId, s.trainId, s.carId);
+      }
+      if (s.carId === -1) {
+        s.carId = this.nextCar(s, train, d);
+        s.ticks = 0;
+        s.run = -1;
+        if (s.carId === -1) {
+          // Nothing for the crane: done here once the coaches are (`depotCap` sends it on).
+          if (!riders) s.phase = CRAWLING;
+          this.letCraneGo(s);
+          continue;
         }
-        continue;
       }
       if (!this.canUnload(d, s.carId) && this.loadKind(d, s.carId) === null) {
         // A wagon passed over while the pile was full can drop its goods once the depot has used some: back to it
@@ -2947,7 +3211,8 @@ export class Economy {
         s.done.add(s.carId);
         // Unloading done: the wagons that stood aside for it can wait for their load now.
         for (const car of train.cars) if (car.id !== s.carId && s.done.has(car.id) && this.waitsForLoad(d, car.id)) s.done.delete(car.id);
-        s.phase = CRAWLING;
+        // The crane turns to the next wagon (next tick), the train standing.
+        s.carId = -1;
         s.ticks = 0;
         this.letCraneGo(s);
         continue;
@@ -2956,10 +3221,30 @@ export class Economy {
         // A train ahead on the same track still being served goes first, so it can leave and this one move up. While
         // it only waits for a load, this one may unload (that may be what it waits for), not load.
         const ahead = this.queuedBehind(s, train, d);
-        if (ahead === BEHIND || (ahead === UNLOAD_ONLY && !this.canUnload(d, s.carId))) continue;
+        if (ahead === BEHIND || (ahead === UNLOAD_ONLY && !this.canUnload(d, s.carId))) {
+          // (Held short, nothing moved for it yet: it waits to pull up.)
+          if (s.waitUp && !s.served) s.still = 0;
+          continue;
+        }
         // (One crane for a depot's several tracks: it moves a unit for one train at a time, each in turn.)
         if (this.tracks.has(d.id) && !this.craneTurn(s)) continue;
+        // The crane runs along the train to the wagon first.
+        if (s.run < 0) {
+          const index = train.cars.findIndex((c) => c.id === s.carId);
+          s.runFrom = this.craneAtNow.get(d.id) ?? d.craneAt;
+          s.runTo = this.carAlong(train, index, d);
+          s.runOf = Math.round((Math.abs(s.runTo - s.runFrom) / CRANE_RUN) * SIM_HZ);
+          s.run = s.runOf;
+        }
+        if (s.run > 0) {
+          s.run--;
+          s.served = true;
+          this.craneAtNow.set(d.id, s.runTo + ((s.runFrom - s.runTo) * s.run) / s.runOf);
+          continue;
+        }
+        this.craneAtNow.set(d.id, s.runTo);
       }
+      s.served = true;
       if (++s.ticks < this.craneTicks) continue;
       s.ticks = 0;
       if (this.craneBy.get(d.id) === s.trainId) {
@@ -2981,6 +3266,49 @@ export class Economy {
         this.loadsMoved++;
       }
     }
+  }
+
+  /**
+   * Riders off and on a standing train's coaches, every coach at once: each coach with someone to get off (first) or
+   * on moves one every `RIDER_TICKS`. A coach with nobody left to move is done this visit. True while any coach is
+   * still at it.
+   */
+  private ridersStep(s: Service, train: Train, d: DepotState): boolean {
+    let busy = false;
+    for (const car of train.cars) {
+      if (car.kind !== "passenger" || s.done.has(car.id)) continue;
+      if (this.alightWho(d, car.id) >= 0 || this.boardWho(d, car.id) >= 0) busy = true;
+      else s.done.add(car.id);
+    }
+    if (!busy) {
+      s.riderTicks = 0;
+      return false;
+    }
+    s.served = true;
+    if (++s.riderTicks < RIDER_TICKS) return true;
+    s.riderTicks = 0;
+    for (const car of train.cars) {
+      if (car.kind !== "passenger" || s.done.has(car.id)) continue;
+      const off = this.alightWho(d, car.id);
+      const on = off < 0 ? this.boardWho(d, car.id) : -1;
+      if (off >= 0) {
+        const r = this.riders.get(car.id);
+        const from = this.depots[r!.froms ? r!.froms[off] : r!.from];
+        // (Paid while still aboard: the fare reads what the coach's riders have had, `Riders.scenic`.)
+        // (At an airport they wait in its lounge for a plane.)
+        if (d.role === "airport" || d.role === "mast") d.flyers++;
+        if (from) this.onAlight?.(from, d, car.id);
+        this.takeRider(car.id, off);
+        this.stationNote("off", d.pieceId, s.trainId, car.id);
+      } else if (on >= 0) {
+        const place = d.wants[on];
+        d.wants.splice(on, 1);
+        d.waiting--;
+        this.addRider(car.id, d.id, place);
+        this.stationNote("on", d.pieceId, s.trainId, car.id);
+      }
+    }
+    return true;
   }
 
   /** One sim tick of production, use and crane work (and trains' dwells at kits' stops). */
@@ -3466,6 +3794,8 @@ function cycleTicks(seconds: number, rate: number): number {
 /** A cursor's distance from its path's `from` end. */
 /** A train braking to wait at its stop (auto-spacing) stops this far (mm) short of the stop's far end. */
 const STOP_SHORT = 6;
+/** A line's end this near past a depot's far end: a train pulls up to it there (`endPast`). */
+const END_REACH = 300;
 
 /** `queuedBehind`'s answers. */
 const FREE = 0;

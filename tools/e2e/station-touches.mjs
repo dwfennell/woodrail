@@ -201,6 +201,12 @@ const runUntilHalted = (limit, visit = 1) =>
           // At least four waiting there, as a busy platform has.
           if (depot.waiting < 4) depot.waiting = Math.min(4, depot.waiting + 1);
           w.setWaiting(townId, depot.waiting);
+          // (And two at the line's other stop, so someone rides from there to get off here: the train pulls up to the
+          // line's end and turns back as it's worked, and is there again before many have come by their clock.)
+          for (const st of world.economy.routeOf(window.__engine)?.stops ?? []) {
+            const other = world.economy.depot(st.depotId);
+            if (other && other.id !== depot.id && other.waiting < 2) other.waiting++;
+          }
         }
         const on = !!train()?.bogies.some((b) => b.pieceId === pieceId);
         if (on && !wasOn) visits++;

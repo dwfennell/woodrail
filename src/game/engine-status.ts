@@ -13,7 +13,7 @@ export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
 /** What a train is doing, as the engine card and reports see it. */
 export type TrainState =
   | { kind: "derailed" }
-  | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading" }
+  | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading"; onPoints?: boolean }
   | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean }
   /** At a red signal; `holding`: held there by the player's hand, for `STUCK_S` or more (signals spec §6). */
   | { kind: "red-signal"; signalId: number; holding?: boolean; by?: number; gated?: boolean }
@@ -119,7 +119,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const r = RECIPES[depot.role];
     const loads = w ? w.load : r.gives.length > 0;
     const unloads = w ? w.unload : r.takes.length > 0;
-    return { kind: "worked", depotId: depot.id, work: loads && unloads ? "Loading and unloading" : unloads ? "Unloading" : "Loading" };
+    return { kind: "worked", depotId: depot.id, work: loads && unloads ? "Loading and unloading" : unloads ? "Unloading" : "Loading", onPoints: economy.standsOnPoints(train.id) !== null };
   }
   // (No room to turn round, another train in the way, and said stuck: the stuck card below, not "turning back".)
   const turnStuck = train.turnback >= 0 && sim.heldHow(train.id) === "turn" && train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id));
@@ -533,7 +533,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (A crane coming for it: `craneStatus`, said first.)
       return "Off the rails: Rerail puts it back";
     case "worked":
-      return `${s.work} at ${nameOf(s.depotId)}`;
+      // (Load in place: no spot there clears the points, so it stands on them as it loads.)
+      return s.onPoints ? `${s.work} at ${nameOf(s.depotId)}: too long for its yard, its tail is on the points` : `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
       // (Running back, it's no longer where the track ends: "back there".)
       if (s.cause === "open-end") return s.done ? "Turned back: the track ends back there" : "Turning back: the track ends here";
