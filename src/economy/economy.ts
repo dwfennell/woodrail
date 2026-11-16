@@ -2526,6 +2526,14 @@ export class Economy {
     return -1;
   }
 
+  /**
+   * Where along depot `depotId`'s piece (mm) its crane stands now (where its last run took it; its home, `craneAt`, till
+   * it first runs). The view draws it going home once nothing's being worked (`DepotView`, `STOW_S`).
+   */
+  cranePosition(depotId: number): number {
+    return this.craneAtNow.get(depotId) ?? this.depots[depotId]?.craneAt ?? 0;
+  }
+
   /** Progress (0–1) of the crane's current move at a depot, or −1 when idle. */
   cranePhase(depotId: number, pieceId = -1): number {
     for (const s of this.services.values()) if (s.phase === HALTED && s.depotId === depotId && (pieceId === -1 || s.depot?.pieceId === pieceId)) return s.ticks / this.craneTicks;
@@ -3232,7 +3240,8 @@ export class Economy {
         if (s.run < 0) {
           const index = train.cars.findIndex((c) => c.id === s.carId);
           s.runFrom = this.craneAtNow.get(d.id) ?? d.craneAt;
-          s.runTo = this.carAlong(train, index, d);
+          // (Along the yard's own piece at most: a wagon standing beyond it is reached for from its end.)
+          s.runTo = Math.min(this.depotLength(d), Math.max(0, this.carAlong(train, index, d)));
           s.runOf = Math.round((Math.abs(s.runTo - s.runFrom) / CRANE_RUN) * SIM_HZ);
           s.run = s.runOf;
         }

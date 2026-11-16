@@ -1708,7 +1708,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-mini > .route-chip { position: relative; z-index: 1; flex: 0 0 46px; width: 46px; min-width: 46px; height: 46px; padding: 0; border-radius: 50%; background: transparent; box-shadow: none; display: grid; place-items: center; }
 .route-mini > .route-chip:active { transform: none; box-shadow: none; }
 .route-mini .route-num { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-weight: 400; font-size: 14px; line-height: 1; box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); }
-.route-mini .route-chip.next .route-num { color: #fff; background: var(--sheen), var(--line, #888); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
+.route-mini .route-chip.next .route-num { color: #fff; background: var(--sheen), color-mix(in srgb, var(--line, #888) 55%, #2a1a0e); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
 .route-mini .route-chip.at .route-num { outline: 3px solid var(--wood-ink); outline-offset: 2px; }
 .route-mini .route-chip.lost .route-num { opacity: 0.7; text-decoration: line-through; }
 .route-mini > .route-chip::before, .route-mini > .route-chip::after, .route-mini > .route-chip[data-wait]::before { content: none; }
@@ -1902,6 +1902,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-join-line:disabled { opacity: 0.45; }
 .route-riders { font-weight: 700; color: var(--ink-soft); }
 .route-head .route-leave { padding-inline: 10px; }
+/* Leave line and Take off line: stamped in red, as Remove stop and Remove (DESIGN.md's stamp for a destructive ask:
+   Take off); final critique 2026-11-16: they read as maple, the same as Edit and Show. */
+.engine-card .route-head .route-leave:not(.asking), .line-sheet .chip.ls-train-off { color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); }
 /* Leave line and Edit, kept together at the head's end; a line's name too long for the row with them keeps its words
    (to its own ellipsis at the box's width) and they go under it, at the right. */
 .route-head { flex-wrap: wrap; row-gap: 0; }
@@ -1985,8 +1988,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-name:disabled { cursor: default; color: var(--wood-ink); }
 .ls-name-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* The name with its trains' stamp under it: the name has the head's width, two lines where it must. */
-.ls-title { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-.ls-title > .ls-name { flex: 0 0 auto; width: 100%; min-height: 44px; padding: 0 4px; font-size: 21px; }
+.ls-title { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; }
+.ls-title > .ls-name { flex: 0 1 auto; max-width: 100%; min-width: 0; min-height: 44px; padding: 0 4px; font-size: 21px; }
 .ls-title .ls-name-text { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.05; overflow-wrap: anywhere; }
 .ls-title > .ls-pill { margin-left: 4px; }
 .ls-name-edit { font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 14px; color: var(--wood-ink-soft); flex: 0 0 auto; }
@@ -2009,11 +2012,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-stops > :first-child::before { top: 26px; }
 .ls-stops > :last-child::before { bottom: calc(100% - 26px); }
 .ls-stops > :only-child::before { display: none; }
-.ls-handle { display: flex; align-items: center; justify-content: center; width: 28px; height: 44px; color: rgba(79, 52, 24, 0.7); font-size: 18px; cursor: grab; touch-action: none; user-select: none; }
+.ls-handle { display: flex; align-items: center; justify-content: center; width: 28px; height: 44px; color: var(--wood-ink-soft); font-size: 18px; cursor: grab; touch-action: none; user-select: none; }
 .ls-handle.none { cursor: default; }
 /* Stop numbers: maple pegs on the line (the next one painted in its colour). */
 .ls-num { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 15px; font-weight: 400; line-height: 1; box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); }
-.ls-stop.next .ls-num { background: var(--sheen), var(--line); color: var(--line-ink, #fff); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
+/* (The next stop's peg: a deep shade of the line's colour, so its white number holds 4.5:1 on any line; final
+   critique 2026-11-16 measured 4.1:1 on the line's own red.) */
+.ls-stop.next .ls-num { background: var(--sheen), color-mix(in srgb, var(--line) 55%, #2a1a0e); color: #fff; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
 .ls-stop-main { min-width: 0; min-height: 52px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; padding: 4px 6px; border: 0; border-radius: 12px; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .ls-stop-name { font-family: var(--display); font-size: 18px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.15; }
 .ls-place-num { font-family: "Woodrail Icons", "Nunito", sans-serif; font-weight: 700; color: var(--wood-ink-soft); }
@@ -2060,8 +2065,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    painted in the line's colour and the next place tapped goes in there. After the last stop: a dashed peg (the end). */
 .ls-stops.pegs { padding-bottom: 22px; }
 .ls-insert { position: absolute; left: 29px; bottom: -22px; z-index: 3; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; touch-action: manipulation; }
-/* (16 px: the spine shows above and below it, between the stops' numbers.) */
-.ls-insert-peg { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 14px; line-height: 1; box-shadow: inset 0 0 0 1.5px var(--wood-ink), 0 1px 1px rgba(40, 22, 6, 0.35); transition: transform 0.12s ease-out; }
+/* (18 px: the spine shows above and below it, between the stops' numbers.) */
+.ls-insert-peg { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 14px; line-height: 1; box-shadow: inset 0 0 0 2px var(--wood-ink), 0 1px 1px rgba(40, 22, 6, 0.35); transition: transform 0.12s ease-out; }
 .ls-insert.last .ls-insert-peg { width: 18px; height: 18px; box-shadow: none; outline: 1.5px dashed var(--wood-ink); outline-offset: -1.5px; }
 .ls-insert:active .ls-insert-peg { transform: scale(0.9); }
 .ls-insert.on .ls-insert-peg { width: 26px; height: 26px; background: var(--sheen), var(--line); color: var(--line-ink, #fff); outline: none; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 0 0 3px var(--blue); }
@@ -2090,6 +2095,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-train-main { min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 4px 8px; border: 0; border-radius: 8px; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .ls-train-name { font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.01em; line-height: 1.15; }
 .ls-train-status { font-size: 13.5px; font-weight: 700; line-height: 1.25; color: var(--wood-ink-soft); }
+/* (A moving train's words in one line: its row stays slim, the stops the subject. A waiting or stuck one says why whole.) */
+.ls-train.moving .ls-train-main { flex-direction: row; align-items: center; gap: 8px; min-width: 0; }
+.ls-train.moving .ls-train-status { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-stops > .ls-train.moving { min-height: 44px; margin: 0; }
 .ls-train.waiting .ls-train-main { background: rgba(244, 182, 26, 0.16); box-shadow: inset 0 0 0 1.5px var(--stamp-gold); }
 .ls-train.stuck .ls-train-main { background: rgba(179, 48, 28, 0.07); box-shadow: inset 0 0 0 1.5px var(--stamp-red); }
 .ls-train.stuck .ls-train-status { color: var(--stamp-red); }

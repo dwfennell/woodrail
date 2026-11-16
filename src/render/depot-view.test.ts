@@ -1,4 +1,4 @@
-import { Box3, Color, MeshStandardMaterial, PerspectiveCamera, Quaternion, Vector3, type Mesh, type Object3D } from "three";
+import { Box3, Color, Group, MeshStandardMaterial, PerspectiveCamera, Quaternion, Vector3, type Mesh, type Object3D } from "three";
 import { describe, expect, it } from "vitest";
 import { CARGO, Economy } from "../economy";
 import { Sim, SIM_DT } from "../sim";
@@ -349,4 +349,100 @@ describe("DepotView: piles, loads and cranes are placed again only when somethin
     w.view.update(w.economy, [], 0, () => undefined, clock.sim, true, true);
     expect(logs.instanceMatrix.version).toBeGreaterThan(v2);
   });
+});
+
+describe("DepotView: the crane goes home once the train it worked has gone (QA 2026-11-16: a farm's jib left out over the track)", () => {
+  type Yard = "farm" | "forest" | "quarry" | "mine" | "sawmill";
+  /** Each yard, the goods it gives, the wagon that carries them, and a place that takes them (the route's second stop). */
+  const yards: [Yard, "grain" | "log" | "stone" | "coal" | "planks", "hopper" | "timber", "mill" | "sawmill" | "town" | "power" | "workshop"][] = [
+    ["farm", "grain", "hopper", "mill"],
+    ["forest", "log", "timber", "sawmill"],
+    ["quarry", "stone", "hopper", "town"],
+    ["mine", "coal", "hopper", "power"],
+    ["sawmill", "planks", "timber", "workshop"],
+  ];
+
+  /**
+   * A place that takes the goods, four straights, the yard with goods to give, three straights; an engine and four
+   * wagons (longer than the yard: the last stand back on the track it came in on) routed yard then place, drawn with
+   * its cars where the sim has them.
+   */
+  function yardLine([role, good, wagon, to]: (typeof yards)[number]) {
+    const layout = new Layout();
+    const types = [to === "town" ? "station" : `depot-${to}`, ...Array(4).fill("straight-216"), `depot-${role}`, ...Array(3).fill("straight-216")];
+    const ids = types.map((t, i) => layout.addPiece(t as "straight-216", { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine", wagon, wagon, wagon, wagon], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 120 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    const place = to === "town" ? economy.addDepot("town", ids[0], 0, 30) : economy.addDepot(to, ids[0]);
+    const yard = economy.addDepot(role, ids[5]);
+    yard.piles[CARGO[good].index] = 12;
+    const engine = sim.getTrain(placed.trainId)!.cars[0].id;
+    economy.setRoute(engine, { stops: [{ depotId: yard.id, action: "both" }, { depotId: place.id, action: "both" }], next: 0 });
+    sim.setLever(engine, 1);
+    const view = new DepotView(stubMaterials());
+    view.setWorld(economy, layout);
+    // Each car an object where the sim has it (between its bogies, turned along the track), as the train view's are.
+    const cars = new Map<number, Object3D>();
+    const carObject = (id: number): Object3D | undefined => {
+      const found = sim.findCar(id);
+      if (!found) return undefined;
+      let o = cars.get(id);
+      if (!o) cars.set(id, (o = new Group()));
+      o.userData.carKind = found.train.cars[found.index].kind;
+      const a = found.train.world[2 * found.index];
+      const b = found.train.world[2 * found.index + 1];
+      o.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+      o.rotation.set(0, -Math.atan2(a.z - b.z, a.x - b.x), 0);
+      o.updateMatrixWorld(true);
+      return o;
+    };
+    const carIds = () => sim.getTrain(placed.trainId)!.cars.map((c) => c.id);
+    return { sim, economy, yard, view, carObject, carIds, trainId: placed.trainId, yardPiece: ids[5] };
+  }
+
+  for (const spec of yards) {
+    it(`worked in place and gone, the ${spec[0]}'s crane is drawn back at home (then nothing of it to draw), its runs never off the yard's piece`, () => {
+      const w = yardLine(spec);
+      const draw = (sim: number) => w.view.update(w.economy, w.carIds(), w.carIds().length, w.carObject, sim, false);
+      const crane = w.view.craneOf(w.yard.id)!;
+      // (Placed by the first update: at home, nothing yet at work.)
+      draw(0);
+      const home = crane.trolley.position.clone();
+      let sim = 0;
+      let worked = false;
+      let gone = false;
+      let after = 0;
+      for (let i = 0; i < 90 * 120 && after < 10 * 120; i++) {
+        // (Once gone, it's stopped where it is, out of the yard: the crane is watched going home.)
+        if (gone && after++ === 0) {
+          const engine = w.sim.getTrain(w.trainId)!.cars[0].id;
+          w.economy.setRoute(engine, null);
+          w.sim.setLever(engine, 0);
+        }
+        w.sim.tick();
+        w.economy.tick();
+        sim += SIM_DT;
+        // A run never goes off the yard's piece (a wagon beyond it is reached for from there).
+        const at = w.economy.cranePosition(w.yard.id);
+        expect(at).toBeGreaterThanOrEqual(0);
+        expect(at).toBeLessThanOrEqual(216);
+        if (w.economy.servicedCar(w.yard.id) !== -1) worked = true;
+        gone ||= worked && w.sim.getTrain(w.trainId)!.bogies.every((b) => b.pieceId !== w.yardPiece);
+        if (i % 4 === 0) draw(sim);
+      }
+      expect(worked).toBe(true);
+      expect(gone).toBe(true);
+      const out = { kind: spec[1], toPile: false, carId: -1, phase: 0, run: -1 } as Parameters<Economy["craneMove"]>[1];
+      expect(w.economy.craneMove(w.yard.id, out)).toBe(false);
+      // Drawn at home: the trolley where it started (the rope hanging straight down from it).
+      expect(crane.trolley.position.distanceTo(home)).toBeLessThan(0.5);
+      // And then nothing of the crane's to draw (the yard's own life, a farm's animals, may still move: ambient only).
+      for (let k = 0; k < 10; k++) {
+        const r = draw((sim += 4 * SIM_DT));
+        expect(r === "still" || w.view.ambientOnly).toBe(true);
+      }
+    });
+  }
 });

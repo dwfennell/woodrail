@@ -57,7 +57,7 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
-import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
 import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui/line-sheet";
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
@@ -4538,8 +4538,37 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         linesChanged();
       },
     );
-    hud.toast(`${game.sim.nameOf(engine)} is off ${line.name}, stopped and run by hand (Undo puts it back)`, false, 3000);
+    const name = game.sim.nameOf(engine);
+    const train = game.sim.findCar(engine)?.train;
+    // (Standing already: said at once, with where. Still running on (to brake, or clear of points): looked at once it
+    // stands, and said then only if it's in the way.)
+    if (train && train.speed < 1) {
+      const blocks = inTheWayOf(game.economy, engine, line.id);
+      hud.toast(blocks.length > 0 ? `${name} is off ${line.name}, stopped on its track: ${cantGetBy(blocks.length)}. Move it, or Undo puts it back` : `${name} is off ${line.name}, stopped and run by hand (Undo puts it back)`, false, blocks.length > 0 ? 6000 : 3000);
+    } else {
+      hud.toast(`${name} is off ${line.name}, stopped and run by hand (Undo puts it back)`, false, 3000);
+      watchParked(engine, line.id);
+    }
     linesChanged();
+  }
+  /** "its other train can't get by", or "its other 2 trains can't get by". */
+  const cantGetBy = (n: number) => (n === 1 ? "its other train can't get by" : `its other ${n} trains can't get by`);
+  /**
+   * A train just taken off its line, still running on: once it stands, if it's on track the line's other trains need
+   * (`inTheWayOf`), say so. Looked at twice a second while it runs, for half a minute at most; let go if it's put back on
+   * a line, taken away, or set going by hand.
+   */
+  function watchParked(engine: number, lineId: number, tries = 60): void {
+    setTimeout(() => {
+      const train = game.sim.findCar(engine)?.train;
+      if (!train || game.economy.lineIdOf.has(engine) || tries <= 0) return;
+      // (Its lever on: running on clear of points (`stopsClear`), else set going again by hand.)
+      if (train.cars.some((c) => c.kind === "engine" && c.lever !== 0)) return game.economy.stopsClear.has(engine) ? watchParked(engine, lineId, tries - 1) : undefined;
+      if (train.speed >= 1) return watchParked(engine, lineId, tries - 1);
+      const line = game.economy.lines.get(lineId);
+      const blocks = inTheWayOf(game.economy, engine, lineId);
+      if (line && blocks.length > 0) hud.toast(`${game.sim.nameOf(engine)} stopped on ${line.name}'s track: ${cantGetBy(blocks.length)}. Move it, or Undo puts it back`, false, 6000);
+    }, 500);
   }
   function routeEdit(change: () => void, then?: () => void): void {
     const before = snapshotLines(game.economy);
@@ -4992,7 +5021,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const warnings = [...(line ? blockedTexts(stops, plan) : [])];
     const lostNames = [...new Set(stops.filter((st) => !names.some((x) => x.depotId === st.depotId)).map((st) => lostStopName(game.world, st.depotId)))];
     for (const n of lostNames) warnings.push(lostStopWords(n));
-    if (line && engines.length > 1) warnings.unshift(`Changes the line for all ${engines.length} of its trains`);
+    // (Said plainly, not as a warning: red is for stop and for what's wrong. Final critique 2026-11-16.)
+    const notes = line && engines.length > 1 ? [`Changes the line for all ${engines.length} of its trains`] : [];
     const trains: SheetTrain[] = engines.flatMap((e) => {
       const found = game.sim.findCar(e);
       if (!found) return [];
@@ -5036,6 +5066,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       carries: line ? carriesWords(line.id) : "",
       hint,
       warnings,
+      notes,
       viaAsked,
       insertAt,
       added: justAdded && { k: justAdded.k, text: justAdded.text, toEnd: justAdded.toEnd },

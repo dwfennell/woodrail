@@ -1,5 +1,7 @@
 import type { Economy, Line, RouteStopDef } from "../economy";
 import { flipCursor, type Cursor } from "../sim";
+import { topologyOf } from "../economy/sections";
+import { trainLength } from "../sim/train-cars";
 import { legFromCursor, runsLength, viaLegs, type LegStop, type PathRun } from "./route-path";
 
 /**
@@ -217,6 +219,43 @@ export function takeOffLine(economy: Economy, engineCarId: number): boolean {
   stopLine(economy, engineCarId);
   economy.stopClearOfPoints(engineCarId);
   return true;
+}
+
+/**
+ * The trains of line `lineId` this train, standing where it is, keeps from going round: none when no other train runs
+ * the line, or the train stands off the line's way (a siding, the other road of a passing loop, another line's track).
+ * The line's way is its lap as its trains plan it (`viaLegs`); a piece of it that's a loop road doesn't count, as the
+ * others take the loop's other road (2026-11-16: Leave line on a single oval left the train on the only track, and the
+ * line's other train waited behind it for good; the toast now says so, and only then).
+ */
+export function inTheWayOf(economy: Economy, engineCarId: number, lineId: number): number[] {
+  const line = economy.lines.get(lineId);
+  const train = economy.sim.findCar(engineCarId)?.train;
+  if (!line || !train) return [];
+  const others = [...economy.lineIdOf].filter(([e, id]) => id === lineId && e !== engineCarId && !train.cars.some((c) => c.id === e)).map(([e]) => e);
+  if (others.length === 0) return [];
+  const stops: LegStop[] = [];
+  for (const st of line.stops) {
+    const d = economy.liveDepot(st.depotId);
+    if (d) stops.push({ piece: d.pieceId, ...(st.via ? { via: st.via } : {}) });
+  }
+  const way = new Set<number>();
+  for (const leg of viaLegs(economy.layout, stops)) for (const r of leg ?? []) way.add(r.pieceId);
+  for (const st of stops) way.add(st.piece);
+  const under = [...economy.sim.piecesUnder(train.id)].filter((p) => way.has(p));
+  if (under.length === 0) return [];
+  // (The loops the line's trains fit, as the line's own rules count them: for its longest train.)
+  let longest = trainLength(train);
+  for (const e of others) {
+    const t = economy.sim.findCar(e)?.train;
+    if (t) longest = Math.max(longest, trainLength(t));
+  }
+  const topo = topologyOf(economy.layout, longest);
+  const onRoad = (p: number) => {
+    const sl = topo.slotOf.get(p);
+    return sl !== undefined && topo.slots[sl].kind === "road" && !topo.pinnedLoops.some((l) => l.pieces.includes(p));
+  };
+  return under.every(onRoad) ? [] : others;
 }
 
 /**
