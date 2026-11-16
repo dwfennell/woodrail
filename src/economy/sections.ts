@@ -2148,6 +2148,75 @@ export class Sections {
     return out;
   }
 
+  /**
+   * A move into a waiting point (`way`), and the single track on from it the train will take: its way's steps, the
+   * waiting point, and on as steering would take it (`walkAlong`'s choice at points) through further waiting points
+   * and the sections between, past its stops toward the next (the host's `lap`), up to the next place two trains can
+   * pass (a loop's road, a line end or a refuge), or the end of the look: piece → the end it comes onto it by. For `comingAt`: a train on it not going the same
+   * way ahead would meet it nose to nose.
+   */
+  private onwardStretch(st: TrainState, topo: Topology, way: Way): Map<number, number> {
+    const { layout } = this;
+    const out = this.alongOf(way.steps, topo);
+    // (Its aims round a lap, in order (the host's `lap`): past one stop, on toward the next, as steering takes it.)
+    const aims = this.host.lap?.(st.engine) ?? [this.host.target(st.engine)];
+    let aim = 0;
+    for (const p of out.keys()) if (aim < aims.length && p === aims[aim]) aim++;
+    const keep = this.host.keep?.(st.engine);
+    const lap = this.lapFor(st.engine);
+    const own = this.sim.findCar(st.engine)?.train;
+    // (From the last piece taken in, on.)
+    let lastPiece = -1;
+    for (const p of out.keys()) lastPiece = p;
+    if (lastPiece < 0) return out;
+    const ways0 = waysFrom(layout, lastPiece, out.get(lastPiece)!);
+    if (ways0.length !== 1 || ways0[0].exit < 0) return out;
+    let at: { pieceId: number; entry: number } | null = next(layout, lastPiece, ways0[0].exit);
+    for (let k = 0; at && k < SEARCH && !out.has(at.pieceId); k++) {
+      const sl = topo.slotOf.get(at.pieceId);
+      if (sl !== undefined && topo.slots[sl].kind !== "signal") break;
+      out.set(at.pieceId, at.entry);
+      if (aim < aims.length && at.pieceId === aims[aim]) aim++;
+      if (aim >= aims.length) aim = 0;
+      const ways = waysFrom(layout, at.pieceId, at.entry);
+      if (ways.length === 0) break;
+      let w = ways[0];
+      if (ways.length > 1) {
+        const target = aims[aim] ?? -1;
+        const best = target < 0 ? -1 : planWay(layout, at.pieceId, at.entry, ways, target, undefined, keep?.(at.pieceId, at.entry, target), undefined, lap);
+        w = best === -1 ? (ways[pointsWayFrom(layout, at.pieceId, at.entry, ways.length)] ?? ways[0]) : ways[best];
+        w = this.outOfDeadEnd(own, at, ways, w, best === -1 ? -1 : target, lap);
+      }
+      if (w.exit < 0) break;
+      at = next(layout, at.pieceId, w.exit);
+    }
+    return out;
+  }
+
+  /**
+   * Another way on from where it leaves its slot (the points there giving more than one), into a free slot, through
+   * free sections, with no train coming at it on the single track beyond (`onwardStretch`), that also reaches its stop:
+   * that way (null: none). For a train whose short way round meets one coming at it: the long way, following.
+   */
+  private otherWayRound(st: TrainState, info: LineInfo, way: Way): Way | null {
+    const start = { pieceId: st.exitPiece, entry: st.exitEntry };
+    const ways = waysFrom(this.layout, start.pieceId, start.entry);
+    if (ways.length < 2) return null;
+    const taken = way.steps[0]?.pieceId === start.pieceId ? way.steps[0].path : -1;
+    const target = this.host.target(st.engine);
+    for (const w of ways) {
+      if (w.path === taken || w.exit < 0) continue;
+      const alt = this.wayOn(st, info, start, w.path);
+      if (!alt || alt.dest < 0 || alt.dest === DEAD_END || (alt.steps[0]?.path ?? w.path) !== w.path) continue;
+      if (alt.sections.some((x) => this.sectionUser(info, x, st.engine, this.alongOf(alt.steps, info.topo)) !== -1)) continue;
+      const onward = this.onwardStretch(st, info.topo, alt);
+      if (!onward.has(target) && !info.topo.slots[alt.dest].pieces.has(target)) continue;
+      if (this.comingAt(st.engine, info, onward) !== -1) continue;
+      return alt;
+    }
+    return null;
+  }
+
   /** The end a step leaves its piece by (−1: a buffer). */
   private exitOf(s: Step): number {
     const piece = this.layout.getPiece(s.pieceId);
@@ -2331,6 +2400,25 @@ export class Sections {
     if (against !== -1) {
       this.hold(st, { kind: "slot", engine: against });
       return false;
+    }
+    // (Single-line working through waiting points: into a signal's waiting point only while no train comes at it along
+    // the single track on from there, to the next place two trains can pass (`onwardStretch`). Waiting points let
+    // trains follow one another; they're no place to pass. Two let in from either end of a stretch met nose to nose:
+    // a user's map, 2026-11-16, nine lines sharing track, Rowan and engine 70 in waiting points side by side, for good.)
+    if (info.topo.slots[way.dest]?.kind === "signal") {
+      const v = this.comingAt(st.engine, info, this.onwardStretch(st, info.topo, way));
+      if (v !== -1) {
+        // (The other way round, where the points it leaves by give one that also reaches its stop: it follows round
+        // behind, not meeting it (`otherWayRound`).)
+        const alt = this.otherWayRound(st, info, way);
+        if (alt) {
+          this.grant(st, alt);
+          return true;
+        }
+        if (this.stepAside(st, info, v)) return true;
+        this.hold(st, { kind: "section", engine: v });
+        return false;
+      }
     }
     // (First come, first served: a train that has waited long for this stretch or this loop goes first.)
     const first = this.firstCome(st, info, way);
