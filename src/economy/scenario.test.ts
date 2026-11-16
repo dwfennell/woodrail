@@ -54,8 +54,7 @@ describe("a timber loop runs itself", () => {
 
 /**
  * Recorded from a run; a change here means the loop's timing changed. (25 until trains stopped crawling through
- * depots where they had nothing to do; 28 until trains ran at one speed, slopes and loads aside; 29 until trains loaded
- * in place, pulling up once at a depot's far end: the crane's run along the train takes the time its creeping did, and
- * the stop at the far end puts the train a little further on each lap.)
+ * depots where they had nothing to do; 28 until trains ran at one speed, slopes and loads aside. Loading in place, a
+ * train pulling up once and the crane running along it, keeps 29.)
  */
-const DELIVERED_IN_10_MINUTES = 28;
+const DELIVERED_IN_10_MINUTES = 29;

@@ -2721,13 +2721,10 @@ export class Economy {
       }
     }
     if (s.stood) {
-      // Its work here done, it set off. Work found again as it goes (its route's next stop the same depot: drop, then
-      // pick up; a pile that filled): just set off, it stops again where it is; going faster than a crawl, it's left
-      // for next time (it would stop dead).
-      if (train.speed > CRAWL_SPEED && s.phase === NONE) {
-        for (const car of train.cars) s.done.add(car.id);
-        return this.spacingCap(train, d);
-      }
+      // Its work here done, it set off. Work found again as it goes (its route's next stop the same depot, or a depot
+      // end to end with it; a pile that filled): it stops again where it is (from faster than a crawl, slowing to one
+      // first, as it crept before). (Leaving that for its next visit lost a third of the goods moved: the sweep.)
+      if (train.speed > CRAWL_SPEED && s.phase === NONE) return CRAWL_SPEED;
       return this.halt(s, train, d);
     }
     s.phase = CRAWLING;
