@@ -13,27 +13,32 @@ export async function dragPointsOnto(p, cdp, screen, want) {
   const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   const key = `piece:${want.type}`;
-  // The Switch shelf, by a tap (back to the shelves first).
-  if (await p.evaluate(() => document.querySelector(".tray")?.classList.contains("in-group"))) {
-    const back = await p.evaluate(() => {
-      const r = document.querySelector(".scroller .tray-back")?.getBoundingClientRect();
-      return r ? [r.x + r.width / 2, r.y + r.height / 2] : null;
+  // The Switch shelf, by a tap, unless it's open already (its tile showing).
+  await p.keyboard.press("Escape");
+  const showing = () => p.evaluate((key) => !!document.querySelector(`.scroller .tray-item[data-key="${key}"]`)?.getBoundingClientRect().width, key);
+  if (!(await showing())) {
+    if (await p.evaluate(() => document.querySelector(".tray")?.classList.contains("in-group"))) {
+      const back = await p.evaluate(() => {
+        const r = document.querySelector(".scroller .tray-back")?.getBoundingClientRect();
+        return r ? [r.x + r.width / 2, r.y + r.height / 2] : null;
+      });
+      if (back) await p.touchscreen.tap(back[0], back[1]);
+      await frames();
+      await p.waitForTimeout(250);
+    }
+    const shelf = await p.evaluate(() => {
+      const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Switch");
+      if (!g) return null;
+      g.scrollIntoView({ inline: "center", block: "nearest" });
+      const r = g.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2];
     });
-    if (back) await p.touchscreen.tap(back[0], back[1]);
+    if (!shelf) return { id: -1, cost: NaN, why: "no Switch shelf" };
+    await p.waitForTimeout(250);
+    await p.touchscreen.tap(shelf[0], shelf[1]);
     await frames();
+    await p.waitForTimeout(250);
   }
-  const shelf = await p.evaluate(() => {
-    const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Switch");
-    if (!g) return null;
-    g.scrollIntoView({ inline: "center", block: "nearest" });
-    const r = g.getBoundingClientRect();
-    return [r.x + r.width / 2, r.y + r.height / 2];
-  });
-  if (!shelf) return { id: -1, cost: NaN, why: "no Switch shelf" };
-  await p.waitForTimeout(250);
-  await p.touchscreen.tap(shelf[0], shelf[1]);
-  await frames();
-  await p.waitForTimeout(250);
   const tile = await p.evaluate((key) => {
     const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`);
     if (!e || e.classList.contains("locked")) return null;
