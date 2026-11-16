@@ -1309,6 +1309,18 @@ export class Sections {
     // came to no stop).)
     const aims = loose || st.aside || !this.network().has(this.host.lineOf(st.engine)) ? null : (this.host.lap?.(st.engine) ?? null);
     let aim = aims ? aims.indexOf(target) : -1;
+    // (At its stop: on toward the one after. Through a waiting point or a held loop's road too, not only between them:
+    // a user's map, 2026-11-16, Rowan's stop in a waiting point too short to wait in, its way on through it still aimed
+    // back at that stop, the other side of the points beyond, into the waiting point where Pepper stood wanting
+    // Rowan's: each waited for the other for good.)
+    // (`inside`: in a waiting point or loop road it runs through. Only for its own way: `convoy`'s probe of the way on
+    // past a waiting point, aimed on so, went once round a ring of waiting points to the line end past it, and every
+    // train in them was in its way (the user's map 3, 2026-11-16: Conker never let into s45, six trains standing).)
+    const passed = (pieceId: number, inside = false): void => {
+      if (inside && depth > 0) return;
+      if (aims && aim >= 0 && aims.length > 1 && pieceId === target)
+        for (let k = 0; k < aims.length && target === pieceId; k++) target = aims[(aim = (aim + 1) % aims.length)];
+    };
     const steps: Step[] = [];
     const sections: number[] = [];
     const through: number[] = [];
@@ -1372,6 +1384,7 @@ export class Sections {
             const ways = waysFrom(layout, at.pieceId, at.entry);
             if (ways.length !== 1) return null;
             steps.push({ pieceId: at.pieceId, path: ways[0].path, entry: at.entry });
+            passed(at.pieceId, true);
             at = next(layout, at.pieceId, ways[0].exit);
           }
           continue;
@@ -1418,6 +1431,7 @@ export class Sections {
             const ways = waysFrom(layout, at.pieceId, at.entry);
             if (ways.length !== 1) return null;
             steps.push({ pieceId: at.pieceId, path: ways[0].path, entry: at.entry });
+            passed(at.pieceId, true);
             at = next(layout, at.pieceId, ways[0].exit);
           }
           continue;
@@ -1497,8 +1511,7 @@ export class Sections {
       }
       steps.push({ pieceId: at.pieceId, path: w.path, entry: at.entry });
       // (The same place again next (a line's last stop and its first): on to the one after that.)
-      if (aims && aim >= 0 && aims.length > 1 && at.pieceId === target)
-        for (let k = 0; k < aims.length && target === at.pieceId; k++) target = aims[(aim = (aim + 1) % aims.length)];
+      passed(at.pieceId);
       at = next(layout, at.pieceId, w.exit);
     }
     return null;
