@@ -309,3 +309,49 @@ describe("load in place: goods carried on a fixed line, against creeping under t
     expect(logsIn20(5)).toBeGreaterThanOrEqual(180);
   }, 120_000);
 });
+
+describe("load in place: the line's end just past the depot", () => {
+  /**
+   * A forest, straights, a sawmill with `past` straights beyond it and then the end of the line; a train routed sawmill
+   * then forest, coming in from the forest's side with its flatbeds full of logs.
+   */
+  function terminus(cars: CarKind[], past: number) {
+    const layout = new Layout();
+    const types = ["depot-forest", ...Array(3).fill("straight-216"), "depot-sawmill", ...Array(past).fill("straight-216")];
+    const ids = types.map((t, i) => layout.addPiece(t as PieceTypeId, { x: i * P, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(cars, { pieceId: ids[2], pathIndex: 0, reversed: false, s: 200 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    const forest = economy.addDepot("forest", ids[0], 0);
+    const depot = economy.addDepot("sawmill", ids[4], 0);
+    const engine = sim.getTrain(placed.trainId)!.cars[0].id;
+    economy.setRoute(engine, { stops: [{ depotId: depot.id, action: "both" }, { depotId: forest.id, action: "both" }], next: 0 });
+    sim.setLever(engine, 1);
+    for (const car of sim.getTrain(placed.trainId)!.cars) if (car.kind === "timber") economy.setCargo(car.id, "log", 3);
+    return { sim, economy, depot, engine };
+  }
+
+  /** The logs still aboard as the train's route moves on from the sawmill (to the forest); −1 if it never does. */
+  const logsAsItLeaves = (w: ReturnType<typeof terminus>) => {
+    for (let i = 0; i < 60 * SIM_HZ; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      if (w.economy.routeOf(w.engine)?.next !== 1) continue;
+      let logs = 0;
+      for (const car of w.sim.findCar(w.engine)!.train.cars) if (w.economy.cargoOf(car.id).kind === "log") logs += w.economy.cargoOf(car.id).count;
+      return logs;
+    }
+    return -1;
+  };
+
+  it("a train short enough to leave the yard if it ran up to the end stops in the yard and is worked there", () => {
+    // (A straight past the sawmill: up against its end, an engine and one flatbed (182 mm) would stand clear of it,
+    // and went on to the forest with its logs. QA 2026-11-16, e2e:touch's wait.)
+    expect(logsAsItLeaves(terminus(["engine", "timber"], 1))).toBe(0);
+  });
+
+  it("a longer train pulls up to the end, its last wagon still in the yard, and every wagon is worked", () => {
+    expect(logsAsItLeaves(terminus(["engine", "timber", "timber", "timber"], 1))).toBe(0);
+  });
+});

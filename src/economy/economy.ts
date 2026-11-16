@@ -2789,13 +2789,15 @@ export class Economy {
     // The line's end just past the depot (a terminus): it pulls up to it, so it turns back while it's worked, as it did
     // creeping under the crane (stopping short, it ran on to the end after, waited and came back: 5 s a round trip).
     const end = this.endPast(train, d);
-    // (Its front axle a little into it, so it runs up against the end (as the sim stops a train: by its front axle)
-    // and its wait to turn back begins as it stops.)
-    if (end >= 0) return end + STOP_SHORT + CAR_SPECS[train.cars[0].kind].bogieInset + 2;
-    const front = train.bogies[0];
-    const len = this.depotLength(d);
     let length = 0;
     for (const car of train.cars) length += CAR_SPECS[car.kind].length + COUPLER_GAP;
+    // (Its front axle a little into it, so it runs up against the end (as the sim stops a train: by its front axle)
+    // and its wait to turn back begins as it stops. Only while its last car still stands wholly in the yard: a short
+    // train pulled up to an end well past the depot would leave it, and be worked nowhere.)
+    const pull = end + CAR_SPECS[train.cars[0].kind].bogieInset + 2;
+    if (end >= 0 && pull - (length - COUPLER_GAP) + CAR_SPECS[train.cars[train.cars.length - 1].kind].length <= 0) return pull + STOP_SHORT;
+    const front = train.bogies[0];
+    const len = this.depotLength(d);
     const behind = length - COUPLER_GAP - (len - STOP_SHORT);
     if (behind <= 0) return 0;
     const layout = this.layout;
