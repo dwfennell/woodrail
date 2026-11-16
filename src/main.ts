@@ -5070,7 +5070,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Where the map's + pegs are (planning), for framing the line with them in view: a leg's middle can lie far from its stops. */
   let pegSpots: Vector3[] = [];
   function pegsOf(line: { colour: string; stops: readonly RouteStopDef[] }, legs: readonly (readonly PathRun[] | null)[], lost: boolean): InsertSpec[] {
-    if (!planning || lost || line.stops.length < 2 || legs.length !== line.stops.length) return [];
+    // (Not while "+ Pass by…" waits for the track to be tapped: a peg on the track would take that tap.)
+    if (!planning || viaAsked || lost || line.stops.length < 2 || legs.length !== line.stops.length) return [];
     return legs.flatMap((leg, k) => {
       if (!leg || leg.length === 0) return [];
       let half = runsLength(leg) / 2;
@@ -5093,7 +5094,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function showLineAlone(): boolean {
     const line = game.economy.lines.get(sheetLine);
     const scale = ribbonScale(game.camera.position.distanceTo(game.controls.target), game.canvas.clientHeight || 1, game.camera.fov);
-    const key = `alone|${scale}|${sheetLine}|${game.trackVersion}|${game.layout.switchesVersion}|${line ? `${line.colour}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}|${planning}|${insertAt}`;
+    const key = `alone|${scale}|${sheetLine}|${game.trackVersion}|${game.layout.switchesVersion}|${line ? `${line.colour}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}|${planning}|${insertAt}|${viaAsked}`;
     if (key === ribbonKey) return true;
     ribbonKey = key;
     if (!routeView || routeLayout !== game.layout) {
@@ -6330,7 +6331,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     // (Wide enough to see from far out, as planning frames a long line: as the Lines view's.)
     const scale = ribbonScale(game.camera.position.distanceTo(game.controls.target), game.canvas.clientHeight || 1, game.camera.fov);
-    const key = `${scale}|${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${r?.at}|${r?.viaFor}:${r?.viaDone}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}|${planning}|${insertAt}`;
+    const key = `${scale}|${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${r?.at}|${r?.viaFor}:${r?.viaDone}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}|${planning}|${insertAt}|${viaAsked}`;
     if (key === ribbonKey) return;
     ribbonKey = key;
     if (!routeView || routeLayout !== game.layout) {
