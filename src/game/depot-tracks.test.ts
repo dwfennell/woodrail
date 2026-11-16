@@ -115,7 +115,7 @@ describe("depot tracks: one crane, each track in turn", () => {
     const w = line();
     upgrade(w, 2);
     const { a, b } = two(w);
-    const move = { kind: "log" as const, toPile: false, carId: -1, phase: 0 };
+    const move = { kind: "log" as const, toPile: false, carId: -1, phase: 0, run: -1 };
     const order: number[] = [];
     let last = -1;
     for (let i = 0; i < sec(120); i++) {

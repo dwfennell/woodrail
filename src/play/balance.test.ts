@@ -1639,8 +1639,10 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
   expect(w.layout.signalCount, "signal marks placed by the goals player").toBe(0);
   expect([...w.layout.pieceIds()].filter((id) => getPieceDef(w.layout.getPiece(id)!.type, false).signal), "signal pieces laid by the goals player").toEqual([]);
   // Stickers on the player's path (they're optional: not every one is met here; earned stays earned, so the long part
-  // has these too). Measured: 4 of 10 by minute 175, about 6 µs a check.
-  expect(P.p.stickers.ids(), "stickers earned by playing").toEqual(expect.arrayContaining(["track-layer", "first-city", "two-cities", "busy-loads"]));
+  // has these too). Measured: 4 of 10 by minute 175, about 6 µs a check. (Track layer and Twin cities came off
+  // 2026-11-16, with load in place and the old farm's spur kept through a wait for planks (`spurLaid`): this seed's
+  // railway is 39 pieces at minute 175 now, not 65, and one town a city (at minute 67, not 96).)
+  expect(P.p.stickers.ids(), "stickers earned by playing").toEqual(expect.arrayContaining(["first-city", "busy-loads", "delivered-some"]));
   return P;
 }
 
@@ -2798,6 +2800,8 @@ class Playthrough {
 
   /** The farm is an old one restored on a spur, and Routes isn't learned yet: the line's train calls only if sent. */
   spurFarm = false;
+  /** A spur's switch laid to an old industry on a try that then waited for planks (`restoreOld`), or −1. */
+  spurLaid = -1;
   /** The spur's switch (−1: none). */
   spurSwitch = -1;
   /** The line's side of the spur's switch (its trunk's): its pieces, found again each minute of play. */
@@ -3095,12 +3099,17 @@ class Playthrough {
       }
     }
     const free = () => [0, 1].map((c) => connectorRef(stub, c)).filter((ref) => w.layout.joinedConnector(ref) === -1);
-    let r = extend(P, { target: free });
+    // (A spur laid on a try that then waited for planks (`wait` below) is there still: the stub joined to it. Run on
+    // from it, its switch tended as below. Before, the next try ran `extend`, which took the joined stub as reached
+    // from a line end with no track laid, that end's buffer taken up, and the spur's switch never set for the farm.)
+    const laid = this.spurLaid !== -1 && !!w.layout.getPiece(this.spurLaid) && free().length < 2 ? this.spurLaid : -1;
+    this.spurLaid = -1;
+    let r = laid !== -1 ? { id: stub, beyond: -1 } : extend(P, { target: free });
     // Else (BALANCE_SPUR) a short spur to it off a switch in the line (as its Show me frames it: the ruin and the line).
     // Before Routes the line's train runs end to end with the switch set for the line, so its grain reaches the line
     // only when the player sets the switch for the farm by hand (`tendSpur`; BALANCE_SPUR=routes: Routes learned
     // first instead): the trade-off a player takes for the cheaper farm.
-    let spur = -1;
+    let spur = laid;
     if (!r && s.learned.has("switches") && this.spur && (role === "farm" || s.learned.has("routes"))) {
       spur = spurTo(P, site.centre, free) ?? -1;
       if (spur !== -1) r = { id: stub, beyond: -1 };
@@ -3113,7 +3122,10 @@ class Playthrough {
       return null;
     }
     // (The track to it may have taken the yard's planks: restored once they're back.)
-    if (pay.short()) return "wait";
+    if (pay.short()) {
+      if (spur !== -1) this.spurLaid = spur;
+      return "wait";
+    }
     const done = restoreRuin(w, P.editor, site.id, { pay });
     if ("why" in done) {
       this.ruinsPassed.add(site.id);

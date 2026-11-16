@@ -37,11 +37,12 @@ const carCentreX = (t: Train, carId: number) => {
 
 describe("automatic servicing", () => {
   for (const dir of [1, -1] as const) {
-    it(`halts each wagon under the crane and unloads before loading (travelling ${dir === 1 ? "+x" : "−x"})`, () => {
+    it(`stands still while the crane works each wagon where it stands, unloading before loading (travelling ${dir === 1 ? "+x" : "−x"})`, () => {
       const w = setup("sawmill", dir);
       for (const car of w.wagons()) w.economy.setCargo(car.id, "log", 3);
       w.depot.piles[CARGO.planks.index] = PILE_CAP;
-      const halts: { carId: number; x: number }[] = [];
+      const order: number[] = [];
+      let standing: number[] | null = null;
       let last = -1;
       // How far the whole train got past the depot (it turns back at the end of the line after).
       let past = -Infinity;
@@ -50,7 +51,12 @@ describe("automatic servicing", () => {
         const xs = w.train().world.map((p) => p.x);
         past = Math.max(past, dir === 1 ? Math.min(...xs) : -Math.max(...xs));
         const now = w.economy.servicedCar(w.depot.id);
-        if (now !== -1 && now !== last) halts.push({ carId: now, x: carCentreX(w.train(), now) });
+        if (now !== -1) {
+          // Load in place: it never moves while it's served.
+          standing ??= xs;
+          expect(xs).toEqual(standing);
+          if (now !== last && !order.includes(now)) order.push(now);
+        }
         last = now;
         for (const car of w.wagons()) {
           const c = w.economy.cargoOf(car.id);
@@ -58,8 +64,7 @@ describe("automatic servicing", () => {
           expect(c.count).toBeLessThanOrEqual(3);
         }
       }
-      expect(halts.map((h) => h.carId)).toEqual(w.wagons().map((c) => c.id));
-      for (const h of halts) expect(Math.abs(h.x - w.craneX)).toBeLessThan(3);
+      expect([...order].sort()).toEqual(w.wagons().map((c) => c.id).sort());
       for (const car of w.wagons()) expect(w.economy.cargoOf(car.id)).toEqual({ kind: "planks", count: 3 });
       // The whole train went on past the depot.
       expect(past).toBeGreaterThan(dir === 1 ? w.craneX + 108 : -(w.craneX - 108));
@@ -83,11 +88,12 @@ describe("automatic servicing", () => {
     for (const car of w.wagons()) expect(w.economy.cargoOf(car.id).count).toBe(0);
   });
 
-  it("crawls once one of its wagons has work, and runs on at speed once the last is done", () => {
+  it("pulls up once one of its wagons has work, stands while it's worked, and runs on at speed once the last is done", () => {
     const w = setup("sawmill");
     // Only the first wagon has logs to drop; the sawmill has no planks to give.
     w.economy.setCargo(w.wagons()[0].id, "log", 3);
-    let crawled = false;
+    let stops = 0;
+    let wasMoving = true;
     let fastAfter = false;
     // The first visit (it turns back at the end of the line after, and comes for the sawmill's planks).
     // (Till it turns: a turned train keeps its id now, so told by the sim.)
@@ -100,11 +106,11 @@ describe("automatic servicing", () => {
       if (turned) break;
       if (!on || !t.bogies.some((b) => b.pieceId === w.depot.pieceId)) continue;
       if (w.economy.cargoOf(w.wagons()[0].id).count > 0) {
-        expect(t.speed).toBeLessThanOrEqual(CRAWL_SPEED + 1e-9);
-        crawled = true;
+        if (t.speed === 0 && wasMoving) stops++;
       } else if (t.speed > CRAWL_SPEED * 1.5) fastAfter = true;
+      wasMoving = t.speed > 0;
     }
-    expect(crawled).toBe(true);
+    expect(stops).toBe(1);
     expect(w.economy.cargoOf(w.wagons()[0].id).count).toBe(0);
     expect(fastAfter).toBe(true);
   });
@@ -372,10 +378,13 @@ describe("automatic servicing", () => {
       w.step();
       for (const e of w.economy.drainEvents()) if (e.kind === "unloaded") unloaded++;
     }
-    // The six logs came off the rear wagons, and the saw's eight became planks: the front wagon is full, no wagon holds logs.
+    // The six logs came off the rear wagons, and the saw's eight became planks: no wagon holds logs.
     expect(unloaded).toBe(6);
     for (const car of rear) expect(w.economy.cargoOf(car.id).kind).not.toBe("log");
-    expect(w.economy.cargoOf(front.id)).toEqual({ kind: "planks", count: 3 });
+    // All eight are aboard, the front wagon among those filled from them. (Loaded in place, the crane works the wagon
+    // nearest it first: which one is left a plank short of full is its order's.)
+    expect(w.wagons().reduce((n, c) => n + (w.economy.cargoOf(c.id).kind === "planks" ? w.economy.cargoOf(c.id).count : 0), 0)).toBe(8);
+    expect(w.economy.cargoOf(front.id).kind).toBe("planks");
   });
 });
 

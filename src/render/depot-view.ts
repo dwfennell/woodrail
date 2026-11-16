@@ -613,6 +613,45 @@ const JIB_ARM = 46;
 /** Height of the hook's travel above the top of what it carries. */
 const HOOK_DROP = 6;
 
+/**
+ * Where a depot's crane frame may stand along its rails (t, depot coordinates): the yard's length, or the piece's
+ * without a yard. A wagon beyond them is reached for from their end.
+ */
+function craneRails(layout: DepotLayout): [number, number] {
+  const pad = layout.pad;
+  return pad ? [pad.t - pad.w / 2 + 10, pad.t + pad.w / 2 - 10] : [12, 204];
+}
+
+/** A crane frame's parts (load in place: it travels): a gantry's legs and beam, a jib's foot, mast and cap. */
+type FramePart = "leg" | "beam" | "foot" | "mast" | "cap";
+const FRAME_PARTS: readonly FramePart[] = ["leg", "beam", "foot", "mast", "cap"];
+/** Each part's shape at a set size (scaled to a crane's: `framePieces`), t along x, l along z, centred. */
+const FRAME_GEOMETRY: Record<FramePart, () => BufferGeometry> = {
+  leg: () => new RoundedBoxGeometry(6, 72, 6, 1, 1.2),
+  beam: () => new RoundedBoxGeometry(6, 5, GANTRY_HALF * 2 + 6, 1, 1.2),
+  foot: () => new RoundedBoxGeometry(14, 6, 14, 1, 1.5),
+  mast: () => new CylinderGeometry(2.8, 3.2, 60, 12),
+  cap: () => new CylinderGeometry(4.2, 4.2, 3, 14),
+};
+
+/** A crane's frame as parts: where each stands across the depot (l) and up (y), and its scale up (sy) and across (sz). */
+function framePieces(c: CraneSpec, base: number): { part: FramePart; l: number; y: number; sy: number; sz: number }[] {
+  if (c.kind === "jib")
+    return [
+      { part: "foot", l: c.l, y: base + 3, sy: 1, sz: 1 },
+      { part: "mast", l: c.l, y: (base + c.height + 4) / 2, sy: (c.height + 4 - base) / 60, sz: 1 },
+      { part: "cap", l: c.l, y: c.height + 5, sy: 1, sz: 1 },
+    ];
+  // Gantry: two legs either side of the track and yard, and a beam across. (Spanning a depot's several tracks: longer,
+  // `half`.)
+  const half = c.half ?? GANTRY_HALF;
+  return [
+    { part: "leg", l: c.l - half, y: (c.height + 6) / 2, sy: (c.height + 6) / 72, sz: 1 },
+    { part: "leg", l: c.l + half, y: (c.height + 6) / 2, sy: (c.height + 6) / 72, sz: 1 },
+    { part: "beam", l: c.l, y: c.height + 6.5, sy: 1, sz: (half * 2 + 6) / (GANTRY_HALF * 2 + 6) },
+  ];
+}
+
 /** Depot coordinates → world (y is passed through). */
 /** Cranes' moving parts are drawn only this near the camera (mm): further off they're too small to see work. */
 const CRANE_REACH = 8000;
@@ -659,6 +698,11 @@ interface CraneParts {
   rope: Mesh;
   /** Hook position and arm angle kept between frames, so the crane stays where it last worked. */
   hook: Vector3;
+  /** Where the hook was as its current leg began (the run along the train, or a move's empty reach to its source). */
+  rest: Vector3;
+  /** The current leg (car, run or move, which way, what), and its last phase: a new one starts from `rest`. */
+  leg: number;
+  legPhase: number;
 }
 
 interface Site {
@@ -686,6 +730,11 @@ interface Site {
   readonly pileOwners: Record<CargoKind, CargoSlot>;
   /** How many tracks it was drawn for (depot tracks: its gantry spans them all). */
   tracks: number;
+  /**
+   * Where its crane's frame (a gantry's legs and beam, a jib's mast) stands along its rails now (t, depot coordinates):
+   * it travels along a standing train to the wagon it works (load in place). Its home, `layout.crane.t`, at first.
+   */
+  frameT: number;
   /**
    * Its static parts in world space, merged per material, and its yard clocks: made the first time its tile is built,
    * then kept, so a tile built again (a neighbour picked up or put down) only merges them (`buildTile`).
@@ -717,6 +766,8 @@ interface UnitMeshes {
   n: number;
 }
 const ease = (x: number) => x * x * (3 - 2 * x);
+/** The first part of a crane's move (0–1) in which its hook goes empty to the unit's source (it jumped there before). */
+const REACH = 0.2;
 
 const _m = new Matrix4();
 const _q = new Quaternion();
@@ -724,7 +775,9 @@ const _v = new Vector3();
 const _a = new Vector3();
 const _b = new Vector3();
 const _s = new Vector3(1, 1, 1);
+const _s2 = new Vector3(1, 1, 1);
 const _up = new Vector3(0, 1, 0);
+const _down = new Vector3(0, -1, 0);
 const _plane = new Plane();
 
 /**
@@ -770,6 +823,7 @@ export class DepotView {
 
   constructor(private readonly mats: Materials) {
     this.rebuildUnits();
+    this.frames = this.makeFrames(16);
     this.motes = new IndustryMotes(mats);
     this.group.add(this.motes.group);
     if (typeof matchMedia === "function") matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", (e) => (this.calm = e.matches || !!(globalThis as { __woodrailStillIndustries?: unknown }).__woodrailStillIndustries));
@@ -966,6 +1020,142 @@ export class DepotView {
     this.units = units;
     this.allUnits = [...CARGO_KINDS.map((k) => units[k]), ...HEAP_KINDS.map((k) => this.heaps[k])];
     this.cargoMeshes = this.allUnits.flatMap((u) => u.parts);
+  }
+
+  /** A crane frame part's paint. */
+  private frameMat(part: FramePart): Material {
+    return part === "foot" || part === "mast" ? this.mats.naturalWood : this.mats.lacquer(part === "cap" ? "#c8442f" : "#2f6db5");
+  }
+
+  /**
+   * Where a yard's crane frame may travel along its rails (t, depot coordinates): the stretch of the yard round its home
+   * that its legs, beam or mast pass clear of everything standing there (a shed's posts and roof, a building, an
+   * upgrade's machine). Found from the yard's own static parts, once per kind of yard (and its upgrades), at the depot's
+   * origin. A wagon beyond the rails is reached for from their end.
+   */
+  private railsOf(site: Site): readonly [number, number] {
+    const { layout } = site;
+    const c = layout.crane;
+    const extras = this.extras?.(site.depot.role) ?? [];
+    const key = `${site.depot.role}|${c.kind}|${c.t}|${c.l}|${c.half ?? GANTRY_HALF}|${!!layout.pad}|${extras.join(",")}`;
+    const known = this.rails.get(key);
+    if (known) return known;
+    const parts: BufferGeometry[] = [];
+    const at0 = { ...site, pose: { x: 0, z: 0, heading: 0 } } as Site;
+    // (A school's building and clocks: not wanted here.)
+    const sink = this.clockSink;
+    this.clockSink = null;
+    this.buildStatic(at0, { add: (_m, g) => void parts.push(g) }, true, "instanced", "none");
+    this.clockSink = sink;
+    const base = layout.pad ? PAD_H : 14;
+    // What the frame sweeps, across (l) and up (y), and how wide it is along the rails.
+    const half = c.half ?? GANTRY_HALF;
+    const bands =
+      c.kind === "jib"
+        ? [{ l0: c.l - 7.5, l1: c.l + 7.5, y0: base + 0.5, y1: c.height + 7 }]
+        : [
+            { l0: c.l - half - 3.5, l1: c.l - half + 3.5, y0: base + 0.5, y1: c.height + 6 },
+            { l0: c.l + half - 3.5, l1: c.l + half + 3.5, y0: base + 0.5, y1: c.height + 6 },
+            { l0: c.l - half - 3.5, l1: c.l + half + 3.5, y0: c.height + 3.5, y1: c.height + 9.5 },
+          ];
+    // (Its half width along the rails, and a little room.)
+    const reach = c.kind === "jib" ? 8 : 4;
+    const [p0, p1] = craneRails(layout);
+    let lo = p0;
+    let hi = p1;
+    const tri = [0, 0, 0];
+    for (const g of parts) {
+      const pos = g.getAttribute("position");
+      const index = g.getIndex();
+      const n = index ? index.count : pos.count;
+      for (let k = 0; k + 2 < n; k += 3) {
+        let t0 = Infinity;
+        let t1 = -Infinity;
+        let l0 = Infinity;
+        let l1 = -Infinity;
+        let y0 = Infinity;
+        let y1 = -Infinity;
+        for (let j = 0; j < 3; j++) {
+          tri[j] = index ? index.getX(k + j) : k + j;
+          const x = pos.getX(tri[j]);
+          const y = pos.getY(tri[j]);
+          const z = pos.getZ(tri[j]);
+          t0 = Math.min(t0, x);
+          t1 = Math.max(t1, x);
+          l0 = Math.min(l0, z);
+          l1 = Math.max(l1, z);
+          y0 = Math.min(y0, y);
+          y1 = Math.max(y1, y);
+        }
+        if (!bands.some((b) => l1 >= b.l0 && l0 <= b.l1 && y1 >= b.y0 && y0 <= b.y1)) continue;
+        // In the frame's way along t0..t1: the rails stop short of it on the home side.
+        if (t1 + reach <= c.t) lo = Math.max(lo, t1 + reach);
+        else if (t0 - reach >= c.t) hi = Math.min(hi, t0 - reach);
+        else {
+          lo = c.t;
+          hi = c.t;
+        }
+      }
+      g.dispose();
+    }
+    const out: readonly [number, number] = [Math.min(lo, c.t), Math.max(hi, c.t)];
+    this.rails.set(key, out);
+    return out;
+  }
+  /** `railsOf`, by kind of yard. */
+  private readonly rails = new Map<string, readonly [number, number]>();
+
+  /**
+   * The cranes' frames, one instanced mesh per part for every depot (a draw each, however many depots): room for `room`
+   * of each part.
+   */
+  private makeFrames(room: number): Record<FramePart, InstancedMesh> {
+    const out = {} as Record<FramePart, InstancedMesh>;
+    for (const part of FRAME_PARTS) {
+      const old = this.frames?.[part];
+      if (old) {
+        this.group.remove(old);
+        old.geometry.dispose();
+        old.dispose();
+      }
+      const mesh = new InstancedMesh(FRAME_GEOMETRY[part](), this.frameMat(part), room);
+      mesh.count = 0;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      this.group.add(mesh);
+      out[part] = mesh;
+    }
+    this.framesDirty = true;
+    return out;
+  }
+  private frames: Record<FramePart, InstancedMesh>;
+  /** A crane's frame moved, or the sites changed: `placeFrames` places them all again. */
+  private framesDirty = true;
+
+  /** Place every site's crane frame where it stands now (`Site.frameT`). Only once something moved (`framesDirty`). */
+  private placeFrames(): void {
+    if (!this.framesDirty) return;
+    this.framesDirty = false;
+    let n = 0;
+    for (const site of this.sites) n += site.layout.crane.kind === "gantry" ? 2 : 1;
+    if (n > this.frames.leg.instanceMatrix.count) this.frames = this.makeFrames(Math.max(n, this.frames.leg.instanceMatrix.count * 2));
+    const counts: Record<FramePart, number> = { leg: 0, beam: 0, foot: 0, mast: 0, cap: 0 };
+    for (const site of this.sites) {
+      const { pose, layout } = site;
+      _q.setFromAxisAngle(_up, -pose.heading);
+      for (const f of framePieces(layout.crane, layout.pad ? PAD_H : 14)) {
+        toWorld(pose, site.frameT, f.l, f.y, _v);
+        _s2.set(1, f.sy, f.sz);
+        this.frames[f.part].setMatrixAt(counts[f.part]++, _m.compose(_v, _q, _s2));
+      }
+    }
+    for (const part of FRAME_PARTS) {
+      const mesh = this.frames[part];
+      mesh.count = counts[part];
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    }
   }
 
   private instanced(g: BufferGeometry, m: Material): InstancedMesh {
@@ -1183,7 +1373,8 @@ export class DepotView {
       blade: null,
       bladeAt: null,
       motes: [],
-      move: { kind: "log", toPile: false, carId: -1, phase: 0 },
+      move: { kind: "log", toPile: false, carId: -1, phase: 0, run: -1 },
+      frameT: spec.crane.t,
       moving: false,
       piles: -1,
       pileOwners: Object.fromEntries(CARGO_KINDS.map((k) => [k, { kind: "pile", depotId: depot.id, cargo: k }])) as Record<CargoKind, CargoSlot>,
@@ -1207,13 +1398,15 @@ export class DepotView {
       setCullBox(o, [site.at], 160);
       o.userData.maxDistance = CRANE_REACH;
     }
-    // Park the hook over the track.
-    toWorld(pose, spec.trackT, 0, spec.crane.height - 14, site.crane.hook);
+    // Park the hook over the track, under the crane.
+    toWorld(pose, spec.crane.t, 0, spec.crane.height - 14, site.crane.hook);
+    this.framesDirty = true;
     return site;
   }
 
   /** Take a site's moving parts out of the group (its statics go with its tile's rebuild). */
   private dropSite(site: Site): void {
+    this.framesDirty = true;
     for (const g of site.statics?.parts.values() ?? []) g.dispose();
     site.statics = undefined;
     for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
@@ -1284,7 +1477,7 @@ export class DepotView {
     const b = new Batcher(this.mats.paint);
     const clocks: [number, ClockAt][] = [];
     this.clockSink = (id, at) => clocks.push([id, at]);
-    this.buildStatic(site, b, true, "instanced");
+    this.buildStatic(site, b, true, "instanced", this.railsOf(site));
     this.clockSink = null;
     // (Kept to merge each time its tile is built again: compacted (quantised and welded) as the tile's meshes are then
     // too, so it's kept at about a quarter of the bytes, and a tile built again merges them without welding afresh.)
@@ -1334,7 +1527,7 @@ export class DepotView {
    * wagon) are "instanced" (only what stands still beside them is drawn here: `IndustryMotes` draws them), or drawn
    * here at rest: all of them, or an old industry's ruin's "machines" only.
    */
-  private buildStatic(site: Site, b: Pick<Batcher, "add">, upgrades = true, motes: "instanced" | "baked" | "machines" = "baked"): void {
+  private buildStatic(site: Site, b: Pick<Batcher, "add">, upgrades = true, motes: "instanced" | "baked" | "machines" = "baked", crane: "home" | "none" | readonly [number, number] = "home"): void {
     const { pose, layout } = site;
     const mats = this.mats;
     const place = (g: BufferGeometry, t: number, l: number, y: number) => {
@@ -1362,18 +1555,18 @@ export class DepotView {
     }
     const c = layout.crane;
     const base = layout.pad ? PAD_H : 14;
-    if (c.kind === "jib") {
-      b.add(mats.naturalWood, place(new RoundedBoxGeometry(14, 6, 14, 1, 1.5), c.t, c.l, base + 3));
-      b.add(mats.naturalWood, place(new CylinderGeometry(2.8, 3.2, c.height + 4 - base, 12), c.t, c.l, (base + c.height + 4) / 2));
-      b.add(mats.lacquer("#c8442f"), place(new CylinderGeometry(4.2, 4.2, 3, 14), c.t, c.l, c.height + 5));
-    } else {
-      // Gantry: two legs either side of the track and yard, and a beam across, at the depot's middle.
-      // (Spanning a depot's several tracks: longer, `half`.)
-      const half = c.half ?? GANTRY_HALF;
-      for (const l of [c.l - half, c.l + half]) {
-        b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(6, c.height + 6, 6, 1, 1.2), c.t, l, (c.height + 6) / 2));
+    // The crane (load in place: it travels along its rails to the wagon it works). A yard on the map has its rails
+    // here and its frame drawn apart, where it stands now (`placeFrames`); a picture of the yard (the tray's, a held
+    // piece's, a ruin's) has the frame at home, here. ("none": neither, to find where the rails may run: `railsOf`.)
+    if (Array.isArray(crane)) {
+      const [r0, r1] = crane as readonly [number, number];
+      for (const l of c.kind === "jib" ? [c.l] : [c.l - (c.half ?? GANTRY_HALF), c.l + (c.half ?? GANTRY_HALF)]) {
+        // (On the yard's pad where it stands on it, else on the ground.)
+        const onPad = !!layout.pad && Math.abs(l - layout.pad.l) <= layout.pad.d / 2 + 4;
+        if (r1 - r0 > 1) b.add(mats.lacquer("#5a5d63"), place(new BoxGeometry(r1 - r0 + 8, 1.4, c.kind === "jib" ? 10 : 7), (r0 + r1) / 2, l, (onPad ? base : 0) + 0.7));
       }
-      b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(6, 5, half * 2 + 6, 1, 1.2), c.t, c.l, c.height + 6.5));
+    } else if (crane === "home") {
+      for (const f of framePieces(c, base)) b.add(this.frameMat(f.part), place(FRAME_GEOMETRY[f.part]().scale(1, f.sy, f.sz), c.t, f.l, f.y));
     }
     for (const id of (upgrades && this.extras?.(site.depot.role)) || []) {
       const spot = UPGRADE_SPOTS[id];
@@ -1773,7 +1966,7 @@ export class DepotView {
     for (const o of [trolley, rope]) o.userData.depotMoving = true;
     trolley.traverse((o) => (o.castShadow = true));
     this.group.add(trolley, rope);
-    return { arm, trolley, rope, hook: new Vector3() };
+    return { arm, trolley, rope, hook: new Vector3(), rest: new Vector3(), leg: -1, legPhase: 0 };
   }
 
   private buildBlade(pose: SitePose): Object3D {
@@ -1894,7 +2087,7 @@ export class DepotView {
 
   /** Is a crane lifting a unit off this car right now? */
   private liftedOff(carId: number): number {
-    for (const site of this.sites) if (site.moving && site.move.toPile && site.move.carId === carId) return 1;
+    for (const site of this.sites) if (site.moving && site.move.phase >= 0 && site.move.toPile && site.move.carId === carId) return 1;
     return 0;
   }
 
@@ -1946,6 +2139,7 @@ export class DepotView {
       anyMoving ||
       !this.atRest ||
       this.shape !== this.shapeSeen ||
+      this.framesDirty ||
       (this.layout?.revision ?? 0) !== this.revisionSeen ||
       economy.wagonCapacity !== this.capacitySeen ||
       this.pilesChanged(drag) ||
@@ -2018,7 +2212,7 @@ export class DepotView {
 
   private pileCount(site: Site, kind: CargoKind, drag: CargoSlot | null): number {
     let count = Math.min(site.depot.piles[CARGO[kind].index], site.layout.piles[kind]!.show ?? Infinity);
-    if (site.moving && !site.move.toPile && site.move.kind === kind) count--; // being lifted off this pile
+    if (site.moving && site.move.phase >= 0 && !site.move.toPile && site.move.kind === kind) count--; // being lifted off this pile
     if (drag?.kind === "pile" && drag.depotId === site.depot.id && drag.cargo === kind) count--; // in a hand
     return count;
   }
@@ -2086,8 +2280,9 @@ export class DepotView {
       this.placedChanged = true;
     }
 
-    // Cranes.
+    // Cranes, and their frames where they've run to.
     for (const site of this.sites) this.updateCrane(site, economy, carObject);
+    this.placeFrames();
 
     for (const u of this.allUnits) for (const part of u.parts) part.count = u.n;
     // Only the units placed go up to the GPU: each kind's buffer holds `MAX_UNITS` (128 kB), and every frame a train
@@ -2128,7 +2323,23 @@ export class DepotView {
     // The unit hangs well clear below the arm or beam while it travels.
     const travelY = layout.crane.height - 14 + (pose.y ?? 0);
     let unitYaw = -pose.heading;
+    // (Load in place: each leg (the run along the train to a wagon, a unit's move) starts from where the hook was.)
     if (move) {
+      const leg = move.carId * 64 + (move.phase < 0 ? 32 : 0) + (move.toPile ? 16 : 0) + CARGO[move.kind].index;
+      const p = move.phase < 0 ? move.run : move.phase;
+      if (leg !== crane.leg || p < crane.legPhase) crane.rest.copy(crane.hook);
+      crane.leg = leg;
+      crane.legPhase = p;
+    } else crane.leg = -1;
+    let carrying = false;
+    if (move && move.phase < 0) {
+      // Running along the standing train to the wagon: the hook, empty, from where it was to over the wagon.
+      const car = carObject(move.carId);
+      this.onCar(site, car, move.kind, Math.max(0, economy.cargoOf(move.carId).count - 1), _b);
+      const r = ease(move.run);
+      crane.hook.set(crane.rest.x + (_b.x - crane.rest.x) * r, travelY, crane.rest.z + (_b.z - crane.rest.z) * r);
+    } else if (move) {
+      carrying = true;
       // Source and destination centres of the unit being moved.
       const car = carObject(move.carId);
       const cargo = economy.cargoOf(move.carId);
@@ -2142,17 +2353,25 @@ export class DepotView {
         pileYaw = this.pileUnit(site, move.kind, Math.max(0, pileCount - 1), _a);
         this.onCar(site, car, move.kind, cargo.count, _b);
       }
-      // Lift (first quarter), travel (middle half), lower (last quarter).
-      const p = move.phase;
+      // Reach (the first fifth: the hook, empty, from where it was to over the source), then lift (a quarter of the
+      // rest), travel (half), lower (a quarter).
+      const reach = Math.min(1, move.phase / REACH);
+      const p = Math.max(0, (move.phase - REACH) / (1 - REACH));
       const lift = Math.min(1, p / 0.25);
       const travel = Math.min(1, Math.max(0, (p - 0.25) / 0.5));
       const lower = Math.max(0, (p - 0.75) / 0.25);
       const startY = _a.y;
       const endY = _b.y;
       const y = p < 0.25 ? startY + (travelY - startY) * ease(lift) : p < 0.75 ? travelY : travelY + (endY - travelY) * ease(lower);
-      if (layout.crane.kind === "jib") {
+      if (move.phase < REACH) {
+        carrying = false;
+        // (Across, then down to it.)
+        const r = ease(Math.min(1, reach / 0.6));
+        const down = ease(Math.max(0, (reach - 0.6) / 0.4));
+        crane.hook.set(crane.rest.x + (_a.x - crane.rest.x) * r, travelY + (startY + unitSize(move.kind).y / 2 - HOOK_DROP - travelY) * down, crane.rest.z + (_a.z - crane.rest.z) * r);
+      } else if (layout.crane.kind === "jib") {
         // Swing about the mast, easing the angle and reach.
-        toWorld(pose, layout.crane.t, layout.crane.l, 0, _v);
+        toWorld(pose, site.frameT, layout.crane.l, 0, _v);
         const a0 = Math.atan2(_a.z - _v.z, _a.x - _v.x);
         const a1 = Math.atan2(_b.z - _v.z, _b.x - _v.x);
         let da = a1 - a0;
@@ -2166,31 +2385,48 @@ export class DepotView {
       } else {
         crane.hook.set(_a.x + (_b.x - _a.x) * ease(travel), y, _a.z + (_b.z - _a.z) * ease(travel));
       }
-      // The unit turns from its source's lie to its destination's (wagons lie along the track, so does a t-pile).
-      const carYaw = -pose.heading;
-      const from = move.toPile ? carYaw : pileYaw;
-      const to = move.toPile ? pileYaw : carYaw;
-      unitYaw = from + (to - from) * ease(travel);
-      const unit = this.units[move.kind].carried;
-      unit.visible = true;
-      unit.position.copy(crane.hook);
-      unit.rotation.set(0, unitYaw, 0);
+      if (carrying) {
+        // The unit turns from its source's lie to its destination's (wagons lie along the track, so does a t-pile).
+        const carYaw = -pose.heading;
+        const from = move.toPile ? carYaw : pileYaw;
+        const to = move.toPile ? pileYaw : carYaw;
+        unitYaw = from + (to - from) * ease(travel);
+        const unit = this.units[move.kind].carried;
+        unit.visible = true;
+        unit.position.copy(crane.hook);
+        unit.rotation.set(0, unitYaw, 0);
+      }
     }
-    // Arm toward the hook (jib), trolley over the hook, rope from trolley down to the unit's top.
+    // The frame stands over the hook along its rails (a gantry's beam over it, a jib's mast beside it): it travels with
+    // the hook, to the end of its rails at most.
     const hook = crane.hook;
-    const topY = move ? hook.y + unitSize(move.kind).y / 2 : hook.y;
+    const dx = hook.x - pose.x;
+    const dz = hook.z - pose.z;
+    const [r0, r1] = this.railsOf(site);
+    const frameT = Math.min(r1, Math.max(r0, Math.cos(pose.heading) * dx + Math.sin(pose.heading) * dz));
+    if (Math.abs(frameT - site.frameT) > 1e-3) {
+      site.frameT = frameT;
+      this.framesDirty = true;
+    }
+    // Arm toward the hook (jib), trolley on the beam over the hook (gantry), rope from the trolley to the unit's top:
+    // straight down, or reaching at a slant to a wagon past the rails' end.
+    const topY = carrying && move ? hook.y + unitSize(move.kind).y / 2 : hook.y;
     if (crane.arm) {
-      const dx = hook.x - crane.arm.position.x;
-      const dz = hook.z - crane.arm.position.z;
-      crane.arm.rotation.y = -Math.atan2(dz, dx);
-      const reach = Math.min(JIB_ARM - 6, Math.hypot(dx, dz));
-      const ang = Math.atan2(dz, dx);
+      toWorld(pose, site.frameT, layout.crane.l, layout.crane.height, crane.arm.position);
+      const ax = hook.x - crane.arm.position.x;
+      const az = hook.z - crane.arm.position.z;
+      crane.arm.rotation.y = -Math.atan2(az, ax);
+      const reach = Math.min(JIB_ARM - 6, Math.hypot(ax, az));
+      const ang = Math.atan2(az, ax);
       crane.trolley.position.set(crane.arm.position.x + Math.cos(ang) * reach, crane.arm.position.y - 2, crane.arm.position.z + Math.sin(ang) * reach);
     } else {
-      crane.trolley.position.set(hook.x, layout.crane.height + 1, hook.z);
+      toWorld(pose, site.frameT, -Math.sin(pose.heading) * dx + Math.cos(pose.heading) * dz, layout.crane.height + 1, crane.trolley.position);
     }
-    const ropeLen = Math.max(0.5, crane.trolley.position.y - topY - (move ? 0 : HOOK_DROP));
-    crane.rope.position.copy(crane.trolley.position);
+    const tp = crane.trolley.position;
+    _a.set(hook.x - tp.x, topY + (carrying ? 0 : HOOK_DROP) - tp.y, hook.z - tp.z);
+    const ropeLen = Math.max(0.5, _a.length());
+    crane.rope.position.copy(tp);
+    crane.rope.quaternion.setFromUnitVectors(_down, _a.divideScalar(ropeLen));
     crane.rope.scale.set(1, ropeLen, 1);
   }
 

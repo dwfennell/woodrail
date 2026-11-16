@@ -88,7 +88,13 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     // only once the leader's tail is off them.)
     // (heldFree came off 2026-11-11: the hand-run trains coming onto the routed train's way ask for it short of the
     // points (`Sections.comesInto`). oneOwner 11 → 14 then, still close following through points.)
-    known: [{ invariant: "oneOwner", why: "close following through points on a ring (redesign step 6: every train reserves)" }],
+    known: [
+      { invariant: "oneOwner", why: "close following through points on a ring (redesign step 6: every train reserves)" },
+      // (Load in place, 2026-11-16: a train of four wagons loading at the sawmill stands still there now (it crept under
+      // the crane before), and the trains queued behind it stand longer: engine 12 stands 5 s on piece 33 (256.5 s),
+      // well back from the train ahead, a piece short of where the core would book it.)
+      { invariant: "heldFree", why: "a train queued behind one loading in place held a piece short by a line wait (redesign step 5: sections grant by booking)" },
+    ],
   },
   // (Issue #29, 2026-11-05: "This train is blocked by a train all the way on the other side of the map!" (v154). The
   // routed train, and a hand-run one, waited for good on an engine parked across the map: on no line, standing in the

@@ -309,7 +309,7 @@ describe("skip a stop with nothing to do", () => {
     expect(pile(saw, "log")).toBe(0);
   });
 
-  it("a wait-to-fill stop is never skipped: it crawls in, even with nothing there yet", () => {
+  it("a wait-to-fill stop is never skipped: it pulls up there, even with nothing there yet", () => {
     const w = line(["forest", "sawmill"]);
     const [forest, saw] = w.depots;
     w.route([
@@ -320,8 +320,8 @@ describe("skip a stop with nothing to do", () => {
     const r = drive(w, 40, () => w.economy.routeOf(w.engine)!.next !== 0);
     expect(w.economy.routeOf(w.engine)!.next).toBe(1);
     expect(r.fastest(forest)).toBeGreaterThan(0);
-    // It slows on coming in, and goes through at a crawl.
-    expect(r.leaving(forest)).toBeLessThanOrEqual(CRAWL_SPEED + 1e-9);
+    // It pulls up there (load in place: it stops once, by the stop's far end), and with nothing coming, goes on.
+    expect(r.stopped(forest)).toBe(true);
   });
 
   it("passengers count as something to do: a coach stops at a station with people for a later station, not otherwise", () => {

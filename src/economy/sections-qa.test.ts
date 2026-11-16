@@ -1366,6 +1366,10 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
 const KNOWN_BREAKS: { test: string; invariant: Invariant; why: string }[] = [
   // (Routing redesign step 0's invariants, known to break today: docs/superpowers/specs/2026-11-07-routing-redesign.md §4.)
   { test: "QA's N2: a train taken off its line", invariant: "oneOwner", why: "trains put down by hand on the loop's points (0.0 s), and one taken off its line running onto points another is on (step 6)" },
+  // (Load in place, 2026-11-16: the runner's dwells at the ends changed its timing, and at 45 s it's running over the
+  // loop's switch (piece 5) just as the harness puts the second train down by hand on the loop's road beside it.)
+  { test: "pinned loop: pinned one-way (each way its own road), 2 trains, one put down at 45 s in front of a running one, on the loop's road", invariant: "oneOwner", why: "a train put down by hand (45.0 s) on the loop while the runner is on its switch" },
+  { test: "pinned loop: pinned one-way, 3 trains, one put down at 45 s in front of a running one, on the loop's road", invariant: "oneOwner", why: "a train put down by hand (45.0 s) on the loop while the runner is on its switch" },
 ];
 
 describe("the train invariants (src/sim/invariants.ts)", () => {
