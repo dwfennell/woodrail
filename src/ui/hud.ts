@@ -109,6 +109,8 @@ export interface HudHandlers {
   resetStarter(): void;
   /** Game mode: start the goals again on the starter map. */
   newGame(): void;
+  /** ☰ Your games (Game mode): every game kept on the device. */
+  yourGames(): void;
   /** Open the Lines view (every line: its colour, name and trains). */
   openLines(): void;
   /** The menu: copy this mode's map (its save, compressed) to the clipboard, for a bug report. */
@@ -614,12 +616,16 @@ export class Hud {
         h.newLayout();
       }, "menu-item"),
     ];
-    // Starting over loses the game's progress: the new-game sheet it opens says so, and asks for its Start.
+    // A new game beside this one (kept in Your games): the new-game sheet says so, and asks for its Start.
     const newGame = button("New game", "Start the goals again on a new map", () => {
       this.menu.hidden = true;
       h.newGame();
     }, "menu-item");
-    this.gameItems = [newGame];
+    const games = button("Your games", "Every game kept on this device: open another, rename, copy or delete one", () => {
+      this.menu.hidden = true;
+      h.yourGames();
+    }, "menu-item games-item");
+    this.gameItems = [newGame, games];
     // The bar's buttons that don't fit on a phone.
     const narrow = (label: string, title: string, act: () => void) =>
       button(label, title, () => {
@@ -932,6 +938,7 @@ export class Hud {
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.remove("in-group");
+      delete this.tray.dataset.shelf;
       // Favourites first: pieces to drag straight out, without opening a shelf.
       this.trayButtons = [];
       const favs = openDef?.favourites ? favouriteItems(this.favourites, groups) : [];
@@ -940,6 +947,8 @@ export class Hud {
       if (favs.length > 0) scroller.appendChild(el("span", "tray-divider"));
       for (const group of groups) {
         const b = el("button", "tray-item tray-group");
+        // (Its name, for tests to find a shelf by: the row's order changes with favourites and research.)
+        b.dataset.shelf = group.label;
         b.innerHTML = `<span class="icon">${picture(group.items[0])}</span><span class="label">${group.label}</span><span class="count">${group.items.length}</span>`;
         b.title = `${group.label}: ${group.items.map((i) => i.label).join(", ")}`;
         // A tap opens the shelf; a drag up takes out its first item (the first thing a new player tries).
@@ -960,6 +969,8 @@ export class Hud {
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.add("in-group");
+      if (back) this.tray.dataset.shelf = group.label;
+      else delete this.tray.dataset.shelf;
       if (back) {
         const b = el("button", "tray-item tray-back");
         b.innerHTML = `<span class="icon">‹</span><span class="label">Back</span>`;

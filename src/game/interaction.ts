@@ -23,7 +23,7 @@ import { RADIO_RIDERS, townOfMast } from "./radio";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
 import { streetTown } from "./street-moves";
-import { lotFor, movableBuilding, moveBuilding, townMoveMessage, type TownLot, type TownMoveBlock } from "./town-moves";
+import { lotFor, movableBuilding, moveBuilding, townMoveGuard, townMoveMessage, type TownLot, type TownMoveBlock } from "./town-moves";
 import type { Look } from "../render/dressing/buildings";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
@@ -6262,15 +6262,19 @@ export class Interaction {
     const partnerFrom = partner && { x: partner.x, z: partner.z, heading: partner.heading, y: partner.y };
     const partnerTo = swap?.to;
     const changed = [...new Set([...found.building.cells, ...lot.cells].map(plotSlotOf))];
+    // (Undone or redone only while its squares are as it left them: the town may have grown onto them since.)
+    const guard = townMoveGuard(land, [...found.building.cells, ...lot.cells]);
     let putBack = () => {};
     const doIt = () => {
       putBack = moveBuilding(land, building, lot);
       g.props.move(id, pose);
       if (partner && partnerTo) g.props.move(partner.id, partnerTo);
+      guard.done();
     };
     doIt();
     g.editLand(changed);
     this.editor().recordLand({
+      refuse: guard.refuse,
       do: doIt,
       undo: () => {
         putBack();

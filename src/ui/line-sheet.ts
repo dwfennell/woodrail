@@ -70,6 +70,10 @@ export interface SheetModel {
   warnings: string[];
   /** "+ Pass by…" asked: the next track tapped is passed by. */
   viaAsked: boolean;
+  /** A + between stops tapped: the next place tapped goes in here (an index into the stops), or −1. */
+  insertAt: number;
+  /** A place just put in by a tap: where it went, said, with Move to end (put in between by the game) and Undo. */
+  added: { k: number; text: string; toEnd: boolean } | null;
   menu: boolean;
   palette: boolean;
   renaming: boolean;
@@ -93,6 +97,10 @@ export interface SheetHandlers {
   viaStop(k: number, i: number): void;
   viaRemove(k: number, i: number): void;
   askVia(): void;
+  /** The + after stop `k` tapped: the next place tapped goes in after it (tapped again: not). */
+  insert(k: number): void;
+  addedToEnd(): void;
+  addedUndo(): void;
   rename(name: string): void;
   startRename(): void;
   recolour(colour: string): void;
@@ -211,10 +219,12 @@ export class LineSheet {
     else this.trainsTab(m, body);
     this.root.append(body);
     // (What a tap on the map does now, and + Pass by…: under the list, never scrolled away.)
+    if (this.addedRow) this.root.append(this.addedRow);
+    this.addedRow = null;
     if (foot.childElementCount > 0) this.root.append(foot);
     if (sameLine) body.scrollTop = scroll;
-    // The open stop (else the last, just added while planning) scrolled into the sheet's view.
-    const target = body.querySelector<HTMLElement>(".ls-stop.open, .ls-via.open");
+    // The open stop (else one just put in by a tap) scrolled into the sheet's view.
+    const target = body.querySelector<HTMLElement>(".ls-stop.open, .ls-via.open, .ls-stop.added");
     // (Its top: an open stop can be taller than the sheet, and its name says which it is.)
     // (Where the sheet is short, on a phone on its side: then its ticks, the stop's controls, in view too.)
     if (target)
@@ -333,11 +343,14 @@ export class LineSheet {
   }
 
   private stopsTab(m: SheetModel, body: HTMLElement, foot: HTMLElement): void {
-    const list = el("ol", "ls-stops");
+    const list = el("ol", `ls-stops${m.stops.length > 1 ? " pegs" : ""}`);
     list.setAttribute("aria-label", "Stops, in order");
     m.stops.forEach((st, k) => {
-      list.append(this.stopRow(m, st, k));
-      st.vias.forEach((v, i) => list.append(this.viaRow(m, v, k, i)));
+      const rows = [this.stopRow(m, st, k), ...st.vias.map((v, i) => this.viaRow(m, v, k, i))];
+      list.append(...rows);
+      // (A + on the line after each stop's rows: a place tapped next goes in there. On the last row, so it sits on the
+      // line between this stop and the next.)
+      if (m.stops.length > 1) rows.at(-1)!.append(this.insertPeg(m, k));
     });
     body.append(list);
     if (m.stops.length > 1) this.dragRows(list, m);
@@ -351,11 +364,39 @@ export class LineSheet {
       foot.append(hint, via);
     }
     for (const w of m.warnings) body.append(el("div", "ls-note warn", w));
+    if (m.added) {
+      const added = el("div", "ls-added");
+      added.setAttribute("role", "status");
+      added.append(el("span", "ls-added-text", m.added.text));
+      if (m.added.toEnd) added.append(this.button("Move to end", "ls-added-end", "Put it at the end of the line instead", () => this.h.addedToEnd()));
+      added.append(this.button("Undo", "ls-added-undo", "Take it off again", () => this.h.addedUndo()));
+      this.addedRow = added;
+    }
+  }
+
+  /** The row saying where a place just tapped went (shown above the foot), or null. */
+  private addedRow: HTMLElement | null = null;
+
+  /** The + on the line after stop `k`: a peg to tap, then a place on the map goes in there. */
+  private insertPeg(m: SheetModel, k: number): HTMLElement {
+    const on = m.insertAt === k + 1;
+    const last = k === m.stops.length - 1;
+    const b = el("button", `ls-insert${on ? " on" : ""}${last ? " last" : ""}`);
+    b.dataset.after = String(k);
+    b.setAttribute("aria-pressed", String(on));
+    const here = last ? `at the end, after ${m.stops[k].name}` : `between ${m.stops[k].name} and ${m.stops[k + 1].name}`;
+    b.setAttribute("aria-label", `Add a stop ${here}`);
+    b.title = on ? "Now tap a place on the map (tap + again: not here)" : `Add a stop ${here}`;
+    const peg = el("span", "ls-insert-peg", "+");
+    peg.setAttribute("aria-hidden", "true");
+    b.append(peg);
+    b.addEventListener("click", (e) => (e.stopPropagation(), this.h.insert(k)));
+    return b;
   }
 
   private stopRow(m: SheetModel, st: SheetStop, k: number): HTMLElement {
     const open = m.open === k;
-    const li = el("li", `ls-stop${open ? " open" : ""}${st.lost ? " lost" : ""}${st.next ? " next" : ""}`);
+    const li = el("li", `ls-stop${open ? " open" : ""}${st.lost ? " lost" : ""}${st.next ? " next" : ""}${m.added?.k === k ? " added" : ""}`);
     li.dataset.stop = String(k);
     const handle = el("span", "ls-handle", "⠿");
     handle.setAttribute("aria-hidden", "true");

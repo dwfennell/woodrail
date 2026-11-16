@@ -245,6 +245,8 @@ export const sessionSchema = z.object({
   clock: z.number().min(0).finite(),
   paused: z.boolean(),
   journal: sessionJournal,
+  /** Which of the games it is (Game mode: `persist/slots.ts`). Rides in the session so older builds still read it. */
+  slot: z.object({ id: z.string().min(1).max(40), name: z.string().max(80) }).optional(),
 });
 
 export type SessionData = z.infer<typeof sessionSchema>;

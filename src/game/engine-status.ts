@@ -16,7 +16,7 @@ export type TrainState =
   | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading"; onPoints?: boolean }
   | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean }
   /** At a red signal; `holding`: held there by the player's hand, for `STUCK_S` or more (signals spec §6). */
-  | { kind: "red-signal"; signalId: number; holding?: boolean }
+  | { kind: "red-signal"; signalId: number; holding?: boolean; by?: number; gated?: boolean }
   /** Standing at a kit's stop (a platform) for its dwell. */
   | { kind: "at-stop"; pieceId: number }
   /** Carried by a train lift, or waiting for its platform (on it, about to go; or at its far end). */
@@ -138,7 +138,11 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   // red only because sections or the router keep it for another train names that train and where it's going (QA
   // 2026-11-06: "Waiting at a red signal", its way clear, for a hopper shuttle).)
   if (sim.atRedSignal(train.id) && !train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id))) {
-    const red: TrainState = { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
+    // (Why it's red, for the card: the train in its block, or the one sections keep it red for (a car id).)
+    // (Held at red by hand: that's the reason, whoever is in the block.)
+    const cause = sim.redHeldByHand(train.id) ? { by: -1, gated: false } : sim.redCause(train.id);
+    const causeCar = cause.by >= 0 ? (sim.getTrain(cause.by)?.cars[0]?.id ?? -1) : -1;
+    const red: TrainState = { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S, ...(causeCar >= 0 ? { by: causeCar, gated: cause.gated } : {}) };
     if (sim.redHeldByHand(train.id)) return red;
     // (The signal it stands at kept, for the card's Show of it.)
     const held = lineWaitFor(economy, train);
@@ -366,6 +370,8 @@ export function blockerOf(sim: Sim, economy: Economy, s: TrainState): Blocker | 
       return s.why === "too-many" ? null : blockerAt(sim, economy, s.by);
     case "points-wait":
       return blockerAt(sim, economy, s.by, s.points);
+    case "red-signal":
+      return s.by === undefined ? null : blockerAt(sim, economy, s.by);
     case "red-switch":
       return blockerAt(sim, economy, undefined, s.points);
     default:
@@ -536,7 +542,11 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";
     case "red-signal":
-      return s.holding ? "Waiting at a signal you're holding at red. Tap it, then Auto" : "Waiting at a red signal";
+      if (s.holding) return "Waiting at a signal you're holding at red. Tap it, then Auto";
+      // (Who it's red for, by name: "the train on the Red line" in the block ahead, or the one it's kept for. A user,
+      // 2026-11-16: "why is Dandelion waiting at a red signal? I don't see what that should be red.")
+      if (who && who.car >= 0) return s.gated ? `Waiting at a red signal kept for ${blockerName(who, place)}` : `Waiting at a red signal: ${blockerName(who, place)} is in the block ahead`;
+      return "Waiting at a red signal";
     case "at-stop": {
       const type = economy.layout.getPiece(s.pieceId)?.type;
       return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;

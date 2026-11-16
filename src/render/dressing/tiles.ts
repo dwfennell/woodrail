@@ -1,5 +1,5 @@
 import { Box3, Frustum, Matrix4, type Camera, type Object3D, type Vector3 } from "three";
-import { PLOT_DEPTH, PLOT_WIDTH } from "../../landscape";
+import { PLOT_CELLS, PLOT_DEPTH, PLOT_WIDTH, type Town } from "../../landscape";
 
 /**
  * Scenery is drawn in tiles of 2 × 2 plots, each its own meshes, so the camera skips the tiles out of view (three
@@ -12,6 +12,22 @@ export const TILE_DEPTH = 2 * PLOT_DEPTH;
 /** The tile a plan point is in, as one number. */
 export function tileAt(x: number, z: number): number {
   return (Math.floor(x / TILE_WIDTH) + 32768) * 65536 + (Math.floor(z / TILE_DEPTH) + 32768);
+}
+
+/**
+ * The tiles of the towns with a square in these plots (by slot). A town is drawn whole in its centre's tile (its greens,
+ * street furniture, station), so a change to its squares in a plot of another tile (a house moved off a square there,
+ * the town growing onto one) redraws that tile too: else a green's lawn stays drawn where a house now stands, or isn't
+ * drawn where one left. Edit time only: a look at each town's squares.
+ */
+export function townTilesOf(towns: readonly Town[], slots: Iterable<number>): Set<number> {
+  const edited = new Set(slots);
+  const out = new Set<number>();
+  for (const town of towns) {
+    const inSlots = (i: number) => edited.has(Math.floor(i / PLOT_CELLS));
+    if (town.cells.some(inSlots) || town.buildings.some((b) => b.cells.some(inSlots))) out.add(tileAt(town.centre.x, town.centre.z));
+  }
+  return out;
 }
 
 /** Sort things into tiles (2 × 2 plots, or `width` × `depth`) by where they are. */

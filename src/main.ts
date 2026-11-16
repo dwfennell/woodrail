@@ -18,7 +18,7 @@ import { mapCode, parseMapCode, type MapSettings } from "./landscape/water";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
+import { GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
@@ -58,7 +58,7 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
-import { createLine, deleteLine, editLine, editLineById, isRingLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
 import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui/line-sheet";
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
@@ -146,6 +146,8 @@ import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
+import { nameOfLand, PICTURE_MAX_CHARS, SlotStore } from "./persist/slots";
+import { GamesSheet, smallPicture } from "./ui/games-sheet";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
@@ -271,6 +273,32 @@ function takeResume(): string | null {
 }
 
 /**
+ * Game mode's games ("Your games": persist/slots.ts): the open one in the game's keys, the others parked. Mended (an
+ * old single save made game 1) before anything reads them, the cloud too.
+ */
+const slots = new SlotStore(
+  {
+    getItem: (k) => {
+      try {
+        return localStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    setItem: (k, v) => localStorage.setItem(k, v),
+    removeItem: (k) => {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        // no storage
+      }
+    },
+  },
+  GAME_SLOT_KEYS,
+);
+slots.startUp();
+
+/**
  * Cloud saves (see persist/cloud.ts), in a build with a cloud to save to (`VITE_CLOUD_URL`; not the artifact build):
  * else null, and nothing of them shows.
  */
@@ -278,7 +306,11 @@ const cloud = ((): CloudSync | null => {
   const url = import.meta.env.VITE_CLOUD_URL as string | undefined;
   if (!url || !cloudSupported()) return null;
   try {
-    return new CloudSync({ backend: new WorkerBackend(url, __BUILD_ID__ || "dev"), storage: localStorage, keys: { sandbox: modeKeys("sandbox"), game: modeKeys("game") }, saveVersion: SAVE_VERSION, merge: gameMerger(PROGRESS_KEYS), auto: true });
+    return new CloudSync({ backend: new WorkerBackend(url, __BUILD_ID__ || "dev"), storage: localStorage, keys: { sandbox: modeKeys("sandbox"), game: modeKeys("game") }, saveVersion: SAVE_VERSION, merge: gameMerger(PROGRESS_KEYS), auto: true, slots: {
+      isOther: (m, keys) => m === "game" && slots.isOther(keys),
+      keepOther: async (m, keys, at) => m !== "game" || (await slots.keepOther(keys, at)),
+      parkOpen: async (m) => m !== "game" || (await slots.park()),
+    } });
   } catch {
     // No storage.
     return null;
@@ -334,6 +366,7 @@ const CLOUD_NOTES: Record<Exclude<SyncNote, null>, string> = {
   "took-cloud": "Loaded your newer railway from the cloud. The other one is kept (Cloud save → Restore).",
   "kept-here": "This railway is newer than the one in the cloud, so it's kept. The other one is kept too (Cloud save → Restore).",
   "both-changed": "Your railway was changed on another device too. That one is kept (Cloud save → Restore).",
+  "other-game": "A game from your other device is in Your games (☰ Your games).",
   newer: "Your railway online was saved by a newer version of the game: update to carry on with it.",
 };
 
@@ -606,7 +639,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       restoreRuin: () => restoreShownRuin(),
       // (What `newGame` really resets, `resetGoals` and a fresh map: the map, its track and trains, and the progress
       // (coins, research, things owned), goals, stickers, tips and the Journal. Nothing of the game is kept.)
-      newGame: () => askNewMap("game", NEW_GAME_WARNING, (c, seed) => newGame(c, seed)),
+      newGame: () => askNewMap("game", NEW_GAME_WARNING, (c, seed) => void newGameBeside(c, seed)),
+      yourGames: () => openGames(),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
       copyMap: () => void copyMap(),
@@ -1477,9 +1511,46 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // theirs, one they could undo. A new map, the game's own deliveries and growth, aren't.)
     if (kind === "layout" && editor.canUndo) cloud?.autoOn();
     cloud?.edited(mode, kind);
-    if (kind === "layout" && mode === "game") snapshots.edited(goalDone, () => goals.doneCount);
+    if (kind === "layout" && mode === "game") {
+      snapshots.edited(goalDone, () => goals.doneCount);
+      if (performance.now() - pictureAt > PICTURE_EVERY_MS) void takePicture(false);
+    }
     clearTimeout(saveTimer);
     saveTimer = window.setTimeout(save, 600);
+  }
+
+  /** Another game is being opened or made (Your games): nothing's saved meanwhile, its keys are being written. */
+  let switching = false;
+  /** When Your games' goals and coins for the open game were last noted (`save`). */
+  let factsAt = -Infinity;
+  const FACTS_EVERY_MS = 30_000;
+  /** When the open game's picture was last asked for (after a layout edit: at most this often). */
+  let pictureAt = -Infinity;
+  const PICTURE_EVERY_MS = 120_000;
+  /** A game just made (`newGameBeside`), named after its map once that's made. */
+  let namePending: string | null = null;
+
+  /**
+   * Your games' picture of the open game: a small copy of the next frame drawn (`draw`: one drawn for it now; else the
+   * next one drawn anyway, which costs nothing while nothing moves). At most a moment's wait.
+   */
+  async function takePicture(draw: boolean): Promise<void> {
+    const id = slots.openId;
+    if (!id || mode !== "game") return;
+    pictureAt = performance.now();
+    const shot = game.grabSmall(192, 108, draw);
+    const c = draw ? await Promise.race([shot, sleep(500).then(() => null)]) : await shot;
+    const url = c ? smallPicture(c, PICTURE_MAX_CHARS) : null;
+    if (url && slots.openId === id) slots.setPicture(id, url);
+  }
+
+  /** The name a new game takes: its map's ("Starter map", or its code). */
+  function nameNewGame(): void {
+    if (namePending === null || namePending !== slots.openId) return;
+    slots.rename(namePending, nameOfLand(game.landscape));
+    namePending = null;
+    // (Its own picture with its first edit.)
+    pictureAt = -Infinity;
   }
 
   /** The menu's "Copy map for a bug report": saved first, then the mode's save as text on the clipboard. */
@@ -1495,14 +1566,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Save the railway under its mode (not while the title screen shows it turning behind: nothing is being played). */
   function save(): void {
-    if (!playing) return;
+    // (Not while another game is being opened or made: its keys are being written.)
+    if (!playing || switching) return;
     // (A drawn line lifted just before, waiting a frame to go down: down first, and saved with the rest.)
     interaction.flushDraw();
     saveToStorage(game.world, mode);
-    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() });
+    // (A Game railway no game is open for, the starter map from a first start: it becomes one.)
+    if (mode === "game" && slots.openId === null) slots.startUp();
+    const slot = mode === "game" ? slots.openTag() : null;
+    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON(), ...(slot ? { slot } : {}) });
     if (mode === "game") {
       const data = progress.toJSON();
       saveProgress(data);
+      // (Your games' goals and coins for it: now and then.)
+      if (performance.now() - factsAt > FACTS_EVERY_MS) {
+        factsAt = performance.now();
+        slots.noteOpen();
+      }
       // Progress the game made on its own (a delivery's coins, research studied, the first flour): an edit, of the
       // progress kind, though nothing called for a save (QA: delivery coins never went up).
       const sig = JSON.stringify(data);
@@ -1546,8 +1626,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** A stretch of play over (left for the title, or the page hidden): how long it was, in the stats. */
   function endStretch(): void {
     if (stretchFrom === null) return;
-    const minutes = Math.round((performance.now() - stretchFrom) / 6000) / 10;
+    const ms = performance.now() - stretchFrom;
+    const minutes = Math.round(ms / 6000) / 10;
     stretchFrom = null;
+    // (Your games: the time played, and when.)
+    if (mode === "game") slots.noteOpen({ addMs: ms, played: Date.now() });
     if (minutes > 0) stats.record({ e: "end", mode, minutes });
   }
   /** Asked once (see `askStats`); in Sandbox, which has no goals, after a while of play. */
@@ -1624,7 +1707,125 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     newGameSheet.open({ mode: next, seed: newMapSeed(next === "game"), roll: () => newMapSeed(false), warn, start });
   }
   // The title's New game and New map ask what the map's to be like first (the new-game screen), then make it.
-  const title = new TitleScreen(document.body, { play: (next, fresh) => (fresh ? askNewMap(next, undefined, (c, seed) => play(next, true, c, seed)) : play(next, false)), loadCloud, continueCloud: cloud ? continueCloud : undefined }, { thumbnails });
+  // (Game's New game makes a game beside the others, Continue opens the one last played: Your games.)
+  const title = new TitleScreen(
+    document.body,
+    {
+      play: (next, fresh) => (fresh ? askNewMap(next, undefined, (c, seed) => (next === "game" ? void newGameBeside(c, seed) : play(next, true, c, seed))) : next === "game" ? continueGame() : play(next, false)),
+      loadCloud,
+      continueCloud: cloud ? continueCloud : undefined,
+      games: () => openGames(),
+    },
+    { thumbnails },
+  );
+  /** The title's cards as storage has them now (Continue for a mode with a save, Your games while there's a game). */
+  function showTitleCards(): void {
+    const games = slots.list().length;
+    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") || games > 0 }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") }, games);
+  }
+
+  /** Your games: every Game-mode game kept on the device. */
+  const gamesSheet = new GamesSheet(document.body, {
+    list: () => slots.list(),
+    picture: (id) => slots.picture(id),
+    playing: () => (playing && mode === "game" ? slots.openId : null),
+    open: (id) => openGame(id),
+    rename: (id, name) => slots.rename(id, name),
+    copy: async (id) => {
+      // (The open game as it is now.)
+      if (playing && mode === "game" && id === slots.openId) save();
+      const r = await slots.copy(id);
+      return r.ok ? undefined : r.error;
+    },
+    remove: (id) => {
+      slots.remove(id);
+      if (title.shown) showTitleCards();
+    },
+    closed: () => {
+      if (playing) game.paused = gamesPaused;
+      hud.setPaused(game.paused);
+    },
+  });
+  /** Paused or not when Your games was opened in play (it pauses the game: nothing's drawn behind it). */
+  let gamesPaused = false;
+  function openGames(note?: string): void {
+    if (playing) {
+      gamesPaused = game.paused;
+      game.paused = true;
+    }
+    gamesSheet.open();
+    if (note) gamesSheet.say(note);
+  }
+
+  /** Before another game takes the game's keys: the open one's edits not yet sent go up (a moment's wait at most). */
+  async function flushCloud(): Promise<void> {
+    if (cloud?.code) await Promise.race([cloud.flush().catch(() => {}), sleep(3000)]);
+  }
+
+  /** Game's Continue: the game played last (opened first if it isn't the one in the game's keys). */
+  function continueGame(): void {
+    const last = slots.list()[0];
+    if (!last || last.id === slots.openId) play("game", false);
+    else void openGame(last.id).then((said) => said && openGames(said));
+  }
+
+  /**
+   * Open a game from Your games: the one in play, saved, parked (its picture taken), the other's keys written in, and
+   * the page started again on it, straight into Game mode. A message back: it couldn't (nothing changed).
+   */
+  async function openGame(id: string): Promise<string | void> {
+    const inPlay = playing && mode === "game";
+    if (id === slots.openId) {
+      gamesSheet.close();
+      if (!inPlay) play("game", false);
+      return;
+    }
+    if (inPlay) {
+      save();
+      await takePicture(true);
+      endStretch();
+    }
+    await flushCloud();
+    switching = true;
+    const r = await slots.open(id);
+    if (!r.ok) {
+      switching = false;
+      if (inPlay) stretchFrom = performance.now();
+      return r.error;
+    }
+    // (The game opened goes up to the cloud: it carries the game played last.)
+    cloud?.edited("game");
+    playing = false;
+    clearTimeout(saveTimer);
+    saveLastMode("game");
+    reloadInto("game");
+  }
+
+  /**
+   * New game (the title's, ☰'s): a new game beside the others, the one in play kept in Your games (parked, its picture
+   * taken). No room for it: nothing changes, and Your games says so (a game can be deleted there).
+   */
+  async function newGameBeside(c: NewGameChoices, seed: number): Promise<void> {
+    const inPlay = playing && mode === "game";
+    if (inPlay) {
+      save();
+      await takePicture(true);
+    }
+    await flushCloud();
+    switching = true;
+    const r = await slots.beginNew("New game");
+    switching = false;
+    if (!r.ok) {
+      openGames(r.error);
+      return;
+    }
+    namePending = r.value;
+    if (inPlay) {
+      endStretch();
+      stretchFrom = performance.now();
+      newGame(c, seed);
+    } else play("game", true, c, seed);
+  }
 
   /** The cloud railways the title offers (cloud-known.ts), from what's remembered: no waiting on the cloud. */
   function showCloudOffers(): void {
@@ -1698,7 +1899,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (Its cards wait unseen, and can't be pressed, till they're placed: moved under a finger, a tap on Continue
     // ended on the card round it and did nothing (QA).)
     title.root.classList.add("placing");
-    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
+    showTitleCards();
     refreshCloudOffers();
     // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
     toys?.showTrainOnly();
@@ -1809,7 +2010,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.director.glideTo(new Vector3((e.x0 + e.x1) / 2, 0, (e.z0 + e.z1) / 2), distance, { phi: 0.9, duration: 1.4 });
     pausedBeforeTitle = game.paused;
     game.paused = true;
-    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
+    // (Your games' picture of it: the wide view the glide out ends on, one frame drawn for it once it's still.)
+    if (mode === "game") {
+      const shoot = () => {
+        if (!title.shown || mode !== "game") return;
+        if (game.director.busy) setTimeout(shoot, 250);
+        else void takePicture(true);
+      };
+      setTimeout(shoot, 250);
+    }
+    showTitleCards();
     refreshCloudOffers();
   }
 
@@ -4227,6 +4437,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let viaPicked: { k: number; i: number } | null = null;
   /** Planning, "+ via" was tapped: the hint says to tap the track now (till a via point is added, or it's tapped again). */
   let viaAsked = false;
+  /** Planning, a + between stops was tapped: the next place tapped goes in at this index of the stops (−1: none). */
+  let insertAt = -1;
+  /**
+   * The sheet's line had two stops or more when it opened: a place tapped goes in where it fits the line best
+   * (`bestInsert`), not at the end. (A line being made, tapped in order, keeps that order.)
+   */
+  let sheetFits = false;
+  /** A place just put in by a tap: where it went, said under the stops (while the stops are as it left them). */
+  let justAdded: { key: string; k: number; text: string; toEnd: boolean } | null = null;
+  /** A list of stops as a short key (what's at each, what it does, its via points). */
+  const stopsKey = (stops: readonly RouteStopDef[]) => stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",");
   /**
    * "Pass by" (routing spec §3.5): stop `k` becomes a via point on the way from the stop before (its own via points after
    * it), so trains go by its station without stopping.
@@ -4388,6 +4609,38 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       viaAsked = !viaAsked;
       viaPicked = null;
       stopPicked = -1;
+      insertAt = -1;
+      showSheet();
+    },
+    insert: (k) => {
+      insertAt = insertAt === k + 1 ? -1 : k + 1;
+      viaAsked = false;
+      viaPicked = null;
+      stopPicked = -1;
+      justAdded = null;
+      showSheet();
+    },
+    addedToEnd: () => {
+      const j = justAdded;
+      const line = game.economy.lines.get(sheetLine);
+      if (!j || !line || stopsKey(line.stops) !== j.key) return;
+      const depotId = line.stops[j.k].depotId;
+      // (Its via points go back to the stop before, as they were; at the end it goes on by the last stop's.)
+      sheetEdit((l) => {
+        const [st] = l.splice(j.k, 1);
+        const prev = l[(j.k - 1 + l.length) % l.length];
+        if (st.via) prev.via = [...(prev.via ?? []), ...st.via];
+        delete st.via;
+        l.push(st);
+      });
+      const stops = game.economy.lines.get(sheetLine)?.stops ?? [];
+      justAdded = { key: stopsKey(stops), k: stops.length - 1, text: `Moved ${placeName(depotId)} to the end, after ${placeName(stops.at(-2)?.depotId ?? -1)}`, toEnd: false };
+      showSheet();
+    },
+    addedUndo: () => {
+      justAdded = null;
+      interaction.undo();
+      showRoute();
       showSheet();
     },
     startRename: () => ((sheetRenaming = true), (sheetPalette = false), (sheetMenu = false), showSheet()),
@@ -4623,7 +4876,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (sheetLine !== -1 && !line) sheetLine = -1;
     const engines = line ? trainsOn(game.economy, line.id) : [];
     const now = performance.now();
-    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}|${engines.length > 0 ? game.economy.routeOf(engines[0])?.next : ""}`;
+    const key = `${sheetLine}|${sheetEngine}|${line ? `${line.name}|${line.colour}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : ""}|${game.economy.plansVersion}|${game.trackVersion}|${sheetTab}|${stopPicked}|${viaPicked ? `${viaPicked.k}.${viaPicked.i}` : ""}|${viaAsked}|${sheetMenu}|${sheetPalette}|${sheetRenaming}|${sheetDeleteAsked}|${engines.join(",")}|${game.economy.lineIdOf.size}|${engines.length > 0 ? game.economy.routeOf(engines[0])?.next : ""}|${insertAt}|${justAdded?.text ?? ""}`;
     // (Built again on a change, and, on the Trains tab while the game runs, 4 times a second: the trains' doings.)
     if (key === sheetKey && (sheetTab !== "trains" || game.paused || now - sheetAt < 250)) return;
     sheetKey = key;
@@ -4659,13 +4912,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       };
     });
     const insertAfter = stopPicked >= 0 && stopPicked < stops.length - 1 ? stopNames[stopPicked] : "";
+    // (Said only while the stops are as the tap left them: any other change, and it's gone.)
+    if (justAdded && (!line || stopsKey(stops) !== justAdded.key)) justAdded = null;
+    if (insertAt > stops.length) insertAt = -1;
     const hint = viaAsked
       ? "Now tap the track or place to pass by"
+      : insertAt > 0
+        ? insertAt < stops.length
+          ? `Now tap a place: it goes between ${stopNames[insertAt - 1]} and ${stopNames[insertAt]}`
+          : `Now tap a place: it goes at the end, after ${stopNames[insertAt - 1]}`
       : stops.length === 0
         ? "Tap places on the map (a station, a town or an industry), in the order to visit them"
         : insertAfter
           ? `Places you tap now go after ${insertAfter}`
-          : "Tap places on the map to add stops, or a stop above for its options";
+          : sheetFits && stops.length >= 2
+            ? "Tap a place on the map: it goes in where it fits the line. Or tap + on the line first"
+            : "Tap places on the map to add stops, or a stop above for its options";
     const warnings = [...(line ? blockedTexts(stops, plan) : [])];
     const lostNames = [...new Set(stops.filter((st) => !names.some((x) => x.depotId === st.depotId)).map((st) => lostStopName(game.world, st.depotId)))];
     for (const n of lostNames) warnings.push(lostStopWords(n));
@@ -4700,6 +4962,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hint,
       warnings,
       viaAsked,
+      insertAt,
+      added: justAdded && { k: justAdded.k, text: justAdded.text, toEnd: justAdded.toEnd },
       menu: sheetMenu,
       palette: sheetPalette,
       renaming: sheetRenaming,
@@ -5530,6 +5794,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           via.style.setProperty("--line", line.colour);
           strip.append(via);
         });
+        // A + after it on the rail (route-insert): the sheet opens with a place tapped next going in here.
+        if (line.stops.length > 1) {
+          const last = k === line.stops.length - 1;
+          const here = last ? `at the end, after ${nameOf(st.depotId)}` : `between ${nameOf(st.depotId)} and ${nameOf(line.stops[k + 1].depotId)}`;
+          const plus = button("", `route-insert${last ? " last" : ""}`, `Add a stop ${here}`, () => {
+            setPlanning(true);
+            insertAt = k + 1;
+            showRoute();
+          });
+          plus.className = `route-insert${last ? " last" : ""}`;
+          plus.setAttribute("aria-label", `Add a stop ${here}`);
+          plus.dataset.after = String(k);
+          plus.style.setProperty("--line", line.colour);
+          plus.append(Object.assign(document.createElement("span"), { className: "route-insert-peg", textContent: "+" }));
+          strip.append(plus);
+        }
       });
       box.append(strip);
       stopDropped = -1;
@@ -5727,6 +6007,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     sheetChosen = false;
     sheetMenu = sheetPalette = sheetRenaming = sheetDeleteAsked = false;
+    insertAt = -1;
+    justAdded = null;
+    sheetFits = on && (game.economy.lines.get(sheetLine)?.stops.length ?? 0) >= 2;
     hud.setMapTaps("planning", on);
     stopPicked = -1;
     // (A piece carried, or waiting at an end, is put away: a click on the map picks a stop now.)
@@ -5792,19 +6075,34 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           // "+ Pass by…" asked: the place is passed by, not stopped at.
           const piece = game.economy.depot(depotId)?.pieceId;
           if (viaAsked && piece !== undefined) return addVia(piece);
-          // A stop open: places tapped go in after it, in order (audit F13). Else at the end.
+          // A + tapped: the place goes in there. A stop open: places tapped go in after it, in order (audit F13). Else,
+          // on a line that had two stops or more, where it fits the line best (route-insert 2026-11-16: the least
+          // track added, between the stops it lies between); on a line being made, at the end (the order tapped).
           const after = stopPicked;
+          const armed = insertAt;
+          const smart = armed < 0 && after < 0 && sheetFits && sheetStops().length >= 2;
           let at = -1;
           sheetEdit((l) => {
-            at = after >= 0 && after < l.length ? after + 1 : l.length;
+            const fit = smart ? bestInsert(game.economy, l, depotId) : null;
+            at = armed >= 0 ? Math.min(armed, l.length) : after >= 0 && after < l.length ? after + 1 : fit ? fit.at : l.length;
             // The same place twice in a row is one visit: not added again.
             if (l[at - 1]?.depotId === depotId || (at < l.length && l[at].depotId === depotId)) {
               at = -1;
               return;
             }
-            l.splice(at, 0, { depotId, action: "auto" });
+            insertStop(l, at, { depotId, action: "auto" }, fit ? fit.keep : armed >= 0 ? keepAt(game.economy, l, depotId, at) : Infinity);
           });
+          insertAt = -1;
           if (at !== -1 && after >= 0 && at < sheetStops().length - 1) stopPicked = at;
+          justAdded = null;
+          if (at !== -1 && (smart || armed >= 0)) {
+            const stops = sheetStops();
+            const n = stops.length;
+            const before = placeName(stops[(at - 1 + n) % n].depotId);
+            const between = at < n - 1;
+            const text = between ? `Added ${placeName(depotId)} between ${before} and ${placeName(stops[at + 1].depotId)}` : `Added ${placeName(depotId)} at the end, after ${before}`;
+            justAdded = { key: stopsKey(stops), k: at, text, toEnd: smart && between };
+          }
           sheetTab = "stops";
           showSheet();
           // The whole line stays in view, not just the place tapped (audit F5). Measured once the sheet has grown.
@@ -6689,6 +6987,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     resetGoals();
     saveLastBuilt("game", null);
     setWorld(freshGameWorld(Math.random, choices, seed));
+    nameNewGame();
     syncPlaceStyles();
     townLife.reset();
     passengersOn();
@@ -6721,6 +7020,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
       if (hasOlderSave(next)) loadFromStorage(next);
       setWorld(next === "game" ? freshGameWorld(Math.random, choices, seed ?? newMapSeed(true)) : createWorld(seed ?? newMapSeed(false), false, true, false, choices));
+      if (next === "game") nameNewGame();
       restoreSession(next, false);
       cloud?.edited(next);
     } else if (next !== mode) {
@@ -7340,7 +7640,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   hud.setHistory(false, false);
   updateConnections(false);
 
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving, slots });
   // (Its code is loaded the first time it's shown.)
   const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m)), lazyFailed) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));
@@ -7618,6 +7918,8 @@ requestAnimationFrame(() =>
           // No session storage: the title, with the map behind it.
         }
       }
+      // (The cloud's check and a pasted map may have written the game's keys: Your games mended to match.)
+      slots.startUp();
       const opening = initialWorld();
       const wanted = [...new Set([TITLE_ART_PIECE, ...[...opening.world.layout.pieceIds()].map((id) => opening.world.layout.getPiece(id)!.type)])];
       let ready = 0;

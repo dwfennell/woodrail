@@ -4,7 +4,7 @@ import { err, ok, type Result } from "../lib/result";
 import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, INDUSTRY_ROLE, RUIN_STUB, STATION_CRANE_AT, syncMapDepots, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
-import { addTownProps } from "../props/towns";
+import { addTownProps, healTownSquares } from "../props/towns";
 import { CAR_LOOKS, Sim } from "../sim";
 import type { Bag } from "../economy/goods";
 import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, givesChoice, isStore, pilesOf, RECIPES, ANYWHERE, type BoatState, type Riders, type CargoKind, type DepotState, type RouteStopDef, type StoreMode } from "../economy";
@@ -568,6 +568,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     const storeys = oldStoreys && p.building !== undefined ? 0 : (p.storeys ?? 0);
     props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(storeys ? { storeys } : {}) });
   }
+  // A save whose house squares and records disagree (a moved house's undo after its town grew) made whole again.
+  healTownSquares(landscape, props);
   // Saves from before towns were built from catalogue models: their buildings get their models now.
   addTownProps(landscape, props);
   const world: World = { layout, sim, landscape, stations, depots, economy, props, ruins };
@@ -811,6 +813,12 @@ export function loadSession(mode: GameMode): SessionData | null {
  */
 /** Game mode's progress and goals keys (what two devices' cloud copies merge: `persist/progress-merge.ts`). */
 export const PROGRESS_KEYS = { progress: PROGRESS_KEY, goals: GOALS_KEY, stickers: STICKERS_KEY } as const;
+
+/**
+ * Game mode's open game's keys (`persist/slots.ts`): `modeKeys("game")` less the device's own flag (a game started
+ * here before), which isn't any one game's.
+ */
+export const GAME_SLOT_KEYS = { live: [STORAGE_KEYS.game, sessionKey("game"), GOALS_KEY, STICKERS_KEY, PROGRESS_KEY], save: STORAGE_KEYS.game, session: sessionKey("game"), goals: GOALS_KEY, progress: PROGRESS_KEY } as const;
 
 export function modeKeys(mode: GameMode): string[] {
   const keys = [STORAGE_KEYS[mode], sessionKey(mode)];

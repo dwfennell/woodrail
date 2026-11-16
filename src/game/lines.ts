@@ -521,3 +521,102 @@ export function turnTrains(economy: Economy, id: number, engines: readonly numbe
   }
   return { turned, stuck };
 }
+
+/**
+ * Put `stop` into a line's stops at `at` (0…length; length: at the end), in place. The stop before it (the last, for
+ * the first place: a line runs round) keeps the first `keep` of its via points, on its way to the new stop; the rest
+ * go on with the new stop, on its way to the next (all kept by default: as a stop added at the end always was).
+ */
+export function insertStop(stops: RouteStopDef[], at: number, stop: RouteStopDef, keep = Infinity): void {
+  const n = stops.length;
+  const k = Math.max(0, Math.min(n, at));
+  const prev = n > 0 ? stops[(k - 1 + n) % n] : undefined;
+  const added: RouteStopDef = { ...stop };
+  delete added.via;
+  if (prev?.via && keep < prev.via.length) {
+    const rest = prev.via.slice(Math.max(0, keep));
+    if (keep <= 0) delete prev.via;
+    else prev.via = prev.via.slice(0, keep);
+    if (rest.length > 0) added.via = rest;
+  }
+  stops.splice(k, 0, added);
+}
+
+/** Where a new stop fits a line best (`bestInsert`): its place in the stops, and how many via points stay before it. */
+export interface InsertFit {
+  /** Its index once in (0…length; length: the end). */
+  readonly at: number;
+  /** Of the stop before's via points, how many stay on its way to the new stop (`insertStop`'s `keep`). */
+  readonly keep: number;
+  /** It goes in between two stops, not at the end. */
+  readonly between: boolean;
+}
+
+/**
+ * Where a place tapped fits a line best (route-insert, 2026-11-16: "it's still quite difficult to add a stop where you
+ * want to add one in an existing route"): the place in its stops (and split of the via points there) adding the least
+ * track to a lap of the line, as its trains run it (`viaLegs`: they don't turn round at a stop). On a tie (a place
+ * on a line with ends adds nothing between either pair it lies between, there and back) the first gap whose way
+ * already passes it, else the end, else the first. At the end, as before, where the line has fewer than two stops, the
+ * place is on it already (A → B → A is asked for in order), a stop is off the map, or no way is known.
+ */
+export function bestInsert(economy: Economy, stops: readonly RouteStopDef[], depotId: number): InsertFit {
+  const n = stops.length;
+  const end: InsertFit = { at: n, keep: stops[n - 1]?.via?.length ?? 0, between: false };
+  const piece = economy.liveDepot(depotId)?.pieceId;
+  if (n < 2 || piece === undefined || stops.some((st) => st.depotId === depotId)) return end;
+  const lap = lapOf(economy, stops);
+  if (!lap) return end;
+  const base = viaLegs(economy.layout, stops.map((st) => ({ piece: economy.liveDepot(st.depotId)!.pieceId, ...(st.via ? { via: st.via } : {}) })));
+  const fits: { k: number; keep: number; cost: number; onWay: boolean }[] = [];
+  for (let k = 0; k < n; k++) {
+    // (The same place twice in a row is one stop: never next to itself.)
+    if (stops[k].depotId === depotId || stops[(k + 1) % n].depotId === depotId) continue;
+    const leg = base[k];
+    fits.push({ k, ...splitAt(lap, stops, depotId, k + 1), onWay: !!leg && leg.some((r) => r.pieceId === piece) });
+  }
+  const least = Math.min(...fits.map((f) => f.cost));
+  if (!Number.isFinite(least)) return end;
+  // (Within a millimetre: the same way, summed in another order.)
+  const ties = fits.filter((f) => f.cost <= least + 1);
+  const pick = ties.find((f) => f.onWay) ?? ties.find((f) => f.k === n - 1) ?? ties[0];
+  return { at: pick.k + 1, keep: pick.keep, between: pick.k < n - 1 };
+}
+
+/**
+ * A new stop put in at `at` by the player's choice (the sheet's +): how many of the stop before's via points stay on
+ * its way to the new stop, the rest going on with it (the split adding the least track; all stay where no way is known).
+ */
+export function keepAt(economy: Economy, stops: readonly RouteStopDef[], depotId: number, at: number): number {
+  const n = stops.length;
+  const vias = n > 0 ? (stops[(at - 1 + n) % n].via?.length ?? 0) : 0;
+  const lap = vias > 0 && economy.liveDepot(depotId) ? lapOf(economy, stops) : null;
+  return lap ? splitAt(lap, stops, depotId, at).keep : vias;
+}
+
+/** A line's lap length (mm) for a list of stops (Infinity where a leg has no way); null where a stop's off the map. */
+function lapOf(economy: Economy, stops: readonly RouteStopDef[]): ((list: readonly RouteStopDef[]) => number) | null {
+  if (stops.some((st) => !economy.liveDepot(st.depotId))) return null;
+  return (list) => {
+    let total = 0;
+    for (const leg of viaLegs(economy.layout, list.map((st) => ({ piece: economy.liveDepot(st.depotId)!.pieceId, ...(st.via ? { via: st.via } : {}) })))) {
+      if (!leg) return Infinity;
+      total += runsLength(leg);
+    }
+    return total;
+  };
+}
+
+/** The best split of the via points before a new stop at `at`: how many stay (most on a tie), and the lap then. */
+function splitAt(lap: (list: readonly RouteStopDef[]) => number, stops: readonly RouteStopDef[], depotId: number, at: number): { keep: number; cost: number } {
+  const n = stops.length;
+  const vias = stops[(at - 1 + n) % n].via?.length ?? 0;
+  let best = { keep: vias, cost: Infinity };
+  for (let keep = vias; keep >= 0; keep--) {
+    const trial = stops.map(copyStop);
+    insertStop(trial, at, { depotId, action: "auto" }, keep);
+    const cost = lap(trial);
+    if (cost < best.cost - 1) best = { keep, cost };
+  }
+  return best;
+}

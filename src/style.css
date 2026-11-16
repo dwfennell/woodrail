@@ -712,6 +712,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-art { width: 84px; height: 84px; border-radius: 8px; background: var(--maple) center / 112% no-repeat; box-shadow: var(--tile-face), var(--tile-drop); margin-bottom: 6px; }
 .title-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .title-buttons .chip { flex: 1; justify-content: center; }
+.title-buttons .title-games { flex-basis: 100%; }
+.title-buttons .title-games[hidden] { display: none; }
 /* A quiet way in for a railway saved on another device (a build with a cloud): a small pill under the cards, not a
    third big button. Its card opens over the title, in the middle. */
 .title-foot { display: flex; justify-content: center; }
@@ -799,6 +801,34 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .new-game-sheet .new-game-foot .new-game-start { height: 48px; }
 }
 @media (prefers-reduced-motion: reduce) { .new-game-sheet:not([hidden]) { animation: none; } }
+/* Your games (ui/games-sheet.ts): a page as the new-game screen is, a row a game, the last played first. */
+.games-sheet { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--wood-panel); padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.games-sheet[hidden] { display: none; }
+.games-sheet:not([hidden]) { animation: title-in 0.25s ease-out; }
+.games-sheet .games-back { height: 48px; min-width: 104px; padding: 0 16px 0 12px; }
+.games-head .new-game-title { white-space: nowrap; }
+@media (max-width: 440px) { .games-head .new-game-title { font-size: 24px; } }
+.games-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: min(560px, 100%); margin: 0 auto; padding: 18px 2px 16px; display: flex; flex-direction: column; gap: 12px; }
+.games-list { display: flex; flex-direction: column; gap: 12px; }
+.games-note { margin: 0; padding: 9px 8px; border-radius: 4px; text-align: center; font-weight: 800; font-size: 14px; line-height: 1.35; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2px var(--stamp-red); }
+.games-note[hidden] { display: none; }
+.games-empty { margin: 24px 0; text-align: center; color: #5c4632; }
+.games-row { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-radius: 10px; background: var(--maple); box-shadow: var(--groove-sh), inset 0 0 0 2px var(--maple-cut); }
+.games-top { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.games-pic { flex: none; width: 112px; height: 63px; border-radius: 6px; overflow: hidden; background: #c9a77a; box-shadow: inset 0 0 0 2px rgba(90, 60, 30, 0.25); }
+.games-pic.none { background: repeating-linear-gradient(90deg, #b48a5a 0 6px, #c9a77a 6px 14px); }
+.games-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.games-text { min-width: 0; flex: 1; }
+.games-name { margin: 0; font-family: var(--display); font-weight: 400; font-size: 20px; letter-spacing: 0.02em; color: var(--wood-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.games-facts { margin: 2px 0 0; font-size: 14px; line-height: 1.35; color: #5c4632; }
+.games-name-input { width: 100%; min-width: 0; height: 44px; padding: 0 10px; border: none; border-radius: 8px; font: inherit; font-weight: 800; font-size: 17px; color: var(--wood-ink); background: #fffaf0; box-shadow: inset 0 0 0 3px var(--green); -webkit-user-select: text; user-select: text; }
+.games-name-input:focus { outline: none; }
+.games-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.games-buttons .chip { flex: 1 1 0; min-width: 72px; min-height: 44px; justify-content: center; }
+.games-playing { flex: 1 1 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; color: var(--green); }
+.games-ask { flex: 1 1 100%; margin: 0; font-weight: 800; color: var(--stamp-red); }
+@media (max-height: 500px) { .games-sheet .games-back { height: 44px; } .games-body { width: min(820px, 100%); padding-top: 8px; } }
+@media (prefers-reduced-motion: reduce) { .games-sheet:not([hidden]) { animation: none; } }
 /* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening. The
    opening screen keeps its name and its train just where they were (the bar goes, keeping its room); the title's own
    name stays hidden, and its cards fade in below the train (their top set from where the train ends). */
@@ -1661,6 +1691,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops::-webkit-scrollbar { display: none; }
 /* The line's colour is the stop number's lacquer ring (filled on the next stop), not a stripe down the side (audit F11). */
 .route-chip { padding-inline: 8px; }
+/* + between two stops on the card's rail (route-insert): a peg, a 44 px target (46 on a card drawn at 0.96) that tucks
+   into the gaps beside it. */
+.route-stops > .route-insert { flex: 0 0 46px; width: 46px; min-width: 46px; height: 46px; min-height: 46px; box-sizing: border-box; margin: -6px -13px 0; padding: 0; border: 0; background: transparent; box-shadow: none; position: relative; z-index: 1; align-self: flex-start; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+/* (The line runs on through it, at the chips' line's height, to the next stop.) */
+.route-stops > .route-insert:not(.last)::before { content: ""; position: absolute; z-index: -1; left: 0; right: 0; top: 20px; height: 6px; background: var(--line, #888); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
+.route-insert-peg { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 15px; line-height: 1; box-shadow: inset 0 0 0 2px var(--wood-ink), 0 1px 1px rgba(40, 22, 6, 0.35); }
+.route-insert.last .route-insert-peg { box-shadow: none; outline: 2px dashed var(--wood-ink); outline-offset: -2px; }
 .route-chip.next { font-weight: 800; }
 /* The stop's number, in a ring of the line's colour; the stop the train's heading for has it filled (audit F7). */
 .route-num { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 4px; margin-right: 5px; border-radius: 999px; font-size: 12px; font-weight: 900; line-height: 1; vertical-align: -4px; box-shadow: inset 0 0 0 2px var(--line, #888); }
@@ -1802,6 +1839,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops > .route-chip:first-child::after { left: 50%; }
 .route-stops > .route-chip:last-child::after, .route-stops > .route-chip:has(+ :not(.route-chip))::after { right: 50%; }
 .route-stops > .route-chip:only-child::after { display: none; }
+.route-stops > .route-chip:has(+ .route-insert:not(.last))::after { right: 0; }
 /* the number: a maple peg on its own line, centred on the rail */
 .route-stops > .route-chip .route-num { position: relative; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; min-width: 0; padding: 0; margin: 0 auto 5px;
   border-radius: 50%; font-family: var(--display); font-size: 14px; font-weight: 400; line-height: 1; vertical-align: 0; color: var(--wood-ink); background: var(--maple); box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); text-shadow: none; }
@@ -1971,6 +2009,22 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-via .ls-stop-main { flex-direction: row; align-items: center; min-height: 44px; font-size: 14px; font-weight: 700; color: var(--wood-ink-soft); }
 .ls-stop.lifted { z-index: 2; background: var(--maple); border-radius: 8px; box-shadow: var(--tile-face), 0 8px 8px -3px rgba(40, 22, 6, 0.45); }
 .ls-drop-bar { position: absolute; left: 30px; right: 0; height: 4px; border-radius: 2px; background: var(--wood-ink); pointer-events: none; }
+/* + on the line between two stops (route-insert): a small maple peg on the spine, a 44 px target round it. Tapped, it's
+   painted in the line's colour and the next place tapped goes in there. After the last stop: a dashed peg (the end). */
+.ls-stops.pegs { padding-bottom: 22px; }
+.ls-insert { position: absolute; left: 29px; bottom: -22px; z-index: 3; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; touch-action: manipulation; }
+/* (16 px: the spine shows above and below it, between the stops' numbers.) */
+.ls-insert-peg { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 14px; line-height: 1; box-shadow: inset 0 0 0 1.5px var(--wood-ink), 0 1px 1px rgba(40, 22, 6, 0.35); transition: transform 0.12s ease-out; }
+.ls-insert.last .ls-insert-peg { width: 18px; height: 18px; box-shadow: none; outline: 1.5px dashed var(--wood-ink); outline-offset: -1.5px; }
+.ls-insert:active .ls-insert-peg { transform: scale(0.9); }
+.ls-insert.on .ls-insert-peg { width: 26px; height: 26px; background: var(--sheen), var(--line); color: var(--line-ink, #fff); outline: none; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 0 0 3px var(--blue); }
+/* A place just put in: its peg ringed in the line's colour, and a line under the stops saying where it went. */
+.ls-stop.added .ls-num { outline: 3px solid var(--line); outline-offset: 2px; animation: ls-added 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.4); }
+@keyframes ls-added { from { transform: scale(0.6); } }
+@media (prefers-reduced-motion: reduce) { .ls-stop.added .ls-num { animation: none; } }
+.ls-added { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex: 0 0 auto; padding: 6px 6px 6px 10px; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+.ls-added-text { flex: 1 1 160px; min-width: 0; font-size: 14px; font-weight: 800; line-height: 1.25; color: var(--wood-ink); }
+.ls-added .chip { flex: 0 0 auto; font-size: 14.5px; padding-inline: 12px; }
 .ls-hint { font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); }
 .ls-hint.empty { padding: 12px; border-radius: 8px; border: 1.5px dashed var(--pencil); text-align: center; font-size: 14.5px; }
 .ls-foot { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding-top: 8px; border-top: 1.5px dashed var(--pencil); }
