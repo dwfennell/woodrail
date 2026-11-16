@@ -336,28 +336,31 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lever { width: 60px; height: 50px; font-size: 20px; }
 /* The engine card: what it's doing, a big Go/Stop and the way it goes, and Swap ends, Decouple and Remove; Follow and ✕ in
    the top corners. */
-.engine-card { padding-top: 14px; min-width: 290px; }
-/* The card's corner buttons are 44 px to tap (the icon's smaller). */
-.engine-card .corner, .engine-card > .close { position: absolute; top: 4px; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: var(--wood-ink-soft); cursor: pointer; border-radius: 8px; line-height: 0; }
-.engine-card .corner.follow { left: 2px; }
-.engine-card > .close { right: 2px; font-size: 18px; font-weight: 900; color: var(--wood-ink-soft); line-height: 1; }
+.engine-card { padding-top: 12px; min-width: 290px; }
+/* The card's corner buttons are 44 px to tap (the icon's smaller), in the card's own corners as every card's ✕ is (its
+   hover tile rounded as the card is), so the rows under the name start clear of them. */
+.engine-card .corner, .engine-card > .close { position: absolute; top: 0; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: var(--wood-ink-soft); cursor: pointer; border-radius: 12px; line-height: 0; }
+.engine-card .corner.follow { left: 0; }
+.engine-card > .close { right: 0; font-size: 18px; font-weight: 900; color: var(--wood-ink-soft); line-height: 1; }
 /* (As every card's ✕: a faint wood hover; the Follow camera too, unless it's on.) */
 .engine-card > .close:hover, .engine-card .corner:not(.active):hover { background: rgba(150, 100, 50, 0.1); }
 .engine-card .corner.follow.active { background: var(--sheen), var(--green); color: var(--paint-ink); box-shadow: inset 0 -3px 0 var(--green-cut); }
 /* Its title is the engine's name, painted on its cab too: a tap renames it (a little text box in its place, 14 letters). */
-/* (44 px to tap, but no taller in the card than a plain title: its margins give back what its height adds.) */
-.engine-card .engine-name { border: none; background: transparent; padding: 0 8px; margin: -12px auto; height: 44px; line-height: 1; max-width: calc(100% - 96px); border-radius: 8px; cursor: text; font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* (44 px to tap, level with the corner buttons, but no taller in the card than a plain title: its margins give back
+   most of what its height adds. The 6 px it keeps puts the first row under it, Delete cargo or a blocker's fix at its
+   right end, 4 px below the ✕'s 44 px, not under its hover tile: the user's report, 2026-11-16.) */
+.engine-card .engine-name { border: none; background: transparent; padding: 0 8px; margin: -12px auto -6px; height: 44px; line-height: 1; max-width: calc(100% - 96px); border-radius: 8px; cursor: text; font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* (the ✎ beside the name, on its centre line) */
 .engine-card .engine-name::after { content: "✎"; display: inline-block; font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); margin-left: 5px; vertical-align: 0.15em; }
 .engine-card .engine-name:hover, .engine-card .engine-name:focus-visible { background: rgba(150, 100, 50, 0.1); }
-.engine-card .engine-name-input { margin: -12px auto; width: 11em; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid var(--end-grain); border-radius: 8px; background: var(--maple); text-align: center; font-family: inherit; font-size: 16px; }
+.engine-card .engine-name-input { margin: -12px auto -6px; width: 11em; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid var(--end-grain); border-radius: 8px; background: var(--maple); text-align: center; font-family: inherit; font-size: 16px; }
 .engine-card .engine-name-input:focus { outline: none; border-color: #8a5a2c; }
 /* Top to bottom by purpose, one column (layout B, 2026-11-05): the load under the name; the status and its fix; Go or
    Stop, Leave now and the way; the line; the train's own tools. Groups 10 px apart, chips 8 px apart (DESIGN.md). */
 .engine-card:not([hidden]) { align-items: stretch; }
 .engine-card .engine-name { align-self: center; }
 /* What it carries, one line under the name (cut with "…"), and Delete cargo at its end (only while there are goods). */
-.engine-load { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; margin-top: -6px; }
+.engine-load { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
 .engine-load[hidden], .engine-load > [hidden] { display: none; }
 .engine-summary { flex: 0 1 auto; min-width: 0; font-size: 13px; font-weight: 700; color: #6a4a2c; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .engine-summary > div { display: inline; }
@@ -2041,6 +2044,8 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
   /* (Its own width, not the stops strip's: the strip scrolls, and the card's left edge stays past 40% of the screen, with
      the map's room beside it.) */
   .engine-card .engine-status-row { min-height: 0; }
+  /* (With the rows 6 px apart, the name gives back 2 px less, so the first row still starts 4 px under the ✕.) */
+  .engine-card :is(.engine-name, .engine-name-input) { margin-bottom: -2px; }
   .engine-card .engine-controls .chip:is(.go, .continue, .leave-now, .way) { height: 48px; }
   .engine-card .engine-extra.route { padding: 0 6px 4px; }
 }

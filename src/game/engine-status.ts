@@ -561,7 +561,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "aside":
-      return s.line ? `Letting the ${s.line} line by` : who && who.car >= 0 ? `Letting ${blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place)} by` : "Letting another train by";
+      return s.line ? `Letting the ${s.line} train by` : who && who.car >= 0 ? `Letting ${blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place)} by` : "Letting another train by";
     case "line-wait":
       if (s.line) return `Waiting for the ${s.line} train`;
       if (who && who.car >= 0) return `Waiting: ${inTheWay(who, place)}`;

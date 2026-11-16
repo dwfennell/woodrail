@@ -140,7 +140,8 @@ the end is this run's. The sections below are as first written, on f10b8ee.
 - **The game: refuges.** A line's refuges are spare end slots off its way, joined to it where trains going either way
   can run in: off a wye, not off plain points (`bothWaysIn`). Each makes room for a train more.
 - **The game: the move.** A train held for one coming at it head on is granted a move into a free refuge instead. It
-  turns at the buffer there, waits for that one to pass, and goes on. Its card: "Letting the Red line by".
+  turns at the buffer there, waits for that one to pass, and goes on. Its card: "Letting the Red line train by"
+  (after a reload worked out from where it stands: a save keeps no step-aside).
 - **Off plain points, not used.** There only trains heading one way can run in, so the same train would always be the
   one to step aside and never reach its far stop. To get by, it would have to follow its line-mate into the line end
   and turn behind it (§16 Q9), and the user's decision 4 keeps convoys into a dead end one train to a section. Those
