@@ -56,7 +56,9 @@ export default [
   {
     name: "today-4-trains",
     async run(p) {
-      await tapSel(p, ".ls-tab", "Trains");
+      // (Since the redesign the trains ride the sheet's spine: the first one's row opened.)
+      if (await p.evaluate(() => !!document.querySelector(".ls-stop.open"))) await tapSel(p, ".ls-stop.open .ls-stop-main");
+      await tapSel(p, ".ls-train .ls-train-main");
       await p.waitForTimeout(600);
       await clearToasts(p);
     },
