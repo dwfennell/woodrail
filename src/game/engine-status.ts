@@ -438,6 +438,9 @@ const OR_MOVE = ", or move the parked train";
 /** A line with a train too many: the quick fix, the card's Remove (highlighted beside it). */
 const OR_REMOVE = ", or remove a train";
 
+/** The fix for a line end too short for a train to turn in and come out the other way (`shortSkipOf`). */
+export const SHORT_END_FIX = "Lengthen it, or take a car off";
+
 /** The fix for a signal inside a passing loop holding a train over the points (issue #31): the engine and signal cards. */
 export const LOOP_SIGNAL_FIX = "Move that signal to the loop's end";
 /** The fix for a train kept waiting on a long single track lines share (`single-track`): somewhere to pass. */
@@ -652,6 +655,13 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (route.at && (!at || !economy.hasWorkAt(found.train.id, at))) {
         const here = route.stops[i].depotId;
         for (let k = 0; k < route.stops.length && route.stops[i].depotId === here; k++) i = (i + 1) % route.stops.length;
+      }
+      // (Gone on past a stop it can't reach for a line end too short for it to turn in and come out the other way: said,
+      // naming both, and the fix.)
+      const short = economy.shortSkipOf(engineCarId);
+      if (short) {
+        const at = placeLabel(nameOf, short.at);
+        return `Can't reach ${nameOf(short.depotId)}: ${at ? `the line end at ${at}` : "a line end on the way"} is too short for it to turn and take the other road. ${SHORT_END_FIX}`;
       }
       // (Heading for a stop beyond a train its line has no room for: it'll turn back short of it. Say why.)
       const full = economy.sections.unreachable(engineCarId) ? economy.sections.fullness(engineCarId) : null;

@@ -762,6 +762,27 @@ describe("stepping aside into a spare platform (the user's A1)", () => {
     expect(view?.blocker?.car).toBeGreaterThanOrEqual(0);
   }, 120_000);
 
+  it("a train too long to turn in a line end and take the other road goes on to a stop it can reach, and says why (the long goals play-through)", async () => {
+    // (The long goals play-through, 2026-11-16, minute 324, src/play/bugmaps/reports/: a goods train of eight cars (776
+    // mm) runs into the mine's line end (720 mm from its points) on one road; its next stop is up the other. Turned at
+    // the buffer, its tail is over the points: it can only come out the way it went in. Planned out the other way, it went
+    // round and came back to turn there again, for good: 2 stops in 600 s, and a wrong road at those points each lap.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap, replayBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-16-short-line-end.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const goods = 27;
+    const name = (id: number) => `D${id}`;
+    const said = new Set<string>();
+    const r = replayBugMap(world, { seconds: 300, onTick: () => {
+      if (sim.ticks % 60 === 0) said.add(engineStatus(sim, economy, goods, name));
+    } });
+    expect(r.first, "no invariant broken (no wrong road at the line end's points)").toBeNull();
+    expect(r.arrivals.get(goods) ?? 0, "stops in 300 s").toBeGreaterThanOrEqual(10);
+    const mine = economy.depotAtPiece(91727)!.id;
+    expect([...said].filter((x) => x.startsWith("Can't reach"))).toContain(`Can't reach D${economy.depotAtPiece(7812)!.id}: the line end at D${mine} is too short for it to turn and take the other road. Lengthen it, or take a car off`);
+  }, 120_000);
+
   it("after a reload, a train standing aside in a spare dead end still says whom it lets by (a save keeps no step-aside)", async () => {
     // (A user's map, 2026-11-16, src/play/bugmaps/reports/: "This Rowan train on the Red line keeps on going into this
     // dead-end track, unclear why." Rowan (engine 30) was saved standing in the ring's one spare dead end (the spur off

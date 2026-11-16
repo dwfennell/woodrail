@@ -1,5 +1,5 @@
 import { connectorRef, getPieceDef, indexOfRef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathExitConnector, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, ADV_OK, brakeTo, CAR_SPECS, COUPLER_GAP, SIM_DT, SIM_HZ, walkTrack, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, ADV_OK, brakeTo, CAR_SPECS, COUPLER_GAP, flipCursor, SIM_DT, SIM_HZ, walkTrack, type Cursor, type Sim, type Train } from "../sim";
 import { LineTally } from "./line-tally";
 
 /** A game month in sim ticks (calendar.ts's `MONTH_S`, 120 s): the span the Lines list counts a line's loads over. */
@@ -17,7 +17,9 @@ import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone } from "../routing/via";
 import { RoadVehicles } from "../roads/vehicles";
-import { driveOf } from "../sim/train-cars";
+import { driveOf, trainLength } from "../sim/train-cars";
+import { plan, ROUTE_COSTS } from "../routing/plan";
+import { stubRule } from "../routing/stubs";
 import { addTo } from "./goods";
 
 const NONE = 0;
@@ -3326,6 +3328,7 @@ export class Economy {
     this.work();
     this.kitStops.tick();
     if (this.routes.size > 0) this.advanceRoutes();
+    if (this.routes.size > 0) this.skipShort();
     // (Trains taken off their line, stopping once clear of points.)
     if (this.stopsClear.size > 0) for (const engine of [...this.stopsClear.keys()]) this.stopIfClear(engine);
     // Switches ahead of routed trains (routing/router.ts; nothing with none).
@@ -3601,6 +3604,86 @@ export class Economy {
     const out = this.cameHome;
     this.cameHome = [];
     return out;
+  }
+
+  /**
+   * A routed train whose next stop it can't reach from where it is, for a line end too short for it on the only way
+   * there (stubs.ts: turned in it, its tail over the points at its mouth, it can only come out by the road it went in
+   * by), goes on to the next of its stops it can reach, and its card says why (`shortSkipOf`). Else it ran round for
+   * good: the long goals play-through, 2026-11-16, a goods train of eight cars into the mine's line end on one road,
+   * its next stop up the other. Looked at only when its next stop, its track, its last turn or its way changes, and
+   * only for a train some line end is too short for: a plan search or two then.
+   */
+  private skipShort(): void {
+    for (const [engine, r] of this.routes) {
+      if (r.at || r.stops.length < 2) continue;
+      const t = this.sim.findCar(engine)?.train;
+      if (!t) continue;
+      const net = this.drive(t);
+      const key = `${r.next}:${this.layout.revision}:${t.lastTurn?.tick ?? -1}:${Math.sign(net)}`;
+      const was = this.shortLooked.get(engine);
+      if (was === key) continue;
+      this.shortLooked.set(engine, key);
+      if (net === 0) continue;
+      const rule = stubRule(this.layout, trainLength(t));
+      if (!rule) continue;
+      const from = this.frontOn(t, net);
+      if (!from) continue;
+      const reach = (depotId: number) => {
+        const d = this.liveDepot(depotId);
+        return !d || from.pieceId === d.pieceId || plan(this.layout, from, d.pieceId, ROUTE_COSTS, undefined, undefined, rule) !== null;
+      };
+      const stop = r.stops[r.next % r.stops.length];
+      if (reach(stop.depotId)) continue;
+      // (Not for want of length: no track there at all, say. Left to the rest.)
+      const d = this.liveDepot(stop.depotId)!;
+      const plain = plan(this.layout, from, d.pieceId);
+      if (!plain) continue;
+      let i = r.next % r.stops.length;
+      for (let k = 1; k < r.stops.length; k++) {
+        const j = (r.next + k) % r.stops.length;
+        if (r.stops[j].depotId === stop.depotId || !reach(r.stops[j].depotId)) continue;
+        i = j;
+        break;
+      }
+      if (i === r.next % r.stops.length) continue;
+      // (Where it can't turn: the line end the way there turns at, too short for it.)
+      const turn = plain.steps.find((x) => x.reverse && rule.turns.has(x.pieceId * MAX_CONNECTORS + x.entry));
+      r.next = i;
+      this.nextStamp++;
+      resetVias(r);
+      this.shortSkips.set(engine, { depotId: stop.depotId, next: i, at: turn ? (this.depotAtPiece(turn.pieceId)?.id ?? -1) : -1 });
+      this.shortLooked.set(engine, `${r.next}:${this.layout.revision}:${t.lastTurn?.tick ?? -1}:${Math.sign(net)}`);
+    }
+  }
+  private readonly shortLooked = new Map<number, string>();
+  private readonly shortSkips = new Map<number, { depotId: number; next: number; at: number }>();
+
+  /**
+   * The stop a routed train passed over for a line end too short for it (`skipShort`), while it heads for the stop after:
+   * that stop's depot, and the depot at the line end (−1: none there). For its card. Null: none.
+   */
+  shortSkipOf(engine: number): { depotId: number; at: number } | null {
+    const s = this.shortSkips.get(engine);
+    if (!s) return null;
+    const r = this.routes.get(engine);
+    if (!r || r.next % r.stops.length !== s.next) {
+      this.shortSkips.delete(engine);
+      return null;
+    }
+    return s;
+  }
+
+  /** Where a train going `net`'s way plans from: the piece after its front's, come onto as it would. Null: none (the end). */
+  private frontOn(t: Train, net: number): { pieceId: number; entry: number; lead: boolean } | null {
+    const b = net > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+    const c: Cursor = { ...b };
+    if (net < 0) flipCursor(this.layout, c);
+    const piece = this.layout.getPiece(c.pieceId);
+    if (!piece) return null;
+    const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
+    const n = nextPiece(this.layout, c.pieceId, c.reversed ? path.from : (path.to ?? -1));
+    return n ? { pieceId: n.pieceId, entry: n.entry, lead: true } : null;
   }
 
   /** A routed train that has been at its next stop and left it heads for the one after. */
