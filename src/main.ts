@@ -63,10 +63,10 @@ import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
 import { HEALTH_WORDS, lineHealth, type LineHealth } from "./game/line-health";
 import { wouldRepeat } from "./ui/route-drag";
-import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, runsLength, stopCursors, viaLegs } from "./game/route-path";
+import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, runsLength, stopCursors, viaLegs, type PathRun } from "./game/route-path";
 import { viaDone } from "./routing/via";
 import { LinesView } from "./ui/lines-view";
-import { ribbonScale, RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
+import { ribbonScale, RouteView, type DiscSpec, type GapSpec, type InsertSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { addTipped, emptyWords, type Tipped } from "./game/empty-words";
 import { canContinue, continueOn } from "./game/continue-on";
@@ -4410,6 +4410,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       interaction.undo();
       showRoute();
       showSheet();
+      // (The line, and its + pegs, in view again: as after any edit.)
+      requestAnimationFrame(() => (showRibbon(), frameSheet()));
     },
     startRename: () => ((sheetRenaming = true), (sheetPalette = false), (sheetMenu = false), showSheet()),
     rename: (name) => {
@@ -4779,6 +4781,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         if (at) points.push(at);
       }
     }
+    // (The map's + pegs too: one between two stops can lie round a far curve, under the sheet.)
+    if (planning) points.push(...pegSpots);
     return points;
   }
 
@@ -4791,13 +4795,42 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
+   * Planning a line of two stops or more: a + peg at the middle of each leg, on its ribbon (lines UI redesign
+   * 2026-11-16: insert where the geography is). `legs[k]` runs from stop k to the next. None where a stop is off the
+   * map (the legs then don't line up with the stops), or a leg has no way.
+   */
+  function insertPegs(line: { colour: string; stops: readonly RouteStopDef[] }, legs: readonly (readonly PathRun[] | null)[], lost: boolean): InsertSpec[] {
+    const out = pegsOf(line, legs, lost);
+    pegSpots = out.map((p) => new Vector3(p.x, p.y, p.z));
+    return out;
+  }
+  /** Where the map's + pegs are (planning), for framing the line with them in view: a leg's middle can lie far from its stops. */
+  let pegSpots: Vector3[] = [];
+  function pegsOf(line: { colour: string; stops: readonly RouteStopDef[] }, legs: readonly (readonly PathRun[] | null)[], lost: boolean): InsertSpec[] {
+    if (!planning || lost || line.stops.length < 2 || legs.length !== line.stops.length) return [];
+    return legs.flatMap((leg, k) => {
+      if (!leg || leg.length === 0) return [];
+      let half = runsLength(leg) / 2;
+      for (const run of leg) {
+        const l = Math.abs(run.s1 - run.s0);
+        if (half <= l) {
+          const p = pointOnPath(game.layout, run.pieceId, run.pathIndex, run.s0 + Math.sign(run.s1 - run.s0) * half);
+          return p ? [{ ...p, after: k, colour: line.colour, armed: insertAt === k + 1 }] : [];
+        }
+        half -= l;
+      }
+      return [];
+    });
+  }
+
+  /**
    * The sheet's line drawn on the track when no train of the sheet's runs it (a line on its own): its ribbon round all
    * its stops, numbered discs. Built only when it changes (`ribbonKey`).
    */
   function showLineAlone(): boolean {
     const line = game.economy.lines.get(sheetLine);
     const scale = ribbonScale(game.camera.position.distanceTo(game.controls.target), game.canvas.clientHeight || 1, game.camera.fov);
-    const key = `alone|${scale}|${sheetLine}|${game.trackVersion}|${game.layout.switchesVersion}|${line ? `${line.colour}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}`;
+    const key = `alone|${scale}|${sheetLine}|${game.trackVersion}|${game.layout.switchesVersion}|${line ? `${line.colour}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}|${planning}|${insertAt}`;
     if (key === ribbonKey) return true;
     ribbonKey = key;
     if (!routeView || routeLayout !== game.layout) {
@@ -4827,7 +4860,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else d.label += `·${k + 1}`;
       for (const v of st.via ?? []) if (!discs.has(v) && game.layout.getPiece(v)) discs.set(v, { pieceId: v, label: "", colour: line.colour, state: "stop", stop: k, via: true });
     });
-    routeView.show(ribbons, [...discs.values()], [], scale);
+    routeView.show(ribbons, [...discs.values()], [], scale, insertPegs(line, legs, pieces.includes(-1)));
     game.invalidate();
     return true;
   }
@@ -5734,6 +5767,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           } else interaction.onPickPlace?.(depotId);
         }
       : null;
+    // A + peg on the line tapped: the next place tapped goes in there (tapped again: not), as the sheet's +.
+    interaction.onTapInsertDisc = on
+      ? (after) => {
+          insertAt = insertAt === after + 1 ? -1 : after + 1;
+          viaAsked = false;
+          viaPicked = null;
+          stopPicked = -1;
+          justAdded = null;
+          showSheet();
+        }
+      : null;
     interaction.onLeavePlanning = on ? () => setPlanning(false) : null;
     // A town with no station, an old industry's ruin: said, short.
     interaction.onNoStation = on ? (text) => hud.toast(text, false, 2500) : null;
@@ -6010,7 +6054,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const r = game.economy.routeOf(carId);
     // (Wide enough to see from far out, as planning frames a long line: as the Lines view's.)
     const scale = ribbonScale(game.camera.position.distanceTo(game.controls.target), game.canvas.clientHeight || 1, game.camera.fov);
-    const key = `${scale}|${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${r?.at}|${r?.viaFor}:${r?.viaDone}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}`;
+    const key = `${scale}|${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${r?.at}|${r?.viaFor}:${r?.viaDone}|${line.stops.map((st) => `${st.depotId}${st.via ? `.${st.via.join(".")}` : ""}`).join(",")}` : "-"}|${planning}|${insertAt}`;
     if (key === ribbonKey) return;
     ribbonKey = key;
     if (!routeView || routeLayout !== game.layout) {
@@ -6092,7 +6136,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       line.stops.forEach((st, k) => {
         for (const v of st.via ?? []) if (!discs.has(v) && game.layout.getPiece(v)) discs.set(v, { pieceId: v, label: "", colour: line.colour, state: "stop", stop: k, via: true });
       });
-      routeView.show(ribbons, [...discs.values()], gaps, scale);
+      routeView.show(ribbons, [...discs.values()], gaps, scale, insertPegs(line, legs, pieces.includes(-1)));
       // A stop just added pops in; the next stop pulses when it becomes the next (or the card opens).
       const now = performance.now() / 1000;
       // (A track edit changed its way round: the new stretch lit up a moment, and, shorter, a toast once an edit;

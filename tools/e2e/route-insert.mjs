@@ -6,7 +6,8 @@
 //  2. The line opened again, the sawmill D (lying between B and C round the oval) tapped: it goes in between B and C,
 //     not at the end; the sheet says so ("Added Sawmill between Forest yard 2 and Workshop"), the train still heads
 //     for the stop it was. Move to end puts it last; the note's Undo puts it back between; the bar's Undo takes it off.
-//  3. The + on the line after B tapped (painted, the hint says where), then D: in between B and C again.
+//  3. The + on the line after B tapped (painted, the hint says where), then D: in between B and C again. Undone, and
+//     the + peg on the map's ribbon between B and C tapped, then D: in between them once more.
 //  4. The train runs the line (the payoff): it calls at B, then D, then C, in that order; logs are unloaded at the
 //     sawmill, and planks at the workshop.
 //  5. The card's line, read only: a peg a stop, where the train's going, no +; a peg tapped opens the sheet at its stop.
@@ -256,6 +257,43 @@ const plusSaid = await sheetState();
 check("3. …then D tapped: in between B and C, said (no Move to end: it was put there by hand), the + let go", same(viaPlus?.stops, [A, B, D, C]) && /^Added Sawmill.* between/.test(plusSaid.added) && !plusSaid.toEnd && plusSaid.armed.length === 0, JSON.stringify({ viaPlus, plusSaid }));
 await shot("4-plus-added");
 
+// ---- 3b. The + on the map: a peg on the ribbon between B and C ------------------------------------------------------
+await tap(".ls-added-undo");
+const undoneAgain = await sheetLine();
+check("3b. (the note's Undo: A → B → C again)", same(undoneAgain?.stops, [A, B, C]), JSON.stringify(undoneAgain));
+// (The view may glide to frame the line after the edit: the pegs measured once it's still.)
+await p.waitForTimeout(400);
+await still();
+await p.waitForTimeout(300);
+/** The map's + pegs: where each is on the screen, and which stop it follows (built with the line's ribbon). */
+const mapPegs = () =>
+  p.evaluate(() => {
+    const w = window.woodrail;
+    const out = [];
+    w.scene.getObjectByName("route")?.traverse((o) => {
+      if (o.userData?.kind !== "route-insert") return;
+      const c = o.position.clone().project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      out.push({ after: o.userData.after, x: r.left + ((c.x + 1) / 2) * r.width, y: r.top + ((1 - c.y) / 2) * r.height });
+    });
+    return out.sort((a, b) => a.after - b.after);
+  });
+const pegs = await mapPegs();
+check("3b. planning, the map has a + peg on each leg of the line (three, a ring of three stops)", pegs.length === 3 && same(pegs.map((q) => q.after), [0, 1, 2]), JSON.stringify(pegs));
+const peg = pegs.find((q) => q.after === 1);
+const sheetTop = await p.evaluate(() => document.querySelector(".line-sheet").getBoundingClientRect().top);
+check("3b. …each peg in view, above the sheet (the line framed with its pegs)", pegs.every((q) => q.y > 0 && q.y < sheetTop - 10 && q.x > 0 && q.x < 390), JSON.stringify({ pegs, sheetTop }));
+if (peg) {
+  await p.touchscreen.tap(peg.x, peg.y);
+  await p.waitForTimeout(500);
+  await frames();
+}
+const mapArmed = await sheetState();
+check("3b. the map's + between B and C tapped: the sheet's + there painted, the hint says between B and C", same(mapArmed.armed, [1]) && /^Now tap a place: it goes between Forest yard.* and Workshop/.test(mapArmed.hint), JSON.stringify({ mapArmed, peg }));
+await shot("4b-map-plus-armed");
+await tapPlace(D);
+const viaMap = await sheetLine();
+check("3b. …then D tapped: in between B and C", same(viaMap?.stops, [A, B, D, C]), JSON.stringify(viaMap));
 // (0 frames drawn idle, the sheet open and the game paused.)
 const idle = await p.evaluate(async () => {
   const w = window.woodrail;
