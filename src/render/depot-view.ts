@@ -703,6 +703,11 @@ interface CraneParts {
   /** The current leg (car, run or move, which way, what), and its last phase: a new one starts from `rest`. */
   leg: number;
   legPhase: number;
+  /** Its home: the hook hanging over the track under the crane, where it's stowed once no wagon is being worked. */
+  home: Vector3;
+  /** Going home: where the hook was as it set off, and the game time (s) it has been on its way; null when at home or working. */
+  stowFrom: Vector3 | null;
+  stowT: number;
 }
 
 interface Site {
@@ -768,6 +773,11 @@ interface UnitMeshes {
 const ease = (x: number) => x * x * (3 - 2 * x);
 /** The first part of a crane's move (0–1) in which its hook goes empty to the unit's source (it jumped there before). */
 const REACH = 0.2;
+/**
+ * How long (game seconds) a crane takes to go home, from wherever its last leg left the hook, once no wagon is being
+ * worked (QA 2026-11-16: a farm's jib left turned out over the track, its rope reaching to where a wagon had stood).
+ */
+const STOW_S = 1.2;
 
 const _m = new Matrix4();
 const _q = new Quaternion();
@@ -1398,8 +1408,9 @@ export class DepotView {
       setCullBox(o, [site.at], 160);
       o.userData.maxDistance = CRANE_REACH;
     }
-    // Park the hook over the track, under the crane.
-    toWorld(pose, spec.crane.t, 0, spec.crane.height - 14, site.crane.hook);
+    // Park the hook over the track, under the crane: its home.
+    toWorld(pose, spec.crane.t, 0, spec.crane.height - 14, site.crane.home);
+    site.crane.hook.copy(site.crane.home);
     this.framesDirty = true;
     return site;
   }
@@ -1966,7 +1977,7 @@ export class DepotView {
     for (const o of [trolley, rope]) o.userData.depotMoving = true;
     trolley.traverse((o) => (o.castShadow = true));
     this.group.add(trolley, rope);
-    return { arm, trolley, rope, hook: new Vector3(), rest: new Vector3(), leg: -1, legPhase: 0 };
+    return { arm, trolley, rope, hook: new Vector3(), rest: new Vector3(), leg: -1, legPhase: 0, home: new Vector3(), stowFrom: null, stowT: 0 };
   }
 
   private buildBlade(pose: SitePose): Object3D {
@@ -2124,11 +2135,14 @@ export class DepotView {
     this.simSeen = simSeconds;
     const drag = this.dragging;
     let anyMoving = false;
+    this.simNow = simSeconds;
     for (const site of this.sites) {
       site.moving = economy.craneMove(site.depot.id, site.move);
-      if (site.moving) anyMoving = true;
+      // (Going home counts as moving: it's placed, and drawn, till it's there.)
+      const stowing = !site.moving && site.crane.hook.distanceToSquared(site.crane.home) > 0.01;
+      if (site.moving || stowing) anyMoving = true;
       // (Paused, its crane holds where it is; out of view, it works on unseen.)
-      if (site.moving && !paused && site.crane.trolley.visible) busy = true;
+      if ((site.moving || stowing) && !paused && site.crane.trolley.visible) busy = true;
     }
     // Piles, loads and cranes are placed again only when something they follow changed: a train moved (its loads ride
     // on it), a crane is working or just stopped, a unit is in a hand, a pile or a load grew or shrank, or the sites
@@ -2191,6 +2205,8 @@ export class DepotView {
   private capacitySeen = -1;
   /** Were the cranes last placed at rest (none working, nothing in a hand)? Until then, placed every update. */
   private atRest = false;
+  /** The game's time (s) at this update, for a crane going home (`STOW_S`). */
+  private simNow = 0;
   /** A pile in view, or a load, grew or shrank when last placed (for `update`'s "changed"). */
   private placedChanged = false;
 
@@ -2280,8 +2296,11 @@ export class DepotView {
       this.placedChanged = true;
     }
 
-    // Cranes, and their frames where they've run to.
-    for (const site of this.sites) this.updateCrane(site, economy, carObject);
+    // Cranes, and their frames where they've run to (or a crane on its way home).
+    for (const site of this.sites) {
+      this.updateCrane(site, economy, carObject);
+      if (site.crane.stowFrom) anyMoving = true;
+    }
     this.placeFrames();
 
     for (const u of this.allUnits) for (const part of u.parts) part.count = u.n;
@@ -2330,7 +2349,24 @@ export class DepotView {
       if (leg !== crane.leg || p < crane.legPhase) crane.rest.copy(crane.hook);
       crane.leg = leg;
       crane.legPhase = p;
-    } else crane.leg = -1;
+      crane.stowFrom = null;
+    } else {
+      crane.leg = -1;
+      // No wagon being worked: it goes home, eased over `STOW_S` of the game's time from where it was (held while
+      // paused: the game's time stands still), and once there stays put.
+      if (crane.hook.distanceToSquared(crane.home) > 0.01 || crane.stowFrom) {
+        if (!crane.stowFrom) {
+          crane.stowFrom = crane.hook.clone();
+          crane.stowT = this.simNow;
+        }
+        const r = ease(Math.min(1, Math.max(0, this.simNow - crane.stowT) / STOW_S));
+        crane.hook.lerpVectors(crane.stowFrom, crane.home, r);
+        if (r >= 1) {
+          crane.hook.copy(crane.home);
+          crane.stowFrom = null;
+        }
+      }
+    }
     let carrying = false;
     if (move && move.phase < 0) {
       // Running along the standing train to the wagon: the hook, empty, from where it was to over the wagon.

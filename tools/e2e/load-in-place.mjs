@@ -142,6 +142,9 @@ const setup = await p.evaluate(async (view) => {
   };
   window.__loads = () => wagons.map((id) => w.economy.cargoOf(id));
   window.__workshop = () => workshop.piles[CARGO.planks.index];
+  // Where the sawmill's crane is drawn: its trolley (at home now, idle, the train not there yet).
+  window.__trolley = () => w.depotView.craneOf(sawmill.id).trolley.position.clone();
+  window.__home = window.__trolley();
   w.invalidate();
   return { engine, wagons, sawmill: sawmill.id, workshop: workshop.id };
 }, { dist: vd, phi: vp, turn: vt });
@@ -194,6 +197,17 @@ check("…every wagon served where it stands", visit.served === 3, JSON.stringif
 check("…its nose short of the sawmill's far end (never over the joint)", visit.noseOff === 0, JSON.stringify(visit));
 const loads = await p.evaluate(() => window.__loads());
 check("all three wagons left with planks", loads.every((c) => c.kind === "planks" && c.count === 3), JSON.stringify(loads));
+// The train gone, the crane goes home (QA 2026-11-16: a farm's jib was left turned out over the track, its rope reaching
+// to where a wagon had stood): its trolley back where it was before the train came, drawn so.
+const stowed = await p.evaluate(async () => {
+  window.__run(3);
+  const t0 = performance.now();
+  // (Drawn by the game's own frames: the crane eases home over 1.2 s of the game's time.)
+  while (performance.now() - t0 < 60000 && window.__trolley().distanceTo(window.__home) > 0.5) await new Promise((r) => setTimeout(r, 200));
+  return { off: window.__trolley().distanceTo(window.__home), crane: window.__crane() };
+});
+check("the train gone, the crane is back home (drawn there, not reaching out over the track)", stowed.off <= 0.5 && stowed.crane === null, JSON.stringify(stowed));
+await shot("4-crane-home");
 
 // The payoff: the planks are dropped at the workshop.
 const planks = await p.evaluate(() => {
