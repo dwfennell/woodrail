@@ -467,9 +467,9 @@ export class SignalMarksView {
   }
 
   /** How a drawn mark is drawn, for tests: its look, its arm's angle, and whether it's shown clear. */
-  shownOf(id: number): { look: Look; angle: number; clear: boolean } | null {
+  shownOf(id: number): { look: Look; angle: number; clear: boolean; mirrored: boolean } | null {
     const s = this.byId.get(id);
-    return s ? { look: s.look, angle: s.angle, clear: s.clear } : null;
+    return s ? { look: s.look, angle: s.angle, clear: s.clear, mirrored: s.mirrored } : null;
   }
 
   dispose(): void {

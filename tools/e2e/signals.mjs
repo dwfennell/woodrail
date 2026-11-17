@@ -124,9 +124,16 @@ const dragSignal = async (joint) => {
   let t = Date.now() / 1000;
   await touch("touchStart", from[0], from[1], t);
   for (let k = 1; k <= 12; k++) await touch("touchMove", from[0] + ((bx - from[0]) * k) / 12, from[1] + ((by + 56 - from[1]) * k) / 12, (t += 0.03));
+  midHeld = await p.evaluate(() => ({ kind: window.woodrail.interaction.mode.kind, from: null }));
+  midHeld.from = from;
+  midHeld.to = [bx, by, nx, ny];
   for (let k = 1; k <= 10; k++) await touch("touchMove", bx + ((nx - bx) * k) / 10, by + 56 + ((ny - by) * k) / 10, (t += 0.03));
   await frames();
   // (Where the preview's posts stood just before it was let go: each ghost model's foot, world plan x, z.)
+  lastHeld = await p.evaluate(() => {
+    const m = window.woodrail.interaction.mode;
+    return { kind: m.kind, target: m.target, overTray: m.overTray, cramped: window.woodrail.interaction.signalCramped };
+  });
   lastFeet = await p.evaluate(() => {
     const w = window.woodrail;
     const m = w.interaction.mode;
@@ -143,8 +150,13 @@ const dragSignal = async (joint) => {
   await settle();
   return (await marks()).find((m) => !before.has(m.id))?.at ?? -1;
 };
+/** The middle of `dragSignal`'s path along the track to a joint (75 mm back): where to frame, so the finger stays on screen. */
+const alongBack = (j) => ({ x: j.x - Math.cos(j.heading) * 75, y: j.y, z: j.z - Math.sin(j.heading) * 75 });
 /** The preview's posts' feet as `dragSignal` last let go (null each where it wasn't shown). */
 let lastFeet = [null, null];
+/** The drag as `dragSignal` last let go: its mode, target joint, over the tray, the joint it found cramped. */
+let lastHeld = null;
+let midHeld = null;
 
 // A new game.
 await p.goto(PAGE);
@@ -924,7 +936,7 @@ if (!setup.error) {
   check("8. setup: two straights laid along a hill's foot, its face square to the line", !run.error, JSON.stringify(run));
   if (!run.error) {
     const joint = await p.evaluate(async (at) => (await import("/src/game/signal-place.ts")).jointPose(window.woodrail.layout, at), run.at);
-    await glideTo(joint, 700);
+    await glideTo(alongBack(joint), 700);
     await settle();
     const before = (await marks()).length;
     const at = await dragSignal(joint);
@@ -990,15 +1002,23 @@ if (!setup.error) {
   });
   check("8. setup: a ramp on the felt and a line on risers off its top", !raised.error && raised.joint?.y > 40, JSON.stringify(raised));
   if (!raised.error) {
-    await glideTo(raised.joint, 700);
+    await glideTo(alongBack(raised.joint), 700);
+    await settle();
+    // (The hill's pair's card and toast closed first, as a player would before taking another from the tray.)
+    await p.keyboard.press("Escape");
     await settle();
     await p.evaluate(() => window.__said.splice(0));
     const before = (await marks()).length;
-    const at = await dragSignal(raised.joint);
+    let at = await dragSignal(raised.joint);
+    if (lastHeld?.kind !== "drag-signal") {
+      await p.keyboard.press("Escape");
+      await p.waitForTimeout(2500);
+      at = await dragSignal(raised.joint);
+    }
     const said = await p.evaluate(() => window.__said.splice(0));
     await shot("8-raised");
-    check("8. a Signal dragged to the top of the ramp, the line raised: not put down", at === -1 && (await marks()).length === before, JSON.stringify({ at }));
-    check("8. …it says why: no ground beside the raised line", said.some((m) => /^No ground beside the line there: it's raised/.test(m)), JSON.stringify(said));
+    check("8. a Signal dragged to the top of the ramp, the line raised: not put down", at === -1 && (await marks()).length === before, JSON.stringify({ at, lastHeld }));
+    check("8. …it says why: no ground beside the raised line", said.some((m) => /^No ground beside the line there: it's raised/.test(m)), JSON.stringify({ said, lastHeld, midHeld }));
   }
 }
 
