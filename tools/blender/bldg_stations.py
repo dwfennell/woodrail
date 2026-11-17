@@ -4,23 +4,29 @@ import math
 
 from kit import TOY, Node
 from bldg_parts import (  # noqa: F401
-    BRICK, FRAME, SLATE, STONE, WIN, awningX, bench, chimney, churn, clock, crate, doorX, doorZ, gable, glassBand, hip,
-    house, lamp, nameBoard, named, panel, peg, pine, platform, sack, smoke, winX, winZ,
+    BRICK, FRAME, SLATE, STONE, WIN, YARD_RIDGE, YARD_SLATE, YARD_STONE, YARD_TILE, YARD_TRIM, YARD_WALL, awningX, barredX, barredZ,
+    barsX, barsZ, bench, braced, chimney, churn, clock, crate, doorX, doorZ, gable, glassBand, hip, house, lamp, nameBoard,
+    named, panel, peg, pine, platform, sack, smoke, winX, winZ,
 )
 
 
 def country_halt(k):
     # 216 long, a long straight's length: the game's kit piece (src/track/kits.ts, kit-country-halt) stands it beside
     # its track, edge line (+z) to the track.
-    green = k.paint(TOY.green)
+    wall, trim = k.paint(YARD_WALL), k.paint(YARD_TRIM)
     g = platform(k, 216, 28, 0, 0)
-    # Lean-to shelter: back wall, two sides, sloping roof.
-    g.add(k.box(green, 40, 26, 3, 1, 0, 13, -11))
-    g.add(k.box(green, 3, 26, 14, 1, -18.5, 13, -5))
-    g.add(k.box(green, 3, 26, 14, 1, 18.5, 13, -5))
-    roof = k.box(k.paint(TOY.red), 46, 2.5, 22, 0.8, 0, 38, -3)
+    # Lean-to shelter in the yard's colours: cream boards over a green skirt, a window in each side, a tile-red roof
+    # with a green board along its front.
+    g.add(k.box(wall, 40, 26, 3, 1, 0, 13, -11))
+    g.add(k.box(trim, 40.8, 8, 3.8, 0.6, 0, 13, -11, seg=1))
+    for x in (-18.5, 18.5):
+        g.add(k.box(wall, 3, 26, 14, 1, x, 13, -5))
+        g.add(k.box(trim, 3.8, 8, 14.8, 0.6, x, 13, -5, seg=1))
+        g.add(barredX(k, x + (1.5 if x > 0 else -1.5), 24, -5, 6, 8))
+    roof = k.box(k.paint(YARD_TILE), 46, 2.5, 22, 0.8, 0, 38, -3)
     roof.rotation.x = 0.18
     g.add(roof)
+    g.add(k.box(trim, 44, 3, 1.2, 0.4, 0, 37.2, 7.2, seg=1))
     g.add(bench(k, 0, -6, 0, 13, TOY.cream))
     g.add(nameBoard(k, 50, -6, 22, 13))
     g.add(lamp(k, -70, 6, 30, 13), lamp(k, 84, 6, 30, 13))
@@ -37,30 +43,38 @@ def two_platform_station(k):
     g.add(platform(k, 216, 26, 0, -70, 13, 1))
     g.add(platform(k, 216, 26, 0, 70, 13, -1))
     # Station building on the far platform.
-    b = k.at(house(k, 60, 18, 28, k.paint(TOY.cream), TOY.red, 10), -25, 13, -74)
-    b.add(doorZ(k, TOY.blue, 0, 9.5, 10, 18))
+    b = k.at(house(k, 60, 18, 28, k.paint(YARD_WALL), YARD_SLATE, 10), -25, 13, -74)
+    b.add(k.box(k.paint(YARD_TRIM), 60.8, 7, 18.8, 1, 0, 0, 0, seg=1))
+    b.add(doorZ(k, YARD_TRIM, 0, 9.5, 10, 18))
     for x in (-18, 18):
-        b.add(winZ(k, x, 9, 9.3))
+        b.add(barredZ(k, x, 10, 9.3))
+    for x in (-18, 0, 18):
+        b.add(barredZ(k, x, 10, -9.3))
     # Added: a step at the door.
     b.add(k.box(k.paint(STONE), 14, 1.2, 3, 0.4, 0, 0, 10.5))
     g.add(b)
     g.add(chimney(k, -40, 50, -77))
     # Canopy on the near platform.
     for x in (-50, -20, 10):
-        g.add(k.cyl(k.paint(TOY.green), 1.4, 30, x, 13, 72, 1.4, 10))
-    canopy = k.box(k.paint(TOY.green), 76, 2.5, 26, 0.8, -20, 43, 70)
+        g.add(k.cyl(k.paint(YARD_TRIM), 1.4, 30, x, 13, 72, 1.4, 10))
+    canopy = k.box(k.paint(YARD_TRIM), 76, 2.5, 26, 0.8, -20, 43, 70)
     canopy.rotation.x = -0.12
     g.add(canopy)
     g.add(bench(k, -35, 76, math.pi, 13), bench(k, -5, 76, math.pi, 13))
     # Footbridge: two stair towers and a covered span.
-    blue = k.paint(TOY.blue)
+    # (In the yard's colours: green towers on a stone foot, each with a window and a door, cream sides to the span,
+    # slate roofs.)
+    blue = k.paint(YARD_TRIM)
     for z in (-74, 74):
         g.add(k.box(blue, 18, 54, 14, 1.5, 48, 13, z))
-        g.add(hip(k, k.paint(TOY.red), 20, 8, 48, 78, z))
+        g.add(k.box(k.paint(YARD_STONE), 19.2, 4, 15.2, 0.8, 48, 13, z, seg=1))
+        g.add(hip(k, k.paint(YARD_SLATE), 20, 8, 48, 78, z))
+        g.add(barredX(k, 57, 44, z, 7, 9), barredX(k, 39, 44, z, 7, 9))
+        g.add(doorX(k, YARD_WALL, 39, z, 8, 16, 13))
     g.add(k.box(blue, 18, 4, 138, 1, 48, 62, 0))
     for x in (40, 56):
-        g.add(k.box(k.paint(TOY.cream), 2, 10, 134, 0.6, x, 66, 0))
-    g.add(k.box(k.paint(TOY.red), 22, 2.5, 140, 0.8, 48, 77, 0))
+        g.add(k.box(k.paint(YARD_WALL), 2, 10, 134, 0.6, x, 66, 0))
+    g.add(k.box(k.paint(YARD_SLATE), 22, 2.5, 140, 0.8, 48, 77, 0))
     for x in (-90, 20, 84):
         g.add(lamp(k, x, -60, 30, 13))
     g.add(lamp(k, 84, 60, 30, 13))
@@ -78,7 +92,7 @@ def grand_terminus(k):
     # Three roads a double track apart (72), each 216 long from the throat to its end, buffers just past that: the game's
     # kit piece (kit-grand-terminus) puts its track under them, the model's origin 205 in from where its roads start.
     g = Node()
-    cream = k.paint(TOY.cream)
+    cream = k.paint(YARD_WALL)
     # Tracks and buffer stops (the stop's face 22 past the road's end, where a train's front comes to rest).
     for z in (-72, 0, 72):
         g.add(k.trackSlab(238, -86, 0, z))
@@ -100,11 +114,15 @@ def grand_terminus(k):
     g.add(k.box(k.paint(TOY.green), 226, 3, 4, 1, -90, 129, 0))
     # Concourse front and clock tower.
     g.add(k.box(cream, 30, 48, 210, 2, 58, 0, 0))
-    g.add(k.box(k.paint(TOY.blue), 34, 3, 214, 1, 58, 48, 0))
-    for z in (-85, -55, 55, 85):
-        g.add(winX(k, 73, 26, z, 10, 14))
+    g.add(k.box(k.paint(YARD_TRIM), 34, 3, 214, 1, 58, 48, 0))
+    # (The yard's colours: cream on a stone course under a green cornice, barred windows between stone pilasters.)
+    g.add(k.box(k.paint(YARD_STONE), 31.4, 5, 211.4, 0.8, 58, 0, 0, seg=1))
+    for z in (-85, -62, -40, 40, 62, 85):
+        g.add(barredX(k, 73, 22, z, 10, 16))
+    for z in (-98, -51, 51, 98):
+        g.add(k.box(k.paint(YARD_STONE), 1.6, 43, 5, 0.4, 73, 5, z, seg=1))
     for z in (-25, 25):
-        g.add(doorX(k, TOY.blue, 73, z, 12, 24))
+        g.add(doorX(k, YARD_TRIM, 73, z, 12, 24))
         # Added: a stone step at each door.
         g.add(k.box(k.paint(STONE), 4, 1.2, 16, 0.4, 74.5, 0, z))
     g.add(k.box(cream, 26, 138, 26, 2, 58, 0, 0))
@@ -121,11 +139,11 @@ def mountain_station(k):
     # The platform 216 long (a long straight's length): the kit piece (kit-mountain-station) stands it beside its
     # track, edge line (+z) to the track.
     g = platform(k, 216, 24, 0, 18, 13, 1)
-    g.add(k.box(k.paint(STONE), 60, 16, 30, 1.5, -5, 0, -12))
+    g.add(k.box(k.paint(YARD_STONE), 60, 16, 30, 1.5, -5, 0, -12))
     upper = k.at(house(k, 60, 30, 24, k.paint(TOY.brown), TOY.red, 9, 0, 0, 8), -5, 16, -12)
     upper.add(k.roof(k.paint(TOY.white), 56, 42, 12, 0, 23.2 + 2.4, 0, 1.6))
     for x in (-18, 0, 18):
-        upper.add(winZ(k, x, 9, 15.4, 8, 9))
+        upper.add(barredZ(k, x, 9, 15.4, 8, 9))
     g.add(upper)
     # Balcony on the upper storey.
     g.add(k.box(k.wood, 52, 2, 8, 0.5, -5, 20, 7))
@@ -136,9 +154,9 @@ def mountain_station(k):
         br.position.set(x, 18, 6.6)
         br.rotation.x = -0.6
         g.add(br)
-    g.add(doorZ(k, TOY.green, -5, 3.4, 10, 14))
+    g.add(doorZ(k, YARD_TRIM, -5, 3.4, 10, 14))
     for x in (-25, 15):
-        g.add(winZ(k, x, 5, 3.4, 8, 7))
+        g.add(barredZ(k, x, 5, 3.4, 8, 7))
     g.add(chimney(k, -25, 46, -18, 12, STONE))
     g.add(pine(k, 36, -18, 44), pine(k, 44, -6, 34))
     g.add(nameBoard(k, 60, 22, 22, 13, TOY.red))
@@ -155,9 +173,10 @@ def harbour_station(k):
     b = k.at(house(k, 54, 22, 26, k.paint(TOY.white), TOY.blue, 10), -20, 13, -2)
     b.add(doorZ(k, TOY.blue, 0, 11.4, 10, 17))
     for x in (-17, 17):
-        b.add(winZ(k, x, 9, 11.2, 9, 9))
+        b.add(barredZ(k, x, 9, 11.2, 9, 9))
     for x in (-17, 0, 17):
-        b.add(winZ(k, x, 9, -11.2, 9, 9))
+        b.add(barredZ(k, x, 9, -11.2, 9, 9))
+    b.add(k.box(k.paint(YARD_STONE), 55.2, 4, 23.2, 0.8, 0, 0, 0, seg=1))
     g.add(b)
     # Jetty on piles.
     g.add(k.box(k.wood, 18, 3, 40, 0.6, 40, 10, 32))
@@ -180,16 +199,30 @@ def harbour_station(k):
 
 
 def signal_box(k):
+    """The signal box: a brick base on a stone course, a cream cabin glazed all round between green posts, a slate roof."""
     g = Node()
+    trim = k.paint(YARD_TRIM)
+    g.add(k.box(k.paint(YARD_STONE), 41.4, 4, 27.4, 0.8, seg=1))
     g.add(k.box(k.paint(BRICK), 40, 26, 26, 1.5))
     for z in (-7, 7):
-        g.add(winX(k, 20, 9, z, 7, 8))
-    g.add(k.box(k.paint(TOY.cream), 42, 22, 28, 1.5, 0, 26, 0))
+        g.add(barredX(k, 20, 9, z, 7, 8))
+    g.add(k.box(k.paint(YARD_WALL), 42, 22, 28, 1.5, 0, 26, 0))
     g.add(k.box(k.paint(WIN), 38, 12, 29, 0.4, 0, 31, 0))
     g.add(k.box(k.paint(WIN), 43, 12, 22, 0.4, 0, 31, 0))
-    g.add(hip(k, k.paint(SLATE), 52, 12, 0, 48, 0))
+    # The glazing's sill and its bars, and a board under the eaves.
+    g.add(k.box(trim, 43.6, 1.8, 29.6, 0.5, 0, 28.8, 0, seg=1), k.box(trim, 43.4, 2, 29.4, 0.5, 0, 44.4, 0, seg=1))
+    for z in (-7.3, 0, 7.3):
+        g.add(k.box(k.paint(FRAME), 43.7, 11.6, 0.8, 0.2, 0, 31.2, z, seg=1))
+    for x in (-12.6, -4.2, 4.2, 12.6):
+        g.add(k.box(k.paint(FRAME), 0.8, 11.6, 29.7, 0.2, x, 31.2, 0, seg=1))
+    # (The roof is the cabin's shape, not a square: it overhangs each side alike.)
+    roof = Node()
+    roof.add(hip(k, k.paint(YARD_SLATE), 50, 11, 0, 48, 0))
+    roof.scale.set(1, 1, 36 / 50)
+    g.add(roof)
+    g.add(k.ball(k.paint(TOY.black), 1.5, 0, 59.6, 0))
     # Added: a white name plate on the brick base, between the windows.
-    g.add(k.box(k.paint(FRAME), 1.2, 4, 6, 0.3, 20.2, 12, 0))
+    g.add(k.box(k.paint(FRAME), 1.2, 4, 6, 0.3, 20.2, 12, 0, seg=1))
     # Levers, visible through the glass.
     reds = [TOY.red, TOY.red, TOY.yellow, TOY.blue, TOY.red]
     for i, c in enumerate(reds):
@@ -201,7 +234,7 @@ def signal_box(k):
     for i in range(6):
         g.add(k.box(k.wood, 8, 2, 4, 0.4, -12 + i * 4, i * 4.4, 17))
     g.add(k.box(k.wood, 12, 2, 8, 0.4, 14, 25, 17))
-    d = doorZ(k, TOY.green, 14, 14, 8, 16)
+    d = doorZ(k, YARD_TRIM, 14, 14, 8, 16)
     d.position.y += 26  # translateY(26): the door is only turned about y, so its local y is the world's.
     g.add(d)
     g.add(peg(k, TOY.blue, TOY.black, 8, 27, -2))
@@ -209,14 +242,20 @@ def signal_box(k):
 
 
 def ticket_booth(k):
+    """The ticket booth: cream over a green boarded skirt on a stone foot, a tile-red roof with its yellow ticket sign."""
     g = Node()
-    g.add(k.box(k.paint(TOY.red), 22, 28, 20, 2))
-    g.add(k.box(k.paint(WIN), 1.6, 10, 14, 0.4, 11, 12, 0))
+    g.add(k.box(k.paint(YARD_STONE), 23.4, 3, 21.4, 0.8, seg=1))
+    g.add(k.box(k.paint(YARD_WALL), 22, 28, 20, 2))
+    g.add(k.box(k.paint(YARD_TRIM), 22.8, 8.6, 20.8, 1.0, 0, 2.4, 0, seg=1))
+    g.add(k.box(k.paint(FRAME), 1.2, 12, 16, 0.4, 11, 11, 0, seg=1))
+    g.add(k.box(k.paint(WIN), 1.7, 10, 14, 0.4, 11, 12, 0))
     g.add(k.box(k.wood, 5, 1.6, 16, 0.5, 12.5, 11, 0))
-    # Added: a cream sign board above the counter window.
-    g.add(k.box(k.paint(TOY.cream), 1.4, 3.5, 14, 0.4, 11.2, 23.5, 0))
-    g.add(k.box(k.paint(TOY.cream), 28, 3, 26, 1, 0, 28, 0))
-    g.add(hip(k, k.paint(TOY.blue), 26, 8, 0, 31, 0))
+    for z in (10, -10):
+        g.add(barredZ(k, 0, 13, z, 8, 9))
+    # Added: a sign board above the counter window.
+    g.add(k.box(k.paint(YARD_TRIM), 1.4, 3.5, 14, 0.4, 11.2, 23.5, 0, seg=1))
+    g.add(k.box(k.paint(YARD_WALL), 28, 3, 26, 1, 0, 28, 0, seg=1))
+    g.add(hip(k, k.paint(YARD_TILE), 26, 8, 0, 31, 0))
     g.add(k.cyl(k.paint(TOY.yellow), 4, 1.2, 0, 39, 0, 4, 16))
     g.add(k.cylX(k.paint(TOY.yellow), 5, 1.2, 0, 46, 0, 20), k.cyl(k.paint(TOY.black), 0.8, 6, 0, 38, 0, 0.8, 6))
     g.add(peg(k, TOY.blue, TOY.red, 6, 2, 0))
@@ -224,19 +263,24 @@ def ticket_booth(k):
 
 
 def waiting_shelter(k):
+    """The waiting shelter: green posts on a stone floor, glass over cream boards, a green roof with a cream board along its front."""
     g = Node()
-    frame = k.paint(TOY.teal)
+    frame = k.paint(YARD_TRIM)
+    g.add(k.box(k.paint(YARD_STONE), 40, 1.2, 22, 0.5, seg=1))
     g.add(k.box(k.glass, 36, 26, 1.5, 0.3, 0, 0, -9))
+    g.add(k.box(k.paint(YARD_WALL), 36.4, 9, 2.1, 0.4, 0, 0.6, -9, seg=1))
     for x in (-17.5, 17.5):
         g.add(k.box(k.glass, 1.5, 26, 18, 0.3, x, 0, 0))
+        g.add(k.box(k.paint(YARD_WALL), 2.1, 9, 18.2, 0.4, x, 0.6, 0, seg=1))
     for x in (-18, 18):
         for z in (-9, 9):
             g.add(k.cyl(frame, 1.2, 27, x, 0, z, 1.2, 10))
-    roof = k.box(frame, 42, 2.4, 24, 1, 0, 27, 0)
+    roof = k.box(frame, 42, 2.4, 24, 1, 0, 27, 0, seg=1)
     roof.rotation.x = -0.1
     g.add(roof)
-    g.add(bench(k, 0, -4, 0, 0, TOY.teal))
-    g.add(k.box(k.paint(TOY.cream), 10, 12, 1, 0.3, 10, 9, -8))
+    g.add(k.box(k.paint(YARD_WALL), 40, 3, 1.2, 0.4, 0, 23.4, 10.6, seg=1))
+    g.add(bench(k, 0, -4, 0, 0, YARD_TRIM))
+    g.add(k.box(k.paint(TOY.cream), 10, 12, 1, 0.3, 10, 11, -7.6))
     g.add(peg(k, TOY.orange, None, -8, 6, -3))
     return g
 
@@ -247,12 +291,17 @@ def platform_furnished(k):
     g = platform(k, 216, 26, 0, 0)
     for x in (-90, -30, 30, 90):
         g.add(lamp(k, x, -6, 32, 13))
-    g.add(bench(k, -60, -6, 0, 13), bench(k, 60, -6, 0, 13))
+    g.add(bench(k, -60, -6, 0, 13, YARD_TRIM), bench(k, 60, -6, 0, 13, YARD_TRIM))
+    # A cream name board on green posts at each end, behind the lamps.
+    for x in (-98, 98):
+        for dx in (-6.5, 6.5):
+            g.add(k.box(k.paint(YARD_TRIM), 1.4, 20, 1.4, 0.4, x + dx, 13, -11.5, seg=1))
+        g.add(k.box(k.paint(YARD_WALL), 16, 7, 1.2, 0.5, x, 25, -11.5, seg=1), k.box(k.paint(YARD_TRIM), 16.8, 1.2, 1.6, 0.3, x, 32, -11.5, seg=1))
     # Hanging clock on a bracket.
     g.add(k.cyl(k.paint(TOY.black), 1.2, 40, 0, 13, -9, 1.2, 8))
     g.add(k.box(k.paint(TOY.black), 2, 2, 10, 0.4, 0, 52, -5))
     g.add(clock(k, 5, 1.2, 46, 0), clock(k, 5, -1.2, 46, 0, math.pi))
-    g.add(k.cyl(k.paint(TOY.green), 3, 7, 41, 13, -6, 3.4, 14))
+    g.add(k.cyl(k.paint(YARD_TRIM), 3, 7, 41, 13, -6, 3.4, 14))
     g.add(peg(k, TOY.yellow, None, -10, 13, 2), peg(k, TOY.green, TOY.brown, 14, 13, -2))
     return g
 

@@ -361,7 +361,9 @@ function cathedral(k: Kit, stage: number): Object3D {
   // Nave along x (the west front at +x), aisles either side, transept across, an apse at the east end.
   const L = 200, W = 56, AW = 26, H = 80, AH = 42;
   const TX = -40, TW = 56, TL = W + 2 * AW + 60;
-  const TOWER = 42, TH = 175;
+  // (The towers' plan is the finished model's, tools/blender/grand.py: the footings and the half-built towers stand
+  // where the finished ones will.)
+  const TOWER = 36, TH = 175;
   g.add(k.box(k.paint(STONE), L + 140, 2, TL + 50, 0.8, -10, 0, 0));
   g.add(k.box(k.wood, L + 130, 2, TL + 40, 1, -10, 2, 0));
   const y0 = 4;

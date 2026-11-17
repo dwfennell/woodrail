@@ -346,7 +346,11 @@ def cathedral(k, stage):
 
     L, W, AW, H, AH = 200, 56, 26, 80, 42
     TX, TW, TL = -40, 56, W + 2 * AW + 60
-    TOWER, TH = 42, 175
+    # (The towers: slimmer than the building site's, so the west front between them is wide enough for its rose.)
+    TOWER, TH = 36, 175
+    TCX, TCZ = L / 2 + TOWER / 2 - 4, W / 2 + AW - TOWER / 2
+    # The west front's face, between the towers, a little back from theirs.
+    FRONT = TCX + TOWER / 2 - 3
     g.add(k.box(k.paint(STONE), L + 140, 2, TL + 50, 0.8, -10, 0, 0))
     g.add(k.box(k.wood, L + 130, 2, TL + 40, 1, -10, 2, 0))
     y0 = 4
@@ -363,7 +367,9 @@ def cathedral(k, stage):
             g.add(k.box(trim, 9, min(ah + 8, AH + 8), 9, 1, bx, y0, s * (W / 2 + AW + 3)))
             g.add(k.cone(trim, 5, 14, bx, y0 + AH + 8, s * (W / 2 + AW + 3), 4))
     for s in (-1, 1):
-        g.add(k.box(stone, TOWER, th, TOWER, 2, L / 2 + TOWER / 2 - 4, y0, s * (W / 2 + AW - TOWER / 2)))
+        g.add(k.box(stone, TOWER, th, TOWER, 2, TCX, y0, s * TCZ))
+    # The nave runs on between the towers to the west front.
+    g.add(k.box(stone, FRONT - (L / 2 - 2), h, TOWER + 2, 0, (FRONT + L / 2 - 2) / 2, y0, 0))
     for s in (-1, 1):
         for bx in (-55, -25, 5, 35, 65):
             g.add(lancet(k, bx, y0 + 10, s * (W / 2 + AW + 0.4), 9, min(24, ah - 14), glass()))
@@ -393,29 +399,61 @@ def cathedral(k, stage):
         g.add(lancet(k, TX, top + 36, s * 17.4, 8, 18, glass()))
     g.add(k.cone(roof_m, 22, 90, TX, top + 60, 0, 8))
     g.add(k.box(gold, 1.6, 16, 1.6, 0, TX, top + 150, 0), k.box(gold, 1.6, 1.6, 9, 0, TX, top + 160, 0))
-    # The towers' tops.
+    g.add(k.roof(roof_m, FRONT - L / 2 - 0.5, W + 6, 50, (FRONT + L / 2 - 0.5) / 2, top, 0, 3.5))
+
+    def on_face(part, tx, tz, face, along, y, proud=0.6):
+        """Stand a lancet (1.4 thick about its own middle) on a tower's face ("+x", "-x", "+z", "-z"), `proud` of it."""
+        out = TOWER / 2 + proud - 0.7
+        if face == "+z":
+            return k.at(part, tx + along, y, tz + out)
+        if face == "-z":
+            return k.at(part, tx + along, y, tz - out)
+        if face == "+x":
+            return k.at(part, tx + out, y, tz + along, PI / 2)
+        return k.at(part, tx - out, y, tz + along, PI / 2)
+
+    def arch(w, hh):
+        return [(-w / 2, 0), (w / 2, 0), (w / 2, hh - w * 0.6), (0, hh), (-w / 2, hh - w * 0.6)]
+
+    def portal(x, z, w, hh):
+        """A door in a pointed arch of trim stone, on a wall whose face is at `x`."""
+        g.add(k.at(k.extrude(trim, arch(w + 6, hh + 5), 2, 0, 0, 0, 0), x, y0, z, PI / 2))
+        g.add(k.at(k.extrude(k.paint("#5a3a22"), arch(w, hh), 2, 0, 0, 0, 0), x + 0.6, y0, z, PI / 2))
+        g.add(k.box(gold, 0.8, 5, 0.8, 0, x + 1.9, y0 + hh * 0.3, z))
+
+    # The towers: a buttress up each corner to the belfry, string courses, tall lancets in the middle stage, a belfry
+    # open on all four sides, a parapet with a pinnacle at each corner, and an eight-sided spire.
     for s in (-1, 1):
-        tx, tz = L / 2 + TOWER / 2 - 4, s * (W / 2 + AW - TOWER / 2)
-        g.add(k.box(trim, TOWER + 4, 4, TOWER + 4, 1, tx, y0 + TH - 40, tz))
-        for d in (-1, 1):
-            g.add(lancet(k, tx + d * 9, y0 + TH - 32, tz + s * (TOWER / 2 + 0.4), 7, 24, "#2b3644"))
+        tx, tz = TCX, s * TCZ
+        outer = "+z" if s > 0 else "-z"
         for px, pz in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
-            g.add(k.cone(trim, 5, 22, tx + px * (TOWER / 2 - 4), y0 + TH, tz + pz * (TOWER / 2 - 4), 4))
-        spire = k.cone(roof_m, 18, 64, tx, y0 + TH, tz, 4)
-        spire.rotation.y = PI / 4
+            g.add(k.box(trim, 6, TH - 40, 6, 0.8, tx + px * (TOWER / 2 - 1.5), y0, tz + pz * (TOWER / 2 - 1.5)))
+            g.add(k.cone(trim, 5, 22, tx + px * (TOWER / 2 - 3), y0 + TH, tz + pz * (TOWER / 2 - 3), 4))
+        g.add(k.box(trim, TOWER + 2, 3, TOWER + 2, 0.8, tx, y0 + 54, tz))
+        g.add(k.box(trim, TOWER + 4, 4, TOWER + 4, 1, tx, y0 + TH - 40, tz))
+        g.add(k.box(trim, TOWER + 3, 3, TOWER + 3, 0.8, tx, y0 + TH - 2, tz))
+        for d in (-1, 1):
+            for face in ("+x", outer):
+                g.add(on_face(lancet(k, 0, 0, 0, 7, 34, glass()), tx, tz, face, d * 7, y0 + 64))
+            for face in ("+x", "-x", "+z", "-z"):
+                g.add(on_face(lancet(k, 0, 0, 0, 7, 26, "#2b3644"), tx, tz, face, d * 7, y0 + TH - 33))
+        spire = k.cone(roof_m, 17, 70, tx, y0 + TH + 1, tz, 8)
         g.add(spire)
-        g.add(k.ball(gold, 2.4, tx, y0 + TH + 66, tz))
-    # The west front.
-    fx = L / 2
+        g.add(k.ball(gold, 2.4, tx, y0 + TH + 72, tz))
+        portal(tx + TOWER / 2, tz, 14, 30)
+    # The west front: the nave's gable over a rose window, a gallery of small lancets, and the great door, up steps.
+    fx = FRONT
     gable = k.extrude(stone, [(-W / 2, 0), (W / 2, 0), (0, 50)], 6, 0, 0, 0, 0)
     gable.rotation.y = PI / 2
-    # (grand.ts: translateY(top), then translateZ(fx) along its turned z, which is +x.)
-    gable.position.set(fx, top, 0)
+    gable.position.set(fx - 1.5, top, 0)
     g.add(gable)
-    g.add(rose(k, 17, stained, fx + 0.8, y0 + 56, 0, PI / 2))
-    for z, w, hh in ((0, 18, 34), (-(W / 2 + AW - TOWER / 2), 12, 26), (W / 2 + AW - TOWER / 2, 12, 26)):
-        portal = k.extrude(k.paint("#5a3a22"), [(-w / 2, 0), (w / 2, 0), (w / 2, hh - w * 0.6), (0, hh), (-w / 2, hh - w * 0.6)], 2, 0, 0, 0, 0)
-        g.add(k.at(portal, fx + 1 if z == 0 else fx + TOWER - 3, y0, z, PI / 2))
+    g.add(k.box(trim, 2.4, 3, TOWER - 2, 0.6, fx + 0.4, top - 2, 0))
+    g.add(rose(k, 13, stained, fx + 0.8, y0 + 64, 0, PI / 2))
+    for z in (-12, -6, 0, 6, 12):
+        g.add(k.at(lancet(k, 0, 0, 0, 4, 8, glass()), fx + 0.1, y0 + 41, z, PI / 2))
+    portal(fx, 0, 20, 34)
+    for i, (d, w) in enumerate(((16, 40), (10, 34))):
+        g.add(k.box(trim, d, 1.4, w, 0.4, fx + 3 + d / 2, y0 + i * 1.4, 0))
     for s in (-1, 1):
         g.add(rose(k, 14, stained, TX, y0 + 52, s * (TL / 2 + 0.8)))
     if stained:
