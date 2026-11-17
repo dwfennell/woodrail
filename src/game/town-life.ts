@@ -10,7 +10,7 @@ import { addTownProps, fitScale, PLACE_MIN_FIT, setTownStoreys } from "../props/
 import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
-import { buildOnLots, changedBuildings, lotPoint, nextLots, type Lot } from "./town-growth";
+import { buildOnLots, changedBuildings, laysStreets, lotPoint, nextLots, type Lot } from "./town-growth";
 import { dueLandmarks } from "./landmarks";
 import { hasPostOffice, mailEveryAt, POST_TECH, SANDBOX_MAIL_LEVEL } from "./post";
 import { placeOf, planDone, planLacks, townPlaces, townSmiles, type Place } from "./places";
@@ -87,8 +87,8 @@ export interface TownLifeHost extends World {
   props: PropStore;
   /** Catalogue models' footprints, so growth keeps clear of placed models (none known: nothing in the way). */
   footprintOf(asset: string): Footprint | undefined;
-  /** Squares changed in these plots: redraw them. */
-  editLand(slots: readonly number[]): void;
+  /** Squares changed in these plots: redraw them (`roads`: street squares were laid too, so the road pieces as well). */
+  editLand(slots: readonly number[], roads?: boolean): void;
   propsChanged(): void;
   setSignBadge(townId: number, badge: SignBadge | null): void;
 }
@@ -337,7 +337,7 @@ export class TownLife {
     const level = this.levels.get(town.id) ?? 0;
     const slots = buildOnLots(g.landscape, town, [lot], level);
     addTownProps(g.landscape, g.props, (id) => this.levels.get(id) ?? 0);
-    g.editLand(slots);
+    g.editLand(slots, laysStreets([lot]));
     g.propsChanged();
     this.placeOpened();
     return lotPoint(g.landscape, lot);
@@ -404,7 +404,7 @@ export class TownLife {
       for (const p of [...g.props.all()]) if (p.building !== undefined && changed.has(p.building)) g.props.remove(p.id);
       // New buildings in the styles of the town's size now (`extraStyles`).
       addTownProps(g.landscape, g.props, (id) => this.levels.get(id) ?? 0);
-      g.editLand(slots);
+      g.editLand(slots, laysStreets(lots));
     }
     // Some of its houses grow upward, the middle most, the edge and the new ones staying single-storey (issue #17):
     // only this town's props whose storeys change are redrawn.
