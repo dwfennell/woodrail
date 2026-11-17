@@ -854,7 +854,7 @@ if (!setup.error) {
 }
 
 // 8. Where a post stands on the map (the user: a signal on a line along a hill's foot had its post inside the hill's
-// side, its lamp out of the cliff). Setup: a straight face of a hill found on this Hilly map, and three straights laid
+// side, its lamp out of the cliff). Setup: a straight face of a hill found on this Hilly map, and two straights laid
 // along its foot 30 mm out (by the game's own placement rules, as the tray would; the face square to the felt). What's
 // tested is by the player's path: a Signal dragged from the tray onto the middle joint, by touch.
 {
@@ -877,30 +877,30 @@ if (!setup.error) {
       const i = g.index(col, row);
       return i === -1 ? -1 : g.height[i];
     };
-    // (A face: a run of 9 squares a level high, and the two rows before it flat felt.)
+    // (A face: a run of 6 hill squares, and the two rows before them flat felt. The map's hills are rounded blobs: a few.)
     const faces = [];
     for (const i of g.height.keys()) {
-      if (g.height[i] !== 1 || faces.length > 40) continue;
+      if (g.height[i] < 1 || faces.length > 40) continue;
       const col = g.colOf(i);
       const row = g.rowOf(i);
       for (const [nc, nr] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
         const [tc, tr] = [-nr, nc];
         let ok = true;
-        for (let k = 0; k < 9 && ok; k++) {
+        for (let k = 0; k < 6 && ok; k++) {
           const [c, r] = [col + tc * k, row + tr * k];
-          ok = level(c, r) === 1 && level(c + nc, r + nr) === 0 && level(c + 2 * nc, r + 2 * nr) === 0;
+          ok = level(c, r) >= 1 && level(c + nc, r + nr) === 0 && level(c + 2 * nc, r + 2 * nr) === 0;
         }
         if (ok) faces.push({ col, row, nc, nr, tc, tr });
       }
     }
     for (const f of faces) {
-      // (The face's line, 30 mm out on the felt, from its third square to its seventh.)
-      const fx = g.centreX(f.col) + (f.nc * CELL) / 2 + f.nc * 30 + f.tc * (2 * CELL - CELL / 2);
-      const fz = g.centreZ(f.row) + (f.nr * CELL) / 2 + f.nr * 30 + f.tr * (2 * CELL - CELL / 2);
+      // (The face's line, 30 mm out on the felt, along its six squares: the joint between the two straights at its middle.)
+      const fx = g.centreX(f.col) + (f.nc * CELL) / 2 + f.nc * 30 - (f.tc * CELL) / 2;
+      const fz = g.centreZ(f.row) + (f.nr * CELL) / 2 + f.nr * 30 - (f.tr * CELL) / 2;
       const heading = Math.atan2(f.tr, f.tc);
       const ids = [];
       let pose = { x: fx, z: fz, heading };
-      for (let k = 0; k < 3; k++) {
+      for (let k = 0; k < 2; k++) {
         const r = w.interaction.placement(S, false, pose, 0, -1);
         if (r.reason) break;
         const id = w.editor().place(S, pose, 0, false, r.risers);
@@ -908,9 +908,9 @@ if (!setup.error) {
         const c = w.layout.worldConnector(id * 8 + 1, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
         pose = { x: c.x, z: c.z, heading: c.heading };
       }
-      if (ids.length === 3) {
+      if (ids.length === 2) {
         w.invalidate();
-        // (The joint between the first two, trains going along the face with the hill on their right, and the other way.)
+        // (The joint between the two, trains going along the face with the hill on their right, and the other way.)
         const at = connectorRef(ids[0], 1);
         const j = jointPose(w.layout, at);
         const right = { x: -Math.sin(j.heading), z: Math.cos(j.heading) };
@@ -921,7 +921,7 @@ if (!setup.error) {
     }
     return { error: `no face with room for a line at its foot (${faces.length} faces)` };
   });
-  check("8. setup: three straights laid along a hill's foot, its face square to the line", !run.error, JSON.stringify(run));
+  check("8. setup: two straights laid along a hill's foot, its face square to the line", !run.error, JSON.stringify(run));
   if (!run.error) {
     const joint = await p.evaluate(async (at) => (await import("/src/game/signal-place.ts")).jointPose(window.woodrail.layout, at), run.at);
     await glideTo(joint, 700);
@@ -958,9 +958,14 @@ if (!setup.error) {
     const b = w.director.bounds;
     const { connectorRef } = await import("/src/track/layout.ts");
     const { jointPose } = await import("/src/game/signal-place.ts");
-    for (let tries = 0; tries < 400; tries++) {
-      const x = b.x0 + 200 + ((tries * 97) % Math.max(1, b.x1 - b.x0 - 600));
-      const z = b.z0 + 200 + (((tries * 61) >> 2) % Math.max(1, b.z1 - b.z0 - 400));
+    // (From the middle of the view's bounds outward, so the camera can frame it with the tray clear of it.)
+    const cx = (b.x0 + b.x1) / 2;
+    const cz = (b.z0 + b.z1) / 2;
+    for (let tries = 0; tries < 800; tries++) {
+      const a = (tries >> 2) * 0.7;
+      const rad = 72 * Math.sqrt(tries >> 2);
+      const x = cx + Math.cos(a) * rad;
+      const z = cz + Math.sin(a) * rad;
       const heading = (tries % 4) * (Math.PI / 2);
       const ids = [];
       let pose = { x: Math.round(x / 18) * 18, z: Math.round(z / 18) * 18, heading };
