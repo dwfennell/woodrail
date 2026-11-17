@@ -50,7 +50,8 @@ const Y = 160;
 for (const id of IDS) {
   const size = await p.evaluate(
     async ([id, beside, variant, Y, yaw, pitch]) => {
-      const { drawnKey } = await import("/src/render/props/library.ts");
+      // (`modelKey`, not `drawnKey`: a model with a part that turns, a wheel, a clock's hands, is drawn here whole.)
+      const { modelKey } = await import("/src/render/props/library.ts");
       const THREE = await import("/node_modules/.vite/deps/three.js").catch(() => import("three"));
       const w = window.woodrail;
       const scene = w.scene ?? w.landscapeView.group.parent;
@@ -61,7 +62,7 @@ for (const id of IDS) {
       slab.receiveShadow = true;
       g.add(slab);
       const put = async (asset, v, dz) => {
-        const m = await w.propLibrary.load(drawnKey(asset, v, 0));
+        const m = await w.propLibrary.load(modelKey(asset, v, 0));
         const box = new THREE.Box3();
         for (const part of m.parts) {
           const mesh = new THREE.Mesh(part.geometry, part.material);
