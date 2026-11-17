@@ -1,9 +1,10 @@
 import { Group, type Object3D } from "three";
 import { TOY, type Kit } from "../kit";
+import { buffers, endRails } from "./wagon-parts";
 
 /**
  * The game's tank wagon (the `oiltank` car kind, Game mode's Tank wagons): a black barrel with a yellow band, a hazard
- * diamond on each side, a ladder and a walkway on top, after the catalogue's train-fuel-tanker. It carries oil or water
+ * diamond on each side, a ladder and a walkway on top, straps, an outlet each side, buffers and end rails, after the catalogue's train-fuel-tanker. It carries oil or water
  * (a drop on its side says so in the tray picture). A code model (no Blender one), as the milk tank wagon.
  */
 
@@ -47,6 +48,15 @@ export function buildOilTanker(k: Kit): Group {
   for (const x of [6, 10]) g.add(k.box(k.paint(TOY.grey), 1, 22, 1, 0.3, x, deck + 3, 13));
   for (let i = 0; i < 5; i++) g.add(k.cylX(k.paint(TOY.grey), 0.5, 4, 8, deck + 6 + i * 4, 13, 6));
   g.add(k.box(k.wood, barrel * 0.6, 1.2, 6, 0.4, barrel / 8, y + r - 0.6, 0));
+  // A strap round the barrel over each cradle, an outlet each side at its foot with a red wheel, buffers and end rails.
+  for (const x of [-barrel / 3, barrel / 3]) g.add(k.cylX(k.paint(TOY.grey), r + 0.25, 1.4, x, y, 0));
+  for (const s of [-1, 1]) {
+    g.add(k.cylZ(k.metal, 1.4, 4, -8, deck + 6.5, s * 12.5, 10));
+    g.add(k.cylZ(k.paint(TOY.red), 2.4, 0.8, -8, deck + 6.5, s * 14.8, 12));
+  }
+  g.add(buffers(k, len, 1, deck + 2.5), buffers(k, len, -1, deck + 2.5));
+  g.add(endRails(k, -len / 2 + 2.6, deck + 5, 9, 13.6), endRails(k, len / 2 - 2.6, deck + 5, 9, 13.6));
+  g.add(k.box(k.metal, 0.8, 0.8, 28, 0, -len / 2 + 2.6, deck + 13.6, 0), k.box(k.metal, 0.8, 0.8, 28, 0, len / 2 - 2.6, deck + 13.6, 0));
   return g;
 }
 

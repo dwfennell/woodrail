@@ -46,6 +46,7 @@ MAROON_ROOF = "#4a1823"
 GOLD = "#d9a93a"
 LIT = "#f3d27a"
 CURTAIN = "#b0303f"
+TAIL = "#d6281f"
 
 SPECS = {"engine": (96, 20), "hopper": (80, 18), "passenger": (88, 18), "caboose": (76, 18), "timber": (84, 18)}
 
@@ -58,7 +59,7 @@ def running_gear(L, inset, mid=False):
     A beech slab with an arch over each wheel, four red wheels with domed hubs (six with `mid`: a pair at the middle
     too), and a magnet coupler at each end.
     """
-    chassis = box("wood", (L - 6, W - 2, 8), (0, 0, DECK), r=2.2)
+    chassis = box("wood", (L - 6, W - 2, 8), (0, 0, DECK), r=2.2, miter="MITER_SHARP")
     ax = L / 2 - inset
     axles = (-ax, 0, ax) if mid else (-ax, ax)
     inner = GROOVE_SPACING / 2 - WHEEL_W / 2 - 1.5
@@ -83,10 +84,27 @@ def running_gear(L, inset, mid=False):
         lathe("metal", [(0.0, -2), (4.4, -2), (5, -1.4), (5, 1.4), (4.4, 2), (0.0, 2)], (s * (L / 2 - 2), 0, DECK), "X", 24)
 
 
-def side_windows(body, panes, half_width, depth=1.2, color=PANE):
-    """Set printed panes into shallow recesses on both sides of `body`: panes are (x, z, w, h)."""
+def window_frame(color, x, y, z, w, h):
+    """
+    A frame round a pane `w` by `h` on a side at `y`: four plain strips, a lip over the pane's edge (the uprights a
+    little thinner and narrower than the rails they run into, so no two faces share a plane).
+    """
+    for e in (-1, 1):
+        box(paint(color), (w + 2, 0.8, 1.2), (x, y, z + e * (h / 2 + 0.4)), r=0)
+        box(paint(color), (1.1, 0.7, h), (x + e * (w / 2 + 0.35), y, z), r=0)
+
+
+def side_windows(body, panes, half_width, depth=1.2, color=PANE, frame=None):
+    """
+    Set printed panes into shallow recesses on both sides of `body`: panes are (x, z, w, h). With `frame` (a colour),
+    each in a frame standing a little proud of the body, its lip over the recess's edge.
+    """
     if not panes:
         return
+    if frame:
+        for x, z, w, h in panes:
+            for s in (-1, 1):
+                window_frame(frame, x, s * (half_width + 0.1), z, w, h)
     recess(body, cutter_boxes([((w, depth * 2, h), (x, s * half_width, z)) for x, z, w, h in panes for s in (-1, 1)]))
     for x, z, w, h in panes:
         for s in (-1, 1):
@@ -168,7 +186,82 @@ def buffer_beam(L, color):
         lathe("metal", [(0.0, 0), (1.6, 0), (1.6, 3.0), (2.8, 3.4), (2.8, 4.4), (0.0, 4.6)], (L / 2 - 7, s * 10, DECK + 1), "X", 16)
 
 
+def cylinders(wheel_x, x=39.5, length=8):
+    """
+    A steam engine's cylinders: one each side ahead of its front wheels (at `wheel_x`), outside the frame and clear of
+    the buffer beam, a piston rod back from each to a crosshead on the wheel's hub.
+    """
+    for s in (-1, 1):
+        y = s * 19
+        lathe("metal", [(0.0, 0), (2.3, 0), (2.8, 0.5), (2.8, length - 0.5), (2.3, length), (0.0, length)], (x - length / 2, y, AXLE_Z), "X", 16)
+        box("metal", (6, 3.2, 2.4), (x, s * 16.6, AXLE_Z + 1.5), r=0.4, seg=1)
+        # (A lathe, not `toy.bar`: a bar lying exactly along x has no turn to be given.)
+        lathe("metal", [(0.6, 0), (0.6, x - length / 2 - wheel_x)], (wheel_x, y, AXLE_Z), "X", 8)
+        box("metal", (2.2, 2.6, 2.2), (wheel_x, s * 18, AXLE_Z), r=0.4, seg=1)
+
+
+def buffers(L, ends=(-1, 1)):
+    """A round-headed buffer each side of each end (or of `ends`: 1 the front) of a car, on its chassis's end."""
+    for e in ends:
+        prof = [(0.0, 0), (1.2, 0), (1.2, 2.6), (2.3, 2.9), (2.3, 3.9), (0.0, 4.1)]
+        if e < 0:
+            prof = [(r, -h) for r, h in reversed(prof)]
+        for s in (-1, 1):
+            lathe("metal", prof, (e * (L / 2 - 4.6), s * 10, DECK + 0.5), "X", 10)
+
+
+def under_box(x=0.0, length=18):
+    """The dark box slung under a wagon between its wheels (a coach's batteries, a wagon's brake gear)."""
+    box(paint(DARK), (length, 18, 4), (x, 0, 13.2), r=0.8, seg=1)
+
+
+def step(x, w=9):
+    """A dark step under a door in each side, on the chassis's edge."""
+    for s in (-1, 1):
+        box(paint(DARK), (w, 3.2, 1.2), (x, s * 16.9, TOP - 1.1), r=0.3, seg=1)
+
+
+def gangways(bl, h):
+    """The dark corridor connection on each end of a coach's body, under its roof's overhang."""
+    for e in (-1, 1):
+        box(paint(DARK), (2.6, 13, h - 8), (e * (bl / 2 + 0.9), 0, TOP + (h - 8) / 2 + 0.4), r=0.6, seg=1)
+
+
+def coach_fittings(L, bl, h):
+    buffers(L)
+    under_box()
+    gangways(bl, h)
+
+
+def caboose_fittings(L, bl, h, trim):
+    """
+    What makes a caboose's ends: buffers, a door in each end with a pane, a railing across each end platform, a red
+    tail lamp each side of the back, and the box under it.
+    """
+    buffers(L)
+    under_box()
+    for e in (-1, 1):
+        box(paint(trim), (0.9, 9, h - 7), (e * (bl / 2 + 0.25), 0, TOP + (h - 7) / 2 + 1.5), r=0.4, seg=1)
+        box(paint(PANE), (0.6, 5, 7), (e * (bl / 2 + 0.55), 0, TOP + h * 0.62), r=0)
+        for s in (-1, 1):
+            box("metal", (0.8, 0.8, 12.4), (e * (bl / 2 + 2), s * 13, TOP + 5.2), r=0)
+        box("metal", (0.8, 26.8, 0.8), (e * (bl / 2 + 2), 0, TOP + 10.6), r=0)
+    for s in (-1, 1):
+        ball(paint(TAIL), 1.3, (-(bl / 2 + 0.6), s * 12, TOP + 17), 8)
+
+
 # ——— Engines ———
+
+
+def headlight(x, y, z, facing=1):
+    """A round headlight on an end face at `x`, looking along `facing` x: a dark rim and a warm lens."""
+    rim = [(0.0, 0), (2.4, 0), (2.4, 1.0), (0.0, 1.0)]
+    lens = [(0.0, 0), (1.7, 0), (1.7, 0.5), (0.0, 0.5)]
+    if facing < 0:
+        rim = [(r, -h) for r, h in reversed(rim)]
+        lens = [(r, -h) for r, h in reversed(lens)]
+    lathe("metal", rim, (x - facing * 0.3, y, z), "X", 12)
+    lathe(paint(LIT), lens, (x + facing * 0.6, y, z), "X", 10)
 
 
 def engine_classic():
@@ -184,6 +277,7 @@ def engine_classic():
     roof = cab(GREEN, -44, -12, 32, RED)
     lamp((-30, 0, roof))
     buffer_beam(L, RED)
+    cylinders(28)
 
 
 def engine_goods():
@@ -211,6 +305,7 @@ def engine_goods():
     box("coal", (13, W - 4, 2), (-39, 0, TOP + 21.6), r=0.4)
     lumps("coal", (-39, 0, TOP + 22), (12, W - 7, 6), count=40, lump=4.2, seed=3, subdivisions=0)
     buffer_beam(L, RED)
+    cylinders(33)
 
 
 def engine_tank():
@@ -227,6 +322,7 @@ def engine_tank():
     roof = cab(BLUE, -43, -10.6, 30, RED)
     lamp((-29, 0, roof))
     buffer_beam(L, RED)
+    cylinders(28)
 
 
 def engine_diesel():
@@ -251,6 +347,21 @@ def engine_diesel():
     box(paint(DARK), (4, W, 8), (L / 2 - 9, 0, DECK - 1), r=1.2)
     for s in (-1, 1):
         box(paint(YELLOW), (4.4, 3, 8.4), (L / 2 - 9, s * 7, DECK - 1), r=0.6)
+        # Buffers on the beam, the engine room's doors along the hood, a handrail and a step at the cab's door, a rail
+        # up each front corner of the deck, and a horn each side of the cab's roof.
+        lathe("metal", [(0.0, 0), (1.5, 0), (1.5, 3.0), (2.6, 3.4), (2.6, 4.4), (0.0, 4.6)], (L / 2 - 7, s * 12, DECK + 1), "X", 12)
+        for x in (-6, 3, 12):
+            box(paint(DARK), (0.6, 0.5, 8.5), (x, s * (W / 2 - 2.95), TOP + 10.75), r=0)
+        box("metal", (0.8, 0.8, 14), (-40, s * (W / 2 + 0.3), TOP + 12), r=0)
+        box("metal", (0.8, 0.8, 9), (39.5, s * 13.6, TOP + 3.5), r=0)
+        cylinder("metal", 1.0, 5, (-21, s * 5, TOP + 35.7), "X", 8, 0.3)
+    box("metal", (0.8, 28, 0.8), (39.5, 0, TOP + 7.2), r=0)
+    step(-37, 8)
+    buffers(L, ends=(-1,))
+    # A headlight on the hood's nose, a fan's grille on its top, and the fuel tank slung between the wheels.
+    headlight(40.5, 0, TOP + 15)
+    cylinder(paint(DARK), 4.5, 1.6, (2, 0, TOP + 20.2), "Z", 14, 0.4)
+    cylinder(paint(DARK), 3.2, 24, (0, 0, 12.4), "X", 12, 1.0)
 
 
 def engine_electric():
@@ -270,31 +381,66 @@ def engine_electric():
         toy.bar("metal", (-4, s * 2, TOP + 40), (3, s * 2, TOP + 47), 0.9)
     toy.bar("metal", (3, -(W / 2 - 2), TOP + 47.5), (3, W / 2 - 2, TOP + 47.5), 1.1)
     lamp((bl / 2 - 6, 0, TOP + 31.8))
+    # Its fittings: buffers and a pair of headlights at each end, a door at each cab between two grab rails over a
+    # step, louvres along the sides, the box of gear under it, and on the roof a resistor box and the insulators the
+    # pantograph's cable runs on.
+    buffers(L)
+    under_box(0, 26)
+    for e in (-1, 1):
+        for y in (-9, 9):
+            headlight(e * bl / 2, y, TOP + 8, e)
+        step(e * 24, 8)
+        for s in (-1, 1):
+            for x in (20.2, 27.8):
+                box("metal", (0.8, 0.8, 13), (e * x, s * (W / 2 + 0.3), TOP + 13), r=0)
+    for s in (-1, 1):
+        for x in (-7, 7):
+            box(paint(DARK), (9, 0.5, 3), (x, s * (W / 2 + 0.05), TOP + 15.2), r=0)
+    box(paint(DARK), (14, 16, 2.6), (-24, 0, TOP + 32.4), r=0.6, seg=1)
+    for x in (-12, 18, 30):
+        cylinder("metal", 1.3, 3, (x, 0, TOP + 33), "Z", 8, 0.4)
+    box("metal", (43, 0.7, 0.7), (9, 0, TOP + 34.6), r=0)
 
 
 def engine_express():
     """
-    A streamlined express: one long blue body whose nose sweeps down in a curved cowl to a low front with a headlamp,
-    a valance over the wheels, a bold yellow stripe along each side, the cab's windows behind the nose and the lamp on
-    the roof.
+    A streamlined express: a long blue body with the driver's cab at the front over a low rounded nose (windscreen
+    above it, a headlamp and a yellow bumper on it), a row of portholes and a louvred grille along the engine room, a
+    door at the back, a valance over the wheels, a bold yellow stripe along each side, fans on the roof and the lamp
+    over the cab.
     """
     L = 96
     running_gear(L, 20)
     blue = paint(EXPRESS)
-    body = box(blue, (86, W, 28), (-2, 0, TOP + 14), r=5)
-    # The cowl: a big round cutter takes the top off the front, leaving a smooth slope down to the nose.
-    cut(body, cutter_cylinder(36, W + 12, (44, 0, TOP + 50), "Y", 64))
-    side_windows(body, [(-31, TOP + 19, 13, 9), (-15, TOP + 19, 7, 7)], W / 2)
-    end_windows(body, [(-6.5, TOP + 19, 10, 8), (6.5, TOP + 19, 10, 8)], -45)
+    body = box(blue, (76, W, 28), (-8, 0, TOP + 14), r=5)
+    # The nose: a low rounded hood ahead of the cab.
+    box(blue, (19, W - 1, 17), (36, 0, TOP + 8.5), r=6)
+    # The cab: a windscreen over the nose, a window in each side; then the engine room's portholes.
+    end_windows(body, [(-6.8, TOP + 21, 11, 8), (6.8, TOP + 21, 11, 8)], 30)
+    side_windows(body, [(21, TOP + 20, 11, 9)], W / 2)
     for s in (-1, 1):
+        for x in (4, -8, -20):
+            # (Each a cream rim with its pane a little proud of it and sunk a little behind it: no face shared.)
+            y = s * W / 2 - (0.1 if s > 0 else 0.4)
+            lathe(paint(CREAM), [(0.0, 0), (3.4, 0), (3.4, 0.5), (0.0, 0.5)], (x, y, TOP + 20), "Y", 20)
+            lathe(paint(PANE), [(0.0, 0), (2.5, 0), (2.5, 0.9), (0.0, 0.9)], (x, y - 0.2, TOP + 20), "Y", 20)
+        # The grille's louvres toward the back.
+        for k in range(4):
+            box(paint(DARK), (14, 0.8, 1.3), (-34, s * (W / 2 + 0.1), TOP + 16.5 + k * 2.3), r=0, seg=1)
         # The valance, hiding the top of the wheels, and the stripes.
         box(blue, (82, 1.8, 9.5), (-2, s * (W / 2 + 0.7), DECK + 0.5), r=0.8)
-        box(paint(YELLOW), (80, 0.8, 4.6), (-3, s * (W / 2 + 0.15), TOP + 8), r=0.3, seg=1)
-        box(paint(CREAM), (78, 0.8, 1.4), (-4, s * (W / 2 + 0.15), TOP + 12), r=0.2, seg=1)
-    box(paint(GREY), (44, W - 6, 2.2), (-22, 0, TOP + 28.6), r=1)
-    ball(paint(CREAM), 3, (40.6, 0, TOP + 7), 20, squash=0.9)
-    box(paint(YELLOW), (2.2, W - 10, 3), (40.4, 0, TOP + 2.5), r=0.6, seg=1)
-    lamp((4, 0, TOP + 28.4))
+        box(paint(YELLOW), (84, 0.8, 4.6), (-1, s * (W / 2 + 0.15), TOP + 8), r=0.3, seg=1)
+        box(paint(CREAM), (82, 0.8, 1.4), (-2, s * (W / 2 + 0.15), TOP + 12), r=0.2, seg=1)
+    # The door in its back end.
+    box(paint(DARK), (0.8, 11, 21), (-46.1, 0, TOP + 12.5), r=0, seg=1)
+    box(paint(PANE), (0.9, 6, 6), (-46.3, 0, TOP + 18), r=0, seg=1)
+    # The roof: a grey panel with two fans on it.
+    box(paint(GREY), (50, W - 6, 2.2), (-16, 0, TOP + 28.6), r=1)
+    for x in (-30, -12):
+        cylinder("metal", 4.2, 1.6, (x, 0, TOP + 30.2), "Z", 16, 0.4)
+    ball(paint(CREAM), 3, (45.4, 0, TOP + 10), 20, squash=0.9)
+    box(paint(YELLOW), (2.2, W - 8, 3), (45.2, 0, TOP + 2.5), r=0.6, seg=1)
+    lamp((20, 0, TOP + 28.4))
 
 
 # ——— Wagons and coaches ———
@@ -308,9 +454,17 @@ def hopper():
     cut(tub, cutter_box((inner - 7, W - 7, h), (0, 0, TOP + h / 2 + 3.5)))
     rim = box(paint(BLUE), (inner + 4, W + 3, 3.2), (0, 0, TOP + h), r=1.4)
     cut(rim, cutter_box((inner - 7, W - 7, 6), (0, 0, TOP + h)))
-    for x in (-inner / 4, inner / 4):
+    for x in (-inner / 2 + 4, -inner / 4, inner / 4, inner / 2 - 4):
         for s in (-1, 1):
-            box(paint(BLUE), (3.2, 1.6, h - 4), (x, s * (W / 2 + 0.3), TOP + h / 2), r=0.7)
+            box(paint(BLUE), (3.2, 1.6, h - 4), (x, s * (W / 2 + 0.3), TOP + h / 2), r=0.7, seg=1)
+    buffers(L)
+    # The doors it empties by, under it between the wheels, and a ladder up its back end.
+    for x in (-10, 10):
+        under_box(x, 12)
+    for y in (-3, 3):
+        box("metal", (0.7, 0.7, h - 3), (-(inner / 2 + 0.4), y, TOP + h / 2), r=0)
+    for z in (5, 10, 15):
+        box("metal", (0.6, 6, 0.6), (-(inner / 2 + 0.4), 0, TOP + z), r=0)
     # Loaded to the brim: a bed of coal level with the rim, heaped with lumps well above it. Nodes of their own
     # ("coal_bed", "coal_lumps"), so the game can hide the coal to carry something else.
     moving(box("coal", (inner - 7.2, W - 7.2, 2), (0, 0, TOP + h - 2), r=0.4, name="coal_bed"))
@@ -350,11 +504,12 @@ def clerestory(roof_color, h, length, x=0.0, pane=PANE, raised=True):
             cylinder("metal", 1.7, 2.2, (vx, s * vy, vz), "Z", 8, 0.6)
 
 
-def coach(color, h, windows, roof_color, L=88, strip=None, raised=True):
+def coach(color, h, windows, roof_color, L=88, strip=None, raised=True, frame=None):
     running_gear(L, 18)
     bl = L - 12
     body = box(paint(color), (bl, W, h), (0, 0, TOP + h / 2), r=3)
-    side_windows(body, windows, W / 2)
+    side_windows(body, windows, W / 2, frame=frame)
+    coach_fittings(L, bl, h)
     arch_roof(paint(roof_color), bl + 8, W + 5, 3, 3, (0, 0, TOP + h - 0.5))
     clerestory(roof_color, h, *(strip or (bl - 18,)), raised=raised)
     return body, bl
@@ -362,10 +517,19 @@ def coach(color, h, windows, roof_color, L=88, strip=None, raised=True):
 
 def passenger_classic():
     bl = 76
-    wins = [(-bl / 2 + bl / 4 * (i + 0.5), TOP + 30 * 0.6, bl / 4 - 7, 11) for i in range(4)]
-    coach(BLUE, 30, wins, CREAM)
+    h = 30
+    # Three framed windows between a door at each end, with its own pane, a handle and a step under it.
+    wins = [(x, TOP + h * 0.6, 13, 11) for x in (-17.5, 0, 17.5)]
+    coach(BLUE, h, wins, CREAM, frame=CREAM)
     for s in (-1, 1):
         box(paint(CREAM), (bl - 4, 0.8, 2.4), (0, s * (W / 2 + 0.1), TOP + 8), r=0.3, seg=1)
+        for e in (-1, 1):
+            dx = e * 31.5
+            box(paint(BLUE), (9, 0.9, h - 6), (dx, s * (W / 2 + 0.25), TOP + (h - 6) / 2 + 1.5), r=0.4, seg=1)
+            box(paint(PANE), (5, 0.6, 8), (dx, s * (W / 2 + 0.55), TOP + 19), r=0)
+            box("metal", (0.8, 0.8, 3), (dx - e * 3.2, s * (W / 2 + 0.9), TOP + 12.5), r=0)
+    for e in (-1, 1):
+        step(e * 31.5)
 
 
 def passenger_dining():
@@ -378,13 +542,16 @@ def passenger_dining():
     for x, z, w, hh in wins:
         for s in (-1, 1):
             box(paint(PANE), (w, 0.6, hh), (x, s * (W / 2 + 0.55), z), r=0)
+            # In a claret frame, a lit table lamp at its sill.
+            window_frame(CLARET, x, s * (W / 2 + 0.75), z, w + 0.2, hh + 0.2)  # (a hair bigger: no face in the pane's planes)
+            box(paint(LIT), (2.4, 0.5, 3), (x, s * (W / 2 + 0.75), z - hh / 2 + 1.9), r=0)
     cylinder("metal", 2.6, 8, (-bl / 2 + 10, 0, TOP + 34), "Z", 14, 0.8)
 
 
 def passenger_sleeper():
     bl = 76
     wins = [(-bl / 2 + 7 + i * ((bl - 14) / 5), TOP + 19, 7, 7) for i in range(6)]
-    coach(NIGHT, 31, wins, YELLOW)
+    coach(NIGHT, 31, wins, YELLOW, frame=YELLOW)
     for s in (-1, 1):
         for x, z in ((-24, 7), (-9, 5), (6, 8), (21, 6), (31, 9)):
             ball(paint(YELLOW), 1.1, (x, s * (W / 2 + 0.2), TOP + z), 8, squash=1.0)
@@ -395,7 +562,7 @@ def passenger_double_decker():
     bl = 76
     h = 44
     wins = [(-bl / 2 + bl / 4 * (i + 0.5), TOP + h * y, bl / 4 - 6, 9) for y in (0.33, 0.75) for i in range(4)]
-    coach(GREEN, h, wins, CREAM, raised=False)
+    coach(GREEN, h, wins, CREAM, raised=False, frame=CREAM)
     for s in (-1, 1):
         box(paint(CREAM), (bl - 2, 0.8, 2.2), (0, s * (W / 2 + 0.1), TOP + h * 0.54), r=0.3, seg=1)
 
@@ -432,6 +599,10 @@ def passenger_first_class():
             box(paint(GOLD), (5, 0.7, 1.6), (dx + 0.4, y + s * 0.95, TOP + 12.6), r=0.3, seg=1)
             # The 1's flag points to the viewer's left on each side (+x seen from +y, -x from -y).
             box(paint(GOLD), (2.6, 0.7, 1.6), (dx + 0.4 + s * 1.4, y + s * 0.95, TOP + 20.4), r=0.3, seg=1)
+            box("metal", (0.8, 0.8, 3), (dx - 3.3, y + s * 0.8, TOP + 8), r=0)
+    coach_fittings(L, bl, h)
+    for e in (-1, 1):
+        step(e * (bl / 2 - 6.5))
     # A gold lamp on the roof at each end.
     for e in (-1, 1):
         cylinder(paint(GOLD), 1.8, 3, (e * (bl / 2 - 6), 0, TOP + h + 4.3), "Z", 12, 0.5)  # (clear of the roof's faces)
@@ -443,7 +614,8 @@ def caboose_classic():
     h = 26
     running_gear(L, 18)
     body = box(paint(RED), (bl, W, h), (0, 0, TOP + h / 2), r=3)
-    side_windows(body, [(-bl / 2 + bl / 2 * (i + 0.5), TOP + h * 0.62, bl / 2 - 7, 9) for i in range(2)], W / 2)
+    side_windows(body, [(-bl / 2 + bl / 2 * (i + 0.5), TOP + h * 0.62, bl / 2 - 9, 9) for i in range(2)], W / 2, frame=CREAM)
+    caboose_fittings(L, bl, h, CREAM)
     arch_roof(paint(CREAM), bl + 8, W + 5, 3, 3, (0, 0, TOP + h - 0.5))
     cup = box(paint(RED), (bl * 0.36, W * 0.7, 14), (0, 0, TOP + h + 8), r=2)
     side_windows(cup, [(0, TOP + h + 9, bl * 0.22, 6)], W * 0.35)
@@ -457,7 +629,8 @@ def caboose_bay_window():
     h = 26
     running_gear(L, 18)
     body = box(paint(YELLOW), (bl, W, h), (0, 0, TOP + h / 2), r=3)
-    side_windows(body, [(-bl / 2 + 9, TOP + h * 0.62, 9, 9), (bl / 2 - 9, TOP + h * 0.62, 9, 9)], W / 2)
+    side_windows(body, [(-bl / 2 + 9, TOP + h * 0.62, 9, 9), (bl / 2 - 9, TOP + h * 0.62, 9, 9)], W / 2, frame=BROWN)
+    caboose_fittings(L, bl, h, BROWN)
     for s in (-1, 1):
         bay = box(paint(YELLOW), (18, 6, 16), (0, s * (W / 2 + 2.5), TOP + h * 0.58), r=1.8)
         side_windows(bay, [(0, TOP + h * 0.62, 12, 8)], W / 2 + 5.5)
@@ -475,6 +648,16 @@ def timber():
         for s in (-1, 1):
             cylinder("wood", 1.8, 18, (x, s * (W / 2 - 2.5), TOP + 13), "Z", 10, 0.6)
             ball(paint(RED), 2.4, (x, s * (W / 2 - 2.5), TOP + 22), 16)
+            # The iron pocket each stake stands in.
+            box("metal", (4.4, 1.2, 4.4), (x, s * (W / 2 + 0.2), TOP + 1.5), r=0)
+    buffers(L)
+    under_box()
+    # A low red board across each end, and rings along the sides to lash a load to.
+    for e in (-1, 1):
+        box(paint(RED), (2, W - 6, 7), (e * (inner / 2 - 1.2), 0, TOP + 6.5), r=0.8, seg=1)
+    for x in (-15, 0, 15):
+        for s in (-1, 1):
+            box("metal", (2, 1.0, 1.6), (x, s * (W / 2 + 0.2), TOP + 2), r=0)
 
 
 def van():
@@ -499,6 +682,13 @@ def van():
         # The rail the door hangs from, and the door: one cream panel, its own node so it can slide along x.
         box("metal", (bl - 10, 1.2, 1.6), (0, s * (W / 2 + 0.5), TOP + h - 3), r=0.5, seg=1)
         moving(box(paint(CREAM), (24, 1.8, h - 7), (0, y, TOP + (h - 7) / 2 + 1.5), r=0.8, seg=2, name=f"door_{i}"))
+        # The runner under the door, and a handrail up each corner of the ends.
+        box("metal", (bl - 10, 1.2, 1.2), (0, s * (W / 2 + 0.5), TOP + 1.6), r=0)
+        for e in (-1, 1):
+            box("metal", (0.8, 0.8, 14), (e * (bl / 2 + 0.3), s * 11, TOP + 10), r=0)
+    buffers(L)
+    under_box()
+    step(0, 16)
 
 
 MODELS = [
