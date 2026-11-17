@@ -69,7 +69,7 @@ import { RuinsView, type ShownRuin } from "../render/ruins-view";
 import { SecretsView, type ShownSecret } from "../render/secrets-view";
 import type { RuinOnMap } from "./map-markers";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { inTunnel, setTunnels, tunnelsOn, archFloors, bridgeLevels, plinthLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
+import { inTunnel, setTunnels, tunnelsOn, archOpenings, bridgeLevels, plinthLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
 import type { Prop, PropPose } from "../props/store";
 import type { PropSource } from "../render/props/props-view";
 import { setHazeLand, setHazeReach } from "../render/haze";
@@ -737,10 +737,10 @@ export class Game {
   readonly bridgeLevelsOf = (p: PlacedPiece): number =>
     // (An underpass off a hill's edge: how many levels its block's plinth reaches down, drawn as its own variant.)
     p.type === "underpass" ? plinthLevels(this.landscape, p.type, p.flipped, p.pose, p.y) : bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
-  /** How far down a placed bridge's arch openings reach, over a hill's edge (null: all its levels). */
+  /** How far down a placed bridge's arch openings reach, and where they're clipped at a hill's face (`archOpenings`; null: all its levels). */
   readonly archFloorsOf = (p: PlacedPiece, levels = this.bridgeLevelsOf(p)): number[] | null =>
     // (One level over an underpass: on a hilltop the ground under it is cut lower, so its levels can read more.)
-    levels >= 1 && overUnderpass(this.layout, p) ? [...GIRDER_FLOORS] : archFloors(this.landscape, p.type, p.flipped, p.pose, p.y, levels);
+    levels >= 1 && overUnderpass(this.layout, p) ? [...GIRDER_FLOORS] : archOpenings(this.landscape, p.type, p.flipped, p.pose, p.y, levels);
 
   get world(): World {
     return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy, props: this.props, ruins: this.ruins };
@@ -1472,10 +1472,9 @@ export class Game {
     this.post.render(now);
     this.framesDrawn++;
     // A picture of this frame wanted (a debug report): taken now, while the drawing buffer still holds it.
-    if (this.grabFrame) {
-      const take = this.grabFrame;
-      this.grabFrame = null;
-      take(this.canvas);
+    if (this.grabs.length > 0) {
+      const takes = this.grabs.splice(0);
+      for (const take of takes) take(this.canvas);
     }
     // Too slow at this resolution: step down (the next frame draws at the new size).
     const ratio = this.resolution.frameDrawn(this.lastFrameAt, this.drewLastTick);
@@ -1491,19 +1490,45 @@ export class Game {
     this.resolution.rest(performance.now() + ms);
   }
 
-  private grabFrame: ((canvas: HTMLCanvasElement) => void) | null = null;
+  /** Pictures of the next frame drawn, wanted (each copies it out as it's drawn). */
+  private readonly grabs: ((canvas: HTMLCanvasElement) => void)[] = [];
+
+  /**
+   * A small copy of the next frame drawn, fitted in `w`×`h` (a game's picture in Your games), copied as it's drawn.
+   * `draw`: draw one now for it; else it waits for the next frame drawn anyway (none while nothing moves: it costs
+   * nothing till then). One waiting at a time: a second ask while one waits gets null.
+   */
+  grabSmall(w: number, h: number, draw: boolean): Promise<HTMLCanvasElement | null> {
+    if (this.smallWaiting) return Promise.resolve(null);
+    this.smallWaiting = true;
+    return new Promise((resolve) => {
+      this.grabs.push((canvas) => {
+        this.smallWaiting = false;
+        const k = Math.min(w / canvas.width, h / canvas.height, 1);
+        const copy = document.createElement("canvas");
+        copy.width = Math.max(1, Math.round(canvas.width * k));
+        copy.height = Math.max(1, Math.round(canvas.height * k));
+        const g = copy.getContext("2d");
+        if (!g) return resolve(null);
+        g.drawImage(canvas, 0, 0, copy.width, copy.height);
+        resolve(copy);
+      });
+      if (draw) this.redraw();
+    });
+  }
+  private smallWaiting = false;
 
   /** A picture of the next frame drawn (it's drawn at once), as a WebP or PNG. */
   capture(): Promise<Blob | null> {
     return new Promise((resolve) => {
-      this.grabFrame = (canvas) => {
+      this.grabs.push((canvas) => {
         // Copied out synchronously: the drawing buffer is cleared once this task ends.
         const copy = document.createElement("canvas");
         copy.width = canvas.width;
         copy.height = canvas.height;
         copy.getContext("2d")?.drawImage(canvas, 0, 0);
         copy.toBlob((b) => resolve(b), "image/webp", 0.85);
-      };
+      });
       this.invalidate();
     });
   }

@@ -242,6 +242,29 @@ export function moveBuilding(land: Landscape, id: number, lot: TownLot): () => v
   };
 }
 
+/** Said when an undo or redo of a town move is refused: the town has built on (or moved) its squares since. */
+export const TOWN_MOVED_ON = "The town has built there since: it can't be put back";
+
+/**
+ * Guards a town move's undo step (a house's, or a street's): its squares as the move left them, and as they were
+ * before. Undoing puts the squares back as they were, so it's refused once they've changed since (the town grew onto
+ * the green a house left: undone, two houses would stand on one square, one of them drawn on the other's). Redoing
+ * likewise, once they're no longer as they were before it. `done` after the move is made (and again on each redo).
+ */
+export function townMoveGuard(land: Landscape, cells: readonly number[]): { done(): void; refuse(way: "undo" | "redo"): string | null } {
+  const g = land.grid;
+  const squares = [...new Set(cells)];
+  const now = () => squares.map((i) => `${g.feature[i]},${g.owner[i]},${g.surface[i]}`).join("|");
+  const before = now();
+  let after = before;
+  return {
+    done: () => {
+      after = now();
+    },
+    refuse: (way) => (now() !== (way === "undo" ? after : before) ? TOWN_MOVED_ON : null),
+  };
+}
+
 /** What a held house is told where it can't go. */
 export function townMoveMessage(reason: TownMoveBlock): string {
   switch (reason) {

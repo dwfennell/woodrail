@@ -22,6 +22,47 @@ const run = (sim: Sim, seconds: number) => {
 };
 
 describe("the engine card's status line", () => {
+  it("at a red signal, says why: the train in the block ahead", () => {
+    // ══ ══ signal ══ ══ ⊏, a train left standing beyond the signal: the one coming stops at its red.
+    const { layout, ids } = chain(["straight-216", "straight-216", "signal", "straight-216", "straight-216", "buffer"]);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const put = (pieceId: number) => {
+      const r = sim.addTrain(["engine"], { pieceId, pathIndex: 0, reversed: false, s: 60 });
+      if (r.kind !== "placed") throw new Error();
+      return sim.getTrain(r.trainId)!.cars[0].id;
+    };
+    put(ids[4]);
+    const engine = put(ids[0]);
+    sim.setLever(engine, 1);
+    run(sim, 6);
+    expect(engineStatus(sim, economy, engine, () => "Oakhollow")).toBe("Waiting at a red signal: a parked train is in the block ahead");
+  });
+
+  it("a train at the front of a waiting point, its move granted, isn't held at red for one behind it (a user's map)", async () => {
+    // (A user's map, 2026-11-16, src/play/bugmaps/reports/: "why is Dandelion waiting at a red signal? I don't see what
+    // that should be red." Dandelion (engine 88, Blue line 2) stood at the plain signal out of the sawmill's waiting
+    // point, its move on granted, its block empty; engine 44 had followed it into the waiting point and waited on it.
+    // Sections kept the signal's gate for 44, and a plain signal gated shows red to all: both stood for good.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-16-dandelion-red-signal.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const dandelion = 88;
+    const said = new Set<string>();
+    let left = -1;
+    for (let k = 0; k < 30 * 120 && left < 0; k++) {
+      sim.tick();
+      economy.tick();
+      const t = sim.findCar(dandelion)!.train;
+      if (k % 60 === 0) said.add(engineStatus(sim, economy, dandelion, () => "?"));
+      if (!t.bogies.some((b) => b.pieceId === 13 || b.pieceId === 299)) left = k / 120;
+    }
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect(left).toBeLessThan(10);
+    expect([...said].filter((x) => x.startsWith("Waiting at a red signal"))).toEqual([]);
+  }, 60_000);
+
   it("says what the train's doing: stopped, running, at a red signal, turning back at the end of the line", () => {
     const { layout, ids } = chain(["straight-216", "straight-216", "signal", "straight-216", "straight-216", "buffer"]);
     const sim = new Sim(layout);
@@ -687,9 +728,80 @@ describe("stepping aside into a spare platform (the user's A1)", () => {
       }
     }
     expect(aside).toBe(true);
-    expect([...said]).toContain(`Letting the ${line.name} line by`);
+    expect([...said]).toContain(`Letting the ${line.name} train by`);
     // (Both come to both their stops: neither stands for good.)
     expect([...visits.a].sort()).toEqual([trunk[0], leg[1]].sort());
     expect([...visits.b].sort()).toEqual([trunk[0], leg[1]].sort());
+  });
+
+  it("a train kept waiting on a long single track lines share says so, where it runs, and that a passing loop helps (a user's map)", async () => {
+    // (A user's map, 2026-11-16, src/play/bugmaps/reports/ (map1): engine 100 (line 13) waits at a waiting point for
+    // the single track on from there, 83 pieces through sixteen waiting points and no passing place, which five lines
+    // use; line 11's whole route lies on it, and some train is always coming at it there. No turn rule helps (one let
+    // on from the other end is already on it): the card says why, and what to lay.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-16-rowan-dead-end.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const waiting = 100;
+    const name = (id: number) => `D${id}`;
+    const early = new Set<string>();
+    let view: ReturnType<typeof engineView> | null = null;
+    for (let k = 0; k < 270 * 120 && !view; k++) {
+      sim.tick();
+      economy.tick();
+      if (k % 120 !== 0) continue;
+      const v = engineView(sim, economy, waiting, name);
+      // (Not said till it has waited `STARVED_S` on trains under way: ordinary meets never are.)
+      if (k < 120 * 120) early.add(v.status);
+      else if (v.status.startsWith("Waiting for the single track")) view = v;
+    }
+    expect([...early].filter((x) => x.includes("single track"))).toEqual([]);
+    expect(view?.status).toMatch(/^Waiting for the single track from D\d+ to D\d+: 5 lines use it and it has no passing place\. A passing loop in the middle lets trains pass$/);
+    // (The train it waits for now is named for the card's Show, as for any train in the way.)
+    expect(view?.blocker?.car).toBeGreaterThanOrEqual(0);
+  }, 120_000);
+
+  it("a train too long to turn in a line end and take the other road goes on to a stop it can reach, and says why (the long goals play-through)", async () => {
+    // (The long goals play-through, 2026-11-16, minute 324, src/play/bugmaps/reports/: a goods train of eight cars (776
+    // mm) runs into the mine's line end (720 mm from its points) on one road; its next stop is up the other. Turned at
+    // the buffer, its tail is over the points: it can only come out the way it went in. Planned out the other way, it went
+    // round and came back to turn there again, for good: 2 stops in 600 s, and a wrong road at those points each lap.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap, replayBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-16-short-line-end.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const goods = 27;
+    const name = (id: number) => `D${id}`;
+    const said = new Set<string>();
+    const r = replayBugMap(world, { seconds: 300, onTick: () => {
+      if (sim.ticks % 60 === 0) said.add(engineStatus(sim, economy, goods, name));
+    } });
+    expect(r.first, "no invariant broken (no wrong road at the line end's points)").toBeNull();
+    expect(r.arrivals.get(goods) ?? 0, "stops in 300 s").toBeGreaterThanOrEqual(10);
+    const mine = economy.depotAtPiece(91727)!.id;
+    expect([...said].filter((x) => x.startsWith("Can't reach"))).toContain(`Can't reach D${economy.depotAtPiece(7812)!.id}: the line end at D${mine} is too short for it to turn and take the other road. Lengthen it, or take a car off`);
+  }, 120_000);
+
+  it("after a reload, a train standing aside in a spare dead end still says whom it lets by (a save keeps no step-aside)", async () => {
+    // (A user's map, 2026-11-16, src/play/bugmaps/reports/: "This Rowan train on the Red line keeps on going into this
+    // dead-end track, unclear why." Rowan (engine 30) was saved standing in the ring's one spare dead end (the spur off
+    // the double slip at piece 301), stepped aside for engine 70 (line 7) coming round; loaded, its card said only
+    // "Waiting for the … train". Sections' step-aside isn't saved: the card now works it out from where it stands.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-16-rowan-dead-end.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const rowan = 30;
+    const spur = new Set([302, 303, 304, 400, 401, 402]);
+    const lineOf70 = economy.lines.get(economy.lineIdOf.get(70)!)!.name;
+    const said = new Set<string>();
+    for (let k = 0; k < 20 * 120; k++) {
+      sim.tick();
+      economy.tick();
+      const t = sim.findCar(rowan)!.train;
+      if (k % 30 === 29 && t.speed < 1 && t.bogies.every((x) => spur.has(x.pieceId))) said.add(engineStatus(sim, economy, rowan, () => "?"));
+    }
+    expect([...said]).toEqual([`Letting the ${lineOf70} train by`]);
   });
 });

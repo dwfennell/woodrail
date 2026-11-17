@@ -13,10 +13,10 @@ export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
 /** What a train is doing, as the engine card and reports see it. */
 export type TrainState =
   | { kind: "derailed" }
-  | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading" }
+  | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading"; onPoints?: boolean }
   | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean }
   /** At a red signal; `holding`: held there by the player's hand, for `STUCK_S` or more (signals spec §6). */
-  | { kind: "red-signal"; signalId: number; holding?: boolean }
+  | { kind: "red-signal"; signalId: number; holding?: boolean; by?: number; gated?: boolean }
   /** Standing at a kit's stop (a platform) for its dwell. */
   | { kind: "at-stop"; pieceId: number }
   /** Carried by a train lift, or waiting for its platform (on it, about to go; or at its far end). */
@@ -61,6 +61,12 @@ export type TrainState =
   | { kind: "stuck"; why: "signals"; by: number; headOn?: { loop: boolean } }
   /** A train (`by`, maybe this one) at a signal inside a passing loop, its tail over the points (`mark`: that signal). */
   | { kind: "stuck"; why: "loop-signal"; by: number; mark: number }
+  /**
+   * Kept waiting by trains coming at it on a long single track with no passing place, used by `lines` lines (sections'
+   * `singleTrack`): `by`, the one it waits for now; `from` and `to`, the first and last stops on that track as it would
+   * run it (depot ids; −1: none there).
+   */
+  | { kind: "stuck"; why: "single-track"; by: number; from: number; to: number; lines: number }
   /** Standing with its lever on, for want of anything better known: `by`, the train the sim or sections say it's behind. */
   | { kind: "held-up"; by?: number }
   /**
@@ -119,7 +125,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const r = RECIPES[depot.role];
     const loads = w ? w.load : r.gives.length > 0;
     const unloads = w ? w.unload : r.takes.length > 0;
-    return { kind: "worked", depotId: depot.id, work: loads && unloads ? "Loading and unloading" : unloads ? "Unloading" : "Loading" };
+    return { kind: "worked", depotId: depot.id, work: loads && unloads ? "Loading and unloading" : unloads ? "Unloading" : "Loading", onPoints: economy.standsOnPoints(train.id) !== null };
   }
   // (No room to turn round, another train in the way, and said stuck: the stuck card below, not "turning back".)
   const turnStuck = train.turnback >= 0 && sim.heldHow(train.id) === "turn" && train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id));
@@ -138,7 +144,11 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   // red only because sections or the router keep it for another train names that train and where it's going (QA
   // 2026-11-06: "Waiting at a red signal", its way clear, for a hopper shuttle).)
   if (sim.atRedSignal(train.id) && !train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id))) {
-    const red: TrainState = { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S };
+    // (Why it's red, for the card: the train in its block, or the one sections keep it red for (a car id).)
+    // (Held at red by hand: that's the reason, whoever is in the block.)
+    const cause = sim.redHeldByHand(train.id) ? { by: -1, gated: false } : sim.redCause(train.id);
+    const causeCar = cause.by >= 0 ? (sim.getTrain(cause.by)?.cars[0]?.id ?? -1) : -1;
+    const red: TrainState = { kind: "red-signal", signalId: sim.redSignalAhead(train.id), holding: sim.redHeldByHand(train.id) && sim.redWaitSeconds(train.id) >= STUCK_S, ...(causeCar >= 0 ? { by: causeCar, gated: cause.gated } : {}) };
     if (sim.redHeldByHand(train.id)) return red;
     // (The signal it stands at kept, for the card's Show of it.)
     const held = lineWaitFor(economy, train);
@@ -166,6 +176,18 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
       if (s.kind === "parked") return { kind: "stuck", why: "parked", by: s.by };
       if (s.kind === "signals") return { kind: "stuck", why: "signals", by: s.by, headOn: s.headOn };
       if (s.kind === "loop-signal") return { kind: "stuck", why: "loop-signal", by: s.by, mark: s.mark };
+      // (Kept waiting on a long single track that lines share, with nowhere on it to pass: that, and where it runs.)
+      const single = economy.sections.singleTrack(car.id);
+      if (single) {
+        const stops: number[] = [];
+        for (const p of single.pieces) {
+          const d = economy.depotAtPiece(p);
+          if (d && stops[stops.length - 1] !== d.id) stops.push(d.id);
+        }
+        const from = stops[0] ?? -1;
+        const to = stops.length > 1 ? stops[stops.length - 1] : -1;
+        return { kind: "stuck", why: "single-track", by: s.by, from, to, lines: single.lines };
+      }
       return { kind: "stuck", why: "in-way", line: lineNameOf(sim, economy, s.by), loop: s.loop, by: s.by };
     }
   // Stepped aside into a spare siding or platform, going in or waiting there, to let a train coming the other way by.
@@ -366,6 +388,8 @@ export function blockerOf(sim: Sim, economy: Economy, s: TrainState): Blocker | 
       return s.why === "too-many" ? null : blockerAt(sim, economy, s.by);
     case "points-wait":
       return blockerAt(sim, economy, s.by, s.points);
+    case "red-signal":
+      return s.by === undefined ? null : blockerAt(sim, economy, s.by);
     case "red-switch":
       return blockerAt(sim, economy, undefined, s.points);
     default:
@@ -414,8 +438,19 @@ const OR_MOVE = ", or move the parked train";
 /** A line with a train too many: the quick fix, the card's Remove (highlighted beside it). */
 const OR_REMOVE = ", or remove a train";
 
+/** The fix for a line end too short for a train to turn in and come out the other way (`shortSkipOf`). */
+export const SHORT_END_FIX = "Lengthen it, or take a car off";
+
+
+/** A stop passed over, or none in reach, for a line end too short for the train (`Economy.shortSkipOf`): what its card says. */
+function shortEndText(short: { depotId: number; at: number }, nameOf: (depotId: number) => string): string {
+  const at = placeLabel(nameOf, short.at);
+  return `Can't reach ${nameOf(short.depotId)}: ${at ? `the line end at ${at}` : "a line end on the way"} is too short for it to turn and take the other road. ${SHORT_END_FIX}`;
+}
 /** The fix for a signal inside a passing loop holding a train over the points (issue #31): the engine and signal cards. */
 export const LOOP_SIGNAL_FIX = "Move that signal to the loop's end";
+/** The fix for a train kept waiting on a long single track lines share (`single-track`): somewhere to pass. */
+export const SINGLE_TRACK_FIX = "A passing loop in the middle lets trains pass";
 
 /** Said once ever, when a line's trains wait for each other on a long stretch a signal could split (signals spec §7). */
 export const FOLLOW_TIP = "Trains on this line wait for the whole stretch. A signal here lets them follow · Show me where";
@@ -527,7 +562,8 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (A crane coming for it: `craneStatus`, said first.)
       return "Off the rails: Rerail puts it back";
     case "worked":
-      return `${s.work} at ${nameOf(s.depotId)}`;
+      // (Load in place: no spot there clears the points, so it stands on them as it loads.)
+      return s.onPoints ? `${s.work} at ${nameOf(s.depotId)}: too long for its yard, its tail is on the points` : `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
       // (Running back, it's no longer where the track ends: "back there".)
       if (s.cause === "open-end") return s.done ? "Turned back: the track ends back there" : "Turning back: the track ends here";
@@ -535,7 +571,11 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";
     case "red-signal":
-      return s.holding ? "Waiting at a signal you're holding at red. Tap it, then Auto" : "Waiting at a red signal";
+      if (s.holding) return "Waiting at a signal you're holding at red. Tap it, then Auto";
+      // (Who it's red for, by name: "the train on the Red line" in the block ahead, or the one it's kept for. A user,
+      // 2026-11-16: "why is Dandelion waiting at a red signal? I don't see what that should be red.")
+      if (who && who.car >= 0) return s.gated ? `Waiting at a red signal kept for ${blockerName(who, place)}` : `Waiting at a red signal: ${blockerName(who, place)} is in the block ahead`;
+      return "Waiting at a red signal";
     case "at-stop": {
       const type = economy.layout.getPiece(s.pieceId)?.type;
       return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;
@@ -554,13 +594,17 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       return "Slowing to a stop";
     case "starting":
       return "Starting";
-    case "stopped":
+    case "stopped": {
+      // (Stood, its levers off, for none of its stops in reach past a line end too short for it: said, as running.)
+      const short = economy.shortSkipOf(engineCarId);
+      if (short?.stood) return shortEndText(short, nameOf);
       return "Stopped";
+    }
     case "spacing":
       // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "aside":
-      return s.line ? `Letting the ${s.line} line by` : who && who.car >= 0 ? `Letting ${blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place)} by` : "Letting another train by";
+      return s.line ? `Letting the ${s.line} train by` : who && who.car >= 0 ? `Letting ${blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place)} by` : "Letting another train by";
     case "line-wait":
       if (s.line) return `Waiting for the ${s.line} train`;
       if (who && who.car >= 0) return `Waiting: ${inTheWay(who, place)}`;
@@ -583,6 +627,12 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (s.why === "loop-signal") {
         const own = sim.findCar(engineCarId)?.train === sim.findCar(s.by)?.train;
         return `Stuck: ${own ? "it stands" : `${trainLabel(sim, s.by)} stands`} at a signal inside the passing loop, its tail over the points. ${LOOP_SIGNAL_FIX}`;
+      }
+      if (s.why === "single-track") {
+        const from = placeLabel(nameOf, s.from);
+        const to = placeLabel(nameOf, s.to);
+        const where = from && to ? ` from ${from} to ${to}` : from ? ` past ${from}` : "";
+        return `Waiting for the single track${where}: ${s.lines} lines use it and it has no passing place. ${SINGLE_TRACK_FIX}`;
       }
       if (s.why === "parked") return `Stuck: ${who && who.car >= 0 ? inTheWay(who, place) : SPARE_CUT}`;
       // (Left standing, named by where it is: moving it is the fix. Two lines' trains with no passing loop where they
@@ -616,6 +666,10 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
         const here = route.stops[i].depotId;
         for (let k = 0; k < route.stops.length && route.stops[i].depotId === here; k++) i = (i + 1) % route.stops.length;
       }
+      // (Gone on past a stop it can't reach for a line end too short for it to turn in and come out the other way: said,
+      // naming both, and the fix.)
+      const short = economy.shortSkipOf(engineCarId);
+      if (short) return shortEndText(short, nameOf);
       // (Heading for a stop beyond a train its line has no room for: it'll turn back short of it. Say why.)
       const full = economy.sections.unreachable(engineCarId) ? economy.sections.fullness(engineCarId) : null;
       if (full) return `Can't reach ${nameOf(route.stops[i].depotId)}: ${fullText(full)}`;

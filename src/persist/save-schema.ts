@@ -43,7 +43,7 @@ const trainSchema = z.object({
         /** The harbour (economy depot id) its cargo was bought at: not unloaded back there. */
         landedFrom: z.number().int().min(0).optional(),
         /** People riding a coach: how many, and the station they got on at (its index in `depots`). */
-        riders: z.object({ count: z.number().int().min(1).max(MAX_RIDERS), from: z.number().int().min(0) }).optional(),
+        riders: z.object({ count: z.number().int().min(1).max(MAX_RIDERS), from: z.number().int().min(0), to: z.array(z.number().int()).max(MAX_RIDERS).optional(), froms: z.array(z.number().int().min(0)).max(MAX_RIDERS).optional() }).optional(),
         /** The line an engine runs (its id in `lines`), and the stop it heads for. */
         // (`joined`: when it came to its line, a count, the newest being the one held when there's no room; `held`: its
         // line had no room for it. Optional: older saves work them out afresh.)
@@ -246,6 +246,8 @@ export const sessionSchema = z.object({
   clock: z.number().min(0).finite(),
   paused: z.boolean(),
   journal: sessionJournal,
+  /** Which of the games it is (Game mode: `persist/slots.ts`). Rides in the session so older builds still read it. */
+  slot: z.object({ id: z.string().min(1).max(40), name: z.string().max(80) }).optional(),
 });
 
 export type SessionData = z.infer<typeof sessionSchema>;

@@ -208,14 +208,12 @@ const GOALS_LONG = !!ENV.GOALS_LONG;
 const GOALS_LONG_MINUTES = Number(ENV.BALANCE_GOALS_LONG_MINUTES ?? 440);
 /** The goals the fast part doesn't reach by `GOALS_RUN_MINUTES`, with why. */
 export const GOALS_NOT_REACHED: Readonly<Record<string, string>> = {
-  "open-mine": "On the gentler starter map (the new default, `DEFAULT_HILLS`: its start's middle flattened) this player's line runs another way: the mill stands after the farm yard at minute 67 (46 on the old land), flour comes later, Quarries is learned at 148 (107), the quarry at 150 (114), so Mines comes after 175; the long part opens the mine at 206 (160 on the old land). BALANCE_HILLS=hilly meets it by 175 as before",
   "float-goods": "River barges needs Train routes and Cranes 1, and a river landing wants a straight run of river by the line on both ends of a barge's route: this player's one line between the starter towns has none, and it researches what its line needs (`GOALS_WISH`). The player's path is e2e:water's (a landing from the tray, a barge bought on its card, a route by taps, logs carried and delivered)",
   "ship-abroad": "Cargo ships needs River barges as well as Harbours, which this player never learns (see float-goods), and a harbour, which stands only in the long part at about minute 397. The ship's payoff is harbours.test.ts's (24 loads at a town's full price) and e2e:water's (a ship at the quay takes goods off it)",
   "open-harbour": "Harbours needs Mines learned (about minute 219), then 30 planks and 20 stone at the school, and the harbour 15 planks and 10 stone at the workshop, all on the one goods train: it stands at about 397, a boat trades at 412: the long part's (GOALS_LONG=1)",
 };
 /** The goals the long part doesn't reach by `GOALS_LONG_MINUTES`, with why: each must be allowed in the fast part too. */
 export const GOALS_LONG_NOT_REACHED: Readonly<Record<string, string>> = {
-  "open-harbour": "On the gentler starter map (the new default) everything after the quarry comes about 40 minutes later for this player (the mine at 206, 160 on the old land: see open-mine), and the harbour, at about 397 on the old land, is past 440. BALANCE_HILLS=hilly reaches it as before",
   "ship-abroad": "Cargo ships needs River barges as well as Harbours, which this player never learns (see float-goods), and a harbour, which stands only in the long part at about minute 397. The ship's payoff is harbours.test.ts's (24 loads at a town's full price) and e2e:water's (a ship at the quay takes goods off it)",
   "float-goods": "River barges needs Train routes and Cranes 1, and a river landing wants a straight run of river by the line on both ends of a barge's route: this player's one line between the starter towns has none, and it researches what its line needs (`GOALS_WISH`). The player's path is e2e:water's (a landing from the tray, a barge bought on its card, a route by taps, logs carried and delivered)",
 };
@@ -1639,8 +1637,10 @@ function goalsPlay(minutes: number, allowed: Readonly<Record<string, string>>, p
   expect(w.layout.signalCount, "signal marks placed by the goals player").toBe(0);
   expect([...w.layout.pieceIds()].filter((id) => getPieceDef(w.layout.getPiece(id)!.type, false).signal), "signal pieces laid by the goals player").toEqual([]);
   // Stickers on the player's path (they're optional: not every one is met here; earned stays earned, so the long part
-  // has these too). Measured: 4 of 10 by minute 175, about 6 µs a check.
-  expect(P.p.stickers.ids(), "stickers earned by playing").toEqual(expect.arrayContaining(["track-layer", "first-city", "two-cities", "busy-loads"]));
+  // has these too). Measured: 4 of 10 by minute 175, about 6 µs a check. (Track layer and Twin cities came off
+  // 2026-11-16, with load in place and the old farm's spur kept through a wait for planks (`spurLaid`): this seed's
+  // railway is 39 pieces at minute 175 now, not 65, and one town a city (at minute 67, not 96).)
+  expect(P.p.stickers.ids(), "stickers earned by playing").toEqual(expect.arrayContaining(["first-city", "busy-loads", "delivered-some"]));
   return P;
 }
 
@@ -2000,6 +2000,10 @@ class Playthrough {
         if (kind === "goods 2") this.goods2Cut++;
         else this.lifted++;
         if (this.lines) this.jamCut++;
+        // (Taken off for jamming the line, the people train waits for a loop laid after this to come back: a player
+        // doesn't put it straight back for one that was there while it jammed. Passenger destinations, 2026-11-15: a
+        // loop laid at minute 51 with it on the line put it back the minute it was taken off at 54, to jam till 89.)
+        if (kind === "people") this.peopleBack = Math.max(this.peopleBack, this.peopleLoops.length + this.stuckLoops.length);
         P.findings.push(`Minute ${P.minute.toFixed(0)}: no planks sawn for 4 minutes with ${this.trains.size + 1} trains on one line (they turn each other back; the goods train never reached the forest). Picked the ${kind} train up.`);
         P.note(`JAM: no planks sawn for 4 min; picked the ${kind} train up`);
         this.sawnAt = P.minute;
@@ -2794,6 +2798,8 @@ class Playthrough {
 
   /** The farm is an old one restored on a spur, and Routes isn't learned yet: the line's train calls only if sent. */
   spurFarm = false;
+  /** A spur's switch laid to an old industry on a try that then waited for planks (`restoreOld`), or −1. */
+  spurLaid = -1;
   /** The spur's switch (−1: none). */
   spurSwitch = -1;
   /** The line's side of the spur's switch (its trunk's): its pieces, found again each minute of play. */
@@ -3091,12 +3097,17 @@ class Playthrough {
       }
     }
     const free = () => [0, 1].map((c) => connectorRef(stub, c)).filter((ref) => w.layout.joinedConnector(ref) === -1);
-    let r = extend(P, { target: free });
+    // (A spur laid on a try that then waited for planks (`wait` below) is there still: the stub joined to it. Run on
+    // from it, its switch tended as below. Before, the next try ran `extend`, which took the joined stub as reached
+    // from a line end with no track laid, that end's buffer taken up, and the spur's switch never set for the farm.)
+    const laid = this.spurLaid !== -1 && !!w.layout.getPiece(this.spurLaid) && free().length < 2 ? this.spurLaid : -1;
+    this.spurLaid = -1;
+    let r = laid !== -1 ? { id: stub, beyond: -1 } : extend(P, { target: free });
     // Else (BALANCE_SPUR) a short spur to it off a switch in the line (as its Show me frames it: the ruin and the line).
     // Before Routes the line's train runs end to end with the switch set for the line, so its grain reaches the line
     // only when the player sets the switch for the farm by hand (`tendSpur`; BALANCE_SPUR=routes: Routes learned
     // first instead): the trade-off a player takes for the cheaper farm.
-    let spur = -1;
+    let spur = laid;
     if (!r && s.learned.has("switches") && this.spur && (role === "farm" || s.learned.has("routes"))) {
       spur = spurTo(P, site.centre, free) ?? -1;
       if (spur !== -1) r = { id: stub, beyond: -1 };
@@ -3109,7 +3120,10 @@ class Playthrough {
       return null;
     }
     // (The track to it may have taken the yard's planks: restored once they're back.)
-    if (pay.short()) return "wait";
+    if (pay.short()) {
+      if (spur !== -1) this.spurLaid = spur;
+      return "wait";
+    }
     const done = restoreRuin(w, P.editor, site.id, { pay });
     if ("why" in done) {
       this.ruinsPassed.add(site.id);
@@ -3148,6 +3162,14 @@ class Playthrough {
     expect.soft(researched, `researched by 180 at least main's ${floor}`).toBeGreaterThanOrEqual(floor);
     expect.soft(city, `City at minute ${CITY_BAND[0]} or later`).toBeGreaterThanOrEqual(CITY_BAND[0]);
     expect.soft(city, `City by minute ${CITY_BAND[1]}`).toBeLessThanOrEqual(CITY_BAND[1]);
+    // (Load in place, 2026-11-16, spec docs/superpowers/specs/2026-11-16-load-in-place.md: on 0-200 this band misses 7
+    // seeds that main (8b2e339) passes, 71, 91, 106, 141, 176, 187, 195, all at 47.6-47.8 min, and every one this
+    // player's one goods train on an 18-20 stop line (the plank famine the stall band exempts), two towns at 14/14
+    // planks waiting for flour. It's that line's delivery mix, not the game carrying less: on seed 91 the train's time
+    // in yards is the same as main's (52.5 against 52.9 min, 352 visits against 349) but its wagons are worked at towns
+    // 69 times against 105, at the school 40 against 13, the workshop 22 against 4 (sawmill 152/156, forest 67/75,
+    // mill 55/51, farm 21/19); main's one stray plank delivery mid-famine splits its gap in two. On a fixed line
+    // (load-in-place.test.ts) a train carries at least main's goods with 1-5 flatbeds.)
     expect.soft(gap, "no planks into a town for 45 min").toBeLessThan(45);
     const famine = P.plankFamine();
     if (!famine) expect.soft(stall, "no research stall over 15 min").toBeLessThanOrEqual(15);

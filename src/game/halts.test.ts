@@ -149,8 +149,9 @@ describe("big stations are halts (Game mode)", () => {
     const w = { layout, sim, economy, stations: new Map([[0, a]]) } as unknown as World;
     const train = () => sim.getTrain(sim.trainIds()[0])!;
     sim.setLever(train().cars.find((c) => c.kind === "engine")!.id, 1);
-    const run = (seconds: number) => {
-      for (let i = 0; i < seconds * SIM_HZ; i++) {
+    /** Run up to `seconds`, or until `done` holds. */
+    const run = (seconds: number, done: () => boolean = () => false) => {
+      for (let i = 0; i < seconds * SIM_HZ && !done(); i++) {
         sim.tick();
         economy.tick();
       }
@@ -170,7 +171,8 @@ describe("big stations are halts (Game mode)", () => {
       attachPassengers(w, () => p);
       economy.setRiders(coach, 2, A.id);
       B.waiting = 3;
-      run(12);
+      // (Till its stop at B is done: turning back at B as it's worked, it's soon back at A, where B's people get off.)
+      run(12, () => B.waiting === 0 && economy.ridersOf(coach).count === 3);
       expect(p.riders).toBe(2);
       expect(p.coins).toBe(2 * fareFor(w, A, B, coach));
       expect(B.waiting).toBe(0);

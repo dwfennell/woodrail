@@ -10,11 +10,11 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type LeverPost, t
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { METRO_KIT, isSecretKit, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { METRO_KIT, isSecretKit, SPLICE_POINTS, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
-import { blocksOf, pathHeading, postAt, snapJoint } from "./signal-place";
+import { blocksOf, hasRoom, pathHeading, postAt, snapJoint } from "./signal-place";
 import { ROAD_MARGIN, topologyOf, trainLength } from "../economy/sections";
 import { SIGNAL_MODES, type SignalStyle } from "../track";
 import { pieceInfo } from "../ui/piece-info";
@@ -23,7 +23,7 @@ import { RADIO_RIDERS, townOfMast } from "./radio";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
 import { streetTown } from "./street-moves";
-import { lotFor, movableBuilding, moveBuilding, townMoveMessage, type TownLot, type TownMoveBlock } from "./town-moves";
+import { lotFor, movableBuilding, moveBuilding, townMoveGuard, townMoveMessage, type TownLot, type TownMoveBlock } from "./town-moves";
 import type { Look } from "../render/dressing/buildings";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
@@ -34,7 +34,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
 import { pointsSetFor } from "./engine-status";
-import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
+import { DEPOT_NAMES, depotName, freeMapDepot, INDUSTRY_ROLE, movableMapDepot } from "./world";
 import { ruinAt, SITE_NAMES } from "./map-sites";
 import { haltName, secretAt, secretOfPiece } from "./secrets";
 import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
@@ -52,6 +52,8 @@ import { planBore, planTunnel, TUNNEL_MESSAGES, type TunnelPlan } from "./tunnel
 
 /** Said of a signal put on a joint in a tunnel. */
 const SIGNAL_DARK = "Signals need daylight: put it outside the tunnel";
+/** Refused: no room beside the track on either side of the joint (other track there: points, a crossover, a line beside). */
+const SIGNAL_NO_ROOM = "No room for a signal there: other track's in the way";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
 import { PinHint, type PinHintState } from "./switch-pin";
@@ -199,6 +201,7 @@ type Press =
   | { kind: "lever"; pieceId: number; road?: number; corner?: number; slack?: number; at?: number }
   /** A stop disc of the route being planned (its index in the route). */
   | { kind: "route-stop"; index: number }
+  | { kind: "route-insert"; after: number }
   /** A via point's disc of the route being planned (the piece it's on). */
   | { kind: "route-via"; pieceId: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
@@ -480,6 +483,10 @@ export class Interaction {
   /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
   routeGroup: Object3D | null = null;
   onTapStopDisc: ((index: number) => void) | null = null;
+  /** Planning, a + peg on the line between two stops tapped (lines UI redesign 2026-11-16): the stop it follows. */
+  onTapInsertDisc: ((after: number) => void) | null = null;
+  /** Scratch: a + peg's middle on the screen (`pickExact`). */
+  private readonly pegAt = new Vector3();
   /**
    * Planning, a place tapped that a train can't stop at yet (a town with no station, an old industry's ruin): what to
    * say ("Larkfield needs a station first").
@@ -725,6 +732,7 @@ export class Interaction {
     g.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = m.overTray ? null : this.groundAt(x, this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y);
     let target = -1;
+    this.signalCramped = false;
     if (ground) {
       const near = nearestCursor(layout, ground.x, ground.z, TRAIN_DROP_RANGE, this.cameraHeading());
       if (near) {
@@ -735,9 +743,12 @@ export class Interaction {
           if (Math.abs(along) >= 4) m.dir = along > 0 ? 1 : -1;
         }
         if (m.dir === 0) m.dir = Math.cos(h - this.cameraHeading()) >= 0 ? 1 : -1;
+        // (A new one goes where none faces that way; a placed one with its set, where both fit: `signalSetAt`. Each where
+        // its post has room beside the track (`hasRoom`): no room at the nearer joint, the piece's other one.)
+        const fits = (at: number) => (m.moving === -1 ? !layout.signalAt(at) : this.setFits(m.moving, at)) && hasRoom(layout, at);
         target = snapJoint(layout, near.cursor, m.dir);
-        // (A new one goes where none faces that way; a placed one with its set, where both fit: `signalSetAt`.)
-        if (target !== -1 && (m.moving === -1 ? !!layout.signalAt(target) : !this.editor().signalSetAt(m.moving, target))) target = -1;
+        this.signalCramped = target !== -1 && !hasRoom(layout, target);
+        if (target !== -1 && !fits(target)) target = snapJoint(layout, near.cursor, m.dir, fits);
         // (Not in a tunnel: it couldn't be seen or tapped there.)
         this.signalDark = target !== -1 && this.jointInTunnel(target);
         if (this.signalDark) target = -1;
@@ -752,7 +763,7 @@ export class Interaction {
       m.ghost.visible = target !== -1;
       if (target !== -1) {
         // (Both posts, as the drop will put them: a new pair where the other way's free, a set with its partner.)
-        const both = m.moving === -1 ? !layout.signalAt(layout.joinedConnector(target)) : !!layout.signalPartner(m.moving);
+        const both = m.moving === -1 ? this.pairOf(target).length > 1 : !!layout.signalPartner(m.moving);
         placeSetGhost(m.ghost, layout, target, both);
         this.showTint(target, m.moving);
       } else g.blockTint.hide();
@@ -821,7 +832,7 @@ export class Interaction {
       if (m.overTray && m.moving !== -1) {
         ed.removeSignalSet(m.moving);
         this.hud.toast("Back in the box");
-      } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : "Drop it onto the track");
+      } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : this.signalCramped ? SIGNAL_NO_ROOM : "Drop it onto the track");
       return;
     }
     let id = m.moving;
@@ -841,15 +852,31 @@ export class Interaction {
     }
     // (The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with.)
     this.hud.toast("Signal moved. Tap here to turn it round", false, 3600, () => {
-      if (this.game.layout.getSignal(id) && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
+      if (!this.game.layout.getSignal(id)) return;
+      if (this.turnRoomless(id)) this.hud.refuse(SIGNAL_NO_ROOM);
+      else if (!this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
     });
   }
 
-  /** A joint end and its other end (one signal each way), each only if no signal faces that way there yet. */
+  /** A joint end and its other end (one signal each way), each only if no signal faces that way there yet and its post has room. */
   private pairOf(at: number): number[] {
     const layout = this.game.layout;
     const other = layout.joinedConnector(at);
-    return [at, other].filter((a) => a !== -1 && !layout.signalAt(a));
+    return [at, other].filter((a) => a !== -1 && !layout.signalAt(a) && hasRoom(layout, a));
+  }
+
+  /** Would signal `id` turned round have no room for its post on the joint's other end? */
+  private turnRoomless(id: number): boolean {
+    const L = this.game.layout;
+    const m = L.getSignal(id);
+    const other = m ? L.joinedConnector(m.at) : -1;
+    return other !== -1 && !L.signalAt(other) && !hasRoom(L, other);
+  }
+
+  /** Can a placed signal's set go on joint end `at` (`signalSetAt`), each post with room beside the track? */
+  private setFits(id: number, at: number): boolean {
+    const set = this.editor().signalSetAt(id, at);
+    return !!set && set.ats.every((a) => hasRoom(this.game.layout, a));
   }
 
   /** The Signal tool on (tapped in the tray) or off. */
@@ -879,6 +906,8 @@ export class Interaction {
 
   /** The last signal held over a joint was there in a tunnel (and so refused). */
   private signalDark = false;
+  /** The last joint a signal was held over had no room beside the track (and nowhere near did either). */
+  private signalCramped = false;
   private readonly jointScratch = createWorldConnector();
   /** Is this end of track (a joint) in a tunnel? Signals can't go there. */
   private jointInTunnel(ref: number): boolean {
@@ -897,11 +926,21 @@ export class Interaction {
       return;
     }
     const dir = Math.cos(pathHeading(layout, near.cursor) - this.cameraHeading()) >= 0 ? 1 : -1;
-    let at = snapJoint(layout, near.cursor, dir);
+    // (The nearer joint where a signal's post has room, else the piece's other one.)
+    const room = (a: number) => hasRoom(layout, a);
+    let at = snapJoint(layout, near.cursor, dir, room);
+    if (at === -1 && snapJoint(layout, near.cursor, dir) !== -1) {
+      this.hud.refuse(SIGNAL_NO_ROOM);
+      return;
+    }
     // (One there facing that way already: the other way, if that's free.)
     if (at !== -1 && layout.signalAt(at)) at = layout.signalAt(layout.joinedConnector(at)) ? -1 : layout.joinedConnector(at);
     if (at === -1) {
       this.hud.toast("There's a signal there already");
+      return;
+    }
+    if (this.pairOf(at).length === 0) {
+      this.hud.refuse(SIGNAL_NO_ROOM);
       return;
     }
     if (this.jointInTunnel(at)) {
@@ -947,7 +986,7 @@ export class Interaction {
     if (Math.abs(along) < 4) return;
     m.fx = ground.x;
     m.fz = ground.z;
-    const at = snapJoint(layout, near.cursor, along > 0 ? 1 : -1);
+    const at = snapJoint(layout, near.cursor, along > 0 ? 1 : -1, (a) => hasRoom(layout, a));
     if (at === -1 || m.ats.includes(at) || m.ats.includes(layout.joinedConnector(at)) || layout.signalAt(at)) return;
     const j = postAt(layout, at);
     if (!j) return;
@@ -958,7 +997,7 @@ export class Interaction {
     m.ats.push(at);
     // (Both posts of the pair each joint gets, the other only where that way's free.)
     const ghost = markSetGhost(g.mats);
-    placeSetGhost(ghost, layout, at, !layout.signalAt(layout.joinedConnector(at)));
+    placeSetGhost(ghost, layout, at, this.pairOf(at).length > 1);
     g.scene.add(ghost);
     m.ghosts.push(ghost);
     g.invalidate();
@@ -1053,7 +1092,8 @@ export class Interaction {
         { label: `Look: ${Interaction.STYLE_NAMES[m.style]} ▸`, title: "Lamps, semaphore or colour light: a tap shows the next" },
       ],
       (i) => {
-        if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
+        if (i === 0 && this.turnRoomless(id)) this.hud.refuse(SIGNAL_NO_ROOM);
+        else if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
         if (i === 1) {
           const k = Interaction.STYLES.indexOf(m.style);
           this.editor().setSignalStyle(id, Interaction.STYLES[(k + 1) % Interaction.STYLES.length]);
@@ -2314,8 +2354,8 @@ export class Interaction {
       this.game.controls.enabled = true;
       return false;
     };
-    // Stations and depots are part of the map and stay put.
-    if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId)) return idle();
+    // Stations and depots are part of the map and stay put (but the starter map's lumber yard and sawmill: `movableMapDepot`).
+    if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId) && !this.movesAsPlaced(m.press.pieceId)) return idle();
     // Track with a train on it stays put: lifted, it would derail the train (a turntable carrying an engine, say).
     const lifts = m.press.kind === "piece" ? (this.picking ? (this.picked.has(m.press.pieceId) ? this.pickedWithRisers() : []) : [m.press.pieceId]) : m.press.kind === "depot" ? [this.movableIndustry(m.press.depotId)] : [];
     if (lifts.some((id) => id !== -1 && this.game.sim.pieceOccupied(id))) {
@@ -2373,7 +2413,7 @@ export class Interaction {
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
     // (But a town's house, which no line is drawn from, lifts as it does with drawing off.)
     if (this.drawing && !branch && !house) return;
-    if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
+    if (m.press.kind === "piece" && (this.picking || (this.fixedLabel(m.press.pieceId) && !this.movesAsPlaced(m.press.pieceId)))) return;
     if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };
     this.holdFrom = t;
@@ -2922,6 +2962,10 @@ export class Interaction {
     }
     if (p.kind === "route-stop") {
       this.onTapStopDisc?.(p.index);
+      return;
+    }
+    if (p.kind === "route-insert") {
+      this.onTapInsertDisc?.(p.after);
       return;
     }
     if (p.kind === "route-via") {
@@ -3798,7 +3842,7 @@ export class Interaction {
     // (A metro stop's footprint is its entrance, up on a town's green or street: its own rule, `metroTown`.)
     if (!hasFootprint(type) || type === METRO_KIT) return null;
     const own = typeof ignoreId === "number" ? ignoreId : (ignoreId.values().next().value ?? -1);
-    if (own !== -1 && this.fixedLabel(own) !== null) return null;
+    if (own !== -1 && this.fixedLabel(own) !== null && !this.movesAsPlaced(own)) return null;
     const g = this.game;
     const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
     const key = `${type}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${g.layout.pieceCount}|${g.landscape.grid.revision}|${g.props.version}`;
@@ -3847,8 +3891,12 @@ export class Interaction {
       if (!p || layout.isLifted(id)) continue;
       key += `k${id}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y};`;
     }
+    // (The map's own depots have their squares on the map, but one moved: its yard is with the player's, by its piece.)
+    let moved = 0;
+    for (const d of g.landscape.depots) if (d.moved) moved++;
+    key += `m${moved}`;
     if (this.yardsFor?.key === key) return this.yardsFor.yards;
-    const fixed = new Set(g.depots.values());
+    const fixed = new Set([...g.depots].filter(([depotId]) => !g.landscape.depots[depotId]?.moved).map(([, id]) => id));
     const yards: PlacedYard[] = [];
     for (const d of g.economy.allDepots()) {
       const p = layout.getPiece(d.pieceId);
@@ -4074,6 +4122,15 @@ export class Interaction {
   }
 
   /**
+   * Is it dropped onto a line's straights to take their place: a depot or splicing kit (`splices`), or points from the
+   * tray (`SPLICE_POINTS`: a split or a switch, its straight-on leg along the line, its branch to the side it's held;
+   * 2026-11-16, so a track laid beside a line can be joined to it). Points held at a line's open end still go on from it.
+   */
+  private splicesIn(type: PieceTypeId): boolean {
+    return this.splices(type) || SPLICE_POINTS.has(type);
+  }
+
+  /**
    * The track ends a placed piece is joined to, from its first end's to its second's, if it's joined at both ends
    * and only to plain track (not a station or a depot); else null.
    */
@@ -4121,12 +4178,30 @@ export class Interaction {
     return m.covers ? new Set([m.pieceId, ...m.covers]) : m.pieceId;
   }
 
-  /** The piece of an industry you placed (a drag on its yard or buildings moves it), or −1 (a map's own depot). */
+  /**
+   * The piece of an industry you placed, or the starter map's lumber yard or sawmill (a drag on its yard or buildings
+   * moves it), or −1 (another map's own depot).
+   */
   private movableIndustry(depotId: number): number {
     const d = this.game.economy.depot(depotId);
     const p = d && this.game.layout.getPiece(d.pieceId);
-    if (!d || !p || !INDUSTRY_ROLE[p.type] || this.fixedLabel(d.pieceId) || this.game.sim.pieceOccupied(d.pieceId)) return -1;
+    if (!d || !p || !INDUSTRY_ROLE[p.type] || (this.fixedLabel(d.pieceId) && !this.movesAsPlaced(d.pieceId)) || this.game.sim.pieceOccupied(d.pieceId)) return -1;
     return d.pieceId;
+  }
+
+  /** The map depot (`Landscape.depots` id) on this piece, or −1. */
+  private mapDepotOf(pieceId: number): number {
+    for (const [depotId, id] of this.game.depots) if (id === pieceId) return depotId;
+    return -1;
+  }
+
+  /**
+   * Is this one of the map's own depots that moves as an industry you placed (the starter map's lumber yard and
+   * sawmill: `movableMapDepot`)? Still the map's own otherwise: not picked with others, nor put back in the box.
+   */
+  private movesAsPlaced(pieceId: number): boolean {
+    const id = this.mapDepotOf(pieceId);
+    return id !== -1 && movableMapDepot(this.game.landscape, id);
   }
 
   /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
@@ -4777,6 +4852,9 @@ export class Interaction {
     this.hud.hideCards();
     const from = { pose: { ...p.pose }, y: p.y };
     const leaves = this.splices(p.type) ? this.inlineEnds(pieceId) : null;
+    // The starter map's lumber yard or sawmill, picked up the first time: it gives up its squares on the map, and is
+    // put down by a placed industry's rules from now on (`freeMapDepot`).
+    if (this.movesAsPlaced(pieceId)) freeMapDepot(this.game.landscape, this.mapDepotOf(pieceId));
     layout.liftPiece(pieceId);
     // An industry's yard goes up with it (drawn in the hand, not where it stood).
     if (INDUSTRY_ROLE[p.type]) this.game.depotView.syncSites(this.game.economy, layout);
@@ -5064,7 +5142,10 @@ export class Interaction {
       let spliceWhy: PlaceBlock | null = null;
       // The placement check last made of a splice (reused below for the one taken, not worked out twice).
       let spliceFit = null as { pose: Pose; placed: { reason: PlaceBlock | null; risers: RiserAt[] } } | null;
-      if (this.splices(m.type)) {
+      // (Points: spliced where that fits, else as before: seated on an open end, or loose. Never refused for not
+      // being over a line.)
+      const points = SPLICE_POINTS.has(m.type);
+      if (this.splicesIn(m.type)) {
         // Its centre as held under the finger, seen at the height of each straight it may be over (a few heights).
         // On touch, where it's drawn (held by its middle, not where it was taken hold of: QA N1).
         const seen = new Map<number, { x: number; z: number } | null>();
@@ -5098,11 +5179,12 @@ export class Interaction {
         // (At the joint: the finger on it, within a finger's width. On touch the piece is drawn above the finger.)
         const finger = (h: number) => this.planeAt(x, y, h);
         const s = findSpliceThatFits(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free, fits, finger, capture);
-        if (s.kind === "splice") {
+        if (s.kind === "splice" && (!points || (spliceFit?.pose === s.pose ? spliceFit.placed.reason === null : fits(s)))) {
           m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
           m.covers = s.covers;
           m.rest = s.rest ? s.rest.map((f) => ({ type: f.type, pose: f.pose, y: f.y })) : null;
-        } else if (s.kind !== "none") spliceWhy = s.kind === "busy" ? "splice-busy" : "splice-fit";
+        } else if (points) spliceFit = null;
+        else if (s.kind !== "none") spliceWhy = s.kind === "busy" ? "splice-busy" : "splice-fit";
         else spliceWhy = "splice-onto";
       }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
@@ -5289,7 +5371,13 @@ export class Interaction {
     // it's going down, see-through red when it's refused.
     const refused = final !== null || m.overTray;
     mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut, g.mats.bridgePaint, g.mats.viaductStone];
-    switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
+    let outcome = dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew });
+    // (The map's own lumber yard or sawmill, moved, doesn't go in the box: it floats back to where it was.)
+    if (outcome === "delete" && this.mapDepotOf(m.pieceId) !== -1) {
+      this.hud.toast(`The ${DEPOT_NAMES[m.type === "depot-forest" ? "forest" : "sawmill"].toLowerCase()} came with the map: it can't go in the box`);
+      outcome = "return";
+    }
+    switch (outcome) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
         const covers = m.covers;
@@ -6231,15 +6319,19 @@ export class Interaction {
     const partnerFrom = partner && { x: partner.x, z: partner.z, heading: partner.heading, y: partner.y };
     const partnerTo = swap?.to;
     const changed = [...new Set([...found.building.cells, ...lot.cells].map(plotSlotOf))];
+    // (Undone or redone only while its squares are as it left them: the town may have grown onto them since.)
+    const guard = townMoveGuard(land, [...found.building.cells, ...lot.cells]);
     let putBack = () => {};
     const doIt = () => {
       putBack = moveBuilding(land, building, lot);
       g.props.move(id, pose);
       if (partner && partnerTo) g.props.move(partner.id, partnerTo);
+      guard.done();
     };
     doIt();
     g.editLand(changed);
     this.editor().recordLand({
+      refuse: guard.refuse,
       do: doIt,
       undo: () => {
         putBack();
@@ -6336,7 +6428,7 @@ export class Interaction {
   private pick(x: number, y: number, touch = false): Press | null {
     const exact = this.pickExact(x, y);
     // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
-    if (exact?.kind === "route-stop" || exact?.kind === "route-via") return exact;
+    if (exact?.kind === "route-stop" || exact?.kind === "route-via" || exact?.kind === "route-insert") return exact;
     if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
     // Planning, a tap on plain track (or the ground) just beside a station or depot means the place: a via point there
     // was the stray tap's (audit F6). Within a fingertip of the place's track on screen.
@@ -6519,8 +6611,19 @@ export class Interaction {
     const g = this.game;
     // Planning a route: its stop discs float over everything, and win.
     if (this.routeGroup?.visible && this.onTapStopDisc) {
-      for (const h of this.raycaster.intersectObject(this.routeGroup, true)) {
+      const hits = this.raycaster.intersectObject(this.routeGroup, true);
+      // (A + peg on the line: the one whose middle is nearest the finger on the screen. Their sprites are a finger's
+      // size and may overlap where a leg is short; the nearest along the ray isn't the one meant.)
+      let peg: { after: number; d: number } | null = null;
+      for (const h of hits) {
+        if (h.object.userData.kind !== "route-insert" || !this.onTapInsertDisc) continue;
+        const c = h.object.getWorldPosition(this.pegAt).project(this.game.camera);
+        const d = Math.hypot(c.x - this.ndc.x, c.y - this.ndc.y);
+        if (!peg || d < peg.d) peg = { after: h.object.userData.after as number, d };
+      }
+      for (const h of hits) {
         if (h.object.userData.kind === "route-stop") return { kind: "route-stop", index: h.object.userData.index as number };
+        if (h.object.userData.kind === "route-insert" && peg) return { kind: "route-insert", after: peg.after };
         if (h.object.userData.kind === "route-via") return { kind: "route-via", pieceId: h.object.userData.pieceId as number };
       }
     }

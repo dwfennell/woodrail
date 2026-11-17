@@ -40,6 +40,8 @@ import type { Stalls } from "../economy/stalls";
 import type { Router } from "../routing/router";
 import { next, waysFrom } from "../routing/graph";
 import { planChoice, planWay, ROUTE_COSTS } from "../routing/plan";
+import { outOfShort, stubRule } from "../routing/stubs";
+import { trainLength } from "./train-cars";
 import { ReservationShadow } from "../routing/shadow";
 
 export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed", "heldFree"] as const;
@@ -755,10 +757,14 @@ export class Invariants {
       let costs: number[] = [];
       // (Round its line's lap where a way goes so, as the router plans it: sections' `lapRule`.)
       const lap = sections.lapRule?.(engine);
-      let best = lap ? planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs, undefined, lap) : -1;
+      // (Kept to the road it came into a dead end too short for it by, as the router plans it: stubs.ts.)
+      const stubs = stubRule(layout, trainLength(t));
+      // (Coming out of a dead end too short for it: the points under its nose since it turned, as they lie.)
+      if (stubs && outOfShort(stubs, b.pieceId, entry)) return;
+      let best = lap ? planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs, undefined, lap, stubs) : -1;
       if (best === -1) {
         costs = [];
-        best = planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs);
+        best = planChoice(layout, b.pieceId, true, ways, held?.aim ?? target, ROUTE_COSTS, costs, undefined, undefined, stubs);
       }
       if (best === -1 || best === taken.option) return;
       // (Or the way its line kept, costing nearly the best: stickiness, via points' §3.5.)
@@ -766,7 +772,7 @@ export class Invariants {
       // (Kept as `planWay` keeps it: costing nearly the best, or no more than when it was taken, its way still there after
       // a track edit made another shorter.)
       const keep = this.world.owner !== undefined ? this.world.router.ways.get(this.world.owner(engine), b.pieceId, entry, aim) : undefined;
-      const kept = keep?.way?.option === taken.option && planWay(layout, b.pieceId, entry, ways, aim, undefined, keep) === taken.option;
+      const kept = keep?.way?.option === taken.option && planWay(layout, b.pieceId, entry, ways, aim, undefined, keep, undefined, undefined, stubs) === taken.option;
       wrong = !(costs[taken.option] <= costs[best]) && !kept;
     }
     if (wrong) this.break("wrongRoad", `${this.name(key, engine)} took road ${taken.option} at points ${b.pieceId} (${followed.length === 1 ? "not the way granted" : `not its way to ${target}`})`, engine, b.pieceId);

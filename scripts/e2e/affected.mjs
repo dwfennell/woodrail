@@ -40,14 +40,17 @@ export const SUITES = {
   growth: { script: "e2e:growth" },
   "copy-map": { script: "e2e:copy-map", minutes: 2 },
   "town-drag": { script: "e2e:town-drag", minutes: 4 },
+  "moved-house": { script: "e2e:moved-house", minutes: 5 },
   "town-shape": { script: "e2e:town-shape", minutes: 2 },
   school: { script: "e2e:school" },
   sites: { script: "e2e:sites", groups: true, minutes: 37 },
   "train-parts": { script: "e2e:train-parts" },
   "train-summary": { script: "e2e:train-summary", minutes: 8 },
   "not-loading": { script: "e2e:not-loading", minutes: 3 },
+  "load-in-place": { script: "e2e:load-in-place", minutes: 4 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
   "new-game": { script: "e2e:new-game", minutes: 8 },
+  saves: { script: "e2e:saves", minutes: 6 },
   civic: { script: "e2e:civic", minutes: 5 },
   "paint-picker": { script: "e2e:paint-picker", minutes: 4 },
   stickers: { script: "e2e:stickers" },
@@ -66,9 +69,10 @@ export const SUITES = {
   post: { script: "e2e:post", minutes: 5 },
   "gl-lost": { script: "e2e:gl-lost", minutes: 4 },
   "gl-lost-desktop": { script: "e2e:gl-lost-desktop", minutes: 2 },
-  leftovers: { script: "e2e:leftovers", minutes: 12 },
+  leftovers: { script: "e2e:leftovers", minutes: 14 },
   "sandbox-chains": { script: "e2e:sandbox-chains" },
   airport: { script: "e2e:airport", minutes: 8 },
+  destinations: { script: "e2e:destinations", minutes: 5 },
   airship: { script: "e2e:airship", minutes: 8 },
   circus: { script: "e2e:circus", minutes: 6 },
   grand: { script: "e2e:grand", minutes: 6 },
@@ -82,6 +86,8 @@ export const SUITES = {
   metro: { script: "e2e:metro", minutes: 3 },
   "feature-tips": { script: "e2e:feature-tips", minutes: 6 },
   "routes-ux": { script: "e2e:routes-ux", minutes: 6 },
+  "route-insert": { script: "e2e:route-insert", minutes: 4 },
+  "train-off-line": { script: "e2e:train-off-line", minutes: 4 },
   "tech-tree-5": { script: "e2e:tech-tree-5", minutes: 4 },
 };
 
@@ -121,11 +127,11 @@ export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/routing/ca
 // Touch's groups that plan, run or show routes and lines.
 const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way,split";
 // Touch's groups for the tech tree's track pieces (scripts/e2e/track-pieces.mjs).
-const TOUCH_PIECES = "touch:slips,double-three-way,split,turntable-taps";
+const TOUCH_PIECES = "touch:slips,double-three-way,split,splice-points,turntable-taps";
 // Touch's groups that press, hold, drag and drop pieces and trains: what a change to input or picking can break.
 const TOUCH_INPUT = "touch:sandbox-shelves,game-shelves,map-taps,select-drag,redrawn,flick,lever-pins,under-car,toast-through,trap,place-facing,front-join,tight-curves";
 // Touch's groups that lay track, throw points and run trains over it: what a change to the track or the editor can break.
-const TOUCH_TRACK = "touch:map-taps,select-drag,flick,lever-pins,under-car,wye,place-facing,front-join,tight-curves,follow,stuck,slips,double-three-way,split,turntable-taps";
+const TOUCH_TRACK = "touch:map-taps,select-drag,flick,lever-pins,under-car,wye,place-facing,front-join,tight-curves,follow,stuck,slips,double-three-way,split,splice-points,turntable-taps";
 // Touch's groups that run trains (the sim's levers, points held, trains stopped, cards): with TOUCH_ROUTES, what a
 // change to the sim can break.
 const TOUCH_TRAINS = "touch:select-drag,lever-pins,under-car,wye,train-card,blocker,stuck,stuck-lines";
@@ -133,7 +139,7 @@ const TOUCH_TRAINS = "touch:select-drag,lever-pins,under-car,wye,train-card,bloc
 const TOUCH_UI = "touch:sandbox-shelves,game-shelves,tabs-reach,train-card,toast-through,trap,feedback";
 // Click's groups for a mouse and the tray's drags: what input, track and editor changes can break.
 const CLICK_INPUT = "click:desktop,touch-tray,tight-curves";
-const TOWNS = ["town-drag", "town-shape", "school", "growth", "station-upgrade", "sites"];
+const TOWNS = ["town-drag", "moved-house", "town-shape", "school", "growth", "station-upgrade", "sites"];
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
 export const RULES = [
@@ -188,7 +194,7 @@ export const RULES = [
   [["src/landscape/clearance.ts", "src/landscape/support.ts"], ["low-bridge"]],
   ["src/roads/**", ["roads"]],
   ["src/roads/place.ts", ["low-bridge"]],
-  ["src/economy/**", ["crane", "depot-tracks", "sandbox-chains", TOUCH_ROUTES, "click:routes", "warehouse", "train-summary", "not-loading", "workshop", "big-stations", "station-touches", "kits-game", "research", "school", "growth"]],
+  ["src/economy/**", ["crane", "depot-tracks", "load-in-place", "sandbox-chains", TOUCH_ROUTES, "click:routes", "warehouse", "train-summary", "not-loading", "workshop", "big-stations", "station-touches", "kits-game", "research", "school", "growth"]],
   ["src/props/**", [...TOWNS, "click:model-train"]],
   ["src/persist/**", ["cloud", "copy-map", "joints", "engine-names", "touch:defaults"]],
   ["src/persist/bug-map.ts", ["copy-map", "touch:feedback", "click:feedback"]],
@@ -219,7 +225,7 @@ export const RULES = [
   ["src/render/telegraph-wires.ts", ["kits-game", "research"]],
   ["src/render/route-view.ts", [TOUCH_ROUTES, "click:routes"]],
   [["src/render/depot-view.ts", "src/render/industry-*", "src/render/touches-view.ts", "src/render/flourishes.ts"], ["life", "kits-game", "station-upgrade"]],
-  ["src/render/depot-view.ts", ["depot-tracks"]],
+  ["src/render/depot-view.ts", ["depot-tracks", "load-in-place"]],
   ["src/game/depot-tracks.ts", ["depot-tracks"]],
   [["src/render/road-vehicles-view.ts", "src/render/crossings-view.ts"], ["roads"]],
   ["src/render/ambient.ts", ["life", "roads"]],
@@ -253,6 +259,10 @@ export const RULES = [
   // The routes UX (option B, 2026-11-06): the line sheet, its words, health, the rings round places to tap.
   [["src/ui/line-sheet.ts", "src/game/line-sheet-text.ts", "src/game/line-health.ts", "src/render/place-rings.ts", "src/economy/line-tally.ts"], ["routes-ux", TOUCH_ROUTES]],
   [["src/game/lines.ts", "src/game/interaction.ts", "src/main.ts", "src/persist/save.ts", "src/render/depot-view.ts"], ["routes-ux"]],
+  // A stop put into a running line (route-insert, 2026-11-16): where it fits, the sheet's and the card rail's +.
+  [["src/game/lines.ts", "src/ui/line-sheet.ts", "src/main.ts"], ["route-insert"]],
+  // A train taken off its line (the card's Leave line, the sheet's Take off): it stands clear of points.
+  [["src/game/lines.ts", "src/ui/line-sheet.ts"], ["train-off-line"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
   ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
@@ -297,14 +307,17 @@ export const RULES = [
   ["src/game/station-upgrade.ts", ["station-upgrade", "station-touches"]],
   ["src/game/departures.ts", ["station-touches"]],
   [["src/game/town-*", "src/game/towns.ts", "src/game/street-moves.ts", "src/game/growth-cards.ts", "src/game/upgrades.ts"], [...TOWNS]],
+  // A moved house or street and what's left behind: the undo guard, the save's heal, the town's tile redrawn.
+  [["src/game/road-hand.ts", "src/props/towns.ts", "src/render/dressing/tiles.ts", "src/editor/editor.ts", "src/persist/save.ts", "src/landscape/clearance.ts"], ["moved-house", "town-drag"]],
   [["src/game/crafting.ts", "src/game/workshop-text.ts"], ["workshop", "growth"]],
   [["src/game/warehouse-text.ts", "src/game/cargo-drop.ts", "src/game/supply.ts"], ["warehouse", "train-summary"]],
   [["src/game/map-sites.ts", "src/game/restore.ts", "src/game/across-river.ts", "src/game/map-markers.ts", "src/game/landmarks.ts", "src/game/harbours.ts"], ["sites"]],
   [["src/game/road-*", "src/game/town-cars.ts", "src/game/buses.ts", "src/game/delivery-vans.ts", "src/game/vans.ts"], ["roads", "post"]],
   // The post: towns' mail, the post office, mail vans, post vans on the streets.
   [["src/game/post.ts", "src/catalogue/assets/mail-van.ts", "src/game/town-ledger.ts", "src/ui/town-ledger.ts"], ["post", "leftovers"]],
-  // The leftovers: the sorting van, Sandbox's post, the Telegraph's trains and Call home, Lined and Rainbow, bunting.
-  [["src/game/telegraph.ts", "src/game/lineside.ts", "src/game/paint-shop.ts", "src/ui/paint-sheet.ts", "src/game/landmarks.ts", "src/render/train-models.ts"], ["leftovers"]],
+  // The leftovers: the sorting van, Sandbox's post, the Telegraph's trains and Call home, Lined and Rainbow, bunting;
+  // the starter map's sawmill moved (map depots: world.ts's rule, the drag in interaction.ts, the save's landscape).
+  [["src/game/telegraph.ts", "src/game/lineside.ts", "src/game/paint-shop.ts", "src/ui/paint-sheet.ts", "src/game/landmarks.ts", "src/render/train-models.ts", "src/game/world.ts", "src/persist/landscape-schema.ts", "src/persist/save.ts"], ["leftovers"]],
   [["src/game/industries.ts", "src/game/lineside.ts", "src/game/fields.ts", "src/game/depot-footprint.ts", "src/game/things.ts", "src/game/food-text.ts"], ["kits-game", "warehouse", "workshop", "hopper-load", "life", "sandbox-chains"]],
   [["src/game/passengers.ts"], ["big-stations", "station-touches", "station-upgrade"]],
   [["src/game/touches.ts", "src/game/calendar.ts"], ["life", "station-clock"]],
@@ -313,6 +326,8 @@ export const RULES = [
   ["src/game/dev-checks.ts", []],
   // The airship tour (late-game spec B1).
   [["src/game/airship.ts", "src/game/passengers.ts", "src/render/airship-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airship"]],
+  // Passenger destinations (spec 2026-11-15-passenger-destinations.md).
+  [["src/game/passengers.ts", "src/economy/economy.ts", "src/game/town-ledger.ts", "src/ui/town-ledger.ts", "src/game/train-summary.ts", "src/persist/save.ts"], ["destinations"]],
   // The airport (late-game spec A1).
   [["src/game/airports.ts", "src/game/passengers.ts", "src/render/planes-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airport"]],
   // Grand projects as achievements (spec 2026-11-05-character-and-goals.md): the projects, the city's card, the
@@ -332,6 +347,9 @@ export const RULES = [
   [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
   // The new-game sheet and how hilly a map is (chosen before a new game, saved with the map).
   [["src/ui/new-game.ts", "src/landscape/hills.ts", "src/landscape/water.ts", "src/landscape/edges.ts", "src/landscape/generate.ts", "src/ui/title.ts", "src/ui/hud.ts", "src/persist/landscape-data.ts", "src/persist/landscape-schema.ts"], ["new-game", "tutorial"]],
+  // Your games: several Game-mode games side by side (the slots, the list, the title's and ☰'s ways in, the cloud's).
+  [["src/persist/slots.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/persist/cloud.ts", "src/ui/title.ts", "src/ui/new-game.ts", "src/ui/hud.ts", "src/main.ts"], ["saves"]],
+  [["src/persist/slots.ts", "src/persist/cloud.ts"], ["cloud", "new-game", "stats"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).
   ["src/test-setup.ts", []],
 ];

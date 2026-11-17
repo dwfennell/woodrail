@@ -188,6 +188,8 @@ export function drawLedger(box: HTMLElement, v: TownLedger, tabs: readonly TownT
     if (v.bus) rows.append(row("Bus", v.bus));
     if (v.post) rows.append(row("Post", v.post));
     if (v.station) rows.append(row("Station", `${v.station.waiting} of ${v.station.room} waiting · ${v.station.carried} carried in all`));
+    if (v.station?.to) rows.append(row("Going to", v.station.to));
+    if (v.draws) rows.append(row("Draws people", v.draws));
     if (rows.childElementCount > 0) st.append(rows);
     if (v.lines.length > 0) {
       const chips = el("div", "ledger-lines");

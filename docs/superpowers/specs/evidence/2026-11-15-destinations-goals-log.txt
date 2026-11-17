@@ -1,0 +1,302 @@
+
+ RUN  v5.0.3 /workspace/woodrail
+
+(node:18233) [THREE_CJS_DEPRECATED] DeprecationWarning: `require("three")` is deprecated and will be removed.
+Replace `const THREE = require("three")` with `import * as THREE from "three"`.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/play/balance.test.ts > the goals play-through > meets every goal by minute 175 but those allowed (GOALS_NOT_REACHED), the old farm restored the player's way, its grain made and milled, a quarry's stone in a city
+fast goals play-through: 175 min of play in 71.4 s; goals 21/25; invariants held
+fast stickers 5/41: track-layer 15, busy-loads 54, first-city 104, delivered-some 121, two-cities 145; 19.1 µs a check over 10500
+balance play-through:
+   0.0 min  new game: towns Larkfield, Elderwick, Thimble Cross, Brambleton; box 1 car:engine, 3 car:timber, 2 piece:buffer-turnback, 1 piece:depot-workshop
+   0.0 min  Larkfield → Elderwick: joined (4 pieces)
+   0.0 min  Larkfield → sawmill: joined (5 pieces)
+   0.0 min  Elderwick → forest yard: joined (4 pieces)
+   0.0 min  timber train (engine, 3 flatbeds) out of the box and set going
+   0.0 min  GOAL 1/25 ✓ Join two towns
+   0.0 min  GOAL 2/25 ✓ Put an engine on the track
+   0.1 min  GOAL 3/25 ✓ Get a train moving
+   0.1 min  GOAL 4/25 ✓ Run a train into a station
+   0.1 min  GOAL 5/25 ✓ Make up a flatbed train
+   0.7 min  GOAL 6/25 ✓ Load logs at the forest
+   2.7 min  GOAL 7/25 ✓ Deliver planks to a town
+   2.8 min  Larkfield grew into a village (+2 buildings; 0 landmarks)
+   2.8 min    present: 1 Flatbed wagon, 1 School
+   2.8 min    offers A crate: 2 Turnbacks or +30 coins or 1 Flatbed wagon
+   2.8 min  GOAL 8/25 ✓ Grow a town into a village
+   3.0 min  took Larkfield's coins card: +30 coins (of crate, coins, wagon)
+   3.0 min  placed the school on the line beside Larkfield
+   3.0 min  GOAL 9/25 ✓ Place a school by a town
+   4.0 min  research: Switches started (3 planks)
+   4.0 min  research: Bridges and ramps up next (10 planks)
+   4.4 min  BLUEPRINT Switches (researched, 3 planks)
+   4.4 min  GOAL 10/25 ✓ Research switches
+   5.0 min  dropped the workshop on the line where its goal points (864 mm from Larkfield's station, 1738 mm from the sawmill)
+   5.0 min  status: 60 coins; workshop nothing; goal Place your workshop; research bridges nothing, next none; Larkfield village (1/8 planks); Elderwick hamlet (0/4 planks)
+   5.0 min  GOAL 11/25 ✓ Place your workshop
+   6.0 min  ordered a switch at the workshop for the goal
+   7.0 min  BLUEPRINT Bridges and ramps (researched, 10 planks)
+   8.2 min  workshop made a switch
+   8.2 min  GOAL 12/25 ✓ Make a switch
+   9.0 min  laid a switch beside the line for the goal (nothing to branch to yet)
+   9.0 min  GOAL 13/25 ✓ Lay a switch
+   9.4 min  GOAL 14/25 ✓ Deliver 10 bundles of planks
+  10.0 min  ran the line on to Thimble Cross (third town); 0 bridges, 0 ramps on the line
+  10.0 min    train 1: timber:3 log, timber:2 log, timber, engine; speed 120; on straight-216
+  10.0 min    piles: sawmill 4 planks; forest 1🪵 log; school nothing; workshop 3 planks
+  10.0 min  status: 96 coins; workshop 3 planks; goal Build a bridge; research none nothing, next none; Larkfield village (7/8 planks); Elderwick hamlet (0/4 planks); Thimble Cross hamlet (0/4 planks)
+  10.0 min  GOAL 15/25 ✓ Connect three towns
+  10.9 min  Thimble Cross grew into a village (+2 buildings; 0 landmarks)
+  10.9 min    offers 1 Flatbed wagon or +30 coins or +8 planks
+  11.0 min  took Thimble Cross's coins card: +30 coins (of wagon, coins, planks)
+  11.6 min  Larkfield grew into a town (+3 buildings; new market; 1 landmarks)
+  11.6 min    present: 1 Workshop, 2 Turnback
+  11.6 min    offers +80 coins or A crate: 3 things or +16 planks
+  12.0 min  took Larkfield's planks card: +16 planks (of coins, crate, planks)
+  12.0 min  research: Farming started (6 planks)
+  12.0 min  research: Passengers up next (6 planks)
+  12.0 min  put a bridge down by itself for the goal (the line didn't cross a river)
+  12.0 min  GOAL 16/25 ✓ Build a bridge
+  13.0 min  bought the plot 0,-2 for 60 coins
+  13.0 min  GOAL 17/25 ✓ Buy some land
+  14.1 min  BLUEPRINT Farming (researched, 6 planks)
+  15.0 min  status: 166 coins; workshop 1 plank; goal Open a farm; research passengers nothing, next none; Larkfield town (4/14 planks, 0/6 flour); Elderwick hamlet (0/4 planks); Thimble Cross village (1/8 planks)
+  16.4 min  BLUEPRINT Passengers (researched, 6 planks)
+  20.0 min    train 1: timber:3 log, timber:3 log, timber:3 log, engine; speed 120; on straight-216
+  20.0 min    piles: sawmill 1 plank; forest 4🪵 logs; school nothing; workshop 1 plank
+  20.0 min  status: 244 coins; workshop 1 plank; goal Open a farm; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick hamlet (0/4 planks); Thimble Cross village (4/8 planks)
+  23.0 min  restored the old farm 332 mm from the line (3 planks + 45 coins)
+  23.0 min  restored the old farm, the line run on to it or a spur laid (rate 1.00)
+  23.0 min  GOAL 18/25 ✓ Open a farm
+  24.5 min  Thimble Cross grew into a town (+3 buildings; 1 landmarks)
+  24.5 min    offers +16 planks or +80 coins or A crate: 3 things
+  25.0 min  took Thimble Cross's planks card: +16 planks (of planks, coins, crate)
+  25.0 min  the goods train is now an engine with timber, timber, hopper, passenger
+  25.0 min  status: 229 coins; workshop 13 planks; goal Run two trains at once; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick hamlet (1/4 planks); Thimble Cross town (0/14 planks, 0/6 flour)
+  27.0 min  research: Mills started (6 planks + 6🌾 grain + 40 coins)
+  27.0 min  research: Signals and routes up next (4 planks + 60 coins)
+  30.0 min    train 2: passenger:4 people, hopper, timber:3 log, timber:3 log, engine; speed 120; on curve-large
+  30.0 min    piles: sawmill nothing; forest 7🪵 logs; school nothing; workshop 13 planks; farm 12🌾 grain
+  30.0 min  status: 237 coins; workshop 13 planks; goal Run two trains at once; research mills 6 planks + 3🌾 grain, next routes; Larkfield town (14/14 planks, 0/6 flour); Elderwick hamlet (3/4 planks); Thimble Cross town (0/14 planks, 0/6 flour)
+  31.8 min  BLUEPRINT Mills (researched, 6 planks + 6🌾 grain)
+  32.8 min  Elderwick grew into a village (+2 buildings; 0 landmarks)
+  32.8 min    offers A crate: 2 things or +30 coins or +8 planks
+  33.0 min  took Elderwick's coins card: +30 coins (of crate, coins, planks)
+  33.3 min  BLUEPRINT Signals and routes (researched, 4 planks)
+  33.3 min  present: 1 car:engine
+  34.0 min  second train (engine, passenger, passenger) set going
+  34.0 min  2 train(s) on a line of 14 stops: farm → forest → town → workshop → town → school → sawmill → town and back
+  34.0 min  GOAL 19/25 ✓ Give a train a route
+  35.0 min  STUCK TRAINS: "Stuck: this line has a train too many. Add a passing loop, or remove a train"; picked the people train up
+  35.0 min  status: 243 coins; workshop 5 planks; goal Run two trains at once; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick village (1/8 planks); Thimble Cross town (0/14 planks, 0/6 flour)
+  40.0 min    train 2: passenger:4 people, hopper:3 grain, timber:3 log, timber:3 log, engine; speed 0; on buffer-turnback; route next 0 (farm)
+  40.0 min    piles: sawmill nothing; forest 7🪵 logs; school nothing; workshop 7 planks; farm 12🌾 grain
+  40.0 min  status: 284 coins; workshop 7 planks; goal Run two trains at once; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick village (5/8 planks); Thimble Cross town (0/14 planks, 0/6 flour)
+  42.0 min  the passing loop the stuck card asked for; laid a passing loop on the line (9 pieces)
+  42.0 min  the people train put back on, the line's passing loop laid, on the line
+  42.0 min  GOAL 20/25 ✓ Run two trains at once
+  45.0 min  status: 320 coins; workshop 7 planks; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick village (5/8 planks); Thimble Cross town (0/14 planks, 0/6 flour)
+  47.0 min  Elderwick grew into a town (+3 buildings; 1 landmarks)
+  47.0 min    offers A crate: 3 things or 1 Coach or +80 coins
+  48.0 min  took Elderwick's coins card: +80 coins (of crate, wagon, coins)
+  50.0 min    train 2: passenger:4 people, hopper:3 grain, timber, timber, engine; speed 0; on straight-216; route next 8 (sawmill)
+  50.0 min    train 4: engine, passenger:4 people, passenger:4 people; speed 120; on curve-large; route next 1 (forest)
+  50.0 min    piles: sawmill 6 planks; forest 12🪵 logs; school nothing; workshop 7 planks; farm 12🌾 grain
+  50.0 min  status: 476 coins; workshop 7 planks; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (3/14 planks, 0/6 flour); Thimble Cross town (0/14 planks, 0/6 flour)
+  51.0 min  the goods train stood 3.3 min in 10 waiting for the people train: laid another passing loop where it waits (9 pieces)
+  54.0 min  JAM: no planks sawn for 4 min; picked the people train up
+  54.0 min  the people train put back on, the line's passing loop laid, on the line
+  55.0 min  status: 515 coins; workshop 7 planks; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (3/14 planks, 0/6 flour); Thimble Cross town (0/14 planks, 0/6 flour)
+  60.0 min    train 5: engine, passenger:3 people, passenger:4 people; speed 120; on switch; route next 12 (town)
+  60.0 min    train 2: passenger:4 people, hopper:3 grain, timber, timber, engine; speed 0; on straight-216; route next 8 (sawmill)
+  60.0 min    piles: sawmill 1🪵 log + 5 planks; forest 12🪵 logs; school nothing; workshop 7 planks; farm 12🌾 grain
+  60.0 min  status: 594 coins; workshop 7 planks; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (9/14 planks, 0/6 flour); Thimble Cross town (0/14 planks, 0/6 flour)
+  65.0 min  status: 671 coins; workshop 7 planks; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (14/14 planks, 0/6 flour); Thimble Cross town (1/14 planks, 0/6 flour)
+  70.0 min    train 2: passenger:4 people, hopper:3 grain, timber:3 planks, timber, engine; speed 0; on depot-school; route next 9 (school)
+  70.0 min    train 5: engine, passenger:4 people, passenger:4 people; speed 120; on straight-144; route next 2 (town)
+  70.0 min    piles: sawmill nothing; forest 12🪵 logs; school nothing; workshop 7 planks; farm 12🌾 grain
+  70.0 min  status: 727 coins; workshop 7 planks; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (14/14 planks, 0/6 flour); Thimble Cross town (4/14 planks, 0/6 flour)
+  75.0 min  status: 791 coins; workshop 7 planks; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (14/14 planks, 0/6 flour); Thimble Cross town (7/14 planks, 0/6 flour)
+  80.0 min    train 2: passenger:4 people, hopper:3 grain, timber:3 planks, timber:3 log, engine; speed 0; on station; route next 2 (town)
+  80.0 min    train 5: engine, passenger:4 people, passenger:4 people; speed 0; on curve-large; route next 8 (sawmill)
+  80.0 min    piles: sawmill nothing; forest 12🪵 logs; school nothing; workshop 7 planks; farm 12🌾 grain
+  80.0 min  status: 861 coins; workshop 7 planks; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (14/14 planks, 0/6 flour); Thimble Cross town (10/14 planks, 0/6 flour)
+  85.0 min  status: 939 coins; workshop 7 planks; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (14/14 planks, 0/6 flour); Thimble Cross town (14/14 planks, 0/6 flour)
+  87.0 min  built a mill after the farm yard
+  87.0 min  2 train(s) on a line of 16 stops: mill → farm → forest → town → workshop → town → school → sawmill → town and back
+  87.0 min  the goods train is now an engine with timber, timber, hopper, van
+  87.0 min  2 train(s) on a line of 16 stops: mill → farm → forest → town → workshop → town → school → sawmill → town and back
+  89.0 min  JAM: no planks sawn for 4 min; picked the people train up
+  90.0 min    train 6: van, hopper:3 grain, timber:3 log, timber:3 log, engine; speed 120; on curve-large; route next 0 (mill)
+  90.0 min    piles: sawmill nothing; forest 9🪵 logs; school nothing; workshop 1 plank; farm 11🌾 grain; mill nothing
+  90.0 min  status: 551 coins; workshop 1 plank; goal all done; research none nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (14/14 planks, 0/6 flour); Thimble Cross town (14/14 planks, 0/6 flour)
+  95.0 min  research: Halts started (6 planks)
+  95.0 min  research: Quicker cranes up next (4 planks)
+  95.0 min  status: 551 coins; workshop 7 planks; goal all done; research halts nothing, next cranes1; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (14/14 planks, 0/6 flour); Thimble Cross town (14/14 planks, 0/6 flour)
+ 100.0 min    train 6: van, hopper:3 grain, timber, timber, engine; speed 120; on straight-216; route next 11 (town)
+ 100.0 min    piles: sawmill nothing; forest 12🪵 logs; school nothing; workshop 7 planks; farm 12🌾 grain; mill 3🍞 flour
+ 100.0 min  status: 665 coins; workshop 7 planks; goal all done; research halts 6 planks, next cranes1; Larkfield town (14/14 planks, 0/6 flour); Elderwick town (14/14 planks, 3/6 flour); Thimble Cross town (14/14 planks, 0/6 flour)
+ 100.3 min  BLUEPRINT Halts (researched, 6 planks)
+ 101.0 min  research: Carpenter's bench up next (7 planks + 60 coins)
+ 101.0 min  a country halt in the line near Larkfield (joined: true)
+ 101.0 min  1 train(s) on a line of 18 stops: mill → farm → forest → town → workshop → town → town → school → sawmill → town and back
+ 104.0 min  Elderwick grew into a city (+3 buildings; 1 landmarks)
+ 104.0 min    present: 1 Engine, 1 Mill
+ 104.0 min    offers +3 or A crate: 4 things or +29 planks
+ 105.0 min  took Elderwick's planks card: +29 planks (of boost, crate, planks)
+ 105.0 min  the workshop's yard is full (30 planks) and a town past it has had none for 15 min: crane off, trains run through
+ 105.0 min  status: 719 coins; workshop 30 planks; goal all done; research cranes1 nothing, next carpentry; Larkfield town (14/14 planks, 0/6 flour); Elderwick city (0/22 planks, 0/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 105.9 min  BLUEPRINT Quicker cranes (researched, 4 planks)
+ 106.0 min  research: Harvesters up next (5 planks)
+ 110.0 min    train 6: van, hopper:3 grain, timber, timber:3 log, engine; speed 60; on curve-large; route next 8 (sawmill)
+ 110.0 min    piles: sawmill 3🪵 logs; forest 12🪵 logs; school nothing; workshop 30 planks; farm 12🌾 grain; mill 3🍞 flour
+ 110.0 min  status: 698 coins; workshop 30 planks; goal all done; research carpentry nothing, next harvesters; Larkfield town (14/14 planks, 0/6 flour); Elderwick city (2/22 planks, 3/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 115.0 min  status: 698 coins; workshop 30 planks; goal all done; research carpentry 6 planks, next harvesters; Larkfield town (14/14 planks, 0/6 flour); Elderwick city (2/22 planks, 3/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 117.3 min  BLUEPRINT Carpenter's bench (researched, 7 planks)
+ 118.0 min  research: Junctions and loops up next (6 planks)
+ 120.0 min    train 6: van:3 flour, hopper, timber:3 log, timber:3 log, engine; speed 18; on buffer-turnback; route next 0 (mill)
+ 120.0 min    piles: sawmill nothing; forest 12🪵 logs; school nothing; workshop 30 planks; farm 12🌾 grain; mill 3🌾 grain
+ 120.0 min  status: 755 coins; workshop 30 planks; goal all done; research harvesters nothing, next junctions; Larkfield town (14/14 planks, 0/6 flour); Elderwick city (7/22 planks, 6/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 122.5 min  BLUEPRINT Harvesters (researched, 5 planks)
+ 123.0 min  research: Signal boxes up next (4 planks + 80 coins)
+ 123.0 min  built a harvester (rate 1.50)
+ 123.0 min  1 train(s) on a line of 20 stops: mill → farm → forest → town → workshop → town → town → school → sawmill → town → forest and back
+ 123.0 min  the workshop's crane on again (10 planks in its yard)
+ 125.0 min  status: 638 coins; workshop 10 planks; goal all done; research junctions nothing, next signal-boxes; Larkfield town (14/14 planks, 0/6 flour); Elderwick city (8/22 planks, 9/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 127.0 min  STALL: no planks sawn for 5 minutes
+ 127.0 min    train 6: van, hopper:3 grain, timber:3 log, timber:3 log, engine; speed 120; on straight-216; route next 0 (mill)
+ 127.0 min    piles: sawmill nothing; forest 12🪵 logs; school nothing; workshop 10 planks; farm 12🌾 grain; mill 3🍞 flour; forest 12🪵 logs
+ 130.0 min    train 6: van, hopper:3 grain, timber, timber, engine; speed 120; on straight-216; route next 10 (forest)
+ 130.0 min    piles: sawmill 6 planks; forest 12🪵 logs; school nothing; workshop 10 planks; farm 12🌾 grain; mill 3🍞 flour; forest 12🪵 logs
+ 130.0 min  status: 665 coins; workshop 10 planks; goal all done; research junctions nothing, next signal-boxes; Larkfield town (14/14 planks, 0/6 flour); Elderwick city (8/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 133.0 min  BLUEPRINT Junctions and loops (researched, 6 planks)
+ 135.0 min  status: 585 coins; workshop 10 planks; goal all done; research signal-boxes nothing, next none; Larkfield town (14/14 planks, 0/6 flour); Elderwick city (8/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 140.0 min    train 6: van, hopper:3 grain, timber:3 planks, timber:3 planks, engine; speed 120; on straight-216; route next 11 (town)
+ 140.0 min    piles: sawmill 6 planks; forest 12🪵 logs; school nothing; workshop 10 planks; farm 12🌾 grain; mill 3🍞 flour; forest 12🪵 logs
+ 140.0 min  status: 639 coins; workshop 10 planks; goal all done; research signal-boxes nothing, next none; Larkfield town (14/14 planks, 3/6 flour); Elderwick city (8/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 141.3 min  BLUEPRINT Signal boxes (researched, 4 planks)
+ 143.0 min  STALL: no planks sawn for 5 minutes
+ 143.0 min    train 6: van, hopper:3 grain, timber:3 log, timber:3 log, engine; speed 120; on curve-large; route next 0 (mill)
+ 143.0 min    piles: sawmill 6 planks; forest 12🪵 logs; school nothing; workshop 10 planks; farm 12🌾 grain; mill 3🍞 flour; forest 12🪵 logs
+ 144.7 min  Larkfield grew into a city (+3 buildings; new city-school; 1 landmarks)
+ 144.7 min    offers +200 coins or +20 planks or A crate: 4 things
+ 145.0 min  took Larkfield's coins card: +200 coins (of coins, planks, crate)
+ 145.0 min  research: Quarries started (8 planks + 6🍞 flour + 80 coins)
+ 145.0 min  status: 825 coins; workshop 10 planks; goal all done; research quarries nothing, next none; Larkfield city (0/22 planks, 0/12 flour, 0/10 stone); Elderwick city (10/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 150.0 min    train 6: van, hopper:3 grain, timber:3 log, timber:3 log, engine; speed 120; on straight-216; route next 0 (mill)
+ 150.0 min    piles: sawmill 6 planks; forest 10🪵 logs; school nothing; workshop 10 planks; farm 12🌾 grain; mill 3🍞 flour; forest 12🪵 logs
+ 150.0 min  status: 825 coins; workshop 10 planks; goal all done; research quarries 6 planks, next none; Larkfield city (0/22 planks, 0/12 flour, 0/10 stone); Elderwick city (10/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 151.0 min  STALL: no planks sawn for 5 minutes
+ 151.0 min    train 6: van, hopper:3 grain, timber:3 log, timber:3 log, engine; speed 120; on station; route next 0 (mill)
+ 151.0 min    piles: sawmill 6 planks; forest 12🪵 logs; school nothing; workshop 10 planks; farm 12🌾 grain; mill 3🍞 flour; forest 12🪵 logs
+ 153.0 min  no planks for 5 min at Larkfield, which wants them, and the goods train keeps planks for the school: the school set to Shares with towns
+ 155.0 min  status: 825 coins; workshop 10 planks; goal all done; research quarries 6 planks + 3🍞 flour, next none; Larkfield city (0/22 planks, 0/12 flour, 0/10 stone); Elderwick city (10/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 157.0 min  the school back to Research first (4 min after)
+ 159.0 min  STALL: no planks sawn for 5 minutes
+ 159.0 min    train 6: van, hopper:3 grain, timber:3 log, timber:3 log, engine; speed 120; on switch; route next 0 (mill)
+ 159.0 min    piles: sawmill 6 planks; forest 12🪵 logs; school nothing; workshop 10 planks; farm 12🌾 grain; mill 3🍞 flour; forest 12🪵 logs
+ 160.0 min    train 6: van:3 flour, hopper:3 grain, timber:3 log, timber:3 log, engine; speed 120; on ramp; route next 2 (forest)
+ 160.0 min    piles: sawmill 6 planks; forest 12🪵 logs; school nothing; workshop 10 planks; farm 10🌾 grain; mill 1🌾 grain + 2🍞 flour; forest 12🪵 logs
+ 160.0 min  status: 849 coins; workshop 10 planks; goal all done; research quarries 8 planks + 3🍞 flour, next none; Larkfield city (4/22 planks, 0/12 flour, 0/10 stone); Elderwick city (10/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 161.9 min  BLUEPRINT Quarries (researched, 8 planks + 6🍞 flour)
+ 162.0 min  built a quarry by the line (rate 0.50)
+ 162.0 min  1 train(s) on a line of 22 stops: mill → farm → forest → town → workshop → town → town → school → sawmill → town → forest → quarry and back
+ 162.0 min  GOAL 21/25 ✓ Open a quarry
+ 165.0 min  status: 705 coins; workshop 1 plank; goal all done; research none nothing, next none; Larkfield city (10/22 planks, 0/12 flour, 0/10 stone); Elderwick city (10/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 167.0 min  STALL: no planks sawn for 5 minutes
+ 167.0 min    train 6: van, hopper:3 grain, timber:3 log, timber:3 log, engine; speed 120; on station; route next 0 (mill)
+ 167.0 min    piles: sawmill 6 planks; forest 12🪵 logs; school nothing; workshop 1 plank; farm 12🌾 grain; mill 3🍞 flour; forest 12🪵 logs; quarry 10🪨 stone
+ 170.0 min  STUCK: the goods train's cars come by full of grain; now picked up only on the way to where it's taken (its other visits "Only drop")
+ 170.0 min    train 6: van, hopper:3 grain, timber:3 planks, timber:3 planks, engine; speed 120; on straight-216; route next 10 (forest)
+ 170.0 min    piles: sawmill 1🪵 log + 5 planks; forest 12🪵 logs; school nothing; workshop 1 plank; farm 12🌾 grain; mill 3🍞 flour; forest 12🪵 logs; quarry 12🪨 stone
+ 170.0 min  status: 732 coins; workshop 1 plank; goal all done; research none nothing, next none; Larkfield city (10/22 planks, 3/12 flour, 0/10 stone); Elderwick city (10/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+ 175.0 min  status: 768 coins; workshop 1 plank; goal all done; research none nothing, next none; Larkfield city (16/22 planks, 3/12 flour, 0/10 stone); Elderwick city (10/22 planks, 12/12 flour, 0/10 stone); Thimble Cross town (14/14 planks, 0/6 flour)
+
+minute | coins | planks | goals | bps | town levels | trains | riders
+   1 |     0 |   0 |  6/17 |  0 | 0,0,0,0 | 1 | 0
+   2 |     0 |   0 |  6/17 |  0 | 0,0,0,0 | 1 | 0
+   3 |    54 |   0 |  8/17 |  0 | 1,0,0,0 | 1 | 0
+   4 |    60 |   0 |  9/17 |  0 | 1,0,0,0 | 1 | 0
+   5 |    60 |   0 | 10/17 |  1 | 1,0,0,0 | 1 | 0
+   6 |    60 |   0 | 11/17 |  1 | 1,0,0,0 | 1 | 0
+   7 |    60 |   1 | 11/17 |  1 | 1,0,0,0 | 1 | 0
+   8 |    60 |   1 | 11/17 |  2 | 1,0,0,0 | 1 | 0
+   9 |    60 |   3 | 12/17 |  2 | 1,0,0,0 | 1 | 0
+  10 |    96 |   3 | 14/17 |  2 | 1,0,0,0 | 1 | 0
+  15 |   166 |   1 | 17/17 |  3 | 2,0,1,0,0 | 1 | 0
+  20 |   244 |   1 | 17/17 |  4 | 2,0,1,0,0 | 1 | 0
+  25 |   229 |  13 | 18/17 |  4 | 2,0,2,0,0 | 1 | 0
+  30 |   237 |  13 | 18/17 |  4 | 2,0,2,0,0 | 1 | 24
+  35 |   243 |   5 | 19/17 |  6 | 2,1,2,0,0 | 1 | 40
+  40 |   284 |   7 | 19/17 |  6 | 2,1,2,0,0 | 1 | 52
+  45 |   320 |   7 | 20/17 |  6 | 2,1,2,0,0 | 2 | 77
+  50 |   476 |   7 | 20/17 |  6 | 2,2,2,0,0 | 2 | 105
+  55 |   515 |   7 | 20/17 |  6 | 2,2,2,0,0 | 2 | 135
+  60 |   594 |   7 | 20/17 |  6 | 2,2,2,0,0 | 2 | 169
+  65 |   671 |   7 | 20/17 |  6 | 2,2,2,0,0 | 2 | 199
+  70 |   727 |   7 | 20/17 |  6 | 2,2,2,0,0 | 2 | 228
+  75 |   791 |   7 | 20/17 |  6 | 2,2,2,0,0 | 2 | 263
+  80 |   861 |   7 | 20/17 |  6 | 2,2,2,0,0 | 2 | 301
+  85 |   939 |   7 | 20/17 |  6 | 2,2,2,0,0 | 2 | 340
+  90 |   551 |   1 | 20/17 |  6 | 2,2,2,0,0 | 1 | 351
+  95 |   551 |   7 | 20/17 |  6 | 2,2,2,0,0 | 1 | 351
+ 100 |   665 |   7 | 20/17 |  6 | 2,2,2,0,0 | 1 | 351
+ 105 |   719 |  30 | 20/17 |  7 | 2,3,2,0,0 | 1 | 351
+ 110 |   698 |  30 | 20/17 |  8 | 2,3,2,0,0 | 1 | 351
+ 115 |   698 |  30 | 20/17 |  8 | 2,3,2,0,0 | 1 | 351
+ 120 |   755 |  30 | 20/17 |  9 | 2,3,2,0,0 | 1 | 351
+ 125 |   638 |  10 | 20/17 | 10 | 2,3,2,0,0 | 1 | 351
+ 130 |   665 |  10 | 20/17 | 10 | 2,3,2,0,0 | 1 | 351
+ 135 |   585 |  10 | 20/17 | 11 | 2,3,2,0,0 | 1 | 351
+ 140 |   639 |  10 | 20/17 | 11 | 2,3,2,0,0 | 1 | 351
+ 145 |   825 |  10 | 20/17 | 12 | 3,3,2,0,0 | 1 | 351
+ 150 |   825 |  10 | 20/17 | 12 | 3,3,2,0,0 | 1 | 351
+ 155 |   825 |  10 | 20/17 | 12 | 3,3,2,0,0 | 1 | 351
+ 160 |   849 |  10 | 20/17 | 12 | 3,3,2,0,0 | 1 | 351
+ 165 |   705 |   1 | 21/17 | 13 | 3,3,2,0,0 | 1 | 351
+ 170 |   732 |   1 | 21/17 | 13 | 3,3,2,0,0 | 1 | 351
+ 175 |   768 |   1 | 21/17 | 13 | 3,3,2,0,0 | 1 | 351
+
+towns: Larkfield city [market] had 42 planks + 9🍞 flour; Elderwick city [market] had 36 planks + 18🍞 flour; Thimble Cross town [market] had 26 planks; Brambleton hamlet [] had nothing; Teasel End hamlet [] had nothing
+blueprints: 4.4 switches (researched; 3 planks) · 7 bridges (researched; 10 planks) · 14.1 farming (researched; 6 planks) · 16.4 passengers (researched; 6 planks) · 31.8 mills (researched; 6 planks + 6🌾 grain) · 33.3 routes (researched; 4 planks) · 100.3 halts (researched; 6 planks) · 105.9 cranes1 (researched; 4 planks) · 117.3 carpentry (researched; 7 planks) · 122.5 harvesters (researched; 5 planks) · 133 junctions (researched; 6 planks) · 141.3 signal-boxes (researched; 4 planks) · 161.9 quarries (researched; 8 planks + 6🍞 flour)
+spent: {"blueprintsCoins":320,"blueprintsPlanks":0,"buildCoins":775,"buildPlanks":94}; coins now 768
+growths: 2.8 Larkfield→Village 19.1 ms (2 lots) · 10.9 Thimble Cross→Village 19.8 ms (2 lots) · 11.6 Larkfield→Town 27 ms (3 lots) · 24.5 Thimble Cross→Town 19.3 ms (3 lots) · 32.8 Elderwick→Village 7.5 ms (2 lots) · 47 Elderwick→Town 11.6 ms (3 lots) · 104 Elderwick→City 17.8 ms (3 lots) · 144.7 Larkfield→City 5.5 ms (3 lots)
+idle stretches (5+ minutes with nothing new): 18-22 (cars for the goods train: 2 car:passenger) · 36-41 (a mill (8 planks + 400 coins; have 5 planks, 243 coins)) · 55-86 (a mill (8 planks + 400 coins; have 7 planks, 515 coins)) · 88-94 (nothing to do (research: none, next none); Larkfield wants flour; Elderwick wants flour; Thimble Cross wants flour) · 96-100 (nothing to do (research: halts, next cranes1); Larkfield wants flour; Elderwick wants flour; Thimble Cross wants flour) · 107-117 (nothing to do (research: carpentry, next harvesters); Larkfield wants flour; Elderwick wants planks+flour+stone; Thimble Cross wants flour) · 124-133 (nothing to do (research: junctions, next signal-boxes); Larkfield wants flour; Elderwick wants planks+flour+stone; Thimble Cross wants flour) · 135-141 (nothing to do (research: signal-boxes, next none); Larkfield wants flour; Elderwick wants planks+stone; Thimble Cross wants flour) · 146-152 (nothing to do (research: quarries, next none); Larkfield wants planks+flour+stone; Elderwick wants planks+stone; Thimble Cross wants flour) · 164-169 (nothing to do (research: none, next none); Larkfield wants planks+flour+stone; Elderwick wants planks+stone; Thimble Cross wants flour) · 171-175 (nothing to do (research: none, next none); Larkfield wants planks+flour+stone; Elderwick wants planks+stone; Thimble Cross wants flour)
+goals: ✓ Join two towns | ✓ Put an engine on the track | ✓ Get a train moving | ✓ Run a train into a station | ✓ Make up a flatbed train | ✓ Load logs at the forest | ✓ Deliver planks to a town | ✓ Grow a town into a village | ✓ Place a school by a town | ✓ Research switches | ✓ Place your workshop | ✓ Make a switch | ✓ Lay a switch | ✓ Open a farm | ✓ Build a bridge | ✓ Connect three towns | ✓ Buy some land | ✓ Deliver 10 bundles of planks | ✓ Run two trains at once | ✓ Give a train a route | ✓ Open a quarry | · Open a mine | · Open a harbour | · Float goods down the river | · Send a ship abroad
+counts: logsCut 261, loadsMoved 1062, planksSawn 228, delivered:planks 104, grainGrown 60, flourGround 36, delivered:flour 27, stoneCut 12; riders 351
+firsts: {"farming":1,"passengers":1,"school":3,"level 1":3,"routes":5,"level 2":12,"land bought":13,"mills":15,"halts":17,"farm built":23,"farm restored":23,"carpentry":48,"level 3":105,"quarries":145,"quarry built":162}
+SUMMARY coins180 768 planks180 1 stall 7 (from 122, 1 train(s), 20 stops) jamStall 4 city 105 cityStar - riders 351 spentCoins 1095 perLine 2 loop - goods2 - held 15.3min jamCut 3 farmWait 9 quarryWait 0 farmCoinWait 0 quarryCoinWait 0 kept 2min onlyNearest grain shopOff 1 schoolShared 1 townGap 20.8min loops - stuckLoops 42/51 headOn 0 lineHeadOn 0 stalls 1 stuck 0.9min lineStall 2.9 arrivals 367 sectionWait 22.3min roomWait 1.0min releases 0
+SUMMARY research first 4.4 at60 6 at120 9 at180 13 stall 9.6min on junctions (from 123.0) (1 goods train(s), 20 stops, short of planks) school 3 blueprints 13
+SUMMARY cards coins 5, planks 3
+research: 4.4 switches · 7 bridges · 14.1 farming · 16.4 passengers · 31.8 mills · 33.3 routes · 100.3 halts · 105.9 cranes1 · 117.3 carpentry · 122.5 harvesters · 133 junctions · 141.3 signal-boxes · 161.9 quarries
+findings:
+- Minute 35: trains stuck ("Stuck: this line has a train too many. Add a passing loop, or remove a train"). Picked the people train up.
+- Minute 42: the passing loop a stuck card asked for. Laid a passing loop on the line.
+- Minute 54: no planks sawn for 4 minutes with 2 trains on one line (they turn each other back; the goods train never reached the forest). Picked the people train up.
+- Minute 89: no planks sawn for 4 minutes with 2 trains on one line (they turn each other back; the goods train never reached the forest). Picked the people train up.
+
+ ❯ src/play/balance.test.ts (7 tests | 1 failed | 6 skipped) 72318ms
+   ❯ the goals play-through (1)
+     × meets every goal by minute 175 but those allowed (GOALS_NOT_REACHED), the old farm restored the player's way, its grain made and milled, a quarry's stone in a city 71577ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/play/balance.test.ts > the goals play-through > meets every goal by minute 175 but those allowed (GOALS_NOT_REACHED), the old farm restored the player's way, its grain made and milled, a quarry's stone in a city
+AssertionError: stone delivered to a town: expected 0 to be greater than 0
+ ❯ goalsPlay src/play/balance.test.ts:1636:88
+    1634|   expect(w.layout.getPiece(P.quarry)?.type, "the quarry on the map").t…
+    1635|   expect(w.economy.made[CARGO.stone.index], "stone cut").toBeGreaterTh…
+    1636|   expect(P.p.progress.counts.get("delivered:stone") ?? 0, "stone deliv…
+       |                                                                                        ^
+    1637|   // Signals are for players who want them (signals spec §2, §11 step …
+    1638|   // never places one (no mark, no old signal piece) yet meets its goa…
+ ❯ src/play/balance.test.ts:1670:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+   Start at  08:20:00
+   Duration  75.91s (tests 95%, transform 4%)
+

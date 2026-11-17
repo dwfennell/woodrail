@@ -54,6 +54,25 @@ export function straightLength(type: PieceTypeId, flipped: boolean): number {
   return Math.abs(end.z) < 1e-6 && Math.abs(end.x - g.length) < 1e-6 ? g.length : 0;
 }
 
+/** Points a player can drop onto a line from the tray, taking the place of straights as a depot does (2026-11-16). */
+export const SPLICE_POINTS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["split", "switch"]);
+
+/**
+ * How long a run of straights a piece takes the place of when dropped onto a line: a straight piece's length (a
+ * depot, a station, a kit), or for points (`SPLICE_POINTS`) their straight-on leg, end 0 to end 1 (the branch goes
+ * off to the side as held); 0 if it can't.
+ */
+export function spliceLength(type: PieceTypeId, flipped: boolean): number {
+  const l = straightLength(type, flipped);
+  if (l > 0 || !SPLICE_POINTS.has(type)) return l;
+  const def = getPieceDef(type, flipped);
+  const leg = def.paths.find((p) => (p.from === 0 && p.to === 1) || (p.from === 1 && p.to === 0));
+  const g = leg?.geom;
+  if (!g || g.kind !== "line" || g.rise !== 0 || g.start.x !== 0 || g.start.z !== 0 || g.start.heading !== 0) return 0;
+  const end = def.connectors[1].pose;
+  return Math.abs(end.z) < 1e-6 && Math.abs(end.x - g.length) < 1e-6 ? g.length : 0;
+}
+
 const a = createWorldConnector();
 const b = createWorldConnector();
 
@@ -84,7 +103,7 @@ export function findSplice(
   canTake: (pieceId: number) => boolean = () => true,
   skip?: ReadonlySet<number>,
 ): Splice {
-  const length = straightLength(type, flipped);
+  const length = spliceLength(type, flipped);
   if (length === 0) return NONE;
   const at = typeof centre === "function" ? centre : () => centre;
   const half = length / 2;
@@ -216,7 +235,7 @@ export function findSpliceThatFits(
 ): Splice {
   const s = findSplice(layout, type, flipped, centre, heading, reach, canTake);
   if (s.kind !== "splice" || fits(s)) return s;
-  const length = straightLength(type, flipped);
+  const length = spliceLength(type, flipped);
   const ends = (f: Pose) => [
     { x: f.x, z: f.z },
     { x: f.x + Math.cos(f.heading) * length, z: f.z + Math.sin(f.heading) * length },

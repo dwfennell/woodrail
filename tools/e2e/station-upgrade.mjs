@@ -210,7 +210,11 @@ check("before: the plain station's goods crane drawn on its platform", craneBefo
 const at = await p.evaluate((townId) => {
   const w = window.woodrail;
   const pose = w.world.layout.getPiece(w.world.stations.get(townId)).pose;
-  const v = new w.camera.position.constructor(pose.x + 108 * Math.cos(pose.heading), 12, pose.z + 108 * Math.sin(pose.heading)).project(w.camera);
+  // (On the platform beside the track, not the track: a train may stand along the platform as it loads, and a tap on
+  // it opens its own card.)
+  const c = Math.cos(pose.heading);
+  const s = Math.sin(pose.heading);
+  const v = new w.camera.position.constructor(pose.x + 108 * c - 45 * s, 12, pose.z + 108 * s + 45 * c).project(w.camera);
   const r = w.canvas.getBoundingClientRect();
   return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
 }, townId);
@@ -329,7 +333,11 @@ if (mover) {
     p.evaluate((tId) => {
       const w = window.woodrail;
       const pose = w.world.layout.getPiece(w.world.stations.get(tId)).pose;
-      const v = new w.camera.position.constructor(pose.x + 108 * Math.cos(pose.heading), 12, pose.z + 108 * Math.sin(pose.heading)).project(w.camera);
+      // (On the platform beside the track, not the track: a train may stand along the platform as it loads, and a tap on
+  // it opens its own card.)
+  const c = Math.cos(pose.heading);
+  const s = Math.sin(pose.heading);
+  const v = new w.camera.position.constructor(pose.x + 108 * c - 45 * s, 12, pose.z + 108 * s + 45 * c).project(w.camera);
       const r = w.canvas.getBoundingClientRect();
       return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
     }, tId);

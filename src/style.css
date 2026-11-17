@@ -336,28 +336,31 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lever { width: 60px; height: 50px; font-size: 20px; }
 /* The engine card: what it's doing, a big Go/Stop and the way it goes, and Swap ends, Decouple and Remove; Follow and ✕ in
    the top corners. */
-.engine-card { padding-top: 14px; min-width: 290px; }
-/* The card's corner buttons are 44 px to tap (the icon's smaller). */
-.engine-card .corner, .engine-card > .close { position: absolute; top: 4px; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: var(--wood-ink-soft); cursor: pointer; border-radius: 8px; line-height: 0; }
-.engine-card .corner.follow { left: 2px; }
-.engine-card > .close { right: 2px; font-size: 18px; font-weight: 900; color: var(--wood-ink-soft); line-height: 1; }
+.engine-card { padding-top: 12px; min-width: 290px; }
+/* The card's corner buttons are 44 px to tap (the icon's smaller), in the card's own corners as every card's ✕ is (its
+   hover tile rounded as the card is), so the rows under the name start clear of them. */
+.engine-card .corner, .engine-card > .close { position: absolute; top: 0; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: var(--wood-ink-soft); cursor: pointer; border-radius: 12px; line-height: 0; }
+.engine-card .corner.follow { left: 0; }
+.engine-card > .close { right: 0; font-size: 18px; font-weight: 900; color: var(--wood-ink-soft); line-height: 1; }
 /* (As every card's ✕: a faint wood hover; the Follow camera too, unless it's on.) */
 .engine-card > .close:hover, .engine-card .corner:not(.active):hover { background: rgba(150, 100, 50, 0.1); }
 .engine-card .corner.follow.active { background: var(--sheen), var(--green); color: var(--paint-ink); box-shadow: inset 0 -3px 0 var(--green-cut); }
 /* Its title is the engine's name, painted on its cab too: a tap renames it (a little text box in its place, 14 letters). */
-/* (44 px to tap, but no taller in the card than a plain title: its margins give back what its height adds.) */
-.engine-card .engine-name { border: none; background: transparent; padding: 0 8px; margin: -12px auto; height: 44px; line-height: 1; max-width: calc(100% - 96px); border-radius: 8px; cursor: text; font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* (44 px to tap, level with the corner buttons, but no taller in the card than a plain title: its margins give back
+   most of what its height adds. The 6 px it keeps puts the first row under it, Delete cargo or a blocker's fix at its
+   right end, 4 px below the ✕'s 44 px, not under its hover tile: the user's report, 2026-11-16.) */
+.engine-card .engine-name { border: none; background: transparent; padding: 0 8px; margin: -12px auto -6px; height: 44px; line-height: 1; max-width: calc(100% - 96px); border-radius: 8px; cursor: text; font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* (the ✎ beside the name, on its centre line) */
 .engine-card .engine-name::after { content: "✎"; display: inline-block; font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); margin-left: 5px; vertical-align: 0.15em; }
 .engine-card .engine-name:hover, .engine-card .engine-name:focus-visible { background: rgba(150, 100, 50, 0.1); }
-.engine-card .engine-name-input { margin: -12px auto; width: 11em; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid var(--end-grain); border-radius: 8px; background: var(--maple); text-align: center; font-family: inherit; font-size: 16px; }
+.engine-card .engine-name-input { margin: -12px auto -6px; width: 11em; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid var(--end-grain); border-radius: 8px; background: var(--maple); text-align: center; font-family: inherit; font-size: 16px; }
 .engine-card .engine-name-input:focus { outline: none; border-color: #8a5a2c; }
 /* Top to bottom by purpose, one column (layout B, 2026-11-05): the load under the name; the status and its fix; Go or
    Stop, Leave now and the way; the line; the train's own tools. Groups 10 px apart, chips 8 px apart (DESIGN.md). */
 .engine-card:not([hidden]) { align-items: stretch; }
 .engine-card .engine-name { align-self: center; }
 /* What it carries, one line under the name (cut with "…"), and Delete cargo at its end (only while there are goods). */
-.engine-load { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; margin-top: -6px; }
+.engine-load { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
 .engine-load[hidden], .engine-load > [hidden] { display: none; }
 .engine-summary { flex: 0 1 auto; min-width: 0; font-size: 13px; font-weight: 700; color: #6a4a2c; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .engine-summary > div { display: inline; }
@@ -396,6 +399,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-actions { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .engine-actions > .chip { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 8px; font-size: 14px; white-space: nowrap; }
 .engine-actions > .chip[hidden] { display: none; }
+/* The card's foot: where the card is cut short and scrolls (a small phone, a long line's box), its Swap ends, Decouple
+   and Remove stay in view at its bottom edge, the rest scrolling above them (lines UI harden 2026-11-16: at 360x740
+   the row was cut by the card's own edge, reading as under the tray). On the board, its end grain under it. On a phone
+   held upright: on its side the card sits right of the train, and fits.) */
+@media (max-width: 640px) and (orientation: portrait) { .engine-card > .engine-actions { position: sticky; bottom: -20px; z-index: 2; margin: 0 -14px -20px; padding: 0 14px 20px; background: var(--wood-panel); box-shadow: inset 0 -6px 0 var(--end-grain); border-radius: 0 0 12px 12px; } }
 .engine-actions > .chip.remove { flex: 0 0 auto; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
 /* (a pencil line between the train's tools and Remove) */
 .engine-actions .engine-actions-gap { flex: 0 0 0; height: 28px; margin: 0 3px; border-left: 1.5px dashed var(--pencil); }
@@ -709,6 +717,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-art { width: 84px; height: 84px; border-radius: 8px; background: var(--maple) center / 112% no-repeat; box-shadow: var(--tile-face), var(--tile-drop); margin-bottom: 6px; }
 .title-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .title-buttons .chip { flex: 1; justify-content: center; }
+.title-buttons .title-games { flex-basis: 100%; }
+.title-buttons .title-games[hidden] { display: none; }
 /* A quiet way in for a railway saved on another device (a build with a cloud): a small pill under the cards, not a
    third big button. Its card opens over the title, in the middle. */
 .title-foot { display: flex; justify-content: center; }
@@ -796,6 +806,34 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .new-game-sheet .new-game-foot .new-game-start { height: 48px; }
 }
 @media (prefers-reduced-motion: reduce) { .new-game-sheet:not([hidden]) { animation: none; } }
+/* Your games (ui/games-sheet.ts): a page as the new-game screen is, a row a game, the last played first. */
+.games-sheet { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--wood-panel); padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.games-sheet[hidden] { display: none; }
+.games-sheet:not([hidden]) { animation: title-in 0.25s ease-out; }
+.games-sheet .games-back { height: 48px; min-width: 104px; padding: 0 16px 0 12px; }
+.games-head .new-game-title { white-space: nowrap; }
+@media (max-width: 440px) { .games-head .new-game-title { font-size: 24px; } }
+.games-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: min(560px, 100%); margin: 0 auto; padding: 18px 2px 16px; display: flex; flex-direction: column; gap: 12px; }
+.games-list { display: flex; flex-direction: column; gap: 12px; }
+.games-note { margin: 0; padding: 9px 8px; border-radius: 4px; text-align: center; font-weight: 800; font-size: 14px; line-height: 1.35; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2px var(--stamp-red); }
+.games-note[hidden] { display: none; }
+.games-empty { margin: 24px 0; text-align: center; color: #5c4632; }
+.games-row { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-radius: 10px; background: var(--maple); box-shadow: var(--groove-sh), inset 0 0 0 2px var(--maple-cut); }
+.games-top { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.games-pic { flex: none; width: 112px; height: 63px; border-radius: 6px; overflow: hidden; background: #c9a77a; box-shadow: inset 0 0 0 2px rgba(90, 60, 30, 0.25); }
+.games-pic.none { background: repeating-linear-gradient(90deg, #b48a5a 0 6px, #c9a77a 6px 14px); }
+.games-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.games-text { min-width: 0; flex: 1; }
+.games-name { margin: 0; font-family: var(--display); font-weight: 400; font-size: 20px; letter-spacing: 0.02em; color: var(--wood-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.games-facts { margin: 2px 0 0; font-size: 14px; line-height: 1.35; color: #5c4632; }
+.games-name-input { width: 100%; min-width: 0; height: 44px; padding: 0 10px; border: none; border-radius: 8px; font: inherit; font-weight: 800; font-size: 17px; color: var(--wood-ink); background: #fffaf0; box-shadow: inset 0 0 0 3px var(--green); -webkit-user-select: text; user-select: text; }
+.games-name-input:focus { outline: none; }
+.games-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.games-buttons .chip { flex: 1 1 0; min-width: 72px; min-height: 44px; justify-content: center; }
+.games-playing { flex: 1 1 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; color: var(--green); }
+.games-ask { flex: 1 1 100%; margin: 0; font-weight: 800; color: var(--stamp-red); }
+@media (max-height: 500px) { .games-sheet .games-back { height: 44px; } .games-body { width: min(820px, 100%); padding-top: 8px; } }
+@media (prefers-reduced-motion: reduce) { .games-sheet:not([hidden]) { animation: none; } }
 /* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening. The
    opening screen keeps its name and its train just where they were (the bar goes, keeping its room); the title's own
    name stays hidden, and its cards fade in below the train (their top set from where the train ends). */
@@ -1635,7 +1673,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-head .engine-extra-label { display: inline-flex; align-items: center; gap: 6px; }
 .route-swatch { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.15); }
 .route-none { font-size: 0.85em; color: var(--ink-muted); flex: 1; }
-.route-head .route-plan { margin-left: auto; }
 /* Done: the system's go-green, dark ink (audit F18: white on #3c9a5f was 3.5:1). */
 .route-plan.on { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--green); box-shadow: inset 0 -4px 0 var(--green-cut), var(--block-drop); }
 .route-hint { font-size: 0.85em; color: var(--ink-soft); }
@@ -1659,6 +1696,38 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops::-webkit-scrollbar { display: none; }
 /* The line's colour is the stop number's lacquer ring (filled on the next stop), not a stripe down the side (audit F11). */
 .route-chip { padding-inline: 8px; }
+/* The card's line, read only (lines UI redesign 2026-11-16): numbered pegs on a painted line, the train between the
+   stop it left and the one it's going to; a peg tapped opens the sheet at that stop. */
+.route-mini { position: relative; display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 2px; overflow-x: auto; scrollbar-width: none; }
+.route-mini::-webkit-scrollbar { display: none; }
+.route-mini.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
+.route-mini.more-left { mask-image: linear-gradient(270deg, #000 calc(100% - 36px), transparent); -webkit-mask-image: linear-gradient(270deg, #000 calc(100% - 36px), transparent); }
+.route-mini.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
+.route-mini::before { content: ""; position: absolute; left: 24px; right: 24px; top: calc(50% - 3px); height: 6px; background: var(--line, #888); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
+/* (46 px: the card is drawn at 0.96 on a phone, and a peg must stay a finger's 44.) */
+.route-mini > .route-chip { position: relative; z-index: 1; flex: 0 0 46px; width: 46px; min-width: 46px; height: 46px; padding: 0; border-radius: 50%; background: transparent; box-shadow: none; display: grid; place-items: center; }
+.route-mini > .route-chip:active { transform: none; box-shadow: none; }
+.route-mini .route-num { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-weight: 400; font-size: 14px; line-height: 1; box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); }
+.route-mini .route-chip.next .route-num { color: #fff; background: var(--sheen), color-mix(in srgb, var(--line, #888) 55%, #2a1a0e); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
+.route-mini .route-chip.at .route-num { outline: 3px solid var(--wood-ink); outline-offset: 2px; }
+.route-mini .route-chip.lost .route-num { opacity: 0.7; text-decoration: line-through; }
+.route-mini > .route-chip::before, .route-mini > .route-chip::after, .route-mini > .route-chip[data-wait]::before { content: none; }
+.route-mini .route-num { position: relative; }
+.route-mini .route-goods { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.route-mini .route-chip[data-wait] .route-num::after { content: "⏳"; position: absolute; right: -9px; top: -8px; font-family: "Woodrail Icons", sans-serif; font-size: 12px; line-height: 1; }
+/* The train: a small dark engine block on the line, its cab to the front. */
+.route-mini-train { position: relative; z-index: 1; flex: 0 0 26px; width: 26px; height: 16px; margin: 0 -4px; border-radius: 4px 7px 3px 3px; background: var(--sheen), var(--dark); box-shadow: inset 0 -3px 0 var(--dark-cut), 0 2px 2px -1px rgba(40, 22, 6, 0.5), 0 0 0 2px var(--maple); }
+.route-mini-train::before { content: ""; position: absolute; left: 4px; top: -6px; width: 5px; height: 7px; border-radius: 1px; background: var(--dark); }
+.route-mini-train::after { content: ""; position: absolute; right: 3px; top: 3px; width: 7px; height: 5px; border-radius: 1px; background: var(--yellow); }
+.route-where { font-size: 14.5px; font-weight: 700; line-height: 1.3; color: var(--wood-ink-soft); }
+.route-where b { color: var(--wood-ink); font-weight: 800; }
+/* + between two stops on the card's rail (route-insert): a peg, a 44 px target (46 on a card drawn at 0.96) that tucks
+   into the gaps beside it. */
+.route-stops > .route-insert { flex: 0 0 46px; width: 46px; min-width: 46px; height: 46px; min-height: 46px; box-sizing: border-box; margin: -6px -13px 0; padding: 0; border: 0; background: transparent; box-shadow: none; position: relative; z-index: 1; align-self: flex-start; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+/* (The line runs on through it, at the chips' line's height, to the next stop.) */
+.route-stops > .route-insert:not(.last)::before { content: ""; position: absolute; z-index: -1; left: 0; right: 0; top: 20px; height: 6px; background: var(--line, #888); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
+.route-insert-peg { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 15px; line-height: 1; box-shadow: inset 0 0 0 2px var(--wood-ink), 0 1px 1px rgba(40, 22, 6, 0.35); }
+.route-insert.last .route-insert-peg { box-shadow: none; outline: 2px dashed var(--wood-ink); outline-offset: -2px; }
 .route-chip.next { font-weight: 800; }
 /* The stop's number, in a ring of the line's colour; the stop the train's heading for has it filled (audit F7). */
 .route-num { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 4px; margin-right: 5px; border-radius: 999px; font-size: 12px; font-weight: 900; line-height: 1; vertical-align: -4px; box-shadow: inset 0 0 0 2px var(--line, #888); }
@@ -1800,6 +1869,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-stops > .route-chip:first-child::after { left: 50%; }
 .route-stops > .route-chip:last-child::after, .route-stops > .route-chip:has(+ :not(.route-chip))::after { right: 50%; }
 .route-stops > .route-chip:only-child::after { display: none; }
+.route-stops > .route-chip:has(+ .route-insert:not(.last))::after { right: 0; }
 /* the number: a maple peg on its own line, centred on the rail */
 .route-stops > .route-chip .route-num { position: relative; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; min-width: 0; padding: 0; margin: 0 auto 5px;
   border-radius: 50%; font-family: var(--display); font-size: 14px; font-weight: 400; line-height: 1; vertical-align: 0; color: var(--wood-ink); background: var(--maple); box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); text-shadow: none; }
@@ -1832,6 +1902,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-join-line:disabled { opacity: 0.45; }
 .route-riders { font-weight: 700; color: var(--ink-soft); }
 .route-head .route-leave { padding-inline: 10px; }
+/* Leave line and Take off line: stamped in red, as Remove stop and Remove (DESIGN.md's stamp for a destructive ask:
+   Take off); final critique 2026-11-16: they read as maple, the same as Edit and Show. */
+.engine-card .route-head .route-leave:not(.asking), .line-sheet .chip.ls-train-off { color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); }
+/* Leave line and Edit, kept together at the head's end; a line's name too long for the row with them keeps its words
+   (to its own ellipsis at the box's width) and they go under it, at the right. */
+.route-head { flex-wrap: wrap; row-gap: 0; }
+.route-head .route-line-name { flex: 1 0 auto; max-width: 100%; }
+.route-head-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: 0 0 auto; }
+.route-head-tools > .chip { flex: 0 0 auto; }
+/* (quiet, not the sheet's red stamp: it leaves the line, it doesn't delete anything) */
+.route-head .route-off { font-size: 14px; }
 .route-join { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .route-join-line { padding-inline: 8px; display: inline-flex; align-items: center; gap: 6px; }
 /* A lacquer disc in the line's colour before its name, as the card's own swatch. */
@@ -1844,7 +1925,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lines-count { font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lines-head .lines-new { flex: 0 0 auto; }
 /* + New line: the panel's one painted block. */
-.lines-view .chip.lines-new { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
+.lines-view .chip.lines-new { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; background: var(--sheen), #23722f; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 #164a1e, var(--block-drop); }
 .lines-view > .lines-head .lines-close { top: 12px; right: 8px; }
 .lines-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
@@ -1896,6 +1977,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .line-sheet:not([hidden]) { animation: ls-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1); }
 @keyframes ls-up { from { opacity: 0; translate: 0 24px; } }
 @media (prefers-reduced-motion: reduce) { .line-sheet:not([hidden]) { animation: none; } }
+/* Desktop: the sheet docks on the right, the screen's height (below the top bar), its list never capped (critique
+   2026-11-16: a 780 px board mid-screen, its list capped at four stops). The map frames itself left of it. */
+@media (min-width: 900px) and (min-height: 600px) { .line-sheet { left: auto; right: 12px; top: 96px; bottom: 12px; width: 420px; max-width: none; max-height: none; margin: 0; border-radius: 12px; padding-bottom: 14px; } }
 @media (orientation: landscape) and (max-height: 500px) { .line-sheet { left: auto; right: max(8px, env(safe-area-inset-right)); width: min(400px, 52vw); max-height: calc(100vh - 80px); border-radius: 12px; bottom: 8px; } }
 .ls-head { display: flex; align-items: center; gap: 6px; min-height: 44px; flex: 0 0 auto; }
 /* The line's colour: a painted disc, a peg seen from above. */
@@ -1903,33 +1987,38 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-name { flex: 1 1 auto; min-width: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-family: var(--display); font-size: 23px; font-weight: 400; letter-spacing: 0.01em; line-height: 1; color: var(--wood-ink); cursor: text; text-align: left; }
 .ls-name:disabled { cursor: default; color: var(--wood-ink); }
 .ls-name-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* The name with its trains' stamp under it: the name has the head's width, two lines where it must. */
+.ls-title { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; }
+.ls-title > .ls-name { flex: 0 1 auto; max-width: 100%; min-width: 0; min-height: 44px; padding: 0 4px; font-size: 21px; }
+.ls-title .ls-name-text { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.05; overflow-wrap: anywhere; }
+.ls-title > .ls-pill { margin-left: 4px; }
 .ls-name-edit { font-family: "Woodrail Icons", "Nunito", sans-serif; font-size: 14px; color: var(--wood-ink-soft); flex: 0 0 auto; }
 .ls-name-input { flex: 1 1 auto; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 8px; border: 2px solid var(--end-grain); border-radius: 8px; background: var(--maple); font: inherit; font-size: 17px; font-weight: 800; }
 .ls-more { width: 44px; padding: 0; font-size: 20px; flex: 0 0 auto; }
 .ls-done { flex: 0 0 auto; }
 /* Done: the sheet's one painted block. */
-.line-sheet .chip.ls-done { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; background: var(--sheen), var(--green); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--green-cut), var(--block-drop); }
+/* (A deeper green than the bar's, and Lilita at 19 px: paint ink on it holds 4.5:1 under the sheen. Critique 2026-11-16
+   measured 3.6:1 on the bar's green at 17 px.) */
+.line-sheet .chip.ls-done { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; background: var(--sheen), #23722f; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 #164a1e, var(--block-drop); }
 .ls-palette, .ls-menu { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 0 0 auto; }
 .ls-colour { width: 44px; height: 44px; border: 0; border-radius: 50%; padding: 0; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.25), 0 3px 3px -1px rgba(40, 22, 6, 0.4); cursor: pointer; }
 .ls-colour[aria-pressed="true"] { outline: 3px solid var(--wood-ink); outline-offset: 2px; }
 .ls-menu .chip { flex: 1 1 auto; }
-/* Stops / Trains: a groove with a maple block slid to the open side. */
-.ls-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: var(--groove); box-shadow: var(--groove-sh); flex: 0 0 auto; }
-.ls-tab { flex: 1 1 0; min-height: 44px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.02em; line-height: 1; color: var(--wood-ink-soft); cursor: pointer; }
-.ls-tab.on { background: var(--maple); color: var(--wood-ink); box-shadow: var(--tile-face), var(--tile-drop); }
 .ls-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding-bottom: 2px; }
 /* The stops: a spine in the line's colour down the numbers, a row a stop. */
 .ls-stops { list-style: none; margin: 0; padding: 0; position: relative; }
 .ls-stop, .ls-via { position: relative; display: grid; grid-template-columns: 28px 30px 1fr; align-items: center; column-gap: 8px; min-height: 52px; }
-.ls-stop::before, .ls-via::before { content: ""; position: absolute; left: 47px; top: 0; bottom: 0; width: 8px; background: var(--line); box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.25), inset -2px 0 0 rgba(0, 0, 0, 0.2); }
+.ls-stop::before, .ls-via::before, .ls-train::before { content: ""; position: absolute; left: 47px; top: 0; bottom: 0; width: 8px; background: var(--line); box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.25), inset -2px 0 0 rgba(0, 0, 0, 0.2); }
 .ls-stops > :first-child::before { top: 26px; }
 .ls-stops > :last-child::before { bottom: calc(100% - 26px); }
 .ls-stops > :only-child::before { display: none; }
-.ls-handle { display: flex; align-items: center; justify-content: center; width: 28px; height: 44px; color: rgba(79, 52, 24, 0.7); font-size: 18px; cursor: grab; touch-action: none; user-select: none; }
+.ls-handle { display: flex; align-items: center; justify-content: center; width: 28px; height: 44px; color: var(--wood-ink-soft); font-size: 18px; cursor: grab; touch-action: none; user-select: none; }
 .ls-handle.none { cursor: default; }
 /* Stop numbers: maple pegs on the line (the next one painted in its colour). */
 .ls-num { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 15px; font-weight: 400; line-height: 1; box-shadow: inset 0 0 0 2.5px var(--wood-ink), 0 2px 1px rgba(40, 22, 6, 0.35); }
-.ls-stop.next .ls-num { background: var(--sheen), var(--line); color: var(--line-ink, #fff); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
+/* (The next stop's peg: a deep shade of the line's colour, so its white number holds 4.5:1 on any line; final
+   critique 2026-11-16 measured 4.1:1 on the line's own red.) */
+.ls-stop.next .ls-num { background: var(--sheen), color-mix(in srgb, var(--line) 55%, #2a1a0e); color: #fff; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 2px 1px rgba(40, 22, 6, 0.35); }
 .ls-stop-main { min-width: 0; min-height: 52px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; padding: 4px 6px; border: 0; border-radius: 12px; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .ls-stop-name { font-family: var(--display); font-size: 18px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.15; }
 .ls-place-num { font-family: "Woodrail Icons", "Nunito", sans-serif; font-weight: 700; color: var(--wood-ink-soft); }
@@ -1947,13 +2036,24 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-ticks, .ls-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .ls-tick { display: inline-flex; align-items: center; gap: 8px; padding: 0 12px 0 8px; font-size: 15px; }
 /* A tick box: a square hole; ticked, painted green. */
-.ls-box { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; background: var(--hole); box-shadow: var(--hole-sh); font-size: 15px; font-weight: 900; line-height: 1; color: var(--paint-ink); }
-.ls-tick.on .ls-box { background: var(--sheen), var(--green); box-shadow: inset 0 -2px 0 var(--green-cut); }
-.ls-tick.on .ls-box::after { content: "✓"; }
+/* A stop's choice: a hole; on, a painted peg in it (green; gold for Wait to fill). Never lacquer: Done is the sheet's one
+   painted block (critique 2026-11-16: Wait to fill read as a second Done). */
+.ls-box { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--hole); box-shadow: var(--hole-sh); transition: transform 0.12s ease-out; }
+.ls-tick.on .ls-box { background: var(--peg-green); box-shadow: 0 2px 1px rgba(40, 22, 6, 0.45); }
+.line-sheet .ls-tick.ls-wait.on { background: var(--sheen), var(--maple); color: var(--wood-ink); }
+.ls-tick.ls-wait.on .ls-box { background: var(--peg-yellow); }
+.ls-tick:active .ls-box { transform: scale(0.88); }
+@media (prefers-reduced-motion: reduce) { .ls-box { transition: none; } }
 .ls-note { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); line-height: 1.3; }
 .ls-note.warn { color: var(--warn-ink, #b0391f); }
-.ls-acts .route-move { width: 44px; padding: 0; font-size: 18px; }
 .ls-acts .ls-remove, .ls-acts .ls-via-remove { margin-left: auto; }
+.ls-acts > .ls-note { flex: 1 1 140px; align-self: center; }
+/* An open stop: its goods said in its sentences (the short line goes), and the sheet grows to hold it, Remove stop and
+   all, without a scroll on a phone (critique 2026-11-16). */
+.ls-stop.open .ls-goods { display: none; }
+.line-sheet:has(.ls-stop.open) { max-height: min(64vh, 560px); }
+@media (min-width: 900px) and (min-height: 600px) { .line-sheet:has(.ls-stop.open) { max-height: none; } }
+@media (orientation: landscape) and (max-height: 500px) { .line-sheet:has(.ls-stop.open) { max-height: calc(100vh - 80px); } }
 /* Take off: a destructive ask, stamped in red (as Remove on a train card). */
 .line-sheet .chip.ls-remove, .line-sheet .chip.ls-via-remove { color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2.5px var(--stamp-red); transform: rotate(-1.5deg); font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.03em; }
 .ls-via { min-height: 40px; }
@@ -1961,6 +2061,22 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-via .ls-stop-main { flex-direction: row; align-items: center; min-height: 44px; font-size: 14px; font-weight: 700; color: var(--wood-ink-soft); }
 .ls-stop.lifted { z-index: 2; background: var(--maple); border-radius: 8px; box-shadow: var(--tile-face), 0 8px 8px -3px rgba(40, 22, 6, 0.45); }
 .ls-drop-bar { position: absolute; left: 30px; right: 0; height: 4px; border-radius: 2px; background: var(--wood-ink); pointer-events: none; }
+/* + on the line between two stops (route-insert): a small maple peg on the spine, a 44 px target round it. Tapped, it's
+   painted in the line's colour and the next place tapped goes in there. After the last stop: a dashed peg (the end). */
+.ls-stops.pegs { padding-bottom: 22px; }
+.ls-insert { position: absolute; left: 29px; bottom: -22px; z-index: 3; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; touch-action: manipulation; }
+/* (18 px: the spine shows above and below it, between the stops' numbers.) */
+.ls-insert-peg { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--maple); color: var(--wood-ink); font-family: var(--display); font-size: 14px; line-height: 1; box-shadow: inset 0 0 0 2px var(--wood-ink), 0 1px 1px rgba(40, 22, 6, 0.35); transition: transform 0.12s ease-out; }
+.ls-insert.last .ls-insert-peg { width: 18px; height: 18px; box-shadow: none; outline: 1.5px dashed var(--wood-ink); outline-offset: -1.5px; }
+.ls-insert:active .ls-insert-peg { transform: scale(0.9); }
+.ls-insert.on .ls-insert-peg { width: 26px; height: 26px; background: var(--sheen), var(--line); color: var(--line-ink, #fff); outline: none; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 0 0 3px var(--blue); }
+/* A place just put in: its peg ringed in the line's colour, and a line under the stops saying where it went. */
+.ls-stop.added .ls-num { outline: 3px solid var(--line); outline-offset: 2px; animation: ls-added 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.4); }
+@keyframes ls-added { from { transform: scale(0.6); } }
+@media (prefers-reduced-motion: reduce) { .ls-stop.added .ls-num { animation: none; } }
+.ls-added { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex: 0 0 auto; padding: 6px 6px 6px 10px; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+.ls-added-text { flex: 1 1 160px; min-width: 0; font-size: 14px; font-weight: 800; line-height: 1.25; color: var(--wood-ink); }
+.ls-added .chip { flex: 0 0 auto; font-size: 14.5px; padding-inline: 12px; }
 .ls-hint { font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); }
 .ls-hint.empty { padding: 12px; border-radius: 8px; border: 1.5px dashed var(--pencil); text-align: center; font-size: 14.5px; }
 .ls-foot { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding-top: 8px; border-top: 1.5px dashed var(--pencil); }
@@ -1968,13 +2084,29 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-foot .ls-add-via { flex: 0 0 auto; }
 .ls-add-via.on { box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), 0 0 0 3px var(--blue); }
 /* The trains on it, and free ones to add. */
-.ls-trains { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.ls-train { display: flex; align-items: center; gap: 6px; padding: 4px 4px 7px 12px; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
-.ls-train-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; font-size: 15px; }
-.ls-train-status { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ls-train .chip { flex: 0 0 auto; font-size: 14px; padding-inline: 10px; }
 .ls-h { font-family: var(--display); font-size: 13px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: var(--wood-ink-soft); margin-top: 2px; }
-.ls-empty { padding: 10px; border-radius: 8px; border: 1.5px dashed var(--pencil); font-size: 14.5px; font-weight: 700; color: var(--wood-ink-soft); text-align: center; }
+/* Its trains ride the spine (lines UI redesign 2026-11-16): a dark engine token on the line before the stop each is
+   heading for; its name and what it's doing beside it, the whole sentence; waiting, a gold tile, stuck, a red one, with
+   Show. Tapped, Show and Take off line. */
+.ls-stops > .ls-train { position: relative; display: grid; grid-template-columns: 28px 30px 1fr auto; align-items: center; column-gap: 8px; min-height: 48px; margin: 2px 0; }
+.ls-train-token { justify-self: center; position: relative; z-index: 1; width: 32px; height: 20px; border-radius: 5px 9px 4px 4px; background: var(--sheen), var(--dark); box-shadow: inset 0 -3px 0 var(--dark-cut), 0 2px 2px -1px rgba(40, 22, 6, 0.5), 0 0 0 2.5px var(--maple); }
+.ls-train-token::before { content: ""; position: absolute; left: 5px; top: -7px; width: 6px; height: 8px; border-radius: 1px; background: var(--dark); }
+.ls-train-token::after { content: ""; position: absolute; right: 4px; top: 4px; width: 8px; height: 6px; border-radius: 1px; background: var(--yellow); }
+.ls-train-main { min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 4px 8px; border: 0; border-radius: 8px; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.ls-train-name { font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: 0.01em; line-height: 1.15; }
+.ls-train-status { font-size: 13.5px; font-weight: 700; line-height: 1.25; color: var(--wood-ink-soft); }
+/* (A moving train's words in one line: its row stays slim, the stops the subject. A waiting or stuck one says why whole.) */
+.ls-train.moving .ls-train-main { flex-direction: row; align-items: center; gap: 8px; min-width: 0; }
+.ls-train.moving .ls-train-status { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-stops > .ls-train.moving { min-height: 44px; margin: 0; }
+.ls-train.waiting .ls-train-main { background: rgba(244, 182, 26, 0.16); box-shadow: inset 0 0 0 1.5px var(--stamp-gold); }
+.ls-train.stuck .ls-train-main { background: rgba(179, 48, 28, 0.07); box-shadow: inset 0 0 0 1.5px var(--stamp-red); }
+.ls-train.stuck .ls-train-status { color: var(--stamp-red); }
+.ls-stops > .ls-train > .chip { font-size: 14.5px; padding-inline: 12px; }
+.ls-train.open { align-items: start; }
+.ls-train.open > .ls-train-token { margin-top: 12px; }
+.ls-train > .ls-acts { grid-column: 3 / 5; padding: 2px 0 6px 8px; }
+.ls-add { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
 .ls-free { display: flex; flex-wrap: wrap; gap: 6px; }
 .ls-add-train { font-size: 14.5px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ls-add-train span { font-weight: 700; color: var(--wood-ink-soft); }
@@ -2034,6 +2166,8 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
   /* (Its own width, not the stops strip's: the strip scrolls, and the card's left edge stays past 40% of the screen, with
      the map's room beside it.) */
   .engine-card .engine-status-row { min-height: 0; }
+  /* (With the rows 6 px apart, the name gives back 2 px less, so the first row still starts 4 px under the ✕.) */
+  .engine-card :is(.engine-name, .engine-name-input) { margin-bottom: -2px; }
   .engine-card .engine-controls .chip:is(.go, .continue, .leave-now, .way) { height: 48px; }
   .engine-card .engine-extra.route { padding: 0 6px 4px; }
 }

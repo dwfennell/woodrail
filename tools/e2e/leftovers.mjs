@@ -1,4 +1,4 @@
-// End-to-end: four small leftovers, each on a fresh page on a 390×844 phone with touch.
+// End-to-end: small leftovers, each on a fresh page on a 390×844 phone with touch.
 //
 //  sorting      Game mode. Sorting van learned (after Post office): the sorting van on the Wagons shelf, unlocked. Track
 //               between the first two towns' stations, a post office far off the line (towns post mail only while one
@@ -14,6 +14,12 @@
 //  paint        Game mode. A town grown to City ★★ (deliveries written into its totals: a shortcut to the state): its
 //               bunting goes up by itself. The paint shop on an engine's card: Lined and Rainbow open, Rainbow painted
 //               (600 coins), the engine built again with its rainbow band; Lined on a second engine.
+//  starter-move Game mode, the starter map. Its own sawmill, which came with the map, picked up by a finger resting on its
+//               yard and dragged to open ground the game's own placement check takes (its squares on the map given
+//               up, its record following it). Track from the forest yard to it and on to a town (the player's own
+//               pathfinder: a setup shortcut), a flatbed train routed by taps (forest, sawmill, town): logs carried to
+//               the moved sawmill, planks made there and delivered to the town (the payoff); a reload keeps it where
+//               it was put.
 //
 // Usage: npm run e2e:leftovers [-- <out dir>]   (default out: e2e-out/leftovers; LEFTOVERS=<section,…> runs only those)
 import { existsSync, mkdirSync } from "node:fs";
@@ -657,6 +663,239 @@ await run("paint", async () => {
   const f1 = await p.evaluate(() => window.woodrail.framesDrawn);
   check("paint: idle, nothing drawn", f1 - f0 <= 1, `${f1 - f0} frames`);
   await h.done("paint");
+});
+
+// ---- The starter sawmill moved ---------------------------------------------------------------------------------------
+await run("starter-move", async () => {
+  const h = await phone();
+  const { p } = h;
+  await h.open("game");
+  const start = await p.evaluate(() => {
+    const w = window.woodrail;
+    const land = w.world.landscape;
+    const ids = (kind) => land.depots.filter((d) => d.kind === kind).map((d) => d.id);
+    const [mill] = ids("sawmill");
+    const [forest] = ids("forest");
+    const millPiece = w.world.depots.get(mill);
+    const forestPiece = w.world.depots.get(forest);
+    return {
+      starter: !!land.starter,
+      millPiece,
+      forestPiece,
+      mill: w.economy.depotAtPiece(millPiece).id,
+      forest: w.economy.depotAtPiece(forestPiece).id,
+      pose: { ...w.layout.getPiece(millPiece).pose },
+      y: w.layout.getPiece(millPiece).y,
+    };
+  });
+  check("starter-move: a new game on the starter map, with its own sawmill and forest yard", start.starter && start.millPiece !== undefined && start.forestPiece !== undefined, JSON.stringify(start));
+  // Where it may go: open ground the game's own placement check takes (as a drop is checked), the same way round, well
+  // away from where it stands and from the towns' line (so its track doesn't run over the first line's ground).
+  const spots = await p.evaluate((start) => {
+    const w = window.woodrail;
+    const out = [];
+    for (const d of [600, 800, 1000])
+      for (const a of [0, 1, 2, 3, 4, 5, 6, 7]) {
+        const ang = (a * Math.PI) / 4;
+        const pose = { x: start.pose.x + Math.cos(ang) * d, z: start.pose.z + Math.sin(ang) * d, heading: start.pose.heading };
+        if (w.landscape.grid.cellAtWorld(pose.x, pose.z) === -1) continue;
+        const r = w.interaction.placement("depot-sawmill", false, pose, start.y, start.millPiece);
+        if (r.reason === null && r.risers.length === 0) out.push(pose);
+      }
+    return out;
+  }, start);
+  check("starter-move: open ground near the sawmill where it may stand", spots.length > 0, `${spots.length} spots`);
+  if (spots.length === 0) return h.done("starter-move");
+  const cdp = await p.context().newCDPSession(p);
+  /** The sawmill's yard (beside its track, where a finger rests on it) at a pose, on screen. */
+  const yardAt = (pose) =>
+    p.evaluate(
+      ({ pose, y }) => {
+        const w = window.woodrail;
+        const q = { x: pose.x + Math.cos(pose.heading) * 108, y, z: pose.z + Math.sin(pose.heading) * 108 };
+        const c = new w.camera.position.constructor(q.x, q.y, q.z).project(w.camera);
+        return [((c.x + 1) / 2) * innerWidth, ((1 - c.y) / 2) * innerHeight];
+      },
+      { pose, y: start.y },
+    );
+  /** A finger rests on the sawmill's yard till it lifts (the hold), then drags it to `to`, slowly, and lets go. */
+  const holdAndDrag = async (to) => {
+    // (The view takes in both where it is and where it goes.)
+    const mid = { x: (start.pose.x + to.x) / 2, y: start.y, z: (start.pose.z + to.z) / 2 };
+    const dist = 2000 + Math.hypot(to.x - start.pose.x, to.z - start.pose.z) * 2;
+    await h.showing({ at: mid }, dist, { phi: 0.45, inRoom: true });
+    const now = await p.evaluate((id) => ({ ...window.woodrail.layout.getPiece(id).pose }), start.millPiece);
+    const [x0, y0] = await yardAt(now);
+    const [x1, y1] = await yardAt(to);
+    // (Both on the map in view, clear of the bar above and the tray below: else the next spot.)
+    const clear = await p.evaluate(([x0, y0, x1, y1]) => {
+      const tray = document.querySelector(".tray")?.getBoundingClientRect().top ?? innerHeight - 200;
+      const fine = (x, y) => x > 24 && x < innerWidth - 24 && y > 130 && y < tray - 40 && document.elementFromPoint(x, y)?.tagName === "CANVAS";
+      return fine(x0, y0) && fine(x1, y1);
+    }, [x0, y0, x1, y1]);
+    if (!clear) return false;
+    const t0 = Date.now() / 1000;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: t0, touchPoints: [{ x: x0, y: y0, id: 1 }] });
+    // (Resting: past the hold's 380 ms, the finger still.)
+    await p.waitForFunction(() => window.woodrail.interaction.mode?.kind === "drag-piece", null, { timeout: 8000 }).catch(() => {});
+    const held = await p.evaluate(() => window.woodrail.interaction.mode?.kind === "drag-piece");
+    const steps = 16;
+    for (let i = 1; i <= steps; i++) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", timestamp: Date.now() / 1000, touchPoints: [{ x: x0 + ((x1 - x0) * i) / steps, y: y0 + ((y1 - y0) * i) / steps, id: 1 }] });
+      await h.frames();
+    }
+    // (Where the finger holds the piece isn't quite where its yard is drawn: the finger moved on by what's left between
+    // the held piece and the spot, on screen, a few times, as a player lines it up by eye.)
+    let fx = x1;
+    let fy = y1;
+    for (let k = 0; k < 4; k++) {
+      await p.waitForTimeout(200);
+      const held = await p.evaluate(() => {
+        const m = window.woodrail.interaction.mode;
+        return m.kind === "drag-piece" ? { ...m.pose } : null;
+      });
+      if (!held) break;
+      const [hx, hy] = await yardAt(held);
+      const [tx, ty] = await yardAt(to);
+      if (Math.hypot(tx - hx, ty - hy) < 1) break;
+      fx += tx - hx;
+      fy += ty - hy;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", timestamp: Date.now() / 1000, touchPoints: [{ x: fx, y: fy, id: 1 }] });
+      await h.frames();
+    }
+    await p.waitForTimeout(300);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", timestamp: Date.now() / 1000, touchPoints: [] });
+    await p.waitForTimeout(1200);
+    await h.frames();
+    return held;
+  };
+  let moved = null;
+  let held = false;
+  for (const to of spots.slice(0, 8)) {
+    held = (await holdAndDrag(to)) || held;
+    const now = await p.evaluate((id) => ({ ...window.woodrail.layout.getPiece(id).pose }), start.millPiece);
+    if (Math.hypot(now.x - start.pose.x, now.z - start.pose.z) > 300) {
+      moved = now;
+      break;
+    }
+  }
+  check("starter-move: a finger resting on the sawmill's yard picks it up", held);
+  check("starter-move: dragged and let go, the sawmill stands somewhere else", !!moved, JSON.stringify({ from: start.pose, moved }));
+  if (!moved) return h.done("starter-move");
+  await h.settle();
+  await h.shot("starter-move-1-moved");
+  const after = await p.evaluate((start) => {
+    const w = window.woodrail;
+    // (FEAT_DEPOT: src/landscape/grid.ts.)
+    const FEAT_DEPOT = 6;
+    const land = w.world.landscape;
+    const g = land.grid;
+    let squares = 0;
+    for (let i = 0; i < g.cellCount; i++) if (g.feature[i] === FEAT_DEPOT && g.owner[i] === 0) squares++;
+    const d = land.depots.find((x) => x.kind === "sawmill");
+    return { squares, moved: d.moved === true, record: d.piece, depot: w.economy.depotAtPiece(start.millPiece)?.id, mapOwn: w.world.depots.get(d.id) === start.millPiece };
+  }, start);
+  check(
+    "starter-move: its squares on the map given up, its record where it stands, the same depot (still the map's own)",
+    after.squares === 0 && after.moved && Math.hypot(after.record.x - moved.x, after.record.z - moved.z) < 0.01 && after.depot === start.mill && after.mapOwn,
+    JSON.stringify(after),
+  );
+  // Setup (not what's tested): track from the forest yard to the sawmill and on to the nearest town's station, by the
+  // player's own pathfinder; a flatbed train at the forest yard, lever off.
+  const setup = await p.evaluate(async (start) => {
+    const { play } = await import("/src/play/player.ts");
+    const { rulesFor } = await import("/src/play/rules.ts");
+    const { connectorRef } = await import("/src/track/layout.ts");
+    const w = window.woodrail;
+    const join = (a, b) => {
+      for (const maxPieces of [120, 240])
+        for (const [i, j] of [[1, 0], [0, 0], [1, 1], [0, 1]]) {
+          const before = new Set(w.layout.pieceIds());
+          const r = play(w.world.layout, w.editor(), connectorRef(a, i), connectorRef(b, j), { blocked: rulesFor(w.world), maxPieces, fiddle: 3 });
+          const fresh = [...w.layout.pieceIds()].filter((id) => !before.has(id));
+          if (r.ok) return fresh;
+          for (const id of fresh.reverse()) w.editor().remove(id);
+        }
+      return null;
+    };
+    const one = join(start.forestPiece, start.millPiece);
+    if (!one) return { error: "no track from the forest yard to the sawmill" };
+    const mill = w.layout.getPiece(start.millPiece).pose;
+    const towns = w.world.landscape.towns.filter((t) => w.world.stations.has(t.id)).sort((a, b) => Math.hypot(a.centre.x - mill.x, a.centre.z - mill.z) - Math.hypot(b.centre.x - mill.x, b.centre.z - mill.z));
+    let town = null;
+    let two = null;
+    for (const t of towns) {
+      two = join(start.millPiece, w.world.stations.get(t.id));
+      if (two) {
+        town = t;
+        break;
+      }
+    }
+    if (!two) return { error: "no track from the sawmill to a town" };
+    let engine = -1;
+    for (const pieceId of [start.forestPiece, ...one])
+      for (const s of [20, 60, 100, 140]) {
+        if (engine !== -1) break;
+        const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId, pathIndex: 0, reversed: false, s });
+        if (r.kind === "placed") {
+          engine = w.sim.getTrain(r.trainId).cars[0].id;
+          w.sim.setLever(engine, 0);
+        }
+      }
+    window.__run = (secs) => {
+      const n = { loaded: {}, unloaded: {} };
+      for (let i = 0; i < secs * 120; i++) {
+        w.sim.tick();
+        w.economy.tick();
+        for (const ev of w.economy.drainEvents()) {
+          if (ev.kind !== "loaded" && ev.kind !== "unloaded") continue;
+          const k = `${ev.depotId}:${ev.cargo}`;
+          n[ev.kind][k] = (n[ev.kind][k] ?? 0) + 1;
+        }
+      }
+      w.invalidate();
+      return n;
+    };
+    w.invalidate();
+    return { town: w.economy.depotAtPiece(w.world.stations.get(town.id)).id, townId: town.id, engine, pieces: one.length + two.length };
+  }, start);
+  check("starter-move: setup, track from the forest yard to the moved sawmill and on to a town, a flatbed train", !setup.error && setup.engine !== -1, JSON.stringify(setup));
+  if (setup.error || setup.engine === -1) return h.done("starter-move");
+  // Routes learned (a setup shortcut, as from the board: research is e2e:research's).
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    for (const id of ["switches", "routes"]) w.learn(id);
+    w.hud.refreshTrayBadges();
+  });
+  const stops = await h.route(setup.engine, [start.forest, start.mill, setup.town]);
+  check("starter-move: routed by taps, forest yard, the moved sawmill, the town", JSON.stringify(stops) === JSON.stringify([start.forest, start.mill, setup.town]), JSON.stringify(stops));
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 1), setup.engine);
+  const { at, sum } = await h.runFor(14);
+  const made = await p.evaluate(async (townId) => {
+    const { CARGO } = await import("/src/economy/cargo.ts");
+    const w = window.woodrail;
+    return { planks: w.economy.made[CARGO.planks.index], got: w.economy.deliveredGoods.get(townId)?.planks ?? 0 };
+  }, setup.townId);
+  check("starter-move: logs loaded at the forest yard and unloaded at the moved sawmill", at("loaded", start.forest, "log") > 0 && at("unloaded", start.mill, "log") > 0, JSON.stringify(sum));
+  check("starter-move: planks made at the moved sawmill, loaded there and delivered to the town (the payoff)", made.planks > 0 && at("loaded", start.mill, "planks") > 0 && at("unloaded", setup.town, "planks") > 0 && made.got > 0, JSON.stringify({ made, sum }));
+  await p.evaluate((e) => window.woodrail.sim.setLever(e, 0), setup.engine);
+  await h.showing({ depot: start.mill }, 900);
+  await h.settle();
+  await h.shot("starter-move-2-planks");
+  // Kept: saved, reloaded and continued, the sawmill stands where it was put.
+  await p.waitForTimeout(3000); // (saved)
+  await p.reload();
+  await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+  await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  const back = await p.evaluate(() => {
+    const w = window.woodrail;
+    const d = w.world.landscape.depots.find((x) => x.kind === "sawmill");
+    const piece = w.layout.getPiece(w.world.depots.get(d.id));
+    return { pose: piece && { ...piece.pose }, moved: d.moved === true };
+  });
+  check("starter-move: after a reload the sawmill stands where it was put", !!back.pose && Math.hypot(back.pose.x - moved.x, back.pose.z - moved.z) < 0.5 && back.moved, JSON.stringify({ back, moved }));
+  await h.done("starter-move");
 });
 
 await b.close();

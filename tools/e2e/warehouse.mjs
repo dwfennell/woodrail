@@ -289,7 +289,7 @@ if (!setup.error && setup.engine !== -1) {
   await planRoute(engine, [forest, sawmill, warehouse]);
   const stops1 = await routeStops(engine);
   check("route 1 planned by taps: forest, sawmill, warehouse", JSON.stringify(stops1) === JSON.stringify([forest, sawmill, warehouse]), JSON.stringify(stops1));
-  // Under each stop's chip, what it picks up and drops (the economy's own plan).
+  // Each stop's peg says what it picks up and drops (the economy's own plan; to a screen reader, the sheet shows it).
   const goods1 = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.querySelector(".route-goods")?.textContent ?? ""));
   check("…each stop shows what it picks up and drops: forest ⬆🪵, sawmill ⬆\uE000 ⬇🪵, warehouse ⬇\uE000", JSON.stringify(goods1) === JSON.stringify(["⬆🪵", "⬆\uE000 ⬇🪵", "⬇\uE000"]), JSON.stringify(goods1));
   const fits = await p.evaluate(() => {
@@ -300,7 +300,7 @@ if (!setup.error && setup.engine !== -1) {
   // (Every stop whole in the route's strip, none under its fade: the stop the card says to tap can be seen and tapped.
   // QA: drawn as a rail, the third column ran past the strip's edge on a 390 px phone, cut to "War…".)
   const whole = await p.evaluate(() => {
-    const strip = document.querySelector(".engine-extra .route-stops").getBoundingClientRect();
+    const strip = document.querySelector(".engine-extra .route-mini").getBoundingClientRect();
     return [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => { const r = c.getBoundingClientRect(); return r.left >= strip.left - 0.5 && r.right <= strip.right + 0.5; });
   });
   check("…all three stops whole in the route's strip (none cut off at its edge)", whole.length === 3 && whole.every(Boolean), JSON.stringify(whole));
@@ -308,12 +308,13 @@ if (!setup.error && setup.engine !== -1) {
   const hint = await p.evaluate(() => [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent));
   check("…the card points to the warehouse stop's options", hint.includes("Tap the warehouse stop to set whether it drops or picks up there"), JSON.stringify(hint));
   // (Its options are in the line sheet: the chip opens it at that stop.)
-  await tapButton(".engine-extra .route-chip:nth-child(3)");
+  // (By its stop's number: its peg on the card's line.)
+  await tapButton('.engine-extra .route-chip[data-stop="2"]');
   const opts = await p.evaluate(() => {
     const open = document.querySelector(".ls-stop.open");
-    return { words: open?.querySelector(".ls-says")?.textContent, ticks: [...(open?.querySelectorAll(".ls-tick") ?? [])].map((t) => `${t.textContent}:${t.getAttribute("aria-pressed")}`), what: [...(open?.querySelectorAll(".ls-note") ?? [])].map((e) => e.textContent), hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) };
+    return { stop: open?.dataset.stop, words: open?.querySelector(".ls-says")?.textContent, ticks: [...(open?.querySelectorAll(".ls-tick") ?? [])].map((t) => `${t.textContent}:${t.getAttribute("aria-pressed")}`), what: [...(open?.querySelectorAll(".ls-note") ?? [])].map((e) => e.textContent), hints: [...document.querySelectorAll(".engine-extra .route-hint")].map((e) => e.textContent) };
   });
-  check("…its chip tapped: the sheet at it, \"Drops planks\", Drop and Pick up ticked, and what that does at a warehouse", /^Drops .*planks( from Sawmill.*)?$/.test(opts.words ?? "") && opts.ticks.slice(0, 2).join(",") === "Drop:true,Pick up:true" && opts.what.includes("Leaves goods no later stop wants, takes what a later stop wants"), JSON.stringify(opts));
+  check("…its chip tapped: the sheet at it, \"Drops planks\", Drop and Pick up ticked, and what that does at a warehouse", opts.stop === "2" && /^Drops .*planks( from Sawmill.*)?$/.test(opts.words ?? "") && opts.ticks.slice(0, 2).join(",") === "Drop:true,Pick up:true" && opts.what.includes("Leaves goods no later stop wants, takes what a later stop wants"), JSON.stringify(opts));
   await shot("4-route-1-stop-options");
   await tapButton(".line-sheet .route-plan.on");
   await p.keyboard.press("Escape");

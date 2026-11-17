@@ -34,13 +34,24 @@ function setup(cars: CarKind[], waitFull = true) {
   return { sim, economy, ids, engineId, train, step, status, forest, sawmill };
 }
 
+/**
+ * Run it to the forest's open end with nothing to do there (its stop not waiting), then set its stop to wait till full:
+ * its crane holds it there, turning back. (Load in place: a train waiting to fill pulls up short of the end; this is a
+ * train that got to the end first.)
+ */
+function heldAtTheEnd(w: ReturnType<typeof setup>, stops: { depotId: number; action: "both"; waitFill?: boolean }[]): void {
+  for (let i = 0; i < 60 * SIM_HZ && w.train().turnback < 0; i++) w.step();
+  w.economy.setRoute(w.engineId, { stops, next: 0 });
+}
+
 /** +1: moving along +x (toward the forest), −1 back toward the sawmill. */
 const heading = (t: Train) => Math.sign(t.world[0].x - t.world[t.world.length - 1].x);
 
 describe("Continue at the end of the track", () => {
   it("held at a station where the track ends: turns round, engine first, and runs on to the next stop", () => {
-    const w = setup(["engine", "timber", "timber"]);
+    const w = setup(["engine", "timber", "timber"], false);
     // Up to the forest and its open end, where it waits (the crane, waiting to fill it, holds it there).
+    heldAtTheEnd(w, [{ depotId: w.forest.id, action: "both", waitFill: true }, { depotId: w.sawmill.id, action: "both" }]);
     let waiting = 0;
     for (let i = 0; i < 60 * SIM_HZ; i++) {
       w.step();
@@ -93,9 +104,11 @@ describe("Continue at the end of the track", () => {
 
   it("is offered only waiting where the track ends, with a stop to go on to", () => {
     // A route of one stop: nowhere else to go.
-    const w = setup(["engine", "timber"]);
+    const w = setup(["engine", "timber"], false);
     w.economy.setRoute(w.engineId, { stops: [{ depotId: w.forest.id, action: "both", waitFill: true }], next: 0 });
     expect(canContinue(w.sim, w.economy, w.engineId)).toBe(false);
+    w.economy.setRoute(w.engineId, { stops: [{ depotId: w.forest.id, action: "both" }], next: 0 });
+    heldAtTheEnd(w, [{ depotId: w.forest.id, action: "both", waitFill: true }]);
     for (let i = 0; i < 40 * SIM_HZ && w.status() !== "Turning back: the track ends here"; i++) w.step();
     expect(w.status()).toBe("Turning back: the track ends here");
     expect(canContinue(w.sim, w.economy, w.engineId)).toBe(false);

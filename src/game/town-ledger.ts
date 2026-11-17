@@ -10,6 +10,7 @@ import { hasPostOffice, postLine, POST_TECH } from "./post";
 import { DEPOT_NAMES, depotName, type World } from "./world";
 import { townLinks } from "../roads/graph";
 import { listed } from "../lib/words";
+import { drawsWords, placesWords, waitingByPlace } from "./passengers";
 
 /**
  * A town's card in Game mode (the town ledger): where it stands and what it's growing into, what it still needs, its
@@ -48,7 +49,10 @@ export interface TownLedger {
   /** What a market pays for deliveries, against a town without one (1: no market). */
   market: number;
   /** People waiting at the station whose card is open, its room, and the riders carried by all trains all game (once Passengers is learned), or null. */
-  station: { waiting: number; room: number; carried: number } | null;
+  /** `to`: who's waiting at its stops by place ("Ashby 3 · Brook 2"; empty: no one, or anywhere). */
+  station: { waiting: number; room: number; carried: number; to: string } | null;
+  /** What draws people to it ("🖼️ Museum, 🌳 Park"; spec 2026-11-15-passenger-destinations.md), null for nothing. */
+  draws: string | null;
   /** "Joined by road to Fernby" (roads spec D2: it grows faster), or null when no road joins it to another town. */
   road: string | null;
   /** Its delivery van's line (roads spec D5: "Van to Fernby (off the line): 3 🪵 waiting", "Goods by van from Ashby"), or null. */
@@ -171,11 +175,19 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     road: roadLine(world, town.id),
     van: ctx.van?.line(d) ?? null,
     bus: ctx.bus?.line(d) ?? null,
-    station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room, carried: ctx.carried },
+    station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room, carried: ctx.carried, to: stationTo(world, town.id) },
+    draws: ctx.room === null ? null : drawsWords(town),
     lines,
     buys: buysText(ctx.learned),
     post: postLine(ctx.learned.has(POST_TECH), d.piles[CARGO.mail.index], world.economy.deliveredGoods.get(town.id)?.post ?? 0, hasPostOffice(world.economy)),
   };
+}
+
+/** Who's waiting at a town's stops by place, as words; empty when no one is, or they all want anywhere. */
+function stationTo(world: World, townId: number): string {
+  const by = waitingByPlace(world, townId);
+  by.delete(-1);
+  return placesWords(world, by);
 }
 
 /** "Joined by road to Fernby" ("to Fernby and Ashby"; "to Fernby, Ashby and 2 more"), or null if no road joins it. */
@@ -217,6 +229,8 @@ export function ledgerKey(world: World, d: DepotState, ctx: LedgerContext): numb
   h = mix(h, ctx.room ?? -1);
   h = mix(h, ctx.carried);
   h = mix(h, d.waiting);
+  // (Where the town's people want to go: each stop's places.)
+  for (const s of world.economy.allDepots()) if (s.role === "town" && s.townId === d.townId) for (let i = 0; i < s.waiting && i < s.wants.length; i++) h = mix(h, s.wants[i]);
   h = mix(h, d.piles[CARGO.mail.index]);
   if (ctx.van) h = mix(h, ctx.van.key(d));
   if (ctx.bus) h = mix(h, ctx.bus.key(d));

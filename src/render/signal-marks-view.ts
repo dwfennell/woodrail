@@ -5,14 +5,13 @@
  * block tint shown while a signal is held or its card is open: one mesh, built when its joint changes.
  */
 import { BoxGeometry, ExtrudeGeometry, Shape, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DoubleSide, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Object3D, Vector3, type Camera, type Material } from "three";
-import { createSample, getPieceDef, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceTypeId } from "../track";
-import { jointPose, postAt, type Block, type JointPose } from "../game/signal-place";
+import { createSample, getPieceDef, pathLength, pieceOfRef, samplePath, type Layout, type PieceTypeId } from "../track";
+import { POST_BACK, POST_SIDE, standAt, type Block, type MarkStand } from "../game/signal-place";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { kitModelKey } from "./props/library";
 import type { Materials } from "./materials";
 import { SEMAPHORE_CLEAR } from "./kit-motions";
 
-const POST_H = 46;
 
 /** What the view reads of the sim: each mark's aspect (true: clear). */
 export interface MarkAspects {
@@ -25,16 +24,23 @@ type Look = "plain" | "semaphore" | "colour-light" | "gantry";
 
 /** The signal piece's length: a model is drawn in its piece's frame, its far end (x = this) on the mark's joint. */
 const PIECE_LENGTH = 144;
-/** The toy colour light: where its post stands in the piece's frame (the driver's right), and how tall it is. */
-const TOY_SIDE = TRACK_WIDTH / 2 + 9 + 4;
-const TOY_HEIGHT = 54;
+/** The toy colour light: where its post stands in the piece's frame (the driver's right: `standAt`'s), and how tall it is. */
+const TOY_SIDE = POST_SIDE;
+const TOY_BACK = POST_BACK;
+/**
+ * Toy scale, a level crossing's height (the user: signals "kind of overwhelm the ui", a forest of tall black posts on a
+ * busy map): 40 mm, below an engine's chimney, where it was 54 with a head half as big again.
+ */
+const TOY_HEIGHT = 40;
 /** Its head: deep (along the track), tall and wide; its lamps' radius and heights. */
-const HEAD_D = 7;
-const HEAD_H = 22;
-const HEAD_W = 11;
-const LENS_R = 3.6;
-const RED_Y = TOY_HEIGHT - 6;
-const GREEN_Y = TOY_HEIGHT - 16;
+const HEAD_D = 6;
+const HEAD_H = 16;
+const HEAD_W = 9;
+const LENS_R = 2.9;
+const RED_Y = TOY_HEIGHT - 4.5;
+const GREEN_Y = TOY_HEIGHT - 11.5;
+/** The head's colour: a dark stained wood, as the toys' (it was near black, which read as a hole in the felt). */
+export const SIGNAL_HEAD = "#5e4636";
 /** The lenses lean back this far (rad) toward the sky, so a camera above sees into them (signals audit U1). */
 const LENS_TILT = Math.PI / 6;
 /**
@@ -44,9 +50,9 @@ const LENS_TILT = Math.PI / 6;
  * the track, not before the post along it, where on a curve it went under the track. Part of the lit lamp's geometry.
  */
 const CHEVRON_L = 12;
-const CHEVRON_W = 13;
-const CHEVRON_TIP = 7;
-const CHEVRON_OUT = 15;
+const CHEVRON_W = 11;
+const CHEVRON_TIP = 6;
+const CHEVRON_OUT = 10;
 
 /** A flat arrowhead pointing +x (a filled wedge, notched at its back: a V read as a tick), its tip at x = 0, lying on the ground. */
 function chevron(): BufferGeometry {
@@ -62,6 +68,8 @@ function chevron(): BufferGeometry {
 /** The lit lamps: unlit by the sun, so they glow (one shader for both, as the block tint's). */
 const LIT_RED = new MeshBasicMaterial({ color: "#ff3a24" });
 const LIT_GREEN = new MeshBasicMaterial({ color: "#3dff6e" });
+/** A mirror across the track's centre line (the model's z): a post on the left. */
+const MIRROR_Z = new Matrix4().makeScale(1, 1, -1);
 /** How long an arm takes to glide between red and clear (s). */
 export const ARM_GLIDE_S = 0.3;
 /** Roads of double track a gantry spans: this far apart (mm), side by side. */
@@ -80,6 +88,11 @@ interface Part {
   red?: number;
   clear?: number;
   shadow: boolean;
+  /**
+   * The part is its own mirror image across its frame's z = 0 (a toy light's foot, post, head and lenses): a mark drawn
+   * mirrored (on the left) draws it mirrored back about its own middle, which is the same shape, by the plain batch.
+   */
+  symmetric?: boolean;
 }
 
 /** A part drawn instanced for every mark (or gantry) of its look: one draw however many there are. */
@@ -93,8 +106,10 @@ interface Batch {
 interface MarkShown {
   id: number;
   look: Look;
-  /** The model's frame in the world (for a gantry, its road 0's mark's). */
+  /** The model's frame in the world (for a gantry, its road 0's mark's); mirrored across the track for a post on the left. */
   world: Matrix4;
+  /** Its post on the left of the track (`standAt`: no room on the right): drawn mirrored, by the mirrored batches. */
+  mirrored: boolean;
   /** The road this mark's head is over (a gantry's: 0 or 1), its arm's angle now, and gliding from/to. */
   road: number;
   clear: boolean;
@@ -127,7 +142,7 @@ export function signalThumbnail(mats: Materials): Group {
   for (const p of toyLight(mats)) {
     if (p.role === "fixed" && p.material !== mats.naturalWood && p.shadow === false) continue;
     const mesh = new Mesh(p.geometry, p.material);
-    mesh.applyMatrix4(new Matrix4().makeTranslation(-(PIECE_LENGTH - 20), 0, -TOY_SIDE).multiply(p.frame));
+    mesh.applyMatrix4(new Matrix4().makeTranslation(-(PIECE_LENGTH - TOY_BACK), 0, -TOY_SIDE).multiply(p.frame));
     g.add(mesh);
   }
   g.rotation.y = 2.3;
@@ -141,8 +156,8 @@ export function signalThumbnail(mats: Materials): Group {
  * light's: a change only rewrites the instances).
  */
 function toyLight(mats: Materials): Part[] {
-  const at = new Matrix4().makeTranslation(PIECE_LENGTH - 20, 0, TOY_SIDE);
-  const fixed = (geometry: BufferGeometry, material: Material, shadow = true): Part => ({ geometry, material, frame: at, role: "fixed", shadow });
+  const at = new Matrix4().makeTranslation(PIECE_LENGTH - TOY_BACK, 0, TOY_SIDE);
+  const fixed = (geometry: BufferGeometry, material: Material, shadow = true): Part => ({ geometry, material, frame: at, role: "fixed", shadow, symmetric: true });
   const lit = (geometry: BufferGeometry, material: Material, role: "red" | "green"): Part => ({ geometry, material, frame: at, role, shadow: false });
   // (A lens: a short disc, its face toward −x, where trains come from, leaning back toward the sky.)
   const lens = (r: number, y: number, x: number) => new CylinderGeometry(r, r, 1.6, 16).rotateZ(Math.PI / 2).rotateZ(-LENS_TILT).translate(x, y, 0);
@@ -157,9 +172,9 @@ function toyLight(mats: Materials): Part[] {
   };
   const headX = -HEAD_D / 2;
   return [
-    fixed(new CylinderGeometry(5, 6, 3, 16).translate(0, 1.5, 0), mats.naturalWood),
-    fixed(new CylinderGeometry(1.8, 2, TOY_HEIGHT - HEAD_H, 10).translate(0, (TOY_HEIGHT - HEAD_H) / 2, 0), mats.lacquer("#f6f1e6")),
-    fixed(new BoxGeometry(HEAD_D, HEAD_H, HEAD_W).translate(0, TOY_HEIGHT - HEAD_H / 2, 0), mats.lacquer("#2e2a27")),
+    fixed(new CylinderGeometry(4, 4.6, 2.5, 16).translate(0, 1.25, 0), mats.naturalWood),
+    fixed(new CylinderGeometry(1.3, 1.5, TOY_HEIGHT - HEAD_H, 10).translate(0, (TOY_HEIGHT - HEAD_H) / 2, 0), mats.lacquer("#f6f1e6")),
+    fixed(new BoxGeometry(HEAD_D, HEAD_H, HEAD_W).translate(0, TOY_HEIGHT - HEAD_H / 2, 0), mats.lacquer(SIGNAL_HEAD)),
     fixed(lens(LENS_R, RED_Y, headX - 0.4), mats.lacquer("#5b1d16"), false),
     fixed(lens(LENS_R, GREEN_Y, headX - 0.4), mats.lacquer("#1b4424"), false),
     lit(lamp(RED_Y), LIT_RED, "red"),
@@ -172,6 +187,8 @@ export class SignalMarksView {
   /** Each look's parts, once its model is loaded (plain's at once). */
   private readonly parts = new Map<Look, Part[]>();
   private readonly batches = new Map<Part, Batch>();
+  /** The same parts for marks drawn mirrored (a post on the left): their own meshes, mirrored, so faces wind right. */
+  private readonly mirroredBatches = new Map<Part, Batch>();
   private shown: MarkShown[] = [];
   private byId = new Map<number, MarkShown>();
   private key = "";
@@ -239,9 +256,10 @@ export class SignalMarksView {
     this.key = "";
   }
 
-  /** The batch drawing a part (made the first time a mark of its look is drawn). */
-  private batch(part: Part, need: number): Batch {
-    let b = this.batches.get(part);
+  /** The batch drawing a part (made the first time a mark of its look is drawn), mirrored or not. */
+  private batch(part: Part, need: number, mirrored = false): Batch {
+    const batches = mirrored ? this.mirroredBatches : this.batches;
+    let b = batches.get(part);
     if (!b || b.mesh.instanceMatrix.count < need) {
       if (b) {
         this.group.remove(b.mesh);
@@ -253,9 +271,12 @@ export class SignalMarksView {
       mesh.frustumCulled = false;
       mesh.count = 0;
       mesh.userData = { kind: "signal-mark", sharedGeometry: true };
+      // (Mirrored across z: three turns its faces' winding for a mesh whose matrix mirrors; each instance's matrix is
+      // mirrored back first (`draw`), so the two together put the mirror image where the instance says.)
+      if (mirrored) mesh.scale.z = -1;
       this.group.add(mesh);
       b = { part, mesh, n: 0 };
-      this.batches.set(part, b);
+      batches.set(part, b);
     }
     return b;
   }
@@ -273,9 +294,9 @@ export class SignalMarksView {
     this.shown = [];
     this.byId = new Map();
     const marks = [...L.signals()].filter((m) => !this.hidden.includes(m.id) && !L.isLifted(pieceOfRef(m.at)));
-    const poses = new Map<number, JointPose>();
+    const poses = new Map<number, MarkStand>();
     for (const m of marks) {
-      const j = jointPose(L, m.at);
+      const j = standAt(L, m.at);
       if (j) poses.set(m.id, j);
     }
     // Side by side on double track, the same way: a gantry over the two (decision 7).
@@ -314,12 +335,15 @@ export class SignalMarksView {
       }
       if (look === "plain" && other !== -1) road = 0;
       const world = new Matrix4().makeRotationY(-j.heading).setPosition(j.x, j.y, j.z).multiply(new Matrix4().makeTranslation(-PIECE_LENGTH, 0, -road * ROADS));
+      // (A post with no room on the driver's right stands on the left: the model mirrored across the track, `standAt`'s.)
+      const mirrored = look !== "gantry" && j.side === -1;
+      if (mirrored) world.multiply(MIRROR_Z);
       const clear = !m.held && this.sim.markClear(m.id);
       const prior = was.get(m.id);
       const arm = this.parts.get(look)!.find((p) => p.role === "arm");
       const target = arm ? (clear ? arm.clear! : arm.red!) : 0;
       const top = this.topIn(look, world, road);
-      const s: MarkShown = { id: m.id, look, world, road, clear, held: m.held, angle: target, from: target, to: target, t: 1, top, partner: look === "gantry" ? other : -1 };
+      const s: MarkShown = { id: m.id, look, world, mirrored, road, clear, held: m.held, angle: target, from: target, to: target, t: 1, top, partner: look === "gantry" ? other : -1 };
       // (Its aspect changed while drawn the same: its arm glides there from where it was.)
       if (prior && prior.look === look && prior.to !== target) {
         s.angle = prior.angle;
@@ -335,13 +359,13 @@ export class SignalMarksView {
 
   /** Where a look's post top (a gantry's head over `road`) stands, in the world. */
   private topIn(look: Look, world: Matrix4, road: number): Vector3 {
-    const local = look === "plain" ? new Vector3(PIECE_LENGTH - 20, TOY_HEIGHT, TOY_SIDE) : look === "gantry" ? new Vector3(PIECE_LENGTH - 20, 90, road * ROADS) : new Vector3(PIECE_LENGTH - 20, 100, look === "semaphore" ? 36 : 30);
+    const local = look === "plain" ? new Vector3(PIECE_LENGTH - TOY_BACK, TOY_HEIGHT, TOY_SIDE) : look === "gantry" ? new Vector3(PIECE_LENGTH - 20, 90, road * ROADS) : new Vector3(PIECE_LENGTH - 20, 100, look === "semaphore" ? 36 : 30);
     return local.applyMatrix4(world);
   }
 
   /** Write every batch's instances: fixed parts once a mark (a gantry once for its two), arms at their angles, lit lenses. */
   private draw(): void {
-    for (const b of this.batches.values()) b.n = 0;
+    for (const b of this.allBatches()) b.n = 0;
     const m4 = new Matrix4();
     const rot = new Matrix4();
     const count = new Map<Look, number>();
@@ -362,11 +386,15 @@ export class SignalMarksView {
           if (part.head !== undefined && part.head !== 1 - s.road) continue;
           m4.multiplyMatrices(s.look === "gantry" && !owner ? this.byId.get(s.partner)!.world : s.world, part.frame);
         } else m4.multiplyMatrices(s.world, part.frame);
-        const b = this.batch(part, count.get(s.look)!);
+        // (Mirrored, a part that's its own mirror image is mirrored again about its middle: unmirrored, the plain batch.)
+        const flip = s.mirrored && !part.symmetric;
+        if (s.mirrored && part.symmetric) m4.multiply(MIRROR_Z);
+        const b = this.batch(part, count.get(s.look)!, flip);
+        if (flip) m4.premultiply(MIRROR_Z);
         b.mesh.setMatrixAt(b.n++, m4);
       }
     }
-    for (const b of this.batches.values()) {
+    for (const b of this.allBatches()) {
       b.mesh.count = b.n;
       b.mesh.visible = b.n > 0;
       b.mesh.instanceMatrix.needsUpdate = true;
@@ -398,8 +426,13 @@ export class SignalMarksView {
   /** Draws in use (the performance readout, and the e2e: a few however many signals). */
   get drawCalls(): number {
     let n = 0;
-    for (const b of this.batches.values()) if (b.n > 0) n++;
+    for (const b of this.allBatches()) if (b.n > 0) n++;
     return n;
+  }
+
+  private *allBatches(): Iterable<Batch> {
+    yield* this.batches.values();
+    yield* this.mirroredBatches.values();
   }
 
   /** The mark nearest a screen point (CSS px) within `slack` px of its post (top to foot), or −1. */
@@ -409,7 +442,7 @@ export class SignalMarksView {
     const v = new Vector3();
     for (const s of this.shown) {
       for (const h of [0, 0.5, 1]) {
-        v.set(s.top.x, s.top.y - POST_H * (1 - h), s.top.z).project(camera);
+        v.set(s.top.x, s.top.y - TOY_HEIGHT * (1 - h), s.top.z).project(camera);
         if (v.z > 1) continue;
         const d = Math.hypot((v.x * 0.5 + 0.5) * width - x, (-v.y * 0.5 + 0.5) * height - y);
         if (d < bestD) {
@@ -434,22 +467,33 @@ export class SignalMarksView {
   }
 
   dispose(): void {
-    for (const b of this.batches.values()) b.mesh.dispose();
+    for (const b of this.allBatches()) b.mesh.dispose();
     this.batches.clear();
+    this.mirroredBatches.clear();
   }
 }
 
-/** A mark in the hand: its post and head, and an arrow on the track the way it guards. */
+/**
+ * A mark in the hand: the toy colour light itself (its parts, as drawn: so it stands just where the placed one will),
+ * its green lamp lit, and an arrow on the track the way it guards. Its frame is the joint's (`placeGhost`).
+ */
 export function markGhost(mats: Materials): Group {
   const g = new Group();
-  // (As the toy colour light: a cream post, a dark head, its green lamp lit toward the trains it would guard.)
-  g.add(new Mesh(new CylinderGeometry(2.2, 2.8, POST_H, 8).translate(0, POST_H / 2, 0), mats.lacquer("#f6f1e6")));
-  g.add(new Mesh(new BoxGeometry(HEAD_D, HEAD_H, HEAD_W).translate(0, POST_H + HEAD_H / 2 - 4, 0), mats.lacquer("#2e2a27")));
-  g.add(new Mesh(new CylinderGeometry(LENS_R + 0.3, LENS_R + 0.3, 1.6, 12).rotateZ(Math.PI / 2).translate(-HEAD_D / 2 - 1, POST_H + 2, 0), LIT_GREEN));
+  const model = new Group();
+  model.name = "model";
+  for (const p of toyLight(mats)) {
+    if (p.role === "red") continue;
+    const mesh = new Mesh(p.geometry, p.material);
+    mesh.applyMatrix4(new Matrix4().makeTranslation(-PIECE_LENGTH, 0, 0).multiply(p.frame));
+    model.add(mesh);
+  }
+  g.add(model);
   // (The arrow lies on the track, pointing the way trains it guards go: local +x, set by `placeGhost`.)
   const arrow = new Mesh(new ConeGeometry(9, 22, 3).rotateZ(-Math.PI / 2), new MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.9, depthTest: false }));
   arrow.name = "arrow";
   arrow.renderOrder = 3;
+  // (Over the track's centre, a little before the post.)
+  arrow.position.set(-TOY_BACK - 12, 6, 0);
   g.add(arrow);
   return g;
 }
@@ -480,15 +524,17 @@ export function placeSetGhost(ghost: Object3D, layout: Layout, at: number, both:
   return true;
 }
 
-/** Stand a mark's ghost at a joint end (its post on the right of the way it guards, the arrow on the track). */
+/**
+ * Stand a mark's ghost at a joint end as the mark would stand there (`standAt`: its post on the driver's right, or the
+ * left when the right has no room; mirrored as the drawn one is), the arrow on the track. False if `at` is no joint.
+ */
 export function placeGhost(ghost: Object3D, layout: Layout, at: number): boolean {
-  const p = postAt(layout, at);
+  const p = standAt(layout, at);
   if (!p) return false;
-  ghost.position.set(p.px, p.y, p.pz);
+  ghost.position.set(p.x, p.y, p.z);
   ghost.rotation.set(0, -p.heading, 0);
-  const arrow = ghost.getObjectByName("arrow");
-  // (Back over the track's centre, a little before the joint, in the ghost's own frame: x along, z right.)
-  if (arrow) arrow.position.set(-22, 6, -26);
+  const model = ghost.getObjectByName("model");
+  if (model) model.scale.z = p.side;
   return true;
 }
 

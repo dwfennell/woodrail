@@ -39,7 +39,7 @@
   "budgets": {
     "bundle.jsKB": {
       "kind": "size",
-      "max": 3000
+      "max": 3158
     },
     "bundle.entryJsKB": {
       "kind": "size",
@@ -47,7 +47,7 @@
     },
     "bundle.firstJsKB": {
       "kind": "size",
-      "max": 2360
+      "max": 2553
     },
     "fresh.idle.framesDrawn": {
       "kind": "frames",

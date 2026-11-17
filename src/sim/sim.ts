@@ -1745,10 +1745,11 @@ export class Sim {
       if (train.derailed) continue;
       // Riding a turning deck: held where it stands till the deck's there.
       if (this.rides.size > 0 && this.riding(train)) continue;
-      // Waiting at the end of the line beside a crane with work for it (a depot at the line's end): the wait holds
-      // until the crane's done (it's asked each tick, as when moving, so it can see the train has stopped).
+      // Waiting at the end of the line beside a crane with work for it (a depot at the line's end): it turns round only
+      // once the crane's done (it's asked each tick, as when moving, so it can see the train has stopped). Its wait
+      // counts down meanwhile (load in place: it stood there loading; the wait was held till the crane was done).
       const craneHolds = train.turnback >= 0 && this.speedCap !== null && this.speedCap(train) === 0;
-      if (train.turnback >= 0 && !craneHolds && --train.turnback < 0) {
+      if (train.turnback >= 0 && (train.turnback > 0 || !craneHolds) && --train.turnback < 0) {
         // Waited long enough at the end of the line: lift the train and turn it round, so it heads back out the way
         // it came, its engine leading as before.
         const turned = this.turnAround(train);
@@ -2277,6 +2278,22 @@ export class Sim {
   calledOn(key: number, trainId: number): boolean {
     const at = this.callOns.get(`${key}:${trainId}`);
     return at !== undefined && this.ticks - at <= CALL_ON_KEEP;
+  }
+
+  /**
+   * Why the red signal a train is held by or braking for is red (for the engine card): the train in its block, the
+   * train sections keep it red for (`gated`: a waiting point's way out held for that one), or none (held by hand, or
+   * no red ahead). A train id.
+   */
+  redCause(trainId: number): { by: number; gated: boolean } {
+    const t = this.byId.get(trainId);
+    const red = t ? this.redAhead(t) : null;
+    if (!red) return { by: -1, gated: false };
+    if (red.by >= 0) return { by: red.by, gated: false };
+    // (A plain signal with its block empty: red for the train sections keep its waiting point's way out for, if any.)
+    const g = this.signals?.find((x) => x.key === red.key);
+    const gated = g && !g.junction && !this.isHeld(g) ? this.gatedFor(g) : -1;
+    return gated >= 0 && gated !== trainId ? { by: gated, gated: true } : { by: -1, gated: false };
   }
 
   /** The red signal (its piece) a train is held by or braking for, or −1 (for the engine card and reports). */

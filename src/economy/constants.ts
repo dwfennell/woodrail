@@ -17,3 +17,8 @@ export const TOWN_USE_TICKS = ticks(30);
 export const CRANE_TICKS = ticks(0.6);
 /** A train on a working depot crawls at this speed (mm/s). */
 export const CRAWL_SPEED = 60;
+/**
+ * A depot's crane runs along a standing train to its next wagon at this speed (mm/s): the speed a train crept at from
+ * wagon to wagon when it was moved under the crane, so a train's time at a depot for the same goods stays as it was.
+ */
+export const CRANE_RUN = CRAWL_SPEED;
