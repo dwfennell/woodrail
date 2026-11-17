@@ -11,3 +11,12 @@ export function pieceName(type: PieceTypeId): string {
   if (/(curve|crossing|three-way|slip|bridge|ramp|buffer|turnback|riser|loop|wye|crossover|signal)$/.test(name)) return name + "s";
   return name + " pieces";
 }
+
+/** One piece's name as the tray shows it, with "a" or "an", in lower case: "a switch", "an S-curve"; "track" if it isn't on the tray. */
+export function aPiece(type: PieceTypeId): string {
+  if (type.startsWith("straight-")) return "a straight";
+  const item = TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === type && !i.auto);
+  if (!item) return "track";
+  const name = item.label.replace(/^([A-Z])(?=[a-z])/, (c) => c.toLowerCase()).replace(/ ([A-Z])(?=[a-z])/g, (_, c: string) => " " + c.toLowerCase());
+  return `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
+}

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
-import { connectorRef, findSplice, Layout, type PieceTypeId } from "../track";
+import { connectorRef, findOverlap, findSplice, Layout, type PieceTypeId } from "../track";
 import { CARGO } from "../economy/cargo";
 import { Economy, type DepotState } from "../economy";
 import { planTracks, TRACK_ROLES, tracksAfter, type PlaceCheck, type TracksPlan } from "./depot-tracks";
-import { INDUSTRY_ROLE } from "./world";
+import { buildStarterWorld, INDUSTRY_ROLE, type World } from "./world";
+import { trackBlock } from "./track-rules";
+import { BLOCK_MESSAGES } from "../landscape/clearance";
+import { loadBugMap } from "../play/bugmap";
+import WORKSHOP_MAP from "../play/bugmaps/reports/2026-11-17-workshop-second-track.txt?raw";
 
 /**
  * Depot tracks (docs/superpowers/specs/2026-11-04-depot-tracks.md): the track laid beside, joined by the player's points (here a pair of splits, as from the tray), one crane serving each track's
@@ -28,6 +32,18 @@ function line(before = 4, after = 4) {
 }
 type W = ReturnType<typeof line>;
 const open: PlaceCheck = () => null;
+/** The track's own placement rules on a world (`trackBlock`: the land and other pieces; no props, which need models). */
+const rulesOf =
+  (w: Pick<World, "layout" | "landscape">): PlaceCheck =>
+  (t, f, pose, y, ignore) => {
+    const r = trackBlock({ land: w.landscape, layout: w.layout, props: null, footprint: () => undefined }, t, f, pose, y, ignore);
+    return r ? BLOCK_MESSAGES[r] : null;
+  };
+/** Only other pieces in the way (a world with no landscape). */
+const pieceRule =
+  (w: W): PlaceCheck =>
+  (t, f, pose, y, ignore) =>
+    findOverlap(w.layout, t, f, pose, y, ignore) === -1 ? null : BLOCK_MESSAGES.piece;
 
 /** Do a plan as the card does (`replaceRun`, then `setTracks`). */
 function apply(w: Pick<W, "layout" | "economy">, mill: DepotState, plan: TracksPlan): void {
@@ -153,8 +169,71 @@ describe("depot tracks: the track beside it", () => {
       asked = { y, z: pose.z };
       return "That's a hill";
     };
-    expect(planTracks(w, w.mill, rule)).toBe("No room for a second track: that's a hill");
+    expect(planTracks(w, w.mill, rule)).toBe("No room for a second track beside the yard: that's a hill");
     expect(asked).toEqual({ y: 0, z: -72 });
+  });
+
+  it("names the piece in the way beside the yard", () => {
+    const w = line();
+    w.layout.addPiece("switch", { x: 4 * 216 + 40, z: -72, heading: 0 });
+    expect(planTracks(w, w.mill, pieceRule(w))).toBe("No room for a second track beside the yard: a switch is in the way");
+  });
+
+  it("an end that would run into something past the yard is laid as long as fits there, or left off, and the card says so", () => {
+    const w = line(1, 4);
+    // A line across, 180 past the yard's near end (as on the user's map, 2026-11-17): the near end 162 long.
+    w.layout.addPiece("straight-216", { x: 216 - 180, z: 108, heading: -Math.PI / 2 });
+    const plan = planTracks(w, w.mill, pieceRule(w));
+    if (typeof plan === "string") throw new Error(plan);
+    expect(plan.pieces.map((p) => [p.type, Math.round(p.pose.x - 216)])).toEqual([
+      ["straight-162", -162],
+      ["straight-216", 0],
+      ["straight-216", 216],
+    ]);
+    expect(plan.parts).toEqual(["end", "road", "end"]);
+    expect(plan.short).toBe("It stops short past one end of the yard: a straight is in the way");
+    // Right up against the yard: no near end at all, the track the yard's length and on past the far end.
+    const v = line(1, 4);
+    v.layout.addPiece("straight-216", { x: 216 - 20, z: 108, heading: -Math.PI / 2 });
+    const short = planTracks(v, v.mill, pieceRule(v));
+    if (typeof short === "string") throw new Error(short);
+    expect(short.parts).toEqual(["road", "end"]);
+    apply(v, v.mill, short);
+    expect(v.economy.trackCount(v.mill.id)).toBe(2);
+    expect(v.economy.tracksOf(v.mill.id)!.ends).toHaveLength(1);
+    // Whole: nothing said.
+    const whole = planTracks(line(), line().mill, open);
+    expect(typeof whole !== "string" && whole.short).toBe(null);
+  });
+
+  it("the user's map (2026-11-17): the workshop's second track goes down, short where a switch and a field are past its ends", async () => {
+    // "No room for a second track: another piece is in the way", on a workshop with open felt beside its yard: its
+    // second track ran on 216 past each end, and 180 past its near end a line crosses (a switch on it); past its far
+    // end, a farm's field. The track beside the yard was clear all along.
+    const { world } = await loadBugMap(WORKSHOP_MAP);
+    const shop = world.economy.allDepots().find((d) => d.role === "workshop")!;
+    const rule = rulesOf(world);
+    const plan = planTracks(world, shop, rule);
+    if (typeof plan === "string") throw new Error(plan);
+    expect(plan.tracks).toBe(2);
+    expect(plan.pieces.map((p) => p.type)).toEqual(["straight-162", "straight-216", "straight-180"]);
+    expect(plan.short).toBe("It stops short past both ends of the yard: a switch is in the way, and that's a farm field — go around it");
+    // Laid, each piece where the rules let it go (as the card lays it), and the economy counts the track.
+    for (const p of plan.pieces) expect(rule(p.type, p.flipped, p.pose, p.y, new Set())).toBeNull();
+    apply(world, shop, plan);
+    expect(world.economy.trackCount(shop.id)).toBe(2);
+    expect(world.economy.unjoinedTracks(shop)).toHaveLength(1);
+  });
+
+  it("a fresh starter map: every industry that can have tracks has room for a second", () => {
+    const world = buildStarterWorld();
+    const rule = rulesOf(world);
+    const depots = world.economy.allDepots().filter((d) => TRACK_ROLES.has(d.role));
+    expect(depots.length).toBeGreaterThan(0);
+    for (const d of depots) {
+      const plan = planTracks(world, d, rule);
+      expect([d.role, typeof plan === "string" ? plan : "ok"]).toEqual([d.role, "ok"]);
+    }
   });
 
   it("a routed train goes to the yard's own track while the one beside it isn't joined", () => {

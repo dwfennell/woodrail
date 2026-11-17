@@ -4089,8 +4089,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const join = document.createElement("div");
       join.className = "station-waiting depot-tracks-join";
       const second = unjoined.includes(roads[0]);
+      // (Laid short at an end by what was there: a Split on the line won't meet that end by itself.)
+      const whole = [...ends].filter((e) => game.layout.getPiece(e)?.type === "straight-216").length >= 2;
       join.textContent = second
-        ? "Join the second track to the line: drag a Split from the Switch shelf onto the line at each end of it (lit on the map), and trains load there too"
+        ? whole
+          ? "Join the second track to the line: drag a Split from the Switch shelf onto the line at each end of it (lit on the map), and trains load there too"
+          : "Join the second track to the line (lit on the map) with points of your own: a Split on the line, and a straight on to meet the track where it stops short. Trains load there too"
         : "Join the third track: drag a Split from the Switch shelf onto each end of the second track, beside it (lit on the map)";
       box.append(join);
     }
@@ -4112,6 +4116,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const why = document.createElement("div");
         why.className = "station-waiting depot-tracks-why";
         why.textContent = plan;
+        box.append(why);
+      } else if (plan.short) {
+        // Laid shorter at an end than it would be, by what's there: said, so a Split there isn't a surprise.
+        const why = document.createElement("div");
+        why.className = "station-waiting depot-tracks-why";
+        why.textContent = plan.short;
         box.append(why);
       }
     }
