@@ -27,3 +27,5 @@ feedback-*.txt.json
 perf-out/
 # The activity dashboard's numbers (`npm run activity`, docs/activity.md)
 activity-out/
+
+.qa-demos/

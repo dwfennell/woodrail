@@ -20,6 +20,17 @@ SLATE = "#4a5560"
 FRAME = "#fbf6ec"
 
 
+# The railway's own colours for its yard buildings (the same in every town, beside the towns' rows): cream timber
+# and green woodwork, or brick, under a slate roof on a stone course.
+YARD_WALL = "#f3e7cb"
+YARD_TRIM = "#2f6048"
+YARD_SLATE = "#4d5d6e"
+YARD_RIDGE = "#3b4854"
+YARD_STONE = "#d8d0bf"
+# (The small platform pieces keep a bright roof, in the rows' tile red or the yard's green.)
+YARD_TILE = "#b9462f"
+
+
 def named(o, name):
     o.name = name
     return o
@@ -242,3 +253,41 @@ def peg(k, coat=TOY.blue, hat=None, x=0, y=0, z=0):
         g.add(k.cyl(k.paint(hat), 4, 0.9, 0, 15.9, 0, 4, 28))
         g.add(k.cyl(k.paint(hat), 2.8, 3, 0, 16.6, 0, 2.6, 24))
     return k.at(g, x, y, z)
+
+
+def barsX(k, x, y, z, w, h):
+    """Glazing bars on a window on a wall facing ±x (the window's base at y)."""
+    g = Node()
+    # (A little short of the pane each way: no face of a bar lies in one of the pane's.)
+    g.add(k.box(k.paint(FRAME), 1.7, h - 0.6, 0.7, 0, x, y + 0.3, z, seg=1), k.box(k.paint(FRAME), 1.7, 0.7, w - 0.6, 0, x, y + h / 2 - 0.35, z, seg=1))
+    return g
+
+
+def barsZ(k, x, y, z, w, h):
+    """Glazing bars on a window on a wall facing ±z."""
+    g = Node()
+    g.add(k.box(k.paint(FRAME), 0.7, h - 0.6, 1.7, 0, x, y + 0.3, z, seg=1), k.box(k.paint(FRAME), w - 0.6, 0.7, 1.7, 0, x, y + h / 2 - 0.35, z, seg=1))
+    return g
+
+
+def barredX(k, x, y, z, w=9, h=11):
+    """A barred window on a wall facing ±x."""
+    return k.group(winX(k, x, y, z, w, h), barsX(k, x, y, z, w, h))
+
+
+def barredZ(k, x, y, z, w=9, h=11):
+    """A barred window on a wall facing ±z."""
+    return k.group(winZ(k, x, y, z, w, h), barsZ(k, x, y, z, w, h))
+
+
+def braced(k, leaf, w, h, y=0, z=0, t=2.8):
+    """Cream rails and a brace on a boarded door leaf facing ±x (`w` across z about `z`, `h` high from `y`)."""
+    f = k.paint(FRAME)
+    for yy in (y + 1.5, y + h - 3.3):
+        leaf.add(k.box(f, t, 1.8, w - 1, 0.3, 0, yy, z, seg=1))
+    for zz in (z - w / 2 + 1.4, z + w / 2 - 1.4):
+        leaf.add(k.box(f, t, h - 3, 1.8, 0.3, 0, y + 1.5, zz, seg=1))
+    brace = k.box(f, t - 0.1, 1.6, math.hypot(w - 4, h - 6), 0.3, 0, y + h / 2 - 0.8, z)
+    brace.rotation.x = math.atan2(h - 6, w - 4)
+    leaf.add(brace)
+    return leaf

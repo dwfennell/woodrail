@@ -1,5 +1,6 @@
 import { Group, type Object3D } from "three";
 import { TOY, type Kit } from "../kit";
+import { buffers, underBox } from "./wagon-parts";
 
 /**
  * The game's car carrier (the `carrier` car kind, Game mode's Car carrier blueprint): a yellow wagon with two open
@@ -39,6 +40,16 @@ export function buildCarCarrier(k: Kit): Group {
   // A red guard rail along each side of the upper deck.
   for (const z of [-15.3, 15.3]) g.add(k.box(red, len - 10, 1.6, 1.6, 0.4, 0, up + 4, z));
   for (const x of [-36, -12, 12, 36]) for (const z of [-15.3, 15.3]) g.add(k.box(red, 1.4, 4, 1.4, 0.3, x, up, z));
+  // What makes it a railway wagon: buffers, the box under it, a dark toe rail along each side of the lower deck, and
+  // at each end of both decks the drive-on flap, folded up to keep the cars on.
+  const black = k.paint(TOY.black);
+  for (const end of [1, -1] as const) {
+    g.add(buffers(k, len, end, 14.5));
+    g.add(k.box(k.metal, 1.2, 6, 22, 0, end * (len / 2 - 3.4), CARRIER_DECK, 0));
+    for (const z of [-9, 9]) g.add(k.box(k.metal, 1.2, 5, 6, 0, end * (len / 2 - 4.8), up, z));
+  }
+  for (const z of [-15.4, 15.4]) g.add(k.box(black, len - 12, 1.2, 1, 0, 0, CARRIER_DECK, z));
+  g.add(underBox(k));
   return g;
 }
 

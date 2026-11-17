@@ -15,6 +15,7 @@ merged into one mesh per material, so a model costs a handful of draw calls.
 """
 
 import math
+import sys
 import os
 
 import bpy  # first: with the pip `bpy` module, bmesh and mathutils come with it
@@ -88,7 +89,7 @@ def _smooth(obj, angle=35):
     return obj
 
 
-def round_edges(obj, width, segments=3, angle=35):
+def round_edges(obj, width, segments=3, angle=35, miter="MITER_ARC"):
     """Round edges sharper than `angle` (normals are set when the model is baked: see `_set_normals`)."""
     if width <= 0:
         return obj
@@ -97,7 +98,7 @@ def round_edges(obj, width, segments=3, angle=35):
     m.segments = segments
     m.limit_method = "ANGLE"
     m.angle_limit = math.radians(angle)
-    m.miter_outer = "MITER_ARC"
+    m.miter_outer = miter
     return obj
 
 
@@ -110,14 +111,17 @@ def moving(obj):
 # ——— Shapes ———
 
 
-def box(mat, size, at, r=1.5, seg=None, name="box"):
-    """A box `size` (x, y, z) centred at `at`, edges rounded by `r` (in more steps for big roundings)."""
+def box(mat, size, at, r=1.5, seg=None, name="box", miter="MITER_ARC"):
+    """
+    A box `size` (x, y, z) centred at `at`, edges rounded by `r` (in more steps for big roundings). `miter`: how the
+    rounding turns an outer corner ("MITER_SHARP" for a box with round cuts through its edges: see `_baked_mesh`).
+    """
     seg = seg or (4 if r >= 3 else 3)
     bm = bmesh.new()
     bmesh.ops.create_cube(bm, size=1.0)
     bmesh.ops.scale(bm, vec=Vector(size), verts=bm.verts)
     obj = _smooth(_link(name, bm, mat, at))
-    return round_edges(obj, min(r, min(size) / 2 - 0.05), seg)
+    return round_edges(obj, min(r, min(size) / 2 - 0.05), seg, miter=miter)
 
 
 def lathe(mat, profile, at, axis="Z", seg=32, name="lathe"):
@@ -332,6 +336,19 @@ def _set_normals(me, angle=SMOOTH_ANGLE):
     me.normals_split_custom_set(normals)
 
 
+def _baked_mesh(obj, dg, model):
+    """
+    `obj`'s mesh with its modifiers applied. In about half of Blender's runs, a bevel with arc miters over exact
+    booleans (a chassis with its wheel arches) comes back with some vertices at wild coordinates (1e21 mm and more),
+    from the same input that is fine in the other half: such a part is given sharp miters (`box`'s `miter`), and the
+    build stops at one that isn't (a model with it would be drawn as a spike across the map).
+    """
+    me = bpy.data.meshes.new_from_object(obj.evaluated_get(dg), preserve_all_data_layers=True, depsgraph=dg)
+    if all(abs(c) < 1e5 for v in me.vertices for c in v.co):
+        return me
+    sys.exit(f"{model}: part {obj.name} has vertices at wild coordinates (give its box sharp miters: `miter`)")
+
+
 def finish(name, layout_at=(0, 0, 0), pivots=()):
     """
     Bake the parts built since `begin` into model `name`: modifiers applied, still parts joined per material, moving
@@ -353,7 +370,7 @@ def finish(name, layout_at=(0, 0, 0), pivots=()):
     for obj in _parts:
         if obj.get("cutter"):
             continue
-        me = bpy.data.meshes.new_from_object(obj.evaluated_get(dg), preserve_all_data_layers=True, depsgraph=dg)
+        me = _baked_mesh(obj, dg, name)
         mat = obj.data.materials[0].name
         me.materials.clear()
         me.materials.append(material(mat))
