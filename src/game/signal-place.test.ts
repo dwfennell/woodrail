@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { appendPiece, connectorRef, createSample, DOUBLE_TRACK_SPACING, getPieceDef, Layout, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId } from "../track";
+import { appendPiece, connectorRef, createSample, DOUBLE_TRACK_SPACING, RISER_HEIGHT, getPieceDef, Layout, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId } from "../track";
 import { chain, loopOn } from "../economy/loop-fixtures";
-import { blocksOf, hasRoom, jointPose, POST_ROOM, postAt, roomForPost, snapJoint, standAt } from "./signal-place";
+import { FEAT_BUILDING, gridWithPlots, SURF_RIVER, SURF_ROAD, type Landscape } from "../landscape";
+import { hillsOf } from "../landscape/hill-shape";
+import { AIR, blocksOf, groundForPost, hasRoom, jointPose, noRoomAt, POST_ROOM, postAt, roomForPost, setPostGround, snapJoint, standAt } from "./signal-place";
 
 const S: PieceTypeId = "straight-216";
 
@@ -143,5 +145,120 @@ describe("placing signal marks", () => {
       for (let i = 0; i < 200; i++) hasRoom(layout, connectorRef(ids[i], 1));
       expect((performance.now() - t0) / 200).toBeLessThan(1);
     });
+  });
+});
+
+describe("where a post stands on the map: open ground at the line's height (the user's report: a signal's post in a hill's side)", () => {
+  /** A map of grass round the origin (as the clearance tests'), the game's ground for posts on it. */
+  const flat = (): Landscape => ({ seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 }) as Landscape;
+  /** Squares whose centres are in [x0, x1] × [z0, z1] (mm): `fn` each. */
+  const squares = (land: Landscape, x0: number, x1: number, z0: number, z1: number, fn: (i: number) => void) => {
+    const g = land.grid;
+    for (let x = x0; x <= x1; x += 72) for (let z = z0; z <= z1; z += 72) fn(g.cellAtWorld(x, z));
+    g.revision++;
+  };
+  /** A line of straights along +x at this z and height, joined end to end, with the map's ground for its posts. */
+  const line = (land: Landscape, z: number, y: number, n = 4) => {
+    const layout = new Layout();
+    const ids = [layout.addPiece(S, { x: -432, z, heading: 0 }, y)];
+    for (let k = 1; k < n; k++) ids.push(appendPiece(layout, S, false, connectorRef(ids[k - 1], 1)));
+    setPostGround(layout, (x, zz, yy) => groundForPost(land, x, zz, yy));
+    return { layout, ids };
+  };
+
+  it("a line along a hill's foot: the post stands on the open side, never in the hill's side", () => {
+    // (The hill: squares from z = 0 up, a level high. The line's centre 24 mm short of it: its right in the hill.)
+    const land = flat();
+    squares(land, -720, 720, 36, 324, (i) => (land.grid.height[i] = 1));
+    const { layout, ids } = line(land, -24, 0);
+    const at = connectorRef(ids[1], 1);
+    // (No ground known, bare track: on the right, in the hill's side, as it stood.)
+    setPostGround(layout, null);
+    const was = standAt(layout, at)!;
+    expect(was.side).toBe(1);
+    expect(hillsOf(land.grid).groundAt(was.px, was.pz)).toBe(RISER_HEIGHT);
+    setPostGround(layout, (x, z, y) => groundForPost(land, x, z, y));
+    const st = standAt(layout, at)!;
+    expect(st.room).toBe(true);
+    expect(st.side).toBe(-1);
+    expect(hillsOf(land.grid).groundAt(st.px, st.pz)).toBe(st.y);
+    // (The other way along the line: its right is the open side already.)
+    const back = standAt(layout, connectorRef(ids[2], 0))!;
+    expect([back.room, back.side]).toEqual([true, 1]);
+    // (A house on the open side too: no room, and the hill named.)
+    squares(land, -720, 720, -72, -72, (i) => (land.grid.feature[i] = FEAT_BUILDING));
+    expect(hasRoom(layout, at)).toBe(false);
+    expect(noRoomAt(layout, at)).toBe("No room for a signal there: a hill's in the way");
+  });
+
+  it("a line on a hilltop: the post stands on the hill's top at the line's height; at its edge, on the hill's side of the line", () => {
+    const land = flat();
+    squares(land, -720, 720, -324, 324, (i) => (land.grid.height[i] = 1));
+    const { layout, ids } = line(land, 0, RISER_HEIGHT);
+    const st = standAt(layout, connectorRef(ids[1], 1))!;
+    expect([st.room, st.side]).toEqual([true, 1]);
+    // (Neither floating nor sunk: the hill's top is where its foot is.)
+    expect(st.y).toBe(RISER_HEIGHT);
+    expect(hillsOf(land.grid).groundAt(st.px, st.pz)).toBe(st.y);
+    // (Along the hill's edge, its right off the hill: on the left, on the hilltop.)
+    const edge = flat();
+    squares(edge, -720, 720, -324, -36, (i) => (edge.grid.height[i] = 1));
+    const e = line(edge, -24, RISER_HEIGHT);
+    const se = standAt(e.layout, connectorRef(e.ids[1], 1))!;
+    expect([se.room, se.side]).toEqual([true, -1]);
+    expect(hillsOf(edge.grid).groundAt(se.px, se.pz)).toBe(se.y);
+  });
+
+  it("on a viaduct or a bridge: no deck beside the track to stand on, so none put there, saying why", () => {
+    // (Two levels up across a valley, a viaduct between straights on risers: every joint up there is in the air.)
+    const land = flat();
+    const layout = new Layout();
+    const a = layout.addPiece(S, { x: -324, z: 0, heading: 0 }, 2 * RISER_HEIGHT);
+    const v = appendPiece(layout, "viaduct", false, connectorRef(a, 1));
+    const b = appendPiece(layout, S, false, connectorRef(v, 1));
+    const br = appendPiece(layout, "bridge", false, connectorRef(b, 1));
+    setPostGround(layout, (x, z, y) => groundForPost(land, x, z, y));
+    for (const at of [connectorRef(a, 1), connectorRef(v, 0), connectorRef(v, 1), connectorRef(b, 0), connectorRef(b, 1), connectorRef(br, 0)]) {
+      const st = standAt(layout, at)!;
+      expect(st.room).toBe(false);
+      expect(st.why).toBe(AIR);
+    }
+    expect(noRoomAt(layout, connectorRef(v, 1))).toMatch(/raised/);
+    // (The bridge's far end down on the felt: room there.)
+    const c = appendPiece(layout, S, false, connectorRef(br, 1));
+    expect(layout.getPiece(c)!.y).toBe(layout.getPiece(br)!.y + getPieceDef("bridge", false).connectors[1].y);
+  });
+
+  it("a house, a road or the river beside the line: the post on the other side, and named when both are", () => {
+    // (The river as track sees it: its drawn bank, which a post may stand 12 mm over (`RIVER_GRACE`), so the line nearer.)
+    for (const [what, z, set] of [
+      ["a house", -24, (g: Landscape["grid"], i: number) => (g.feature[i] = FEAT_BUILDING)],
+      ["a road", -24, (g: Landscape["grid"], i: number) => (g.surface[i] = SURF_ROAD)],
+      ["the river", -12, (g: Landscape["grid"], i: number) => (g.surface[i] = SURF_RIVER)],
+    ] as const) {
+      const land = flat();
+      const { layout, ids } = line(land, z, 0);
+      const at = connectorRef(ids[1], 1);
+      // (On the right: the squares from z = 0 for two rows (the river's drawn bank is smoothed in from its squares' edge).)
+      squares(land, -720, 720, 36, 108, (i) => set(land.grid, i));
+      const st = standAt(layout, at)!;
+      expect([what, st.room, st.side]).toEqual([what, true, -1]);
+      // (And on the left: no room, the right's named.)
+      squares(land, -720, 720, -108, -36, (i) => set(land.grid, i));
+      expect(noRoomAt(layout, at)).toBe(`No room for a signal there: ${what}'s in the way`);
+    }
+  });
+
+  it("costs little with the map's ground: a pointer move's worth of checks in well under a millisecond each", () => {
+    const land = flat();
+    squares(land, -2000, 2000, 36, 324, (i) => {
+      if (i !== -1) land.grid.height[i] = 1;
+    });
+    const layout = new Layout();
+    const ids = chain(layout, Array<PieceTypeId>(400).fill(S));
+    setPostGround(layout, (x, z, y) => groundForPost(land, x, z, y));
+    const t0 = performance.now();
+    for (let i = 0; i < 200; i++) hasRoom(layout, connectorRef(ids[i], 1));
+    expect((performance.now() - t0) / 200).toBeLessThan(1);
   });
 });

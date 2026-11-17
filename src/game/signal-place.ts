@@ -6,6 +6,8 @@
 import { connectorRef, createSample, DOUBLE_TRACK_SPACING, getPieceDef, indexOfRef, normalizeAngle, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout } from "../track";
 import type { Cursor } from "../sim";
 import { closestS } from "../sim/nearest";
+import { FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SECRET, FEAT_SHED, FEAT_STATION, SURF_ROAD, SURF_SEA, inRiver, isWater, onFixedSite, type Landscape } from "../landscape";
+import { hillsOf } from "../landscape/hill-shape";
 
 /** A joint end as the mark stands on it: the joint (plan x, z; y the track's top) and the way trains cross it there. */
 export interface JointPose {
@@ -64,8 +66,71 @@ export interface MarkStand extends JointPose {
   px: number;
   pz: number;
   side: 1 | -1;
-  /** False when neither side has room (the post stands on the right, on track): such a mark isn't put down. */
+  /** False when neither side has room (the post stands on the right, in the way): such a mark isn't put down. */
   room: boolean;
+  /** With no room: what's in the way on the driver's right (`TRACK`, `AIR`, or a phrase: "a hill", "the river"). */
+  why: string | null;
+}
+
+/** Other track is in the way of a post (`MarkStand.why`). */
+export const TRACK = "track";
+/** No ground beside the line at its height: it's raised (a bridge, a viaduct, risers, a ramp's top), the post in the air. */
+export const AIR = "air";
+
+/**
+ * What's in a post's way on the ground at plan (x, z) beside a joint at height `y` (a phrase, or `AIR`), or null where
+ * it's open ground at that height. One per map, set by the game (`setPostGround`): the landscape and what the player
+ * has put on it (yards, props). A layout with none (a test's bare track) has open ground everywhere.
+ */
+export type PostGround = (x: number, z: number, y: number) => string | null;
+const grounds = new WeakMap<Layout, PostGround>();
+
+/** Use `ground` for where posts may stand by this layout's track (null: open ground everywhere). */
+export function setPostGround(layout: Layout, ground: PostGround | null): void {
+  if (ground) grounds.set(layout, ground);
+  else grounds.delete(layout);
+}
+
+/** How far the ground may be off the joint's height for a post to stand on it (mm): a cutting's bank, a hill's edge. */
+const GROUND_SLACK = 3;
+
+/**
+ * The landscape's part of `PostGround`, as track's own placement rules see it (`checkPlacement`): a house,
+ * a field, the shed, a station's, depot's or old yard's footprint, a town's street, a road, the river or sea as drawn;
+ * then the ground's height: higher than the joint is a hill's side (or a cutting's bank), lower is no ground (`AIR`).
+ * A town's green takes a post, as it takes track.
+ */
+export function groundForPost(land: Landscape, x: number, z: number, y: number): string | null {
+  const g = land.grid;
+  const i = g.cellAtWorld(x, z);
+  // (Past the land's edge: the table, flat at the felt's height. A post by a line along the last square stands there.)
+  if (i === -1) return y > GROUND_SLACK ? AIR : null;
+  const f = g.feature[i];
+  if (f === FEAT_BUILDING) return "a house";
+  if (f === FEAT_FIELD) return "a field";
+  if (f === FEAT_SHED) return "the engine shed";
+  if ((f === FEAT_STATION || f === FEAT_DEPOT || f === FEAT_RUIN || f === FEAT_SECRET) && onFixedSite(land, i, x, z))
+    return f === FEAT_STATION ? "the station" : f === FEAT_DEPOT ? "a yard" : f === FEAT_RUIN ? "an old yard" : "something hidden";
+  if (g.surface[i] === SURF_ROAD || g.road[i] !== 0) return "a road";
+  if (isWater(g.surface[i]) && inRiver(g, x, z)) return g.surface[i] === SURF_SEA ? "the sea" : "the river";
+  const ground = hillsOf(g).groundAt(x, z);
+  if (ground > y + GROUND_SLACK) return "a hill";
+  if (ground < y - GROUND_SLACK) return AIR;
+  return null;
+}
+
+/** What's in the way of a post at plan (x, z) by a joint at height `y`: other track, then the ground (null: room). */
+function postBlock(layout: Layout, x: number, y: number, z: number): string | null {
+  if (!roomForPost(layout, x, y, z)) return TRACK;
+  return grounds.get(layout)?.(x, z, y) ?? null;
+}
+
+/** What to say when a signal can't go somewhere: what's in the way (`MarkStand.why`). */
+export function noRoomMessage(why: string | null): string {
+  if (why === AIR) return "No ground beside the line there: it's raised. Put signals where the track runs on the ground";
+  if (!why || why === TRACK) return "No room for a signal there: other track's in the way";
+  // ("a hill's in the way", "swans are in the way".)
+  return `No room for a signal there: ${why}${/[^s]s$/.test(why) ? " are" : "'s"} in the way`;
 }
 
 /** Where a post stands on `side` of joint `j` (plan x, z). */
@@ -138,19 +203,23 @@ export function roomForPost(layout: Layout, x: number, y: number, z: number): bo
 
 /**
  * Where a mark at joint end `at` stands: its post on the driver's right just short of the joint, or on the left when
- * the right has no room (`roomForPost`: other track, the other road of points or a crossover, a parallel line). Neither
- * has: `room` false (on the right). Null if `at` is no joint. The one place a mark's stand is worked out, for the drawn
- * mark, its ghost in the hand and where a drop is let go.
+ * the right has no room (`postBlock`: other track, the other road of points or a crossover, a parallel line; or the
+ * ground: a hill's side, a house, the river, no ground at all beside raised track). Neither has: `room` false (on the
+ * right), with what's in the way there. Null if `at` is no joint. The one place a mark's stand is worked out, for the
+ * drawn mark, its ghost in the hand and where a drop is let go.
  */
 export function standAt(layout: Layout, at: number): MarkStand | null {
   const j = jointPose(layout, at);
   if (!j) return null;
+  let why: string | null = null;
   for (const side of [1, -1] as const) {
     const q = postOn(j, side);
-    if (roomForPost(layout, q.x, j.y, q.z)) return { ...j, px: q.x, pz: q.z, side, room: true };
+    const block = postBlock(layout, q.x, j.y, q.z);
+    if (!block) return { ...j, px: q.x, pz: q.z, side, room: true, why: null };
+    why ??= block;
   }
   const q = postOn(j, 1);
-  return { ...j, px: q.x, pz: q.z, side: 1, room: false };
+  return { ...j, px: q.x, pz: q.z, side: 1, room: false, why };
 }
 
 /** Where a mark's post stands (plan x, z) and the joint's pose (`standAt`). */
@@ -161,6 +230,11 @@ export function postAt(layout: Layout, at: number): MarkStand | null {
 /** Has a mark at joint end `at` room to stand on either side? (False for no joint.) */
 export function hasRoom(layout: Layout, at: number): boolean {
   return standAt(layout, at)?.room ?? false;
+}
+
+/** What to say when a signal can't go on joint end `at` (`noRoomMessage`). */
+export function noRoomAt(layout: Layout, at: number): string {
+  return noRoomMessage(standAt(layout, at)?.why ?? null);
 }
 
 /** The plan heading a cursor's path runs along from its `from` end to its `to` end, where the cursor is. */

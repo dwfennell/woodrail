@@ -14,13 +14,13 @@ import { METRO_KIT, isSecretKit, SPLICE_POINTS, DRAW_TYPES, connectorRef, create
 import type { Hud, TrayItem } from "../ui/hud";
 import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
-import { blocksOf, hasRoom, pathHeading, postAt, snapJoint } from "./signal-place";
+import { blocksOf, hasRoom, noRoomAt, pathHeading, POST_ROOM, postAt, snapJoint } from "./signal-place";
 import { ROAD_MARGIN, topologyOf, trainLength } from "../economy/sections";
 import { SIGNAL_MODES, type SignalStyle } from "../track";
 import { pieceInfo } from "../ui/piece-info";
 import { powerOf, RADIO_MAST, WIND_TURBINE } from "./power";
 import { RADIO_RIDERS, townOfMast } from "./radio";
-import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
+import { checkProp, inFootprint, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
 import { streetTown } from "./street-moves";
 import { lotFor, movableBuilding, moveBuilding, townMoveGuard, townMoveMessage, type TownLot, type TownMoveBlock } from "./town-moves";
@@ -39,7 +39,7 @@ import { ruinAt, SITE_NAMES } from "./map-sites";
 import { haltName, secretAt, secretOfPiece } from "./secrets";
 import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
 import { callHome, calledLine, trainsInReach } from "./telegraph";
-import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
+import { checkYard, flipHint, footprintInYards, hasFootprint, propPhrase, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag, type RoadTill } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { eraseRefusal, sweepLooks, type EraseRefusal } from "./erase";
@@ -53,7 +53,6 @@ import { planBore, planTunnel, TUNNEL_MESSAGES, type TunnelPlan } from "./tunnel
 /** Said of a signal put on a joint in a tunnel. */
 const SIGNAL_DARK = "Signals need daylight: put it outside the tunnel";
 /** Refused: no room beside the track on either side of the joint (other track there: points, a crossover, a line beside). */
-const SIGNAL_NO_ROOM = "No room for a signal there: other track's in the way";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
 import { PinHint, type PinHintState } from "./switch-pin";
@@ -581,6 +580,7 @@ export class Interaction {
   ) {
     const canvas = game.canvas;
     const c = game.controls;
+    game.postObstacle = (x, z) => this.postObstacle(x, z);
     game.scene.add(this.propOutline.line, this.squareOutline.line, this.sceneryOutline.line);
     this.roads = new RoadHand(game, hud, editor, () => this.onRefused?.(), () => this.onPlaced?.(false), () => !this.propsEditable);
     this.draw = new DrawHand(game, editor, {
@@ -732,7 +732,7 @@ export class Interaction {
     g.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = m.overTray ? null : this.groundAt(x, this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y);
     let target = -1;
-    this.signalCramped = false;
+    this.signalCramped = -1;
     if (ground) {
       const near = nearestCursor(layout, ground.x, ground.z, TRAIN_DROP_RANGE, this.cameraHeading());
       if (near) {
@@ -747,7 +747,7 @@ export class Interaction {
         // its post has room beside the track (`hasRoom`): no room at the nearer joint, the piece's other one.)
         const fits = (at: number) => (m.moving === -1 ? !layout.signalAt(at) : this.setFits(m.moving, at)) && hasRoom(layout, at);
         target = snapJoint(layout, near.cursor, m.dir);
-        this.signalCramped = target !== -1 && !hasRoom(layout, target);
+        this.signalCramped = target !== -1 && !hasRoom(layout, target) ? target : -1;
         if (target !== -1 && !fits(target)) target = snapJoint(layout, near.cursor, m.dir, fits);
         // (Not in a tunnel: it couldn't be seen or tapped there.)
         this.signalDark = target !== -1 && this.jointInTunnel(target);
@@ -832,7 +832,7 @@ export class Interaction {
       if (m.overTray && m.moving !== -1) {
         ed.removeSignalSet(m.moving);
         this.hud.toast("Back in the box");
-      } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : this.signalCramped ? SIGNAL_NO_ROOM : "Drop it onto the track");
+      } else if (!m.overTray) this.hud.toast(this.signalDark ? SIGNAL_DARK : this.signalCramped !== -1 ? noRoomAt(this.game.layout, this.signalCramped) : "Drop it onto the track");
       return;
     }
     let id = m.moving;
@@ -853,7 +853,8 @@ export class Interaction {
     // (The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with.)
     this.hud.toast("Signal moved. Tap here to turn it round", false, 3600, () => {
       if (!this.game.layout.getSignal(id)) return;
-      if (this.turnRoomless(id)) this.hud.refuse(SIGNAL_NO_ROOM);
+      const cramped = this.turnRoomless(id);
+      if (cramped) this.hud.refuse(cramped);
       else if (!this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
     });
   }
@@ -865,12 +866,12 @@ export class Interaction {
     return [at, other].filter((a) => a !== -1 && !layout.signalAt(a) && hasRoom(layout, a));
   }
 
-  /** Would signal `id` turned round have no room for its post on the joint's other end? */
-  private turnRoomless(id: number): boolean {
+  /** Would signal `id` turned round have no room for its post on the joint's other end? What to say if so, else null. */
+  private turnRoomless(id: number): string | null {
     const L = this.game.layout;
     const m = L.getSignal(id);
     const other = m ? L.joinedConnector(m.at) : -1;
-    return other !== -1 && !L.signalAt(other) && !hasRoom(L, other);
+    return other !== -1 && !L.signalAt(other) && !hasRoom(L, other) ? noRoomAt(L, other) : null;
   }
 
   /** Can a placed signal's set go on joint end `at` (`signalSetAt`), each post with room beside the track? */
@@ -907,7 +908,7 @@ export class Interaction {
   /** The last signal held over a joint was there in a tunnel (and so refused). */
   private signalDark = false;
   /** The last joint a signal was held over had no room beside the track (and nowhere near did either). */
-  private signalCramped = false;
+  private signalCramped = -1;
   private readonly jointScratch = createWorldConnector();
   /** Is this end of track (a joint) in a tunnel? Signals can't go there. */
   private jointInTunnel(ref: number): boolean {
@@ -929,8 +930,9 @@ export class Interaction {
     // (The nearer joint where a signal's post has room, else the piece's other one.)
     const room = (a: number) => hasRoom(layout, a);
     let at = snapJoint(layout, near.cursor, dir, room);
-    if (at === -1 && snapJoint(layout, near.cursor, dir) !== -1) {
-      this.hud.refuse(SIGNAL_NO_ROOM);
+    const nearer = snapJoint(layout, near.cursor, dir);
+    if (at === -1 && nearer !== -1) {
+      this.hud.refuse(noRoomAt(layout, nearer));
       return;
     }
     // (One there facing that way already: the other way, if that's free.)
@@ -940,7 +942,7 @@ export class Interaction {
       return;
     }
     if (this.pairOf(at).length === 0) {
-      this.hud.refuse(SIGNAL_NO_ROOM);
+      this.hud.refuse(noRoomAt(layout, at));
       return;
     }
     if (this.jointInTunnel(at)) {
@@ -1092,7 +1094,8 @@ export class Interaction {
         { label: `Look: ${Interaction.STYLE_NAMES[m.style]} ▸`, title: "Lamps, semaphore or colour light: a tap shows the next" },
       ],
       (i) => {
-        if (i === 0 && this.turnRoomless(id)) this.hud.refuse(SIGNAL_NO_ROOM);
+        const cramped = i === 0 ? this.turnRoomless(id) : null;
+        if (cramped) this.hud.refuse(cramped);
         else if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
         if (i === 1) {
           const k = Interaction.STYLES.indexOf(m.style);
@@ -3915,6 +3918,26 @@ export class Interaction {
     return yards;
   }
   private yardsFor: { key: string; yards: PlacedYard[] } | null = null;
+
+  /**
+   * What the player has put where a signal's post would stand at plan (x, z): a depot's or kit's yard pad, or a prop
+   * (a phrase: "a yard", "a red barn"), else null. The game's `PostGround` asks it after the landscape (`groundForPost`).
+   * A box test first: the post against each prop's footprint's reach.
+   */
+  postObstacle(x: number, z: number): string | null {
+    const post: Footprint = { cx: 0, cz: 0, hw: POST_ROOM / 2, hd: POST_ROOM / 2 };
+    if (footprintInYards(this.playerYards(), post, { x, z, heading: 0 })) return "a yard";
+    const g = this.game;
+    for (const prop of g.props.all()) {
+      // (A crossing's prop stands on its crossing's track: its look, not in anything's way.)
+      const fp = standsAside(prop.asset) ? undefined : scaleFootprint(g.propLibrary.footprint(prop.asset), prop.scale);
+      if (!fp) continue;
+      const reach = Math.abs(fp.cx) + Math.abs(fp.cz) + fp.hw + fp.hd + POST_ROOM;
+      if (Math.abs(prop.x - x) > reach || Math.abs(prop.z - z) > reach) continue;
+      if (inFootprint(fp, prop, x, z, POST_ROOM / 2)) return propPhrase(prop);
+    }
+    return null;
+  }
 
   /** A prop's footprint in a player's depot's yard: "yard", the message saying whose. */
   private propInYard(fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">): PropBlock | null {

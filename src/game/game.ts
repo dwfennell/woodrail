@@ -79,6 +79,7 @@ import { connectorRef, getPieceDef, overUnderpass, pathLength, underpassHoles, t
 import { GIRDER_FLOORS } from "../render/track-geometry";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { BlockTint, SignalMarksView } from "../render/signal-marks-view";
+import { groundForPost, setPostGround, type PostGround } from "./signal-place";
 import { TouchesView } from "../render/touches-view";
 import { firstTrainMark, TOUCH_TRACK_CLEARANCE } from "./touches";
 import { nearTrack } from "../landscape/trees-aside";
@@ -231,6 +232,17 @@ export class Game {
   layout: Layout;
   sim: Sim;
   landscape: Landscape;
+  /**
+   * What the player has put where a signal's post would stand (a yard pad, a prop: a phrase), set by the interaction,
+   * which knows the yards and the props' footprints: the second half of `postGround`.
+   */
+  postObstacle: ((x: number, z: number) => string | null) | null = null;
+  /**
+   * Where a signal's post may stand by this map's track (`PostGround`): the landscape (`groundForPost`: a hill's side,
+   * a house, the river, no ground beside raised track), then the player's yards and props. Read when asked, so a new
+   * map's landscape is the one asked.
+   */
+  private readonly postGround: PostGround = (x, z, y) => groundForPost(this.landscape, x, z, y) ?? this.postObstacle?.(x, z) ?? null;
   stations: Map<number, number>;
   depots: Map<number, number>;
   /** Old industries' ruins standing on the land: site id → stub piece id (see `World.ruins`). */
@@ -318,6 +330,7 @@ export class Game {
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;
+    setPostGround(this.layout, this.postGround);
     this.stations = world.stations;
     this.depots = world.depots;
     this.ruins = world.ruins;
@@ -445,6 +458,7 @@ export class Game {
     // (Signal marks draw their styles from the kits' models: signals spec §5.)
     this.marksView = new SignalMarksView(this.layout, this.markAspects(), this.mats, this.propLibrary);
     this.marksView.onLoaded = () => this.invalidate();
+    this.marksView.groundKey = () => `${this.landscape.grid.revision}:${this.props.version}`;
     this.scene.add(this.marksView.group, this.blockTint.mesh);
     this.propsView = new PropsView(this.propLibrary);
     this.scene.add(this.propsView.group);
@@ -549,6 +563,7 @@ export class Game {
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;
+    setPostGround(this.layout, this.postGround);
     this.stations = world.stations;
     this.depots = world.depots;
     this.ruins = world.ruins;

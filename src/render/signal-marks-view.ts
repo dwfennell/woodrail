@@ -251,6 +251,12 @@ export class SignalMarksView {
   /** Called when a look's model has loaded (the caller redraws). */
   onLoaded: (() => void) | null = null;
 
+  /**
+   * A key of the ground posts stand on (the map's squares, the props), set by the game: a change stands each mark again
+   * (`standAt`: a hill raised beside one, a barn put down, takes its post to the other side).
+   */
+  groundKey: (() => string) | null = null;
+
   setLayout(layout: Layout): void {
     this.layout = layout;
     this.key = "";
@@ -287,7 +293,7 @@ export class SignalMarksView {
    */
   sync(): boolean {
     const L = this.layout;
-    const key = `${L.signalsVersion}:${L.revision}:${this.sim.signalsVersion}:${this.hidden.join(",")}:${L.signalCount}`;
+    const key = `${L.signalsVersion}:${L.revision}:${this.sim.signalsVersion}:${this.hidden.join(",")}:${L.signalCount}:${this.groundKey?.() ?? ""}`;
     if (key === this.key) return false;
     this.key = key;
     const was = this.byId;

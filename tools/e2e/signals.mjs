@@ -126,10 +126,25 @@ const dragSignal = async (joint) => {
   for (let k = 1; k <= 12; k++) await touch("touchMove", from[0] + ((bx - from[0]) * k) / 12, from[1] + ((by + 56 - from[1]) * k) / 12, (t += 0.03));
   for (let k = 1; k <= 10; k++) await touch("touchMove", bx + ((nx - bx) * k) / 10, by + 56 + ((ny - by) * k) / 10, (t += 0.03));
   await frames();
+  // (Where the preview's posts stood just before it was let go: each ghost model's foot, world plan x, z.)
+  lastFeet = await p.evaluate(() => {
+    const w = window.woodrail;
+    const m = w.interaction.mode;
+    return ["post0", "post1"].map((n) => {
+      const post = m.ghost?.getObjectByName(n);
+      const f = post?.visible ? post.getObjectByName("model")?.children[0] : null;
+      if (!f || !m.ghost.visible) return null;
+      f.updateWorldMatrix(true, false);
+      const v = f.getWorldPosition(new w.camera.position.constructor());
+      return { x: v.x, z: v.z };
+    });
+  });
   await touch("touchEnd", 0, 0, (t += 0.05));
   await settle();
   return (await marks()).find((m) => !before.has(m.id))?.at ?? -1;
 };
+/** The preview's posts' feet as `dragSignal` last let go (null each where it wasn't shown). */
+let lastFeet = [null, null];
 
 // A new game.
 await p.goto(PAGE);
@@ -836,6 +851,150 @@ if (!setup.error) {
     return { held: w.sim.signalHeld(sig), stood: t.speed < 1 && w.sim.atRedSignal(t.id), front: t.bogies[0].pieceId, sig };
   });
   check("7. an old save's semaphore signal piece loads, held, and holds a train at it", !after.error && after.held && after.stood, JSON.stringify(after));
+}
+
+// 8. Where a post stands on the map (the user: a signal on a line along a hill's foot had its post inside the hill's
+// side, its lamp out of the cliff). Setup: a straight face of a hill found on this Hilly map, and three straights laid
+// along its foot 30 mm out (by the game's own placement rules, as the tray would; the face square to the felt). What's
+// tested is by the player's path: a Signal dragged from the tray onto the middle joint, by touch.
+{
+  await p.evaluate(() => {
+    const h = window.woodrail.hud;
+    window.__said = [];
+    for (const k of ["toast", "refuse"]) {
+      const f = h[k].bind(h);
+      h[k] = (m, ...a) => (m && window.__said.push(m), f(m, ...a));
+    }
+  });
+  const run = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const g = w.world.landscape.grid;
+    const { CELL } = await import("/src/landscape/grid.ts");
+    const { connectorRef } = await import("/src/track/layout.ts");
+    const { jointPose } = await import("/src/game/signal-place.ts");
+    const S = "straight-216";
+    const level = (col, row) => {
+      const i = g.index(col, row);
+      return i === -1 ? -1 : g.height[i];
+    };
+    // (A face: a run of 9 squares a level high, and the two rows before it flat felt.)
+    const faces = [];
+    for (const i of g.height.keys()) {
+      if (g.height[i] !== 1 || faces.length > 40) continue;
+      const col = g.colOf(i);
+      const row = g.rowOf(i);
+      for (const [nc, nr] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+        const [tc, tr] = [-nr, nc];
+        let ok = true;
+        for (let k = 0; k < 9 && ok; k++) {
+          const [c, r] = [col + tc * k, row + tr * k];
+          ok = level(c, r) === 1 && level(c + nc, r + nr) === 0 && level(c + 2 * nc, r + 2 * nr) === 0;
+        }
+        if (ok) faces.push({ col, row, nc, nr, tc, tr });
+      }
+    }
+    for (const f of faces) {
+      // (The face's line, 30 mm out on the felt, from its third square to its seventh.)
+      const fx = g.centreX(f.col) + (f.nc * CELL) / 2 + f.nc * 30 + f.tc * (2 * CELL - CELL / 2);
+      const fz = g.centreZ(f.row) + (f.nr * CELL) / 2 + f.nr * 30 + f.tr * (2 * CELL - CELL / 2);
+      const heading = Math.atan2(f.tr, f.tc);
+      const ids = [];
+      let pose = { x: fx, z: fz, heading };
+      for (let k = 0; k < 3; k++) {
+        const r = w.interaction.placement(S, false, pose, 0, -1);
+        if (r.reason) break;
+        const id = w.editor().place(S, pose, 0, false, r.risers);
+        ids.push(id);
+        const c = w.layout.worldConnector(id * 8 + 1, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+        pose = { x: c.x, z: c.z, heading: c.heading };
+      }
+      if (ids.length === 3) {
+        w.invalidate();
+        // (The joint between the first two, trains going along the face with the hill on their right, and the other way.)
+        const at = connectorRef(ids[0], 1);
+        const j = jointPose(w.layout, at);
+        const right = { x: -Math.sin(j.heading), z: Math.cos(j.heading) };
+        const hillRight = right.x * -f.nc + right.z * -f.nr > 0.5;
+        return { at: hillRight ? at : w.layout.joinedConnector(at), ids, face: f };
+      }
+      for (const id of ids.reverse()) w.editor().remove(id);
+    }
+    return { error: `no face with room for a line at its foot (${faces.length} faces)` };
+  });
+  check("8. setup: three straights laid along a hill's foot, its face square to the line", !run.error, JSON.stringify(run));
+  if (!run.error) {
+    const joint = await p.evaluate(async (at) => (await import("/src/game/signal-place.ts")).jointPose(window.woodrail.layout, at), run.at);
+    await glideTo(joint, 700);
+    await settle();
+    const before = (await marks()).length;
+    const at = await dragSignal(joint);
+    const stood = await p.evaluate(
+      async ([at]) => {
+        const w = window.woodrail;
+        const { hillsOf } = await import("/src/landscape/hill-shape.ts");
+        const hills = hillsOf(w.world.landscape.grid);
+        const other = w.layout.joinedConnector(at);
+        return [at, other].map((a) => {
+          const m = [...w.layout.signals()].find((s) => s.at === a);
+          const top = m && w.marksView.topOf(m.id);
+          return top ? { at: a, x: top.x, z: top.z, ground: hills.groundAt(top.x, top.z), mirrored: w.marksView.shownOf(m.id)?.mirrored ?? false } : null;
+        });
+      },
+      [run.at],
+    );
+    await shot("8-hill-foot");
+    check("8. a Signal dragged onto the joint by the hill's foot is put down, a pair", at === run.at && (await marks()).length === before + 2, JSON.stringify({ at, want: run.at }));
+    // (Both on the open side: the one whose right is the hill stands on its left, drawn mirrored.)
+    check("8. …neither post in the hill: each stands on the felt (the ground under it at the line's height, 0)", stood.every((s) => s && s.ground === 0), JSON.stringify(stood));
+    check("8. …the one facing with the hill on its right stands on its left, mirrored", stood[0]?.mirrored === true && stood[1]?.mirrored === false, JSON.stringify(stood));
+    const off = stood.map((s, i) => (s && lastFeet[i] ? Math.hypot(s.x - lastFeet[i].x, s.z - lastFeet[i].z) : Infinity));
+    check("8. …each post just where its preview stood (within 0.5 mm)", off.every((d) => d < 0.5), JSON.stringify({ off, feet: lastFeet }));
+  }
+
+  // On a raised line: a ramp standing free on the felt and two straights on risers off its top (laid by placement, as
+  // the tray lays them). A signal dragged to the ramp's top has no ground beside it: refused, saying so.
+  const raised = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const b = w.director.bounds;
+    const { connectorRef } = await import("/src/track/layout.ts");
+    const { jointPose } = await import("/src/game/signal-place.ts");
+    for (let tries = 0; tries < 400; tries++) {
+      const x = b.x0 + 200 + ((tries * 97) % Math.max(1, b.x1 - b.x0 - 600));
+      const z = b.z0 + 200 + (((tries * 61) >> 2) % Math.max(1, b.z1 - b.z0 - 400));
+      const heading = (tries % 4) * (Math.PI / 2);
+      const ids = [];
+      let pose = { x: Math.round(x / 18) * 18, z: Math.round(z / 18) * 18, heading };
+      let y = 0;
+      for (const type of ["ramp", "straight-216", "straight-216"]) {
+        const r = w.interaction.placement(type, false, pose, y, -1);
+        if (r.reason) break;
+        const id = w.editor().place(type, pose, y, false, r.risers);
+        ids.push(id);
+        const c = w.layout.worldConnector(id * 8 + 1, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+        pose = { x: c.x, z: c.z, heading: c.heading };
+        y = c.y;
+      }
+      if (ids.length === 3) {
+        w.invalidate();
+        const at = connectorRef(ids[0], 1);
+        return { at, joint: jointPose(w.layout, at), ids };
+      }
+      for (const id of ids.reverse()) w.editor().remove(id);
+    }
+    return { error: "no room for a ramp and a raised line" };
+  });
+  check("8. setup: a ramp on the felt and a line on risers off its top", !raised.error && raised.joint?.y > 40, JSON.stringify(raised));
+  if (!raised.error) {
+    await glideTo(raised.joint, 700);
+    await settle();
+    await p.evaluate(() => window.__said.splice(0));
+    const before = (await marks()).length;
+    const at = await dragSignal(raised.joint);
+    const said = await p.evaluate(() => window.__said.splice(0));
+    await shot("8-raised");
+    check("8. a Signal dragged to the top of the ramp, the line raised: not put down", at === -1 && (await marks()).length === before, JSON.stringify({ at }));
+    check("8. …it says why: no ground beside the raised line", said.some((m) => /^No ground beside the line there: it's raised/.test(m)), JSON.stringify(said));
+  }
 }
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
