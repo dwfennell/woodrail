@@ -684,6 +684,10 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       return who ? `Waiting: ${inTheWay(who, place)}` : "Waiting: something's in the way";
     case "line-wait-for": {
       const to = placeLabel(nameOf, s.to);
+      // (Others have gone first in this wait: said steadily, with how many, not each one in turn as it holds it (Wren's
+      // map, 2026-11-18). The one now in the way is under Show.)
+      const gone = s.holder === "sections" ? economy.sections.goneFirst(engineCarId) : 0;
+      if (gone > 0) return `Waiting for the line${to ? ` to ${to}` : ""}: ${gone} train${gone === 1 ? " has" : "s have"} gone first`;
       return `Waiting for ${trainLabel(sim, s.by)} to clear the line${to ? ` to ${to}` : ""}`;
     }
     case "running": {
