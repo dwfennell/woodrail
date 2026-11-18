@@ -1194,19 +1194,25 @@ suite.add(
     check("one-way: …its toast offers to turn it round", said.includes("One-way signal placed. Tap here to turn it round"), JSON.stringify(said));
     await shot("ow-3-placed");
     // The toast tapped: turned round (the joint's other end); Undo: back.
-    const toast = await p.evaluate(() => {
-      const e = [...document.querySelectorAll(".toast")].find((x) => x.classList.contains("show") && x.textContent?.includes("One-way signal placed"));
-      if (!e) return null;
-      const r = e.getBoundingClientRect();
-      return [r.x + r.width / 2, r.y + r.height / 2];
-    });
+    // (Waited for: a toast slides in a moment after the drop, later or sooner by the machine.)
+    const toast = await p
+      .waitForFunction(() => {
+        const e = [...document.querySelectorAll(".toast")].find((x) => x.classList.contains("show") && x.textContent?.includes("One-way signal placed"));
+        if (!e) return null;
+        const r = e.getBoundingClientRect();
+        return r.width > 0 ? [r.x + r.width / 2, r.y + r.height / 2] : null;
+      }, null, { timeout: 10000 })
+      .then((h) => h.jsonValue())
+      .catch(() => null);
     if (toast) await tapAt(...toast);
     await p.waitForTimeout(300);
     const j2 = await onJoint(at);
-    check("one-way: a tap on the toast turns it round", j2.here === -1 && j2.other === j1.here, JSON.stringify({ toast, ...j2 }));
-    await undo();
+    check("one-way: a tap on the toast turns it round", !!toast && j2.here === -1 && j2.other === j1.here, JSON.stringify({ toast, ...j2 }));
+    // (Undo only when the toast turned it: else Undo would take the signal itself away.)
+    if (toast) await undo();
     const j3 = await onJoint(at);
     check("one-way: …Undo: facing on again", j3.here === j1.here && j3.other === -1, JSON.stringify(j3));
+    if (j3.here !== j1.here) return;
 
     // Its card: Turn round and Both ways. Both ways: a pair; the pair's card: One way only (this one kept).
     const tapPost = async (id) => {
