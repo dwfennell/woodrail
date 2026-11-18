@@ -805,3 +805,32 @@ describe("stepping aside into a spare platform (the user's A1)", () => {
     expect([...said]).toEqual([`Letting the ${lineOf70} train by`]);
   });
 });
+
+describe("a head-on between signals: who faces whom, and who waits behind", () => {
+  // (The user's complex map, saved twice jammed, 2026-11-18 (src/play/bugmaps/reports/): a train queued behind a
+  // head-on, going the same way, was told the train ahead "faces it". Now the two nose to nose say so of each other, and
+  // one behind them names them both.)
+  const cards = async (file: string): Promise<Map<number, string>> => {
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL(`../play/bugmaps/reports/${file}`, import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    for (let k = 0; k < 10 * 120; k++) {
+      sim.tick();
+      economy.tick();
+    }
+    return new Map([7, 10, 18].map((e) => [e, engineStatus(sim, economy, e, () => "?")]));
+  };
+  it("saved jammed at the triangle of points: Blue and Purple face each other; Passengers waits behind Blue", async () => {
+    const c = await cards("2026-11-18-complex-jams.txt");
+    expect(c.get(7)).toBe("Stuck: the train on the Purple line faces it between the signals. Move one of them");
+    expect(c.get(18)).toBe("Stuck: the train on the Blue line faces it between the signals. Move one of them");
+    expect(c.get(10)).toBe("Stuck behind the train on the Blue line, which faces the train on the Purple line between the signals. Move one of them");
+  });
+  it("saved jammed at the town: Blue and Passengers face each other; Purple waits behind Passengers", async () => {
+    const c = await cards("2026-11-18-complex-jams-2.txt");
+    expect(c.get(7)).toBe("Stuck: the train on the Passengers faces it between the signals. Move one of them");
+    expect(c.get(10)).toBe("Stuck: the train on the Blue line faces it between the signals. Move one of them");
+    expect(c.get(18)).toBe("Stuck behind the train on the Passengers, which faces the train on the Blue line between the signals. Move one of them");
+  });
+});
