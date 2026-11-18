@@ -14,9 +14,9 @@
 //   4. Show where: the sheet folds, the camera frames the waiting train and the spot, the ghost signal there with
 //      "Put a signal here", the Signal ringed on its shelf.
 //   5. The Signal tapped on its shelf and the track tapped by the spot: a signal there.
-//   6. The payoff: run on, and the trains follow each other: the follower's waits on the stretch get shorter (the
-//      share of game time a train stands waiting for the other, before and after), logs still reach the sawmill, the
-//      tip goes with a "✓ They follow now" toast, and it's done for this game.
+//   6. The payoff: run on, and the follower, which stood in the loop for the whole stretch, sets off while the leader
+//      is still on it (the signal splits the stretch); the tip goes with a "✓ They follow now" toast, logs still reach
+//      the sawmill, and it's done for this game.
 //   7. After a reload: kept done (the game's session), no tip.
 //   8. ☰ Tips: off, then on.
 // Pictures: situation-help-1-toast.jpg, -2-row.jpg, -4-show-where.jpg, -6-fixed.jpg.
@@ -198,9 +198,12 @@ const setup = await p.evaluate(async () => {
   });
   const red = startLine(w.economy, engines[0], [{ depotId: A, action: "auto" }, { depotId: B, action: "auto" }]);
   joinLine(w.economy, engines[1], red.id);
+  // (Both bound for the sawmill, the follower behind the leader, as the follow hint's own test starts them: a line's
+  // trains bunched, going the same way. Left to settle, two trains on a line with a loop at each end take turns and
+  // pass at the loops.)
+  for (const e of engines) w.economy.routeOf(e).next = 1;
   w.trackChanged?.();
-  // A sampler of the trains' waits on game time (the payoff, step 6): each engine's game seconds standing waiting for
-  // the other, by the game's own trainState; and the sawmill's logs taken in.
+  // The forest kept stocked (the trains always have logs to carry: shortcut), and the sawmill's logs taken in.
   const { trainState } = await import("/src/game/engine-status.ts");
   const { CARGO } = await import("/src/economy/cargo.ts");
   window.__waits = { seconds: 0, waiting: 0, last: w.simSeconds };
@@ -250,7 +253,12 @@ const toast1 = await toastText();
 const chip1 = await p.evaluate(() => document.querySelector(".goals-now")?.textContent ?? "");
 check("1. the follower waits for the whole stretch: a toast says so, once", toasted && /Red line trains are stuck in a queue/.test(toast1) && /Show where/.test(toast1), toast1);
 check("1. …the chip says it while the toast is up", /💡 Trains queuing/.test(chip1), chip1);
-const waitBefore = await p.evaluate(() => ({ ...window.__waits }));
+// (Who waits for whom, as the tip saw it: the payoff is the follower setting off sooner.)
+const pair = await p.evaluate(() => {
+  const s = window.woodrail.situations().current();
+  const f = window.woodrail.economy.sections.followWait();
+  return { follower: s?.engine ?? f?.engine ?? -1, lead: f?.lead ?? -1 };
+});
 await shot("1-toast");
 await until(() => !document.querySelector(".toast.show"), null, 120000);
 await until(() => !/Trains queuing/.test(document.querySelector(".goals-now")?.textContent ?? ""), null, 60000);
@@ -319,21 +327,38 @@ check("5. a signal put down by the spot", marks.length > marks0, JSON.stringify(
 await tapSel('.scroller .tray-item[data-key="signal"]');
 
 // ---- 6. The payoff --------------------------------------------------------------------------------------------------
+// The follower stood in the loop for the whole stretch to the sawmill; with the signal it sets off as soon as the
+// leader is past the signal, while the leader is still on the stretch (not yet at the sawmill, nor turned back).
 const logs0 = await p.evaluate(() => window.__logsIn());
-await p.evaluate(() => {
-  window.__waits = { seconds: 0, waiting: 0, last: window.woodrail.simSeconds };
-});
 await pause(false);
+const off = await p.evaluate(
+  ({ follower, lead, B }) =>
+    new Promise((done) => {
+      const w = window.woodrail;
+      const t0 = w.simSeconds;
+      const look = async () => {
+        const { trainState } = await import("/src/game/engine-status.ts");
+        const tf = w.sim.findCar(follower)?.train;
+        const tl = w.sim.findCar(lead)?.train;
+        const sf = tf ? trainState(w.sim, w.economy, tf, 1).kind : "gone";
+        const sl = tl ? trainState(w.sim, w.economy, tl, 1) : null;
+        const leadAtB = !!sl && sl.kind === "worked" && sl.depotId === B;
+        const leadBound = w.economy.routeOf(lead)?.next === 1;
+        if (sf === "running" || sf === "starting") return done({ ok: !leadAtB && leadBound, sf, lead: sl?.kind, leadBound, after: Math.round(w.simSeconds - t0) });
+        if (w.simSeconds - t0 > 300) return done({ ok: false, sf, lead: sl?.kind, timeout: true });
+        setTimeout(look, 100);
+      };
+      look();
+    }),
+  { ...pair, B: setup.B },
+);
+check("6. the follower sets off while the leader is still on the stretch (the signal splits it)", off.ok, JSON.stringify({ pair, off }));
 const fixed = await until(() => /They follow now/.test(document.querySelector(".toast.show")?.textContent ?? ""), null, 600000);
 check("6. the tip goes with \"✓ They follow now\"", fixed, await toastText());
 await shot("6-fixed");
-// (Run on a while to measure the waits with the signal.)
 const t0 = await sim();
-await until((t) => window.woodrail.simSeconds > t + 240, t0, 600000);
-const waitAfter = await p.evaluate(() => ({ ...window.__waits }));
+await until((t) => window.woodrail.simSeconds > t + 120, t0, 600000);
 const logs1 = await p.evaluate(() => window.__logsIn());
-const share = (x) => (x.seconds > 0 ? x.waiting / x.seconds : 1);
-check("6. the trains follow: a smaller share of the time standing waiting", share(waitAfter) < share(waitBefore), JSON.stringify({ before: waitBefore, after: waitAfter }));
 check("6. logs still reach the sawmill", logs1 > logs0, `${logs0} → ${logs1}`);
 const done = await p.evaluate(() => ({ done: window.woodrail.situations().isDone("jam-follow"), row: !!document.querySelector(".situation-tip") }));
 check("6. done for this game, the row gone", done.done && !done.row, JSON.stringify(done));
