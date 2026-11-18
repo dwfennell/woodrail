@@ -1184,24 +1184,15 @@ suite.add(
       h.toast = (m, ...a) => (m && window.__said.push(m), f(m, ...a));
     });
     await touch("touchEnd", 0, 0, (t += 0.05));
-    await settle();
-    const j1 = await onJoint(at);
-    check("one-way: let go: one signal on the joint, facing on, none the other way", j1.here !== -1 && j1.other === -1 && j1.count === 1, JSON.stringify(j1));
-    const top = await p.evaluate((id) => window.woodrail.marksView.topOf(id), j1.here);
-    const off = top && fwd2.foot ? Math.hypot(top.x - fwd2.foot.x, top.z - fwd2.foot.z) : Infinity;
-    check("one-way: …its post just where its preview stood (within 0.5 mm)", off < 0.5, JSON.stringify({ off, top, foot: fwd2.foot }));
-    const said = await p.evaluate(() => window.__said.splice(0));
-    check("one-way: …its toast offers to turn it round", said.includes("One-way signal placed. Tap here to turn it round"), JSON.stringify(said));
-    await shot("ow-3-placed");
-    // The toast tapped: turned round (the joint's other end); Undo: back.
-    // (Waited for: a toast slides in a moment after the drop, later or sooner by the machine.)
+    // (The toast is up for a few seconds (`toastMs`): found and read at once, before the slower checks; a slow
+    // machine's settle used to outlast it.)
     const toast = await p
       .waitForFunction(() => {
         const e = [...document.querySelectorAll(".toast")].find((x) => x.classList.contains("show") && x.textContent?.includes("One-way signal placed"));
         if (!e) return null;
         const r = e.getBoundingClientRect();
         return r.width > 0 ? [r.x + r.width / 2, r.y + r.height / 2] : null;
-      }, null, { timeout: 30000, polling: 100 })
+      }, null, { timeout: 8000, polling: 50 })
       .then((h) => h.jsonValue())
       .catch(() => null);
     // (What showed instead, if it never came: another toast ahead of it in the queue, or none.)
@@ -1211,15 +1202,23 @@ suite.add(
           const h = window.woodrail.hud;
           return { els: [...document.querySelectorAll(".toast")].map((x) => `${x.className}: ${x.textContent}`), queue: (h.toastQueue ?? []).map((q) => q.message), showing: h.toastShowing?.message ?? null, waitsForCard: h.toastWaitsForCard, help: !h.help?.hidden, coach: !!h.coach?.shown };
         });
+    const j1 = await onJoint(at);
+    const top = j1.here !== -1 ? await p.evaluate((id) => window.woodrail.marksView.topOf(id), j1.here) : null;
     if (toast) await tapAt(...toast);
     await p.waitForTimeout(300);
     const j2 = await onJoint(at);
+    check("one-way: let go: one signal on the joint, facing on, none the other way", j1.here !== -1 && j1.other === -1 && j1.count === 1, JSON.stringify(j1));
+    const off = top && fwd2.foot ? Math.hypot(top.x - fwd2.foot.x, top.z - fwd2.foot.z) : Infinity;
+    check("one-way: …its post just where its preview stood (within 0.5 mm)", off < 0.5, JSON.stringify({ off, top, foot: fwd2.foot }));
+    const said = await p.evaluate(() => window.__said.splice(0));
+    check("one-way: …its toast offers to turn it round", said.includes("One-way signal placed. Tap here to turn it round"), JSON.stringify(said));
     check("one-way: a tap on the toast turns it round", !!toast && j2.here === -1 && j2.other === j1.here, JSON.stringify({ toast, seen, ...j2 }));
     // (Undo only when the toast turned it: else Undo would take the signal itself away.)
     if (toast) await undo();
     const j3 = await onJoint(at);
     check("one-way: …Undo: facing on again", j3.here === j1.here && j3.other === -1, JSON.stringify(j3));
     if (j3.here !== j1.here) return;
+    await shot("ow-3-placed");
 
     // Its card: Turn round and Both ways. Both ways: a pair; the pair's card: One way only (this one kept).
     const tapPost = async (id) => {
