@@ -2385,7 +2385,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length, f.theta ?? undefined);
     hud.openTray("track", "Signals");
     hud.pointAtTile("signal");
-    const labels = goalLabels(game.camera, game.canvas, [{ x: post.x, y: post.y + 90, z: post.z, text: "Put a signal here" }]);
+    // (Up longer than a goal's names: a moment to find the Signal on its shelf.)
+    const labels = goalLabels(game.camera, game.canvas, [{ x: post.x, y: post.y + 90, z: post.z, text: "Put a signal here" }], 10);
     if (labels) game.flourishes.add(labels);
     game.invalidate();
   }

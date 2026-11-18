@@ -223,7 +223,8 @@ const setup = await p.evaluate(async () => {
     }
     w.economy.depot(A).piles[CARGO.log.index] = Math.max(w.economy.depot(A).piles[CARGO.log.index], 12);
   }, 100);
-  window.__logsIn = () => w.economy.depot(B).piles[CARGO.log.index] + (w.economy.depot(B).piles[CARGO.plank.index] ?? 0);
+  // (Loads the cranes have moved: logs onto trains at the forest and off them at the sawmill.)
+  window.__logsIn = () => w.economy.loadsMoved;
   w.invalidate();
   return { A, B, engines, line: red.id, name: red.name, pieces: placed.length };
 });
@@ -295,6 +296,8 @@ await until(() => window.woodrail.hud.explainerShown === null, null, 10000);
 // ---- 4. Show where --------------------------------------------------------------------------------------------------
 if (await p.evaluate(() => document.querySelector(".goals").classList.contains("collapsed"))) await tapSel(".goals-head");
 await tapSel(".situation-tip .tip-where");
+// (The label is up for a few seconds: looked for at once.)
+const labelled = await until(() => [...document.querySelectorAll(".goal-label")].some((l) => /Put a signal here/.test(l.textContent)), null, 8000);
 await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
 await settle();
 const where = await p.evaluate(async () => {
@@ -304,13 +307,13 @@ const where = await p.evaluate(async () => {
   const post = postAt(w.layout, s.signalAt);
   const b = w.sim.findCar(s.engine).train.bogies[0];
   const tr = w.layout.getPiece(b.pieceId).pose;
-  return { at: s.signalAt, post, train: { x: tr.x, z: tr.z }, folded: document.querySelector(".goals").classList.contains("collapsed"), label: [...document.querySelectorAll(".goal-label")].some((l) => /Put a signal here/.test(l.textContent)), ringed: !!document.querySelector('.tray-item.pointed[data-key="signal"]') };
+  return { at: s.signalAt, post, train: { x: tr.x, z: tr.z }, folded: document.querySelector(".goals").classList.contains("collapsed"), ringed: !!document.querySelector('.tray-item.pointed[data-key="signal"]') };
 });
 const onScreen = ([x, y]) => x > 0 && x < 390 && y > 0 && y < 844;
 const postAt = await screenOf(where.post);
 const trainAt = await screenOf(where.train);
 check("4. Show where: the sheet folds, the spot and the waiting train both in view", where.folded && onScreen(postAt) && onScreen(trainAt), JSON.stringify({ postAt, trainAt }));
-check("4. …\"Put a signal here\" over it, the Signal ringed on its shelf", where.label && where.ringed, JSON.stringify(where));
+check("4. …\"Put a signal here\" over it, the Signal ringed on its shelf", labelled && where.ringed, JSON.stringify({ labelled, ...where }));
 await shot("4-show-where");
 
 // ---- 5. The Signal from its shelf, the track tapped by the spot ---------------------------------------------------
@@ -342,7 +345,7 @@ await shot("6-fixed");
 const logs1 = await p.evaluate(() => window.__logsIn());
 const after = await p.evaluate(() => Math.round(window.__waits.longest));
 check("6. the trains follow: the longest wait behind the other train is shorter with the signal", before >= 20 && after < before, `${before} s → ${after} s`);
-check("6. logs still reach the sawmill", logs1 > logs0, `${logs0} → ${logs1}`);
+check("6. logs still carried: the cranes keep loading and unloading", logs1 > logs0, `${logs0} → ${logs1} loads moved`);
 const done = await p.evaluate(() => ({ done: window.woodrail.situations().isDone("jam-follow"), row: !!document.querySelector(".situation-tip") }));
 check("6. done for this game, the row gone", done.done && !done.row, JSON.stringify(done));
 
