@@ -58,7 +58,7 @@ export type TrainState =
   | { kind: "stuck"; why: "in-way"; line: string; loop: boolean; by: number }
   | { kind: "stuck"; why: "too-many" }
   | { kind: "stuck"; why: "parked"; by?: number }
-  | { kind: "stuck"; why: "signals"; by: number; headOn?: { loop: boolean } }
+  | { kind: "stuck"; why: "signals"; by: number; headOn?: { loop: boolean; pair?: readonly [number, number] } }
   /** A train (`by`, maybe this one) at a signal inside a passing loop, its tail over the points (`mark`: that signal). */
   | { kind: "stuck"; why: "loop-signal"; by: number; mark: number }
   /**
@@ -397,6 +397,14 @@ export function blockerOf(sim: Sim, economy: Economy, s: TrainState): Blocker | 
   }
 }
 
+/** A train in a head-on as a card names it (`blockerName`), standing, said as under way (it isn't parked). */
+function facingName(sim: Sim, economy: Economy, car: number, placeOf: (carId: number) => string): string {
+  const b = blockerAt(sim, economy, car);
+  if (!b) return "another train";
+  const place = b.car >= 0 && (!b.line || b.how === "parked" || b.how === "stopped") ? placeOf(b.car) : "";
+  return blockerName(b.how === "stopped" ? { ...b, how: "running" } : b, place);
+}
+
 /**
  * A blocker as the card names it: by its line ("the train on the Blue line"), else by where it is (`place`: "Elder",
  * "the sawmill"; "" when nowhere's near), and how it stands ("the train parked by Elder"). Never an id.
@@ -534,7 +542,7 @@ export function engineView(
   // is the quick one, offered on the card (QA 2026-11-04: two engines on the starter line). (Leaving the line isn't:
   // the train still stands on its one track.)
   const crowded = (s.kind === "stuck" && s.why === "too-many") || (s.kind === "needs-loop" && !s.spare && !s.pinned && s.more > 0);
-  return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place), blocker, ...(crowded ? { crowded: true as const } : {}) };
+  return { status: statusText(sim, economy, engineCarId, s, nameOf, blocker, place, placeOf), blocker, ...(crowded ? { crowded: true as const } : {}) };
 }
 
 /** What a breakdown crane is doing, said on its own train's card and on the card of the train it's for; null: none. */
@@ -555,7 +563,7 @@ export function craneStatus(economy: Economy, train: Train): string | null {
   return coming.kind === "rerail" ? "The breakdown crane is lifting it back on the track" : "The breakdown crane is lifting it off the line";
 }
 
-function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainState, nameOf: (depotId: number) => string, who: Blocker | null, place: string): string {
+function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainState, nameOf: (depotId: number) => string, who: Blocker | null, place: string, placeOf: (carId: number) => string = () => ""): string {
   const found = sim.findCar(engineCarId)!;
   switch (s.kind) {
     case "derailed":
@@ -620,7 +628,14 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (The quick fix named too, the card's Remove: QA 2026-11-04, two engines on the starter line both waited.)
       if (s.why === "too-many") return `Stuck: this line has a train too many. Add a passing loop${OR_REMOVE}`;
       // (Two facing each other between signals: no signal helps. Named, and the fix: move one, or a passing loop.)
-      if (s.why === "signals" && s.headOn) return `Stuck: ${who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} faces it between the signals. ${s.headOn.loop ? "Add a passing loop here" : "Move one of them"}`;
+      if (s.why === "signals" && s.headOn) {
+        const fix = s.headOn.loop ? "Add a passing loop here" : "Move one of them";
+        const ahead = who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train";
+        if (!s.headOn.pair) return `Stuck: ${ahead} faces it between the signals. ${fix}`;
+        // (Behind the head-on, going the same way: the two that face each other are named, not the one ahead.)
+        const [a, b] = s.headOn.pair.map((car) => facingName(sim, economy, car, placeOf));
+        return s.headOn.pair[0] === s.by ? `Stuck behind ${ahead}, which faces ${b} between the signals. ${fix}` : `Stuck: ${a} and ${b} face each other between the signals ahead. ${fix}`;
+      }
       if (s.why === "signals") return "Stuck: too many trains for these signals. Add a signal";
       // (Issue #31: a signal inside a passing loop's road holds a train with its tail over the loop's points; no train
       // gets into the loop past it. Named: the train (this one or another), the fix the signal's own card says too.)

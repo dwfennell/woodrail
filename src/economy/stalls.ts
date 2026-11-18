@@ -75,7 +75,7 @@ export type Stuck =
    * two of its trains face each other (one waits on a train whose front comes toward it), where no signal helps: moving
    * one does, or (`loop`: another line's train, or one on no line) a passing loop there.
    */
-  | { kind: "signals"; by: number; headOn?: { loop: boolean } }
+  | { kind: "signals"; by: number; headOn?: { loop: boolean; pair?: readonly [number, number] } }
   /**
    * In a ring of waits where a train (`by`) stands at a signal inside a passing loop's road, its tail over the loop's
    * points (`loopSignalHold`, issue #31): no train gets into the loop past it. Moving that signal (`mark`) to the loop
@@ -134,15 +134,27 @@ export class Stalls {
     sim.onTurnedRound?.((id) => this.waiting.delete(id));
   }
 
-  /** Does a train in this ring of waits wait on one that comes toward it (the first of it met ahead is its front)? */
-  private headOn(chain: readonly number[], on: ReadonlyMap<number, number>): boolean {
+  /**
+   * The two trains in this chain of waits that face each other, and whether it's by their waits (`mutual`): first two
+   * that wait on each other (nose to nose, whichever way the points between them lie); else, in a ring of three or more,
+   * the first waiting on one that comes toward it (`faces`: the first of it met ahead, along the points as set, is its
+   * front). The rest of the chain wait behind them. Null: none face each other.
+   */
+  private headOn(chain: readonly number[], on: ReadonlyMap<number, number>): { pair: readonly [Train, Train]; mutual: boolean } | null {
+    for (const id of chain) {
+      const by = on.get(id);
+      if (by === undefined || on.get(by) !== id) continue;
+      const a = this.sim.getTrain(id);
+      const b = this.sim.getTrain(by);
+      if (a && b) return { pair: [a, b], mutual: true };
+    }
     for (const id of chain) {
       const by = on.get(id);
       const a = by === undefined ? undefined : this.sim.getTrain(id);
       const b = by === undefined ? undefined : this.sim.getTrain(by);
-      if (a && b && this.faces(a, b)) return true;
+      if (a && b && this.faces(a, b)) return { pair: [a, b], mutual: false };
     }
-    return false;
+    return null;
   }
 
   /** Where a train's front is and the end of its piece it drives out by. */
@@ -283,7 +295,7 @@ export class Stalls {
       const inLoop = why === "ring" ? this.loopSignalIn(chain) : null;
       const signals = why === "ring" && chain.some((id) => sim.heldHow(id) === "signal");
       // (Two of its trains facing each other: no signal lets them pass; moving one is the fix, or a passing loop there.)
-      const headOn = signals && this.headOn(chain, on);
+      const headOn = signals ? this.headOn(chain, on) : null;
       for (const id of chain) {
         const t = sim.getTrain(id)!;
         // (The held train itself is waiting by rule: its card already says the line is full.)
@@ -291,7 +303,12 @@ export class Stalls {
         const by = sim.getTrain(on.get(id)!);
         const engine = this.lineEngine(t);
         if (engine < 0 || !by) continue;
-        found.set(engine, inLoop ? { kind: "loop-signal", ...inLoop } : signals ? { kind: "signals", by: nameOf(by), ...(headOn ? { headOn: { loop: this.loopFixes(engine, by) } } : {}) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
+        // (Facing the train it waits on: the head-on, named. Waiting behind it, going its way: the two that face each
+        // other ahead are named instead (it was told the one ahead "faces it": the complex-jams map, 2026-11-18).)
+        const [ha, hb] = headOn?.pair ?? [];
+        const own = headOn && (headOn.mutual ? t === ha || t === hb : this.faces(t, by));
+        const facing = headOn && (own ? { loop: this.loopFixes(engine, by) } : { loop: this.loopFixes(this.lineEngine(ha!), hb!), pair: [nameOf(ha!), nameOf(hb!)] as const });
+        found.set(engine, inLoop ? { kind: "loop-signal", ...inLoop } : signals ? { kind: "signals", by: nameOf(by), ...(facing ? { headOn: facing } : {}) } : why === "ring" ? { kind: "in-way", by: nameOf(by), loop: this.loopFixes(engine, by) } : why === "parked" ? { kind: "parked", by: nameOf(parked!) } : { kind: "too-many", lineId: why });
       }
     }
     // (Rings that have held `YIELD_S`: one of their trains gives way, where one can. Its ring's trains aren't stuck.)
