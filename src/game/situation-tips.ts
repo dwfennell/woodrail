@@ -65,7 +65,8 @@ export const JAM_FOLLOW: Detector = {
   hold: 0,
   linger: 120,
   look(w, ctx) {
-    if (ctx.learned && !ctx.learned.has("signals")) return null;
+    // (Signals come with "Signals and routes", whose id is "routes": an old save's "signals" is renamed to it.)
+    if (ctx.learned && !ctx.learned.has("routes")) return null;
     const f = w.economy.sections.followWait();
     if (!f) return null;
     // (Keyed on the stall classifier: a train said stuck is another situation, whose fix is not a signal.)

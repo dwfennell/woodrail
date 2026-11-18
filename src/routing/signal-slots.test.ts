@@ -254,7 +254,7 @@ describe("signals: sections' waiting points (step 3)", { timeout: 120_000 }, () 
         routeOf: () => ({ stops: [{ depotId: 1 }, { depotId: 2 }], next: 1 }),
       },
     } as unknown as World;
-    const ctx = { learned: new Set(["signals"]), nameOf: (id: number) => (id === 2 ? "the sawmill" : "the forest") };
+    const ctx = { learned: new Set(["routes"]), nameOf: (id: number) => (id === 2 ? "the sawmill" : "the forest") };
     const sit = JAM_FOLLOW.look(w, ctx);
     expect(sit?.title).toBe("Trains queuing on the Red line");
     expect(sit?.text).toContain("reaches the sawmill");
