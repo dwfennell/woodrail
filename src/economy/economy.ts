@@ -3615,17 +3615,17 @@ export class Economy {
    * first passing place long enough for it (a loop's road in sections' topology for its length: what the single-line
    * rule passes at, `comingAt`), or where it turns. Null: not routed, or no way. Kept till its stops or the track change.
    */
-  private twoWayStretch(trainId: number, ref: number): Stretch | null {
+  private twoWayStretch(trainId: number, ref: number, keep = true): Stretch | null {
     const t = this.sim.getTrain(trainId);
     const engine = t?.cars.find((c) => c.kind === "engine")?.id;
     const r = engine === undefined ? undefined : this.routes.get(engine);
     if (!t || !r || r.stops.length === 0) return null;
     const key = `${ref}:${r.next}:${r.at ? 1 : 0}:${this.layout.revision}`;
-    const hit = this.twoWays.get(trainId);
+    const hit = keep ? this.twoWays.get(trainId) : undefined;
     if (hit && hit.key === key) return hit.stretch;
     const topo = topologyOf(this.layout, trainLength(t));
     const out = new Map<number, { entry: number; exit: number }>();
-    const done = (): Stretch => (this.twoWays.set(trainId, { key, stretch: out }), out);
+    const done = (): Stretch => (keep && this.twoWays.set(trainId, { key, stretch: out }), out);
     let at = nextPiece(this.layout, pieceOfRef(ref), indexOfRef(ref));
     for (let leg = 0; at && leg < 2; leg++) {
       const stop = r.stops[(r.next + leg + (r.at ? 1 : 0)) % r.stops.length];
@@ -3652,6 +3652,40 @@ export class Economy {
     return done();
   }
   private readonly twoWays = new Map<number, { key: string; stretch: Stretch }>();
+
+  /**
+   * Two trains nose to nose (engines `a` and `b`): the places at the two ends of the track they share, for the card
+   * ("from X to Y"): the first stop past `a` on `b`'s way on (its two-way track, `twoWayStretch`), and past `b` on
+   * `a`'s (−1: none on it). Null: either not routed.
+   */
+  headOnTrack(a: number, b: number): { from: number; to: number } | null {
+    const ta = this.sim.findCar(a)?.train;
+    const tb = this.sim.findCar(b)?.train;
+    const sa = ta ? this.frontStretch(ta) : null;
+    const sb = tb ? this.frontStretch(tb) : null;
+    if (!ta || !tb || !sa || !sb) return null;
+    const past = (s: Stretch, t: Train): number => {
+      let reached = false;
+      for (const p of s.keys()) {
+        if (!reached && t.bogies.some((x) => x.pieceId === p)) reached = true;
+        const d = reached && !t.bogies.some((x) => x.pieceId === p) ? this.depotAtPiece(p) : undefined;
+        if (d) return d.id;
+      }
+      return -1;
+    };
+    return { from: past(sb, ta), to: past(sa, tb) };
+  }
+
+  /** A train's two-way track on from its front, the way it drives (`twoWayStretch`, not kept). */
+  private frontStretch(t: Train): Stretch | null {
+    const d = driveOf(t);
+    if (d === 0) return null;
+    const lead = d > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+    const piece = this.layout.getPiece(lead.pieceId);
+    if (!piece) return null;
+    const exit = pathExitConnector(getPieceDef(piece.type, piece.flipped), lead.pathIndex, d > 0 ? lead.reversed : !lead.reversed);
+    return exit < 0 ? null : this.twoWayStretch(t.id, connectorRef(lead.pieceId, exit), false);
+  }
 
   /**
    * A routed train whose next stop it can't reach from where it is, for a line end too short for it on the only way

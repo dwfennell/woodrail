@@ -460,6 +460,9 @@ export const LOOP_SIGNAL_FIX = "Move that signal to the loop's end";
 /** The fix for a train kept waiting on a long single track lines share (`single-track`): somewhere to pass. */
 export const SINGLE_TRACK_FIX = "A passing loop in the middle lets trains pass";
 
+/** The lasting fix for two lines' trains nose to nose on track they share: a loop they both fit in. */
+export const HEAD_ON_FIX = "A longer loop lets them pass";
+
 /** Said once ever, when a line's trains wait for each other on a long stretch a signal could split (signals spec §7). */
 export const FOLLOW_TIP = "Trains on this line wait for the whole stretch. A signal here lets them follow · Show me where";
 
@@ -631,7 +634,19 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (s.why === "signals" && s.headOn) {
         const fix = s.headOn.loop ? "Add a passing loop here" : "Move one of them";
         const ahead = who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train";
-        if (!s.headOn.pair) return `Stuck: ${ahead} faces it between the signals. ${fix}`;
+        if (!s.headOn.pair) {
+          // (Two lines' trains: the cause, the track they share with nowhere on it long enough to pass, and the lasting
+          // fix, in the single-track card's words. The quick one, moving one, is the player's to see.)
+          const lines = [engineCarId, s.by].map((e) => economy.lineIdOf.get(e));
+          if (lines[0] !== undefined && lines[1] !== undefined && lines[0] !== lines[1]) {
+            const ends = economy.headOnTrack(engineCarId, s.by);
+            const from = ends ? placeLabel(nameOf, ends.from) : "";
+            const to = ends && ends.to !== ends.from ? placeLabel(nameOf, ends.to) : "";
+            const where = from && to ? ` from ${from} to ${to}` : from || to ? ` by ${from || to}` : "";
+            return `Stuck: two lines use the track${where} and it has no passing place long enough. ${HEAD_ON_FIX}`;
+          }
+          return `Stuck: ${ahead} faces it between the signals. ${fix}`;
+        }
         // (Behind the head-on, going the same way: the two that face each other are named, not the one ahead.)
         const [a, b] = s.headOn.pair.map((car) => facingName(sim, economy, car, placeOf));
         return s.headOn.pair[0] === s.by ? `Stuck behind ${ahead}, which faces ${b} between the signals. ${fix}` : `Stuck: ${a} and ${b} face each other between the signals ahead. ${fix}`;
