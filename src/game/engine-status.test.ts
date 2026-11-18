@@ -819,18 +819,20 @@ describe("a head-on between signals: who faces whom, and who waits behind", () =
       sim.tick();
       economy.tick();
     }
-    return new Map([7, 10, 18].map((e) => [e, engineStatus(sim, economy, e, () => "?")]));
+    return new Map([7, 10, 18].map((e) => [e, engineStatus(sim, economy, e, (id) => `D${id}`)]));
   };
+  // (The two nose to nose, of two lines: the track they share, named by the first place past each on the other's way, and
+  // the lasting fix (HEAD_ON_FIX). D3: the town west of the triangle; D10: the mill east of it.)
   it("saved jammed at the triangle of points: Blue and Purple face each other; Passengers waits behind Blue", async () => {
     const c = await cards("2026-11-18-complex-jams.txt");
-    expect(c.get(7)).toBe("Stuck: the train on the Purple line faces it between the signals. Move one of them");
-    expect(c.get(18)).toBe("Stuck: the train on the Blue line faces it between the signals. Move one of them");
+    expect(c.get(7)).toBe("Stuck: two lines use the track from D10 to D3 and it has no passing place long enough. A longer loop lets them pass");
+    expect(c.get(18)).toBe("Stuck: two lines use the track from D3 to D10 and it has no passing place long enough. A longer loop lets them pass");
     expect(c.get(10)).toBe("Stuck behind the train on the Blue line, which faces the train on the Purple line between the signals. Move one of them");
   });
   it("saved jammed at the town: Blue and Passengers face each other; Purple waits behind Passengers", async () => {
     const c = await cards("2026-11-18-complex-jams-2.txt");
-    expect(c.get(7)).toBe("Stuck: the train on the Passengers faces it between the signals. Move one of them");
-    expect(c.get(10)).toBe("Stuck: the train on the Blue line faces it between the signals. Move one of them");
+    expect(c.get(7)).toBe("Stuck: two lines use the track from D2 to D1 and it has no passing place long enough. A longer loop lets them pass");
+    expect(c.get(10)).toBe("Stuck: two lines use the track from D1 to D2 and it has no passing place long enough. A longer loop lets them pass");
     expect(c.get(18)).toBe("Stuck behind the train on the Passengers, which faces the train on the Blue line between the signals. Move one of them");
   });
 });
