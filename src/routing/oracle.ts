@@ -91,8 +91,8 @@ export function atEnd(layout: Layout, f: Elem): boolean {
  * joint the way it guards only with no other train in the block beyond (a plain block; a path signal's, with points in
  * it, only its way through). Elsewhere signals hold nothing.
  */
-export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "spare", maxStates = 400_000, signals = false, handFree = false, behind = true, keep = false): OracleResult {
-  const s = createOracle(layout, start, ends, maxStates, signals, handFree, behind, keep);
+export function oracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "spare", maxStates = 400_000, signals = false, handFree = false, behind = true, keep = false, stopOnPoints = false): OracleResult {
+  const s = createOracle(layout, start, ends, maxStates, signals, handFree, behind, keep, stopOnPoints);
   s.step(Infinity);
   return s.finish();
 }
@@ -111,7 +111,12 @@ export interface OracleSearch {
   readonly size: number;
 }
 
-export function createOracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "spare", maxStates = 400_000, signals = false, handFree = false, behind = true, keep = false): OracleSearch {
+/**
+ * `stopOnPoints`: a routed train may also come to rest at one of its own stops with some of it over points, as the game
+ * lets a train too long for its yard stand there to load ("its tail is on the points"). Without it, a train longer than
+ * every stop's plain track clear of points never comes to a stop (the dispatcher's first report, 2026-11-18).
+ */
+export function createOracle(layout: Layout, start: OTrain[], ends: "any" | "own" | "spare", maxStates = 400_000, signals = false, handFree = false, behind = true, keep = false, stopOnPoints = false): OracleSearch {
   const n = start.length;
   /** A train in a state: its pieces (tail first) and how far (mm) its front stands short of its front piece's far end. */
   type T = { e: Elem[]; fs: number };
@@ -122,7 +127,7 @@ export function createOracle(layout: Layout, start: OTrain[], ends: "any" | "own
     if (v === undefined) sw.set(p, (v = isSwitch(layout, p)));
     return v;
   };
-  const restOk = (t: Elem[]) => t.every((e) => !swOf(e.p));
+  const restOk = (t: Elem[], k = -1) => t.every((e) => !swOf(e.p)) || (stopOnPoints && k >= 0 && !!start[k].stops && t.some((e) => start[k].stops!.includes(e.p)));
   // (A piece's length the way it's run, and whether that's its path's own way (from its `from` end).)
   const lens = new Map<string, { len: number; fwd: boolean }>();
   const pathOf = (e: Elem): { len: number; fwd: boolean } => {
@@ -293,10 +298,10 @@ export function createOracle(layout: Layout, start: OTrain[], ends: "any" | "own
           if (new Set(nt.e.map((e) => e.p)).size < nt.e.length) continue;
           if (!clear(k, nt, ts)) {
             // (Another train on it: up close behind that one, part way onto the piece, if that's clear of points.)
-            for (const c of closeUp(k, ts, onto)) if (restOk(c.e)) out.push(c);
+            for (const c of closeUp(k, ts, onto)) if (restOk(c.e, k)) out.push(c);
             continue;
           }
-          if (restOk(nt.e)) out.push(nt);
+          if (restOk(nt.e, k)) out.push(nt);
           else nextF.push(nt);
         }
       }

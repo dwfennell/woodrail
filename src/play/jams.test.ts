@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import { loadBugMap } from "./bugmap";
 import { runJams, type JamsHooks } from "./jams";
-import { BEFORE_S, judge, oTrainsOf, verdictOf, type Judgement } from "../routing/dispatch-shadow";
+import { BEFORE_S, judge, judgeWithBackUp, oTrainsOf, verdictOf, type Judgement } from "../routing/dispatch-shadow";
 import type { OTrain } from "../routing/oracle";
 
 /**
@@ -24,7 +24,7 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
       const t0 = performance.now();
       // (JAMS_SHADOW: the dispatcher's first report (routing/dispatch-shadow.ts): each jam judged now and as it stood
       // `BEFORE_S` before it began, from where every train stood each second.)
-      const shadow: { at: number; engine: number; verdict: string; now: Judgement; before: Judgement | null }[] = [];
+      const shadow: { at: number; engine: number; verdict: string; now: Judgement; before: Judgement | null; backUp?: { best: number; by: number; tried: number; ms: number } }[] = [];
       const hooks: JamsHooks = {};
       if (ENV.JAMS_SHADOW) {
         const kept = new Map<number, OTrain[]>();
@@ -33,10 +33,14 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
           kept.delete(now - BEFORE_S - 90);
         };
         hooks.jam = (now, engine, since) => {
-          const j = judge(world.layout, oTrainsOf(world.layout, world.sim, world.economy));
+          const trains = oTrainsOf(world.layout, world.sim, world.economy);
+          const j = judge(world.layout, trains);
           const then = kept.get(since - BEFORE_S);
           const b = j.best >= j.trains || !then ? null : judge(world.layout, then);
-          shadow.push({ at: now, engine, verdict: verdictOf(j, b), now: j, before: b });
+          const verdict = verdictOf(j, b);
+          // (Neither: does one back-up keep more going? Only where the search finished: a capped one says nothing.)
+          const backUp = verdict === "layout" && !j.capped ? judgeWithBackUp(world.layout, trains, j) : undefined;
+          shadow.push({ at: now, engine, verdict: backUp && backUp.best > j.best ? "backup" : verdict, now: j, before: b, ...(backUp ? { backUp } : {}) });
         };
       }
       const r = runJams(world, SECONDS, hooks);
