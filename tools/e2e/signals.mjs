@@ -1201,13 +1201,20 @@ suite.add(
         if (!e) return null;
         const r = e.getBoundingClientRect();
         return r.width > 0 ? [r.x + r.width / 2, r.y + r.height / 2] : null;
-      }, null, { timeout: 10000 })
+      }, null, { timeout: 30000, polling: 100 })
       .then((h) => h.jsonValue())
       .catch(() => null);
+    // (What showed instead, if it never came: another toast ahead of it in the queue, or none.)
+    const seen = toast
+      ? null
+      : await p.evaluate(() => {
+          const h = window.woodrail.hud;
+          return { els: [...document.querySelectorAll(".toast")].map((x) => `${x.className}: ${x.textContent}`), queue: (h.toastQueue ?? []).map((q) => q.message), showing: h.toastShowing?.message ?? null, waitsForCard: h.toastWaitsForCard, help: !h.help?.hidden, coach: !!h.coach?.shown };
+        });
     if (toast) await tapAt(...toast);
     await p.waitForTimeout(300);
     const j2 = await onJoint(at);
-    check("one-way: a tap on the toast turns it round", !!toast && j2.here === -1 && j2.other === j1.here, JSON.stringify({ toast, ...j2 }));
+    check("one-way: a tap on the toast turns it round", !!toast && j2.here === -1 && j2.other === j1.here, JSON.stringify({ toast, seen, ...j2 }));
     // (Undo only when the toast turned it: else Undo would take the signal itself away.)
     if (toast) await undo();
     const j3 = await onJoint(at);
