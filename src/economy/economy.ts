@@ -10,8 +10,7 @@ import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
 import type { BoatState, YardOrder } from "./boats";
-import { Sections, topologyOf, type BlockWait } from "./sections";
-import type { Stretch } from "../sim/two-way";
+import { Sections, type BlockWait } from "./sections";
 import { Stalls } from "./stalls";
 import { Breakdown } from "./breakdown";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
@@ -748,8 +747,6 @@ export class Economy {
     // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
     const sections = this.sections;
     sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
-    // (And the two-way track past a signal a train's way takes (sim/two-way.ts): to keep two from it head on.)
-    sim.twoWayGate = { stretch: (trainId, ref) => this.twoWayStretch(trainId, ref) };
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.router.waitingOn(engine),
@@ -3608,50 +3605,6 @@ export class Economy {
     this.cameHome = [];
     return out;
   }
-
-  /**
-   * The two-way track a routed train's way takes past a signal (its piece and the end it leaves by, `ref`): each piece,
-   * with the ends it comes onto it by and leaves it by, on through its next stop and on to the stop after, up to the
-   * first passing place long enough for it (a loop's road in sections' topology for its length: what the single-line
-   * rule passes at, `comingAt`), or where it turns. Null: not routed, or no way. Kept till its stops or the track change.
-   */
-  private twoWayStretch(trainId: number, ref: number): Stretch | null {
-    const t = this.sim.getTrain(trainId);
-    const engine = t?.cars.find((c) => c.kind === "engine")?.id;
-    const r = engine === undefined ? undefined : this.routes.get(engine);
-    if (!t || !r || r.stops.length === 0) return null;
-    const key = `${ref}:${r.next}:${r.at ? 1 : 0}:${this.layout.revision}`;
-    const hit = this.twoWays.get(trainId);
-    if (hit && hit.key === key) return hit.stretch;
-    const topo = topologyOf(this.layout, trainLength(t));
-    const out = new Map<number, { entry: number; exit: number }>();
-    const done = (): Stretch => (this.twoWays.set(trainId, { key, stretch: out }), out);
-    let at = nextPiece(this.layout, pieceOfRef(ref), indexOfRef(ref));
-    for (let leg = 0; at && leg < 2; leg++) {
-      const stop = r.stops[(r.next + leg + (r.at ? 1 : 0)) % r.stops.length];
-      const d = this.liveDepot(stop.depotId);
-      if (!d) break;
-      const way = at.pieceId === d.pieceId ? { steps: [] } : plan(this.layout, { pieceId: at.pieceId, entry: at.entry, lead: true }, d.pieceId);
-      if (!way) break;
-      let last: { pieceId: number; exit: number } | null = null;
-      for (const step of way.steps) {
-        const sl = topo.slotOf.get(step.pieceId);
-        if (sl !== undefined && topo.slots[sl].kind === "road") return done();
-        if (!out.has(step.pieceId)) out.set(step.pieceId, { entry: step.entry, exit: step.exit });
-        if (step.reverse) return done();
-        last = step;
-      }
-      // (The stop's piece, and on through it the way it came.)
-      const into = last ? nextPiece(this.layout, last.pieceId, last.exit) : at;
-      if (!into) break;
-      const ways = waysFrom(this.layout, into.pieceId, into.entry, () => false);
-      const through = ways.length === 1 ? ways[0].exit : -1;
-      if (!out.has(into.pieceId)) out.set(into.pieceId, { entry: into.entry, exit: through });
-      at = through >= 0 ? nextPiece(this.layout, into.pieceId, through) : null;
-    }
-    return done();
-  }
-  private readonly twoWays = new Map<number, { key: string; stretch: Stretch }>();
 
   /**
    * A routed train whose next stop it can't reach from where it is, for a line end too short for it on the only way
