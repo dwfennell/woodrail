@@ -22,12 +22,15 @@ export type TrayItem =
   | { kind: "tool"; tool: LandTool; label: string }
   /**
    * A signal (signals spec §4): dragged onto laid track it goes on a joint, facing the way the finger moved; tapped,
-   * it's ready (the Signal tool): each tap on the track then puts one on the nearest joint.
+   * it's ready (the Signal tool): each tap on the track then puts one on the nearest joint. A pair, one each way;
+   * `oneWay`: one alone, facing the way the finger moved (dragged or drawn along the track).
    */
-  | { kind: "signal"; label: string };
+  | { kind: "signal"; label: string; oneWay?: boolean };
 
 /** The Signal (a mark on a joint, not a piece: the old signal pieces and their skins are no longer offered). */
 export const SIGNAL_ITEM: TrayItem = { kind: "signal", label: "Signal" };
+/** A one-way signal: the Signal alone, facing one way (the user: "easier to place one-sided signals"). */
+export const ONE_WAY_SIGNAL_ITEM: TrayItem = { kind: "signal", label: "One way", oneWay: true };
 
 /** Land-editing tools: move the map's scenery (trees, fields, the shed), or raise or lower a square a block. */
 export type LandTool = "move" | "raise" | "lower";
@@ -147,7 +150,7 @@ export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
   { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "switch-3way-double", "crossover", "split", "wye", "crossing", "crossing-45", "slip-single", "slip-double") },
   // (Its own shelf, not the end of Switch: the user found it "very tucked away" there.)
-  { label: "Signals", items: [SIGNAL_ITEM] },
+  { label: "Signals", items: [SIGNAL_ITEM, ONE_WAY_SIGNAL_ITEM] },
   { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "ramp-curve-small", "ramp-curve-wide", "riser", "rack", "rack-short") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)
@@ -434,7 +437,7 @@ export function shelfItem(asset: string, label: string): TrayItem {
 export function trayKey(item: TrayItem): string {
   if (item.kind === "piece") return `piece:${item.type}${item.auto ? ":auto" : ""}`;
   if (item.kind === "tool") return `tool:${item.tool}`;
-  if (item.kind === "signal") return "signal";
+  if (item.kind === "signal") return item.oneWay ? "signal:one-way" : "signal";
   if (item.kind === "road") return `road:${item.auto ? "auto" : item.piece}`;
   return item.kind === "prop" ? `prop:${item.asset}` : `train:${item.label}`;
 }

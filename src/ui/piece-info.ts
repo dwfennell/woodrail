@@ -264,7 +264,9 @@ export function trayInfo(item: TrayItem): ItemInfo {
     case "prop":
       return p(item.label, PROP_INFO[item.asset] ?? "A model to put by your railway.");
     case "signal":
-      return p("Signal", "Drag onto a joint: trains wait there for the track ahead.");
+      return item.oneWay
+        ? p("One-way signal", "Drag it along the track the way trains go: it faces that way.")
+        : p("Signal", "Drag onto a joint: a pair, one each way, for trains to wait at.");
   }
 }
 

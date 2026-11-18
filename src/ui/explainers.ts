@@ -205,8 +205,8 @@ export const EXPLAINERS: Readonly<Record<ExplainerId, Explainer>> = {
         alt: "A blue train waits at a red signal while a red train is on the line ahead.",
       },
       {
-        heading: "Two at a passing place",
-        text: "A signal looks one way only, so put them in pairs, one for each way. Put them at the ends of a loop or passing place, and two trains can share one line, passing there.",
+        heading: "One way or both",
+        text: "A signal looks one way only. Signal puts a pair down, one each way: at the ends of a passing loop two trains share one line. On a line trains run one way, drag One way along it the way they go.",
         picture: SIGNAL_PAIRS,
         alt: "A passing loop with a train on each side, and a signal at each end.",
       },

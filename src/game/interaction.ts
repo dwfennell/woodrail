@@ -12,7 +12,7 @@ import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWor
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { METRO_KIT, isSecretKit, SPLICE_POINTS, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
-import { SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
+import { ONE_WAY_SIGNAL_ITEM, SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
 import { blocksOf, hasRoom, noRoomAt, pathHeading, POST_ROOM, postAt, snapJoint } from "./signal-place";
 import { ROAD_MARGIN, topologyOf, trainLength } from "../economy/sections";
@@ -228,13 +228,13 @@ type Mode =
    * the joint end it would go on (−1: none), facing `dir` along the track under the finger (+1: that path's way; 0:
    * not known yet), `fx`/`fz` where the finger last was on the ground.
    */
-  | { kind: "drag-signal"; pointerId: number; ghost: Group; target: number; dir: -1 | 0 | 1; fx: number; fz: number; overTray: boolean; moving: number }
+  | { kind: "drag-signal"; pointerId: number; ghost: Group; target: number; dir: -1 | 0 | 1; fx: number; fz: number; overTray: boolean; moving: number; oneWay: boolean }
   /**
    * The Signal tool, a drag along the track (signals spec §4): a signal at each joint passed, a train's length or more
    * apart (`gap`), facing the way the finger goes (`ats`, each with its ghost). Let go: all put down, one undo step. A
    * press that hardly moves is a tap (one, on the nearest joint).
    */
-  | { kind: "signal-run"; pointerId: number; x: number; y: number; moved: boolean; ats: number[]; ghosts: Group[]; gap: number; fx: number; fz: number }
+  | { kind: "signal-run"; pointerId: number; x: number; y: number; moved: boolean; ats: number[]; ghosts: Group[]; gap: number; fx: number; fz: number; oneWay: boolean }
   /** `add`: Shift was held (a tap picks the piece, along with any already picked). */
   | {
       kind: "press";
@@ -702,7 +702,7 @@ export class Interaction {
    * A signal in the hand: a new one from the tray (`moving` −1), or a placed one picked up (its mark's id), with its set
    * partner (the one facing the other way on its joint): both picked up, both shown in the ghost.
    */
-  private signalDrag(pointerId: number, moving: number): Extract<Mode, { kind: "drag-signal" }> {
+  private signalDrag(pointerId: number, moving: number, oneWay = false): Extract<Mode, { kind: "drag-signal" }> {
     const ghost = markSetGhost(this.game.mats);
     ghost.visible = false;
     this.game.scene.add(ghost);
@@ -712,7 +712,7 @@ export class Interaction {
       this.onPickup?.();
     }
     this.game.controls.enabled = false;
-    return { kind: "drag-signal", pointerId, ghost, target: -1, dir: 0, fx: NaN, fz: NaN, overTray: moving === -1, moving };
+    return { kind: "drag-signal", pointerId, ghost, target: -1, dir: 0, fx: NaN, fz: NaN, overTray: moving === -1, moving, oneWay };
   }
 
   /**
@@ -762,8 +762,9 @@ export class Interaction {
       m.target = target;
       m.ghost.visible = target !== -1;
       if (target !== -1) {
-        // (Both posts, as the drop will put them: a new pair where the other way's free, a set with its partner.)
-        const both = m.moving === -1 ? this.pairOf(target).length > 1 : !!layout.signalPartner(m.moving);
+        // (Both posts, as the drop will put them: a new pair where the other way's free, a set with its partner. A new
+        // one-way signal: its one post, facing the way the finger goes, the arrow on the track saying so.)
+        const both = m.moving === -1 ? !m.oneWay && this.pairOf(target).length > 1 : !!layout.signalPartner(m.moving);
         placeSetGhost(m.ghost, layout, target, both);
         this.showTint(target, m.moving);
       } else g.blockTint.hide();
@@ -837,6 +838,12 @@ export class Interaction {
     }
     let id = m.moving;
     if (id === -1) {
+      // (A new one-way signal: alone, facing the way the finger went; the toast turns it round, as a moved one's does.)
+      if (m.oneWay) {
+        id = ed.addSignals([m.target])[0] ?? -1;
+        if (id !== -1) this.offerTurn(id, "One-way signal placed. Tap here to turn it round");
+        return;
+      }
       // (A new one: a pair, one each way on the joint (the user: lights "on both sides of the track"), as one undo step.)
       const ids = ed.addSignals(this.pairOf(m.target));
       id = ids[0] ?? -1;
@@ -850,8 +857,12 @@ export class Interaction {
       this.hud.toast("Signals moved, both together", false, 2400);
       return;
     }
-    // (The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with.)
-    this.hud.toast("Signal moved. Tap here to turn it round", false, 3600, () => {
+    this.offerTurn(id, "Signal moved. Tap here to turn it round");
+  }
+
+  /** The flip chip: the finger was busy while it was held, so it's offered now, on a toast a tap turns it round with. */
+  private offerTurn(id: number, text: string): void {
+    this.hud.toast(text, false, 3600, () => {
       if (!this.game.layout.getSignal(id)) return;
       const cramped = this.turnRoomless(id);
       if (cramped) this.hud.refuse(cramped);
@@ -880,8 +891,8 @@ export class Interaction {
     return !!set && set.ats.every((a) => hasRoom(this.game.layout, a));
   }
 
-  /** The Signal tool on (tapped in the tray) or off. */
-  private readySignal(on: boolean): void {
+  /** The Signal tool on (tapped in the tray: `oneWay`, the One way's: each signal alone) or off. */
+  private readySignal(on: boolean, oneWay = false): void {
     if (!on) {
       if (this.signalReady) {
         this.signalReady = false;
@@ -893,12 +904,20 @@ export class Interaction {
     this.clearSelection();
     this.hud.hideCards();
     this.signalReady = true;
-    this.onArmed?.(SIGNAL_ITEM);
-    if (!this.signalHinted) {
+    this.signalOneWay = oneWay;
+    this.onArmed?.(oneWay ? ONE_WAY_SIGNAL_ITEM : SIGNAL_ITEM);
+    if (oneWay && !this.oneWayHinted) {
+      this.oneWayHinted = true;
+      this.hud.toast("Draw along the track: signals face the way you draw · tap One way again to stop", false, 3600);
+    } else if (!oneWay && !this.signalHinted) {
       this.signalHinted = true;
       this.hud.toast("Tap the track to put a signal there · tap Signal again to stop", false, 3200);
     }
   }
+
+  /** The Signal tool puts down one-way signals (the One way tapped in the tray), not pairs. */
+  private signalOneWay = false;
+  private oneWayHinted = false;
 
   /** Is the Signal tool on? */
   get signalToolOn(): boolean {
@@ -917,7 +936,10 @@ export class Interaction {
     return inTunnel(this.game.landscape, w.x, w.z, w.y);
   }
 
-  /** With the Signal tool: a pair on the joint nearest a tap on the track, one each way (or the one way still free). */
+  /**
+   * With the Signal tool: a pair on the joint nearest a tap on the track, one each way (or the one way still free). The
+   * One way's: one alone, facing away from the camera (or the way still free), offered turned round on its toast.
+   */
   private placeSignalAt(x: number, y: number): void {
     const layout = this.game.layout;
     const ground = this.groundAt(x, y);
@@ -949,7 +971,14 @@ export class Interaction {
       this.hud.refuse(SIGNAL_DARK);
       return;
     }
-    this.editor().addSignals(this.pairOf(at));
+    if (this.signalOneWay) {
+      if (!hasRoom(layout, at)) {
+        this.hud.refuse(noRoomAt(layout, at));
+        return;
+      }
+      const id = this.editor().addSignals([at])[0] ?? -1;
+      if (id !== -1) this.offerTurn(id, "One-way signal placed. Tap here to turn it round");
+    } else this.editor().addSignals(this.pairOf(at));
     this.game.invalidate();
   }
 
@@ -997,9 +1026,9 @@ export class Interaction {
     const last = m.ats.length > 0 ? postAt(layout, m.ats[m.ats.length - 1]) : null;
     if (last && Math.hypot(last.x - j.x, last.z - j.z) < m.gap) return;
     m.ats.push(at);
-    // (Both posts of the pair each joint gets, the other only where that way's free.)
+    // (Both posts of the pair each joint gets, the other only where that way's free. One way: the one, facing the way drawn.)
     const ghost = markSetGhost(g.mats);
-    placeSetGhost(ghost, layout, at, this.pairOf(at).length > 1);
+    placeSetGhost(ghost, layout, at, !m.oneWay && this.pairOf(at).length > 1);
     g.scene.add(ghost);
     m.ghosts.push(ghost);
     g.invalidate();
@@ -1014,7 +1043,10 @@ export class Interaction {
     this.game.invalidate();
   }
 
-  /** The Signal tool's drag let go: its signals put down, a pair at each joint (one undo step); hardly moved, a tap: a pair on the nearest joint. */
+  /**
+   * The Signal tool's drag let go: its signals put down, a pair at each joint (the One way's: one, facing the way it was
+   * drawn), one undo step; hardly moved, a tap: as `placeSignalAt`.
+   */
   private endSignalRun(m: Extract<Mode, { kind: "signal-run" }>, x: number, y: number): void {
     this.clearRun(m);
     this.mode = { kind: "idle" };
@@ -1025,7 +1057,7 @@ export class Interaction {
     }
     const ats = m.ats.filter((at) => !this.jointInTunnel(at));
     if (ats.length < m.ats.length) this.hud.toast(SIGNAL_DARK);
-    if (ats.length > 0) this.editor().addSignals(ats.flatMap((at) => this.pairOf(at)));
+    if (ats.length > 0) this.editor().addSignals(m.oneWay ? ats : ats.flatMap((at) => this.pairOf(at)));
   }
 
   /** The signal mark whose post is under a screen point (CSS px), with a fingertip's slack on touch; −1: none. */
@@ -1088,22 +1120,33 @@ export class Interaction {
       g.invalidate();
       if (this.selectedMark === id) this.showMarkCard();
     });
-    this.hud.showLevers(
-      [
-        { label: "Turn round", title: "Guard trains going the other way" },
-        { label: `Look: ${Interaction.STYLE_NAMES[m.style]} ▸`, title: "Lamps, semaphore or colour light: a tap shows the next" },
-      ],
-      (i) => {
-        const cramped = i === 0 ? this.turnRoomless(id) : null;
+    // (A pair's Turn round had nowhere to go: the other way is its partner's. It offers One way only: this one kept,
+    // its partner taken off. A lone one turns round, or gets a partner with Both ways.)
+    const levers = pair
+      ? [{ label: "One way only", title: "Keep this signal, facing the way it does; take off the one facing the other way" }]
+      : [
+          { label: "Turn round", title: "Guard trains going the other way" },
+          { label: "Both ways", title: "Add a signal facing the other way on this joint" },
+        ];
+    this.hud.showLevers([...levers, { label: `Look: ${Interaction.STYLE_NAMES[m.style]} ▸`, title: "Lamps, semaphore or colour light: a tap shows the next" }], (i) => {
+      const what = i === levers.length ? "look" : pair ? "one-way" : i === 0 ? "turn" : "both";
+      if (what === "one-way") {
+        const partner = g.layout.signalPartner(id);
+        if (partner) this.editor().removeSignal(partner.id);
+      } else if (what === "turn") {
+        const cramped = this.turnRoomless(id);
         if (cramped) this.hud.refuse(cramped);
-        else if (i === 0 && !this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
-        if (i === 1) {
-          const k = Interaction.STYLES.indexOf(m.style);
-          this.editor().setSignalStyle(id, Interaction.STYLES[(k + 1) % Interaction.STYLES.length]);
-        }
-        if (this.selectedMark === id) this.showMarkCard();
-      },
-    );
+        else if (!this.editor().turnSignal(id)) this.hud.toast("A signal faces that way here already");
+      } else if (what === "both") {
+        const other = g.layout.joinedConnector(m.at);
+        if (other !== -1 && !hasRoom(g.layout, other)) this.hud.refuse(noRoomAt(g.layout, other));
+        else if (other !== -1 && !g.layout.signalAt(other)) this.editor().addSignal(other, m.style);
+      } else {
+        const k = Interaction.STYLES.indexOf(m.style);
+        this.editor().setSignalStyle(id, Interaction.STYLES[(k + 1) % Interaction.STYLES.length]);
+      }
+      if (this.selectedMark === id) this.showMarkCard();
+    });
     this.showTint(m.at);
   }
 
@@ -1187,7 +1230,7 @@ export class Interaction {
     // The last piece's card would cover the bottom of the view, where this one may be going.
     this.hud.hideCards();
     if (item.kind === "piece") this.mode = this.pieceFromTray(item, e.pointerId);
-    else if (item.kind === "signal") this.mode = this.signalDrag(e.pointerId, -1);
+    else if (item.kind === "signal") this.mode = this.signalDrag(e.pointerId, -1, !!item.oneWay);
     else if (item.kind === "road") {
       // Comes out turned as set in the tray.
       this.mode = { kind: "drag-road", pointerId: e.pointerId, drag: this.roads.begin(item.piece, this.trayHeld(), item.auto), overTray: true };
@@ -1428,7 +1471,9 @@ export class Interaction {
   /** Tray tap: a road is made ready to lay (or put away, if it already is); the ready piece is put away. */
   tapTrayPiece(item: TrayItem): void {
     if (item.kind === "signal") {
-      this.readySignal(!this.signalReady);
+      // (Tapped again: put away. The other signal tile tapped: that one's ready instead.)
+      const oneWay = !!item.oneWay;
+      this.readySignal(!this.signalReady || this.signalOneWay !== oneWay, oneWay);
       return;
     }
     if (item.kind === "road") {
@@ -2055,7 +2100,7 @@ export class Interaction {
     if (this.signalReady && this.touches.size <= 1) {
       if (this.onTrackAt(e.clientX, e.clientY)) {
         this.game.controls.enabled = false;
-        this.mode = { kind: "signal-run", pointerId: e.pointerId, x: e.clientX, y: e.clientY, moved: false, ats: [], ghosts: [], gap: this.trainGap(), fx: NaN, fz: NaN };
+        this.mode = { kind: "signal-run", pointerId: e.pointerId, x: e.clientX, y: e.clientY, moved: false, ats: [], ghosts: [], gap: this.trainGap(), fx: NaN, fz: NaN, oneWay: this.signalOneWay };
         return;
       }
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, signal: true };
