@@ -271,7 +271,7 @@ function lineNameOf(sim: Sim, economy: Economy, carId: number): string {
  */
 export function pointsSetFor(economy: Economy, by: number): string {
   const name = lineNameOf(economy.sim, economy, by);
-  return `Set for ${name ? `the train on the ${name}` : "a train"}. They'll switch to your way after it passes`;
+  return `Set for ${name ? lineTrain(name) : "a train"}. They'll switch to your way after it passes`;
 }
 
 /** A train not on the line stands on each road of a passing loop: no loop laid elsewhere gets past it. */
@@ -406,14 +406,23 @@ function facingName(sim: Sim, economy: Economy, car: number, placeOf: (carId: nu
 }
 
 /**
- * A blocker as the card names it: by its line ("the train on the Blue line"), else by where it is (`place`: "Elder",
- * "the sawmill"; "" when nowhere's near), and how it stands ("the train parked by Elder"). Never an id.
+ * A line's train as a card names it, by the line's name as the player wrote it: "the train on the Blue line" for a
+ * name that says it's a line, else "the Passengers line's train" (it read "the train on the Passengers": Wren's map,
+ * 2026-11-18).
+ */
+export function lineTrain(line: string): string {
+  return /\bline$/i.test(line.trim()) ? `the train on the ${line}` : `the ${line} line's train`;
+}
+
+/**
+ * A blocker as the card names it: by its line ("the train on the Blue line", `lineTrain`), else by where it is
+ * (`place`: "Elder", "the sawmill"; "" when nowhere's near), and how it stands ("the train parked by Elder"). Never an id.
  */
 export function blockerName(b: Blocker, place: string): string {
   const by = place ? ` by ${place}` : "";
   if (b.how === "parked") return by ? `the train parked${by}` : "a parked train";
   if (b.how === "stopped") return by ? `the train stopped${by}` : "a stopped train";
-  if (b.line) return `the train on the ${b.line}`;
+  if (b.line) return lineTrain(b.line);
   if (b.how === "running") return by ? `the train${by}` : "a train with no route";
   return "another train";
 }
@@ -625,7 +634,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
     case "full-wait":
       return `Waiting: ${fullText(s.full, who, place)}`;
     case "points-wait":
-      if (s.line) return `Waiting for the train on the ${s.line} to pass the points`;
+      if (s.line) return `Waiting for ${lineTrain(s.line)} to pass the points`;
       return who && who.car >= 0 ? `Waiting for ${blockerName(who, place)} to pass the points` : "Waiting for another train to pass the points";
     case "stuck":
       // (The quick fix named too, the card's Remove: QA 2026-11-04, two engines on the starter line both waited.)
