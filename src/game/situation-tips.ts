@@ -48,14 +48,22 @@ export interface Detector {
   readonly every: number;
   /** How long it must be found, looked for each time, before it's said (game s). */
   readonly hold: number;
+  /**
+   * How long a tip showing stays after it was last found (game s): a situation that comes and goes (a queue that
+   * forms on each trip) stays said between times, so the player can act on it.
+   */
+  readonly linger?: number;
   look(w: World, ctx: SituationContext): Situation | null;
 }
 
 /** Queuing, a signal helps (detector #1): a line's trains waiting for the whole stretch, going the same way. */
 export const JAM_FOLLOW: Detector = {
   id: "jam-follow",
-  every: 5,
-  hold: 5,
+  // (Sections' own hint holds the wait 20 s first, and the queue clears a moment later, so it's looked for each game
+  // second, as the follow toast was, and said when first found. Then it stays while trains keep queuing.)
+  every: 1,
+  hold: 0,
+  linger: 120,
   look(w, ctx) {
     if (ctx.learned && !ctx.learned.has("signals")) return null;
     const f = w.economy.sections.followWait();
@@ -99,7 +107,10 @@ export const FIRST_AFTER_S = 120;
 export const GAP_S = 120;
 /** A tip that clears by itself waits this long before it may come back (game s). */
 export const SNOOZE_S = 600;
-/** Cleared this soon after the player looked at it (Show where, Learn more): their fix. Then it's done (game s). */
+/**
+ * Cleared, and the player looked at it (Show where, Learn more) no more than this long before it was last found:
+ * their fix. Then it's done (game s).
+ */
 export const FIX_WINDOW_S = 60;
 /** Shown this many times in a game, it doesn't come back. */
 export const MAX_SHOWS = 3;
@@ -123,7 +134,7 @@ export class SituationTracker {
   private readonly snoozed: Map<string, number>;
   private readonly shows: Map<string, number>;
   /** Each detector's last look: when, what it found, and since when it's been found. */
-  private readonly looks = new Map<string, { at: number; found: Situation | null; since: number }>();
+  private readonly looks = new Map<string, { at: number; found: Situation | null; since: number; lastFound: number }>();
   private shown: Situation | null = null;
   /** When the tip showing was looked at (Show where, Learn more), or −∞. */
   private lookedAt = -Infinity;
@@ -155,14 +166,15 @@ export class SituationTracker {
       if (last && now - last.at < d.every && now >= last.at) continue;
       const found = d.look(w, ctx);
       const since = found ? (last?.found ? last.since : now) : now;
-      this.looks.set(d.id, { at: now, found, since });
+      this.looks.set(d.id, { at: now, found, since, lastFound: found ? now : (last?.lastFound ?? -Infinity) });
     }
     // The tip showing: still so, or gone (fixed by the player, or by itself).
     if (this.shown) {
       const look = this.looks.get(this.shown.id);
-      if (!look?.found) {
+      const linger = this.detectors.find((d) => d.id === this.shown!.id)?.linger ?? 0;
+      if (!look?.found && now - (look?.lastFound ?? -Infinity) >= linger) {
         const id = this.shown.id;
-        if (now - this.lookedAt <= FIX_WINDOW_S) {
+        if (this.lookedAt >= (look?.lastFound ?? -Infinity) - FIX_WINDOW_S) {
           this.done.add(id);
           fixed = this.shown;
         } else if ((this.shows.get(id) ?? 0) >= MAX_SHOWS) this.done.add(id);
@@ -171,7 +183,7 @@ export class SituationTracker {
         this.wentAt = now;
         this.lookedAt = -Infinity;
         changed = true;
-      } else if (look.found.key !== this.shown.key || look.found.text !== this.shown.text) {
+      } else if (look?.found && (look.found.key !== this.shown.key || look.found.text !== this.shown.text)) {
         // (The same kind, about something else now, or its words moved on: kept, with the new.)
         this.shown = look.found;
         changed = true;

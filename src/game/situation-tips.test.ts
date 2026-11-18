@@ -3,11 +3,12 @@ import { FIRST_AFTER_S, FIX_WINDOW_S, GAP_S, MAX_SHOWS, SNOOZE_S, SituationTrack
 import type { World } from "./world";
 
 /** A detector that finds what `state.on` says (no world needed). */
-function fake(id: string, state: { on: boolean; key?: string }, every = 5, hold = 5): Detector {
+function fake(id: string, state: { on: boolean; key?: string }, every = 5, hold = 5, linger = 0): Detector {
   return {
     id,
     every,
     hold,
+    linger,
     look: (): Situation | null =>
       state.on ? { id, key: state.key ?? "k", title: `${id} title`, short: id, text: `${id} text`, toast: `${id} toast`, fixed: `✓ ${id}` } : null,
   };
@@ -132,6 +133,39 @@ describe("situation tips: the tracker", () => {
     t.showAgain();
     run(t, 2001, 2010);
     expect(t.current()?.id).toBe("jam");
+  });
+
+  it("a situation that comes and goes stays said while it lingers; the player's fix in that time is theirs", () => {
+    const s = { on: true };
+    const t = new SituationTracker(null, [fake("jam", s, 1, 0, 120)]);
+    run(t, 200, 202);
+    expect(t.current()?.id).toBe("jam");
+    // (The queue clears a moment later, and forms again next trip: the tip stays meanwhile.)
+    s.on = false;
+    run(t, 203, 300);
+    expect(t.current()?.id).toBe("jam");
+    s.on = true;
+    run(t, 301, 302);
+    // The player looks, lays the fix: it never forms again, and when the linger's out it's theirs.
+    t.looked(310);
+    s.on = false;
+    const mid = run(t, 303, 420);
+    expect(mid.fixed).toEqual([]);
+    expect(t.current()?.id).toBe("jam");
+    const { fixed } = run(t, 421, 430);
+    expect(fixed).toEqual(["jam"]);
+    expect(t.isDone("jam")).toBe(true);
+  });
+
+  it("lingering and never looked at: it goes quietly, snoozed", () => {
+    const s = { on: true };
+    const t = new SituationTracker(null, [fake("jam", s, 1, 0, 120)]);
+    run(t, 200, 202);
+    s.on = false;
+    const { fixed } = run(t, 203, 400);
+    expect(fixed).toEqual([]);
+    expect(t.current()).toBeNull();
+    expect(t.isDone("jam")).toBe(false);
   });
 
   it("the same kind about something else: the row follows it", () => {
