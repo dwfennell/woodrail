@@ -6,7 +6,7 @@ import { joinLine, startLine } from "./lines";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { oval } from "../routing/scenarios";
 import { signal } from "../routing/harness";
-import { blockerName, engineStatus, engineView, fullLineToast, headOnTip, trainState, trainsForReport, type Blocker } from "./engine-status";
+import { blockerName, lineTrain, engineStatus, engineView, fullLineToast, headOnTip, trainState, trainsForReport, type Blocker } from "./engine-status";
 
 function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] };
 function chain(types: PieceTypeId[], layout: Layout): number[];
@@ -829,8 +829,17 @@ describe("a head-on between signals: who faces whom, and who waits behind", () =
   });
   it("saved jammed at the town: Blue and Passengers face each other; Purple waits behind Passengers", async () => {
     const c = await cards("2026-11-18-complex-jams-2.txt");
-    expect(c.get(7)).toBe("Stuck: the train on the Passengers faces it between the signals. Move one of them");
+    expect(c.get(7)).toBe("Stuck: the Passengers line's train faces it between the signals. Move one of them");
     expect(c.get(10)).toBe("Stuck: the train on the Blue line faces it between the signals. Move one of them");
-    expect(c.get(18)).toBe("Stuck behind the train on the Passengers, which faces the train on the Blue line between the signals. Move one of them");
+    expect(c.get(18)).toBe("Stuck behind the Passengers line's train, which faces the train on the Blue line between the signals. Move one of them");
+  });
+});
+
+describe("a line's train by the line's name as the player wrote it (lineTrain)", () => {
+  it("a name that says it's a line: the train on it; any other: that line's train", () => {
+    expect(lineTrain("Blue line")).toBe("the train on the Blue line");
+    expect(lineTrain("Coast Line")).toBe("the train on the Coast Line");
+    expect(lineTrain("Passengers")).toBe("the Passengers line's train");
+    expect(lineTrain("Mainline")).toBe("the Mainline line's train");
   });
 });
