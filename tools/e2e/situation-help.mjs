@@ -220,7 +220,26 @@ await p.evaluate(() => {
 });
 
 // ---- 1. The tip comes by itself: the toast, and the chip saying it while it's up ------------------------------------
-const toasted = await until(() => /stuck in a queue/.test(document.querySelector(".toast.show")?.textContent ?? ""), null, 600000);
+/** What the tip waits on, said while waiting (a failure says why). */
+const diag = () =>
+  p.evaluate(async () => {
+    const w = window.woodrail;
+    const { trainState } = await import("/src/game/engine-status.ts");
+    return {
+      t: Math.round(w.simSeconds),
+      paused: w.paused,
+      tutorial: w.goals().inTutorial(),
+      follow: w.economy.sections.followWait(),
+      tip: w.situations().current()?.id ?? null,
+      saved: w.situations().toJSON(),
+      trains: [...w.sim.trains()].map((tr) => trainState(w.sim, w.economy, tr, 1).kind),
+    };
+  });
+let toasted = false;
+for (let k = 0; k < 40 && !toasted; k++) {
+  toasted = await until(() => /stuck in a queue/.test(document.querySelector(".toast.show")?.textContent ?? ""), null, 15000);
+  if (!toasted) console.log("  waiting:", JSON.stringify(await diag()));
+}
 const toast1 = await toastText();
 const chip1 = await p.evaluate(() => document.querySelector(".goals-now")?.textContent ?? "");
 check("1. the follower waits for the whole stretch: a toast says so, once", toasted && /Red line trains are stuck in a queue/.test(toast1) && /Show where/.test(toast1), toast1);
