@@ -48,7 +48,7 @@ where players stop in the goals, not why. The ranking below comes from what coul
 
 So jams come first by a wide margin, and "it's paused" is the cheapest real one after them. The rest are ranked by how
 often they can occur in a normal game, and they are marked *unproven*: to be checked against the `help` stats event
-(step 7) before they're built.
+(step 8) before they're built.
 
 ### The detectors, ranked
 
@@ -65,6 +65,7 @@ each cause. A signal does not help two trains nose to nose, so a tip that says "
 | 2 | **Too many for the signals** (`jam-signals`) | `onStuck` with `why: "signals"`, not `headOn` | a stall is said only after `STUCK_S`; held 15 s more (the player may be fixing it); Signals learned | **Trains stuck at signals** · "There are more trains than gaps between signals. Add a signal, or take a train off." | the trains in the ring, framed | Signals → "Trains wait for the line ahead" |
 | 3 | **A signal inside a loop** (`jam-loop-signal`, #31) | `onStuck` with `why: "loop-signal"` | as #2 | **A signal is in the way** · "A train waits at a signal inside the passing loop, its tail over the points. Move the signal to the loop's end." | that signal, its card opened | Signals → "Two at a passing place" |
 | 4 | **No passing place** (`jam-loop`) | `onStuck` `in-way` with `loop: true`, `too-many`, `signals` with `headOn.loop`; or a train in `stuck: single-track` (`STARVED_S`, #29) | as #2; Switches learned (else the text says to learn them, as `headOnTip` does); not while a train is derailed or held by hand | **Trains can't pass** · "Two trains meet on single track. A passing loop in the middle lets them pass." | the stretch (`Sections.singleTrack(engine).pieces`) framed, its middle marked | Passing loops (new, step 2) |
+| 4a | **Signals too close together** (`short-blocks`; from the routing work, 2026-11-18: ranked high, behind most of the user's jams) | a line's train has stood waiting for another for 30 s or more (a `line-wait-for` or a stall) on ways where a signal's block, or a passing loop's road, is shorter than the longest train on the lines using it plus `ROAD_MARGIN`, so it's no waiting point (`topologyOf(layout, longest).slots`: a signal with no `signal` slot of its own, as the signal card's `markWaits` sees it; a loop road shorter than the train). On the user's maps, 134 signals made only 42 usable waiting points, and one loop fitted 420 mm for trains of 440 to 456 mm | only the player's own signals and loops on the waiting train's ways; topology cached by the track's version and the longest train's length (as `markWaits` asks it), so a check is a lookup; held 30 s; the jam is real (a train waiting), not just a short block somewhere | **Signals too close together** · "This stretch between signals is shorter than Blue (456 mm), so it can't wait there. Space signals at least a train apart." (a loop: "This passing loop is shorter than Blue (456 mm). Lengthen it so a train fits.") | the short block (or loop) framed, its tint shown, the signals at its ends marked | Signals → "Trains wait for the line ahead" |
 | 5 | **Paused** (`paused`, #45) | the game is paused and the player taps an engine, opens a train's card, or sets one going; or it has been paused for 2 wall-clock minutes while they lay track | never in the first 10 s after they pressed Pause themselves; only once a session even if dismissed (it's cheap to hit again) | **The game is paused** · "Trains stand still while it's paused. Tap ▶ to run them." | the ▶ chip pulsed (no camera move) | none |
 | 6 | **Can't reach a stop** (`unreachable`) | `Economy.shortSkipOf(engine)` (a line end too short to turn in), or `Sections.unreachable(engine)` (a full line), for 30 s | the card already says it, so the tip is only for a train **not looked at**: no card of it open in the last minute | **The Blue line skips Elder** · "A line end on the way is too short for its train to turn. Lengthen it, or take a car off." | the line end (`short.at`) | Routes → "Plan a route" |
 | 7 | **Goods piling, nobody fetches them** (`pile-unserved`) | a depot that gives goods has a full pile, no line stops there to pick up (`pick` or `auto`), and no train has been worked there for 3 game min | only for depots the player placed or connected (track joined); not in the first 5 min after it was placed; one depot at a time, the fullest | **Logs piling up at the forest** · "No train collects its logs. Add the forest to a line." | the depot's card | Routes → "Plan a route" |
@@ -89,7 +90,7 @@ The feature tip waits and comes back when the situation clears.
 
 **When a tip may show.** All of these must hold:
 
-- Game mode. Sandbox has no goals panel; there a situation tip is a toast only, with the same once-per-kind rule (step 5).
+- Game mode. Sandbox has no goals panel; there a situation tip is a toast only, with the same once-per-kind rule (step 6).
 - Not during the tutorial: no tip while the current goal comes before `FIRST_OPEN_GOAL` ("build-bridge"), while the
   controls coach shows, or in the first 2 minutes of a game.
 - Nothing else is talking: no sheet or card open (it waits for them to close), no toast in the last 8 s, and no other
@@ -248,15 +249,19 @@ Each step can land on its own, with its tests, `/check` at its tier, and an `e2e
        leader is still on the stretch (the payoff: its wait drops from the whole stretch to half, and both trains
        deliver); the ✓ toast; no tip after a reload; Got it on a second game; Tips off; 0 idle frames.
    - `bench:tick` before and after.
-2. **Passing loops.** Detectors #2–4 (#4 subsumes `headOnTip` and `woodrail.loopTip`); a new **Passing loops**
+2. **Signals too close together** (#4a, asked for by the routing work; first after step 1). The detector on the
+   cached topology, its tip and Show me (the block framed and tinted). Unit tests on the user's two maps
+   (`src/play/bugmaps`): the 42-of-134 map says it, a map with signals a train apart doesn't. e2e: a line with a signal
+   pair too close, the tip, one signal dragged a train's length on, the train waits there and the tip goes.
+3. **Passing loops.** Detectors #2–4 (#4 subsumes `headOnTip` and `woodrail.loopTip`); a new **Passing loops**
    explainer (what one is, how long, the points at each end, signals at its ends; pictures in the explainers' style);
    Show me over the stretch. e2e: two lines meet nose to nose on single track, the tip, a loop laid in the middle,
    both run.
-3. **Paused** (#5): tap a train while paused, the tip, ▶ pulsed. A small e2e group.
-4. **Can't reach a stop** (#6) and **too long for the yard** (#9).
-5. **Sandbox**: the same detectors as toasts only, once per kind a session, with Tips off honoured.
-6. **Yard queue → Second track** (#8), merged with the Sidings feature tip.
-7. **A `help` stats event** (`shown`, `show-me`, `learn-more`, `got-it`, `fixed`, `cleared` with the kind) in
+4. **Paused** (#5): tap a train while paused, the tip, ▶ pulsed. A small e2e group.
+5. **Can't reach a stop** (#6) and **too long for the yard** (#9).
+6. **Sandbox**: the same detectors as toasts only, once per kind a session, with Tips off honoured.
+7. **Yard queue → Second track** (#8), merged with the Sidings feature tip.
+8. **A `help` stats event** (`shown`, `show-me`, `learn-more`, `got-it`, `fixed`, `cleared` with the kind) in
    `src/stats` and the Worker, and a column in `npm run stats`. It ranks what's left with real numbers, and tells us
    whether players act on a tip.
-8. **Unproven ones** (#7, #10, #11), only if step 7's numbers show players stalling there.
+9. **Unproven ones** (#7, #10, #11), only if step 8's numbers show players stalling there.
