@@ -135,8 +135,8 @@ const KIT_OF: Record<Exclude<Look, "plain">, PieceTypeId> = { semaphore: "kit-se
 
 /**
  * The Signal's tray picture: the toy colour light (it reads as a signal at a glance, not as track: the user's "signals
- * look like tracks when placing"), turned to face the camera, both lamps lit: a pair, one each way, as the Signal puts
- * down; `oneWay` (the One way's), the one, a big arrow on the track before it the way it guards.
+ * look like tracks when placing"), turned to face the camera, both lamps lit, an arrow on the track the way it guards;
+ * the Signal's (a pair, one each way) an arrow back as well, `oneWay` (the One way's) the one.
  */
 export function signalThumbnail(mats: Materials, oneWay = false): Group {
   const light = () => {
@@ -151,18 +151,16 @@ export function signalThumbnail(mats: Materials, oneWay = false): Group {
   };
   const g = new Group();
   g.add(light());
-  if (oneWay) {
-    // (On the track's centre line, past the post the way trains it guards go: the ghost's arrow, flat and lit green.)
-    const arrow = new Mesh(chevron().scale(2.2, 1, 2.2), LIT_GREEN);
-    arrow.position.set(TOY_BACK + 26, 0, -TOY_SIDE);
-    g.add(arrow);
-  } else {
-    // (Its partner as it stands: turned round about the joint, across the track.)
-    const b = light();
-    b.rotation.y = Math.PI;
-    b.position.set(2 * TOY_BACK, 0, -2 * TOY_SIDE);
-    g.add(b);
-  }
+  // (Big arrows on the track's centre line, flat and lit green as a lamp's: the one way it guards, past the post; a
+  // pair's both ways, the same light with an arrow back too. The same light on both tiles: the arrows are the difference.)
+  const arrow = (x: number, back: boolean) => {
+    const a = new Mesh(chevron().scale(2.2, 1, 2.2), LIT_GREEN);
+    a.position.set(x, 0, -TOY_SIDE);
+    if (back) a.rotation.y = Math.PI;
+    g.add(a);
+  };
+  arrow(TOY_BACK + 26, false);
+  if (!oneWay) arrow(TOY_BACK - 30, true);
   g.rotation.y = 2.3;
   return g;
 }

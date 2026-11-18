@@ -112,7 +112,7 @@ const start = async () => {
  * go, then let go: the joint end it went on (−1: none).
  */
 const dragSignal = async (joint, key = "signal") => {
-  const shelf = await p.evaluate(() => {
+  const shelf = await p.evaluate((key) => {
     // (The shelf open already: the Signal's on the tray.)
     if (document.querySelector(`.scroller .tray-item[data-key="${key}"]`)) return null;
     const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Signals");
@@ -120,7 +120,7 @@ const dragSignal = async (joint, key = "signal") => {
     g.scrollIntoView({ inline: "center" });
     const r = g.getBoundingClientRect();
     return [r.left + r.width / 2, r.top + r.height / 2];
-  });
+  }, key);
   if (shelf) await tapAt(...shelf);
   const from = await tileAt(key);
   if (!from) return -1;
