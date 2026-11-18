@@ -105,6 +105,24 @@ The dispatcher runs on events (§5), for the networks those events touch.
 6. **No order at all:** the trains stand. The cards say the cause and the fix (§7), and the dispatcher tries again only
    on the next event.
 
+### 2.2a When the layout simply has no room
+
+Often there's nothing clever to find: the complex map's two longest trains fit no passing place on it. The answer is
+honest. **One at a time.**
+
+- **Shared track:** a stretch of two-way track with no passing place long enough for the trains that use it is given
+  to one train at a time, through to a place it can wait. A train coming the other way waits at its end.
+- **Who goes:** the longest waiter goes next, so no train waits for ever. The trains take turns across it; they never
+  meet on it.
+- **The card says so** in steady words, with the fix:
+  - the train waiting: "Waiting its turn for the track to the mill: it has no passing place long enough for two trains.
+    A longer loop lets them pass";
+  - the train on it: "Has the track to the mill to itself: Bluebell waits at Ashby".
+- **The cost:** service slows. Measured on the eight maps (§9), it's the price of no jams. On save 3 of the complex map
+  this is where arrivals may fall below main, and §9 allows it only where this card is what the waiting trains say.
+- **Not run out of turns:** a train that turns at a line end inside such a stretch holds it until it has come back out
+  past its far end. It doesn't hand it on halfway and meet the next one coming in.
+
 ### 2.3 What it doesn't do
 
 - **It doesn't move trains itself.** The sim drives them; the cap is §R 3.5's one cap to the end of the hold.
@@ -275,7 +293,8 @@ From each save (600 s, no clearing), stops / trains with none / train-seconds sa
 - **Steps 2–3:**
   - No lasting ring on any map. A ring may form, but it's broken within 60 s by a grant order, a detour or a back-up,
     or else the cause is a layout limit and its card says so.
-  - Arrivals at least main's on every map.
+  - Arrivals at least main's on every map, except where trains wait their turn on track with no room (§2.2a). There,
+    the waiting trains' cards say so, and the shortfall is listed by map and train.
   - No invariant break on any map.
   - The saved jams in complex 1–3 clear without the player where a back-up or detour frees them. Where they don't, the
     stuck card names the track and the fix.
