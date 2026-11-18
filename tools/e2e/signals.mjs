@@ -1109,8 +1109,6 @@ const ghostNow = () =>
   });
 /** A point `d` mm back from a joint along the way it's crossed (negative: past it). */
 const backOf = (j, d) => ({ x: j.x - Math.cos(j.heading) * d, y: j.y, z: j.z - Math.sin(j.heading) * d });
-/** Plan headings the same way (within 10°)? */
-const sameWay = (a, b) => Math.cos(a - b) > Math.cos(Math.PI / 18);
 /** The joint pose of a piece's connector (`a`, `c`: as `layLine`'s `second`). */
 const jointOf = (a, c) =>
   p.evaluate(async ([a, c]) => {
@@ -1341,7 +1339,8 @@ suite.add(
         const next = L.joinedConnector(back);
         if (next === -1) break;
         const j = jointPose(L, back);
-        pts.push({ x: j.x, y: j.y, z: j.z });
+        // (`at`: the joint end a signal facing the way drawn, back toward the station, goes on.)
+        pts.push({ x: j.x, y: j.y, z: j.z, at: back });
         ref = next;
         if (!L.getPiece(pieceOfRef(ref))?.type.match(/^(straight|curve)/)) break;
       }
@@ -1367,13 +1366,12 @@ suite.add(
       await settle();
       check("one-way by mouse: the run's ghosts show one post a joint", ghosts.kind === "signal-run" && ghosts.n >= 2 && ghosts.seconds === 0, JSON.stringify(ghosts));
       const added = (await marks()).filter((m) => !before.has(m.id));
-      const facing = await p.evaluate(async ([ats, h]) => {
-        const { jointPose } = await import("/src/game/signal-place.ts");
+      const facing = await p.evaluate((ats) => {
         const L = window.woodrail.layout;
-        return ats.map((a) => ({ a, h: jointPose(L, a).heading, partner: !!L.signalAt(L.joinedConnector(a)) }));
-      }, [added.map((m) => m.at), joint.heading]);
+        return ats.map((a) => ({ a, partner: !!L.signalAt(L.joinedConnector(a)) }));
+      }, added.map((m) => m.at));
       check("one-way by mouse: a drag along the line puts signals at joints along it, alone", added.length >= 2 && facing.every((f) => !f.partner), JSON.stringify({ added: added.length, facing }));
-      check("one-way by mouse: …each facing the way it was drawn (back toward the station)", facing.every((f) => sameWay(f.h, joint.heading + Math.PI)), JSON.stringify({ facing, drawn: joint.heading + Math.PI }));
+      check("one-way by mouse: …each facing the way it was drawn (back toward the station)", facing.every((f) => run.some((r) => r.at === f.a)), JSON.stringify({ facing, drawn: run.map((r) => r.at) }));
       await tapped(() => p.mouse.click(...from));
       await undo(true);
       check("one-way by mouse: …one Undo takes the run away", (await marks()).length === before.size, JSON.stringify(await marks()));
