@@ -84,9 +84,13 @@ The dispatcher runs on events (§5), for the networks those events touch.
 
 1. **Grants:** which waiting trains get their next move now. A move is granted all at once, as in §R 3.4, along the
    train's plan to the next waiting point that fits it.
-2. **Order:** a bounded search (§5) over the network's waiting trains. A grant order is chosen only if, after it, every
-   train can still reach its next stop in some order. This is `feasible` grown into the planner. The search's state is
-   each train's waiting point plus what it holds; its moves are the booked next moves, and the alternatives in step 4.
+2. **Order:** a bounded search (§5) over the network's waiting trains. **The goal is to keep the most trains
+   delivering, with fair turns, and to say who waits for room.** Keeping every train going is often impossible: on the
+   reference maps not even a perfect dispatcher keeps all of them going (§12). A grant order is chosen when, after it,
+   at least as many trains can still keep reaching their stops as before it, and never one that strands a train for
+   good where another order wouldn't. This is `feasible` grown into the planner. The search's state is each train's
+   waiting point plus what it holds; its moves are the booked next moves, and the alternatives in steps 4–5. The
+   trains it can't keep going wait their turn, and their cards say so (§2.2a).
 3. **Fair queues:** among orders that work, the one serving the longest waiter first. Each waiting point keeps a
    queue: the time each train began waiting, and the trains granted past it since (for the card, §7).
 4. **Re-routing** when the booked way is blocked:
@@ -331,3 +335,28 @@ The dispatcher is like a signal box for the whole railway. It knows where every 
 order that works for all of them, and it lets the train that has waited longest go first. When the direct way is
 blocked it sends a train round another way. As a last resort it has one back up a little. When even that can't help,
 each card says plainly what's wrong with the track and how to fix it.
+
+## 12. What the first shadow report found (2026-11-18)
+
+`npm run jams -- --shadow` (branch `claude/dispatch-shadow`, `src/routing/dispatch-shadow.ts`). Each jam today's
+rules make on the eight maps, judged by the oracle (`oracle.ts`: every sequence of moves under the user's rules) over
+every train on the map. The question: could an order keep them all going, from the jam, or from 30 s before it?
+
+Main e2ad5f37, 1800 s, 141 jams.
+
+**The complex saves:**
+- 19 judged, all "layout". From the jam, a perfect dispatcher keeps at most 1–2 of 5 trains delivering together, and
+  no more 30 s before.
+- On the saved jams, whichever line ends trains may turn at (own, spare, any), only the two free trains keep going. No
+  sequence of forward moves frees the three stuck ones.
+
+**Dandelion, Rowan 1–3 and Wren** (6–9 trains): every search hit the 200,000-state cap, taking 30–66 s each.
+
+**What follows:**
+1. **The goal** is "keep the most trains delivering, with fair turns, and say who waits for room", not "keep every
+   train going" (§2.2, amended).
+2. **The back-up (§2.2 step 5)** is the only way out of the saved jams. The next report adds it to the oracle's moves
+   and counts the jams it frees.
+3. **Cost:** a whole-map search costs four to five orders of magnitude more than the budget (§5). The dispatcher
+   decides per stretch: the trains in a ring of waits and those booked onto the same stretches, cut at waiting points.
+   On these maps a "connected network" is the whole map, so §2.1's networks must be cut finer than that.
