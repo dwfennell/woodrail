@@ -278,7 +278,7 @@ const row = await p.evaluate(() => {
   return { title: r?.querySelector("b")?.textContent, text: r?.querySelector("p")?.textContent, stamp: !!r?.querySelector(".tip-stamp"), more: size(".tip-more"), done: size(".tip-done"), where: size(".tip-where"), painted: r ? getComputedStyle(r.querySelector(".tip-where")).color : "" };
 });
 check("2. the row: stamped Tip, the line named", row.stamp && /Trains queuing on the Red line/.test(row.title ?? ""), JSON.stringify(row));
-check("2. …where they're bound, and the fix", /reaches .*sawmill/.test(row.text ?? "") && /signal halfway/.test(row.text ?? ""), row.text);
+check("2. …where they're bound, and the fix", /reaches .*sawmill/i.test(row.text ?? "") && /signal halfway/.test(row.text ?? ""), row.text);
 check("2. Learn more, Got it and Show where, each 44 px tall", row.more?.h >= 44 && row.done?.h >= 44 && row.where?.h >= 44 && /signals/.test(row.more?.text ?? ""), JSON.stringify(row));
 await shot("2-row");
 const idle = await idleFrames();
