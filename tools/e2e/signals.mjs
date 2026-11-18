@@ -1203,13 +1203,10 @@ suite.add(
           return { els: [...document.querySelectorAll(".toast")].map((x) => `${x.className}: ${x.textContent}`), queue: (h.toastQueue ?? []).map((q) => q.message), showing: h.toastShowing?.message ?? null, waitsForCard: h.toastWaitsForCard, help: !h.help?.hidden, coach: !!h.coach?.shown };
         });
     const j1 = await onJoint(at);
-    const top = j1.here !== -1 ? await p.evaluate((id) => window.woodrail.marksView.topOf(id), j1.here) : null;
     if (toast) await tapAt(...toast);
     await p.waitForTimeout(300);
     const j2 = await onJoint(at);
     check("one-way: let go: one signal on the joint, facing on, none the other way", j1.here !== -1 && j1.other === -1 && j1.count === 1, JSON.stringify(j1));
-    const off = top && fwd2.foot ? Math.hypot(top.x - fwd2.foot.x, top.z - fwd2.foot.z) : Infinity;
-    check("one-way: …its post just where its preview stood (within 0.5 mm)", off < 0.5, JSON.stringify({ off, top, foot: fwd2.foot }));
     const said = await p.evaluate(() => window.__said.splice(0));
     check("one-way: …its toast offers to turn it round", said.includes("One-way signal placed. Tap here to turn it round"), JSON.stringify(said));
     check("one-way: a tap on the toast turns it round", !!toast && j2.here === -1 && j2.other === j1.here, JSON.stringify({ toast, seen, ...j2 }));
@@ -1218,6 +1215,11 @@ suite.add(
     const j3 = await onJoint(at);
     check("one-way: …Undo: facing on again", j3.here === j1.here && j3.other === -1, JSON.stringify(j3));
     if (j3.here !== j1.here) return;
+    // (Its post, once the view has drawn it: back as it was put down, after the turn and its Undo.)
+    await settle();
+    const top = await p.evaluate((id) => window.woodrail.marksView.topOf(id), j1.here);
+    const off = top && fwd2.foot ? Math.hypot(top.x - fwd2.foot.x, top.z - fwd2.foot.z) : Infinity;
+    check("one-way: …its post just where its preview stood (within 0.5 mm)", off < 0.5, JSON.stringify({ off, top, foot: fwd2.foot }));
     await shot("ow-3-placed");
 
     // Its card: Turn round and Both ways. Both ways: a pair; the pair's card: One way only (this one kept).
