@@ -29,7 +29,7 @@ console.log(`jams: ${maps.length} maps × ${SECONDS} s in ${SHARDS} shards`);
 
 function run(list) {
   return new Promise((resolve) => {
-    const env = { ...process.env, JAMS: "1", JAMS_MAPS: list.join(","), JAMS_SECONDS: String(SECONDS) };
+    const env = { ...process.env, JAMS: "1", JAMS_MAPS: list.join(","), JAMS_SECONDS: String(SECONDS), ...(args.includes("--shadow") ? { JAMS_SHADOW: "1" } : {}) };
     const child = spawn("npx", ["vitest", "run", "--silent=false", "src/play/jams.test.ts"], { env, stdio: ["ignore", "pipe", "pipe"] });
     let log = "";
     child.stdout.on("data", (d) => (log += d));
@@ -62,6 +62,25 @@ for (const r of rows) {
   console.log(`${pad(r.map, 18)}${pad(vs(r.jams, b?.jams), 12)}${pad(vs(r.arrivals, b?.arrivals), 14)}${pad(r.longestStand, 12)}${r.firstBreak ?? "-"}${bad ? "   WORSE" : ""}`);
 }
 console.log(`(baseline in brackets; ${((Date.now() - t0) / 60000).toFixed(1)} min)`);
+// (--shadow: the dispatcher's first report: each jam judged by the oracle, now and before it began.)
+if (args.includes("--shadow")) {
+  console.log(`\ndispatcher shadow: each jam, could a dispatcher keep every train going?`);
+  console.log(`${pad("map", 18)}${pad("resolvable", 12)}${pad("avoidable", 11)}${pad("layout", 8)}${pad("unknown", 9)}search ms (max)`);
+  const all = { resolvable: 0, avoidable: 0, layout: 0, unknown: 0 };
+  for (const r of rows) {
+    const c = { resolvable: 0, avoidable: 0, layout: 0, unknown: 0 };
+    let ms = 0;
+    for (const j of r.shadow ?? []) {
+      c[j.verdict]++;
+      all[j.verdict]++;
+      ms = Math.max(ms, j.now.ms, j.before?.ms ?? 0);
+    }
+    console.log(`${pad(r.map, 18)}${pad(c.resolvable, 12)}${pad(c.avoidable, 11)}${pad(c.layout, 8)}${pad(c.unknown, 9)}${ms}`);
+  }
+  console.log(`${pad("all", 18)}${pad(all.resolvable, 12)}${pad(all.avoidable, 11)}${pad(all.layout, 8)}${pad(all.unknown, 9)}`);
+  writeFileSync(".jams-shadow.json", JSON.stringify(rows.map((r) => ({ map: r.map, shadow: r.shadow })), null, 1));
+  console.log("(each jam's judgements in .jams-shadow.json)");
+}
 if (args.includes("--update")) {
   const out = { ...base };
   for (const r of rows) out[r.map] = { jams: r.jams, arrivals: r.arrivals, longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds };

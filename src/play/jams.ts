@@ -37,8 +37,15 @@ export interface JamsRun {
   seconds: number;
 }
 
+/** Hooks for a shadow beside the run (dispatcher spec §8 step 1): each second, and each jam just before it's cleared. */
+export interface JamsHooks {
+  second?(now: number): void;
+  /** `since`: when its train was first found stuck (s). */
+  jam?(now: number, engine: number, since: number): void;
+}
+
 /** Run `world` for `seconds` with the player's clearing (`JAM_S`, `BACK_S`). */
-export function runJams(world: World, seconds: number): JamsRun {
+export function runJams(world: World, seconds: number, hooks: JamsHooks = {}): JamsRun {
   const { sim, economy } = world;
   const pending: { at: number; kinds: CarKind[]; piece: number; lineId: number; stops: RouteStopDef[] }[] = [];
   const stuckSince = new Map<number, number>();
@@ -50,6 +57,7 @@ export function runJams(world: World, seconds: number): JamsRun {
     onTick: () => {
       if (sim.ticks % 120) return;
       const now = Math.round(sim.ticks / 120);
+      hooks.second?.(now);
       // (Put back, where there's room: at its line's first stop, on its line, set going.)
       for (let k = pending.length - 1; k >= 0; k--) {
         const q = pending[k];
@@ -82,6 +90,7 @@ export function runJams(world: World, seconds: number): JamsRun {
         if (!route || route.stops.length === 0 || lineId === undefined) continue;
         const first = economy.depot(route.stops[0].depotId);
         if (!first) continue;
+        hooks.jam?.(now, e, stuckSince.get(e)!);
         log.push({ at: now, engine: e, line: lineId, kind: st.kind });
         pending.push({ at: now + BACK_S, kinds: t.cars.map((c) => c.kind), piece: first.pieceId, lineId, stops: route.stops.map((s) => ({ ...s })) });
         putAway(sim, economy, e);
