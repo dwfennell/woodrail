@@ -3,7 +3,7 @@
 //
 // Setup (named shortcuts, none of them what's tested): a flat map by its code; Switches, Routes and Signals learned;
 // the tutorial's goals marked done and the clock past a game's first two minutes (situation tips wait for both); the
-// follow hint's own layout (signal-slots.test.ts: ⊐ forest ══ loop ══ × 8 ══ sawmill ⊏) laid by the editor beside the
+// follow hint's own layout (signal-slots.test.ts: ⊐ forest ══ loop ══ ⌒ ══ loop ══ sawmill ⊏, its stretch bent by curves) laid by the editor beside the
 // first town, two timber trains on one line forest → sawmill. Then, on the game's own clock (the test clock, 8×):
 //   1. The follower waits for the whole stretch: the tip comes by itself, a toast ("Red line trains are stuck in a
 //      queue · Show where ›") and the chip saying "💡 Trains queuing" while it's up; then the chip is the goal again,
@@ -144,8 +144,14 @@ const setup = await p.evaluate(async () => {
   const [a, , w2] = chain(scratch, ["depot-forest", S, S]);
   appendPiece(scratch, "buffer-turnback", false, connectorRef(a, 0));
   const l1 = loopOn(scratch, connectorRef(w2, 1), [S, S], [S]);
-  const mid = chain(scratch, Array(8).fill(S), connectorRef(l1.s2, 0));
-  const [, , bb] = chain(scratch, [S, S, "depot-sawmill"], connectorRef(mid[mid.length - 1], 1));
+  // (A passing loop at each end, the long stretch between them bent round by curves to fit the map: with one loop the
+  // leader comes back toward the follower, and no signal helps.)
+  const m1 = chain(scratch, Array(3).fill(S), connectorRef(l1.s2, 0));
+  const bend = chain(scratch, Array(8).fill("curve-large"), connectorRef(m1[2], 1), Array(8).fill(true));
+  const m2 = chain(scratch, Array(3).fill(S), connectorRef(bend[7], 1));
+  const mid = [...m1, ...bend, ...m2];
+  const l2 = loopOn(scratch, connectorRef(m2[2], 1), [S, S], [S]);
+  const [, , bb] = chain(scratch, [S, S, "depot-sawmill"], connectorRef(l2.s2, 0));
   appendPiece(scratch, "buffer-turnback", false, connectorRef(bb, 1));
   const ids = [...scratch.pieceIds()];
   const t = w.world.landscape.towns[0].centre;
