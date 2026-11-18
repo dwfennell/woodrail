@@ -1,0 +1,58 @@
+{
+  "complex-1.txt": {
+    "jams": 11,
+    "arrivals": 511,
+    "longestStand": 49,
+    "firstBreak": null,
+    "seconds": 1800
+  },
+  "complex-2.txt": {
+    "jams": 19,
+    "arrivals": 430,
+    "longestStand": 50,
+    "firstBreak": null,
+    "seconds": 1800
+  },
+  "complex-3.txt": {
+    "jams": 12,
+    "arrivals": 519,
+    "longestStand": 46,
+    "firstBreak": "greenHeld: train 18 stood 5 s at signal -42, which shows clear (piece 96)",
+    "seconds": 1800
+  },
+  "dandelion.txt": {
+    "jams": 18,
+    "arrivals": 623,
+    "longestStand": 146,
+    "firstBreak": "greenHeld: train 146 stood 5 s at signal -68, which shows clear (piece 362)",
+    "seconds": 1800
+  },
+  "rowan-1.txt": {
+    "jams": 29,
+    "arrivals": 435,
+    "longestStand": 192,
+    "firstBreak": null,
+    "seconds": 1800
+  },
+  "rowan-2.txt": {
+    "jams": 31,
+    "arrivals": 535,
+    "longestStand": 158,
+    "firstBreak": "greenHeld: train 109 stood 5 s at signal -81, which shows clear (piece 329)",
+    "seconds": 1800
+  },
+  "rowan-3.txt": {
+    "jams": 6,
+    "arrivals": 692,
+    "longestStand": 146,
+    "firstBreak": null,
+    "seconds": 1800
+  },
+  "wren.txt": {
+    "jams": 15,
+    "arrivals": 344,
+    "longestStand": 155,
+    "firstBreak": null,
+    "seconds": 1800
+  }
+}
