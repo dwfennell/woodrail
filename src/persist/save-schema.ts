@@ -247,6 +247,15 @@ export const sessionSchema = z.object({
   journal: sessionJournal,
   /** Which of the games it is (Game mode: `persist/slots.ts`). Rides in the session so older builds still read it. */
   slot: z.object({ id: z.string().min(1).max(40), name: z.string().max(80) }).optional(),
+  /** Situation tips (src/game/situation-tips.ts): kinds done, toasted, snoozed till and shown, for this game. */
+  situations: z
+    .object({
+      done: z.array(z.string().max(40)).max(64),
+      toasted: z.array(z.string().max(40)).max(64),
+      snoozed: z.record(z.string().max(40), z.number().finite()),
+      shows: z.record(z.string().max(40), z.number().int().min(0)),
+    })
+    .optional(),
 });
 
 export type SessionData = z.infer<typeof sessionSchema>;

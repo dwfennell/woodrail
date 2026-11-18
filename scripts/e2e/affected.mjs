@@ -85,6 +85,7 @@ export const SUITES = {
   rack: { script: "e2e:rack", minutes: 3 },
   metro: { script: "e2e:metro", minutes: 3 },
   "feature-tips": { script: "e2e:feature-tips", minutes: 6 },
+  "situation-help": { script: "e2e:situation-help", minutes: 8 },
   "routes-ux": { script: "e2e:routes-ux", minutes: 6 },
   "route-insert": { script: "e2e:route-insert", minutes: 4 },
   "train-off-line": { script: "e2e:train-off-line", minutes: 4 },
@@ -262,7 +263,7 @@ export const RULES = [
   // A train taken off its line (the card's Leave line, the sheet's Take off): it stands clear of points.
   [["src/game/lines.ts", "src/ui/line-sheet.ts"], ["train-off-line"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
-  ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips"]],
+  ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips", "situation-help"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
   ["src/ui/store-rows.ts", ["warehouse"]],
   // A town's card (its tabs, Next up, the Projects pane): the suites that open one and tap on it.
@@ -301,6 +302,8 @@ export const RULES = [
   ["src/game/stickers.ts", ["stickers"]],
   // Feature tips: the 💡 row under the goals, its Show me, and the Learned toast that says it.
   ["src/game/feature-tips.ts", ["feature-tips"]],
+  // Situation help: a 💡 tip for a jam on the map (the tracker, its detectors), its row, Show where and ☰ Tips.
+  [["src/game/situation-tips.ts", "src/ui/prefs.ts"], ["situation-help"]],
   ["src/game/landscaping.ts", ["landscaping"]],
   ["src/game/station-upgrade.ts", ["station-upgrade", "station-touches"]],
   ["src/game/departures.ts", ["station-touches"]],

@@ -708,6 +708,15 @@ export class GoalTracker {
     return this.left()[0] ?? null;
   }
 
+  /**
+   * Still in the tutorial: a goal before the open ones (`FIRST_OPEN_GOAL`) not done yet. Situation tips wait till
+   * it's over (src/game/situation-tips.ts).
+   */
+  inTutorial(): boolean {
+    const open = GOALS.findIndex((g) => g.id === FIRST_OPEN_GOAL);
+    return GOALS.slice(0, open).some((g) => !this.done.has(g.id) && this.fits(g));
+  }
+
   /** The goal after the current one. */
   next(): Goal | null {
     return this.left()[1] ?? null;

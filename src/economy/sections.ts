@@ -3586,7 +3586,15 @@ export class Sections {
    * a second, till told).
    */
   followSpot(): number {
-    if (!this.enabled) return -1;
+    return this.followWait()?.at ?? -1;
+  }
+
+  /**
+   * `followSpot` with who it's for: the joint end (`at`), the train waiting (`engine`) and the one it waits for
+   * (`lead`), or null. The situation tip (src/game/situation-tips.ts) names the line and frames the waiting train.
+   */
+  followWait(): { at: number; engine: number; lead: number } | null {
+    if (!this.enabled) return null;
     for (const st of this.states.values()) {
       const w = st.wait;
       if (!w || (w.kind !== "section" && w.kind !== "slot") || st.slot < 0 || st.exitPiece < 0 || st.waitSince < 0) continue;
@@ -3622,9 +3630,9 @@ export class Sections {
         if (t) longest = Math.max(longest, trainLength(t));
       }
       const spot = this.splitAt(way.steps, longest + ROAD_MARGIN);
-      if (spot !== -1) return spot;
+      if (spot !== -1) return { at: spot, engine: st.engine, lead: w.engine };
     }
-    return -1;
+    return null;
   }
 
   /** Trains seen waiting while the train they wait for went ahead their way (by engine: that wait's start, `waitSince`). */
