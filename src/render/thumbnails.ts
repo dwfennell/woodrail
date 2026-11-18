@@ -26,7 +26,7 @@ const H = 144;
 const VIEW = new Vector3(0.95, 1.25, 1.35).normalize();
 
 /** What a tray picture shows: a piece (with its model), a train, or the Signal (a mark: its toy colour light alone). */
-export type ThumbnailSubject = { key: string; kind: "piece"; type: PieceTypeId } | { key: string; kind: "train"; cars: readonly CarKind[]; looks?: readonly CarLook[] } | { key: string; kind: "signal" };
+export type ThumbnailSubject = { key: string; kind: "piece"; type: PieceTypeId } | { key: string; kind: "train"; cars: readonly CarKind[]; looks?: readonly CarLook[] } | { key: string; kind: "signal"; oneWay?: boolean };
 
 function trainModel(cars: readonly CarKind[], mats: Materials, looks: readonly CarLook[] = []): Group {
   const g = new Group();
@@ -167,7 +167,7 @@ export class ThumbnailStudio {
 /** A tray subject as a model to photograph, and how to put it away after. */
 function subjectModel(s: ThumbnailSubject, mats: Materials, withPiece: (type: PieceTypeId) => Object3D | null): { subject: Object3D; done: () => void } {
   if (s.kind === "signal") {
-    const subject = signalThumbnail(mats);
+    const subject = signalThumbnail(mats, s.oneWay);
     return { subject, done: () => disposeObject(subject) };
   }
   if (s.kind === "piece") {

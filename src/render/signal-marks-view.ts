@@ -134,16 +134,34 @@ export interface MarkModels {
 const KIT_OF: Record<Exclude<Look, "plain">, PieceTypeId> = { semaphore: "kit-semaphore-signal", "colour-light": "kit-colour-light-signal", gantry: "kit-signal-gantry" };
 
 /**
- * The Signal's tray picture: the toy colour light alone, both lamps lit (it reads as a signal at a glance, not as
- * track: the user's "signals look like tracks when placing"), turned to face the camera.
+ * The Signal's tray picture: the toy colour light (it reads as a signal at a glance, not as track: the user's "signals
+ * look like tracks when placing"), turned to face the camera, both lamps lit: a pair, one each way, as the Signal puts
+ * down; `oneWay` (the One way's), the one, a big arrow on the track before it the way it guards.
  */
-export function signalThumbnail(mats: Materials): Group {
+export function signalThumbnail(mats: Materials, oneWay = false): Group {
+  const light = () => {
+    const l = new Group();
+    for (const p of toyLight(mats)) {
+      if (p.role === "fixed" && p.material !== mats.naturalWood && p.shadow === false) continue;
+      const mesh = new Mesh(p.geometry, p.material);
+      mesh.applyMatrix4(new Matrix4().makeTranslation(-(PIECE_LENGTH - TOY_BACK), 0, -TOY_SIDE).multiply(p.frame));
+      l.add(mesh);
+    }
+    return l;
+  };
   const g = new Group();
-  for (const p of toyLight(mats)) {
-    if (p.role === "fixed" && p.material !== mats.naturalWood && p.shadow === false) continue;
-    const mesh = new Mesh(p.geometry, p.material);
-    mesh.applyMatrix4(new Matrix4().makeTranslation(-(PIECE_LENGTH - TOY_BACK), 0, -TOY_SIDE).multiply(p.frame));
-    g.add(mesh);
+  g.add(light());
+  if (oneWay) {
+    // (On the track's centre line, past the post the way trains it guards go: the ghost's arrow, flat and lit green.)
+    const arrow = new Mesh(chevron().scale(2.2, 1, 2.2), LIT_GREEN);
+    arrow.position.set(TOY_BACK + 26, 0, -TOY_SIDE);
+    g.add(arrow);
+  } else {
+    // (Its partner as it stands: turned round about the joint, across the track.)
+    const b = light();
+    b.rotation.y = Math.PI;
+    b.position.set(2 * TOY_BACK, 0, -2 * TOY_SIDE);
+    g.add(b);
   }
   g.rotation.y = 2.3;
   return g;

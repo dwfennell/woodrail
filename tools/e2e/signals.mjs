@@ -8,12 +8,18 @@
 //      lets it go (signals audit U5: a tap used to hold it, and the card took a long press). The Signal tool: tapped in
 //      the tray, a tap on the track puts another down; tapped again, it's put away. Undo takes the last one away.
 //
+// Groups (`-- --list`): `pairs` is all of the above and the parts below (4-8); `one-way` (a phone, by touch) and
+// `one-way-mouse` (a 1440×900 page) the One way, the Signals shelf's second tile: a signal alone, facing the way it's
+// dragged or drawn along the track, placed where its preview stood; its card's Both ways and a pair's One way only; and
+// its payoff, a train following another on the stretch it guards.
+//
 // Usage: npm run e2e:signals [-- <out dir>]   (default out: e2e-out/signals)
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
+import { groups } from "../../scripts/e2e/lib/groups.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/signals";
@@ -28,24 +34,31 @@ const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, arg
 pinClocksIn(b);
 // (Industries' axes and saws held still: not what this tests, and in view they keep `settled()` and idle counts waiting.)
 stillIndustriesIn(b);
-const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
-await ctx.addInitScript(() => {
-  localStorage.setItem("woodrail.helpSeen", "1");
-  window.__allClicks = 0;
-  window.addEventListener("click", () => window.__allClicks++, { capture: true });
-});
-const p = await ctx.newPage();
-const cdp = await ctx.newCDPSession(p);
 const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-p.on("console", (m) => {
-  if (m.type() === "error") errors.push(`console: ${m.text()}`);
-});
+/** A page of its own (each group's: a new game), a phone with touch or a desktop page with a mouse. */
+const open = async ({ phone = true } = {}) => {
+  const ctx = await b.newContext(phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true } : { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  await ctx.addInitScript(() => {
+    localStorage.setItem("woodrail.helpSeen", "1");
+    window.__allClicks = 0;
+    window.addEventListener("click", () => window.__allClicks++, { capture: true });
+  });
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(`console: ${m.text()}`);
+  });
+  return { ctx, page, session: await ctx.newCDPSession(page) };
+};
+let { ctx, page: p, session: cdp } = await open();
 let failures = 0;
+const results = [];
 const check = (what, ok, detail = "") => {
   if (!ok) failures++;
+  results.push({ name: what, ok: !!ok });
   console.log(ok ? "PASS" : "FAIL", what, detail);
 };
+const suite = groups("signals", { results, errors, check });
 const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
 const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
@@ -98,10 +111,10 @@ const start = async () => {
  * The Signal dragged out of the Switch shelf (opened if it isn't) and along the track toward a joint, the way trains
  * go, then let go: the joint end it went on (−1: none).
  */
-const dragSignal = async (joint) => {
+const dragSignal = async (joint, key = "signal") => {
   const shelf = await p.evaluate(() => {
     // (The shelf open already: the Signal's on the tray.)
-    if (document.querySelector('.scroller .tray-item[data-key="signal"]')) return null;
+    if (document.querySelector(`.scroller .tray-item[data-key="${key}"]`)) return null;
     const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Signals");
     if (!g) return null;
     g.scrollIntoView({ inline: "center" });
@@ -109,14 +122,7 @@ const dragSignal = async (joint) => {
     return [r.left + r.width / 2, r.top + r.height / 2];
   });
   if (shelf) await tapAt(...shelf);
-  await p.evaluate(() => document.querySelector('.scroller .tray-item[data-key="signal"]')?.scrollIntoView({ inline: "center" }));
-  await frames();
-  const from = await p.evaluate(() => {
-    const e = document.querySelector('.scroller .tray-item[data-key="signal"]');
-    if (!e) return null;
-    const r = e.getBoundingClientRect();
-    return [r.x + r.width / 2, r.y + r.height / 2];
-  });
+  const from = await tileAt(key);
   if (!from) return -1;
   const before = new Set((await marks()).map((m) => m.id));
   const [bx, by] = await screenOf({ x: joint.x - Math.cos(joint.heading) * 120, y: joint.y, z: joint.z - Math.sin(joint.heading) * 120 });
@@ -150,6 +156,33 @@ const dragSignal = async (joint) => {
   await settle();
   return (await marks()).find((m) => !before.has(m.id))?.at ?? -1;
 };
+/** A tray tile by its key, scrolled into view: its middle on screen (null: not on the tray). */
+const tileAt = async (key) => {
+  await p.evaluate((key) => document.querySelector(`.scroller .tray-item[data-key="${key}"]`)?.scrollIntoView({ inline: "center" }), key);
+  await frames();
+  return p.evaluate((key) => {
+    const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  }, key);
+};
+/** The Signals shelf opened on the tray (by a tap, or a click on a page with no touch): false if it isn't there. */
+const openSignalsShelf = async (mouse = false) => {
+  const at = await p.evaluate(() => {
+    if (document.querySelector('.scroller .tray-item[data-key="signal"]')) return "open";
+    const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Signals");
+    if (!g) return null;
+    g.scrollIntoView({ inline: "center" });
+    const r = g.getBoundingClientRect();
+    return [r.left + r.width / 2, r.top + r.height / 2];
+  });
+  if (at === "open") return true;
+  if (!at) return false;
+  if (mouse) await tapped(() => p.mouse.click(...at));
+  else await tapAt(...at);
+  return true;
+};
 /** The middle of `dragSignal`'s path along the track to a joint (75 mm back): where to frame, so the finger stays on screen. */
 const alongBack = (j) => ({ x: j.x - Math.cos(j.heading) * 75, y: j.y, z: j.z - Math.sin(j.heading) * 75 });
 /** The preview's posts' feet as `dragSignal` last let go (null each where it wasn't shown). */
@@ -158,14 +191,12 @@ let lastFeet = [null, null];
 let lastHeld = null;
 let midHeld = null;
 
-// A new game.
-await p.goto(PAGE);
-await start();
-await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
-
-// Setup (not what's tested): Switches, Signals and Routes learned; the station's line to the forest laid by the game's
-// own pathfinder. The joint to put the signal on: in the middle of the line, between two pieces of plain track.
-const setup = await p.evaluate(async () => {
+/**
+ * Setup (not what's tested): Switches, Signals and Routes learned; the station's line to the forest laid by the game's
+ * own pathfinder. The joint to put a signal on (`at`, `joint`): in the middle of the line, between two pieces of plain
+ * track; `second`, another a quarter of the way along.
+ */
+const layLine = () => p.evaluate(async () => {
   const { play } = await import("/src/play/player.ts");
   const { rulesFor } = await import("/src/play/rules.ts");
   const { connectorRef, pieceOfRef } = await import("/src/track/layout.ts");
@@ -205,6 +236,100 @@ const setup = await p.evaluate(async () => {
   w.invalidate();
   return { at, a: pick.a, b: pick.b, joint: j, laid: line.length, second: pairs[Math.floor(pairs.length / 4)] };
 });
+/**
+ * Setup for the payoff (harness shortcuts: laid on the flat table past the land's edge, depots, trains and their line
+ * made by the economy's own functions, as a player's taps would): a line of two trains between two loops, the forest
+ * and the sawmill at its ends. `window.__lineTrains()` puts the trains back where they began; `__lineRun(secs)` ticks
+ * the game's own sim and economy ahead (the forest kept stocked), counting deliveries and ticks both ran in the stretch.
+ */
+const layLoopLine = () => p.evaluate(async () => {
+  const w = window.woodrail;
+  const { chain, loopOn } = await import("/src/economy/loop-fixtures.ts");
+  const { appendPiece, connectorRef } = await import("/src/track/index.ts");
+  const { editLine, joinLine } = await import("/src/game/lines.ts");
+  const { CARGO } = await import("/src/economy/cargo.ts");
+  const { PILE_CAP } = await import("/src/economy/constants.ts");
+  // (Clear what parts 1-3 and 6 left: their marks, so the payoff's run is about this line's signal only.)
+  for (const m of [...w.layout.signals()]) w.layout.removeSignal(m.id);
+  const b = w.director.bounds;
+  const S = "straight-216";
+  const x0 = b.x0 + 260;
+  const z = b.z1 - 260;
+  const [a] = [w.layout.addPiece("depot-forest", { x: x0, z, heading: 0 })];
+  appendPiece(w.layout, "buffer-turnback", false, connectorRef(a, 0));
+  const [w1] = chain(w.layout, [S], connectorRef(a, 1));
+  const l1 = loopOn(w.layout, connectorRef(w1, 1), [S, S], [S]);
+  const mid = chain(w.layout, Array(10).fill(S), connectorRef(l1.s2, 0));
+  const l2 = loopOn(w.layout, connectorRef(mid[9], 1), [S, S], [S]);
+  const [e1, bb] = chain(w.layout, [S, "depot-sawmill"], connectorRef(l2.s2, 0));
+  appendPiece(w.layout, "buffer-turnback", false, connectorRef(bb, 1));
+  const forest = w.economy.addDepot("forest", a).id;
+  const mill = w.economy.addDepot("sawmill", bb).id;
+  const put = (pieceId) => {
+    const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId, pathIndex: 0, reversed: false, s: 60 });
+    if (r.kind !== "placed") return -1;
+    const e = w.sim.getTrain(r.trainId).cars[0].id;
+    w.sim.setLever(e, 1);
+    return e;
+  };
+  const starts = [mid[1], l1.main[0]];
+  window.__lineTrains = () => {
+    for (const e of window.__engines ?? []) {
+      const t = w.sim.findCar(e)?.train;
+      if (t) w.sim.removeTrain(t.id);
+    }
+    w.economy.prune();
+    const engines = starts.map(put);
+    const red = editLine(w.economy, engines[0], (s) => s.push({ depotId: forest, action: "auto" }, { depotId: mill, action: "auto" }));
+    joinLine(w.economy, engines[1], red.id);
+    for (const e of engines) w.economy.routeOf(e).next = 1;
+    window.__engines = engines;
+    w.invalidate();
+    return engines;
+  };
+  // Ticks run ahead: goods unloaded at the mill by each engine's train, and ticks both trains ran in the long stretch.
+  window.__lineRun = (secs) => {
+    const out = { unloaded: 0, together: 0, arrived: {}, firstAtMill: {} };
+    const engines = window.__engines;
+    const onMid = (e) => {
+      const t = w.sim.findCar(e)?.train;
+      return !!t && t.speed > 1 && t.bogies.some((x) => mid.includes(x.pieceId));
+    };
+    for (let i = 0; i < secs * 120; i++) {
+      // (The forest kept stocked and the mill's yard cleared, so neither run is held up by the other's goods.)
+      if (i % 120 === 0) {
+        w.economy.depot(forest).piles[CARGO.log.index] = PILE_CAP;
+        w.economy.depot(mill).piles[CARGO.log.index] = 0;
+      }
+      const before = engines.map((e) => w.economy.routeOf(e)?.at ?? false);
+      w.sim.tick();
+      w.economy.tick();
+      for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === mill) out.unloaded++;
+      engines.forEach((e, k) => {
+        if (!before[k] && w.economy.routeOf(e)?.at) {
+          out.arrived[k] = (out.arrived[k] ?? 0) + 1;
+          const r = w.economy.routeOf(e);
+          if (r.stops[r.next]?.depotId === mill && out.firstAtMill[k] === undefined) out.firstAtMill[k] = i / 120;
+        }
+      });
+      if (onMid(engines[0]) && onMid(engines[1])) out.together++;
+    }
+    w.invalidate();
+    return out;
+  };
+  window.__lineTrains();
+  return { mid, joint: (await import("/src/game/signal-place.ts")).jointPose(w.layout, connectorRef(mid[4], 1)), at: connectorRef(mid[4], 1), engines: window.__engines };
+});
+
+suite.add("pairs", async () => {
+// A new game.
+await p.goto(PAGE);
+await start();
+await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
+
+// Setup (not what's tested): Switches, Signals and Routes learned; the station's line to the forest laid by the game's
+// own pathfinder. The joint to put the signal on: in the middle of the line, between two pieces of plain track.
+const setup = await layLine();
 check("setup: a line from the station to the forest, a joint mid-way", !setup.error, JSON.stringify(setup));
 if (!setup.error) {
   const { at, joint } = setup;
@@ -574,84 +699,7 @@ if (!setup.error) {
 // the land's edge, depots, trains and their line made by the economy's own functions, as a player's taps would; the
 // game's own sim and economy ticked ahead of SwiftShader's few frames a second, the forest kept stocked).
 if (!setup.error) {
-  const line = await p.evaluate(async () => {
-    const w = window.woodrail;
-    const { chain, loopOn } = await import("/src/economy/loop-fixtures.ts");
-    const { appendPiece, connectorRef } = await import("/src/track/index.ts");
-    const { editLine, joinLine } = await import("/src/game/lines.ts");
-    const { CARGO } = await import("/src/economy/cargo.ts");
-    const { PILE_CAP } = await import("/src/economy/constants.ts");
-    // (Clear what parts 1-3 and 6 left: their marks, so the payoff's run is about this line's signal only.)
-    for (const m of [...w.layout.signals()]) w.layout.removeSignal(m.id);
-    const b = w.director.bounds;
-    const S = "straight-216";
-    const x0 = b.x0 + 260;
-    const z = b.z1 - 260;
-    const [a] = [w.layout.addPiece("depot-forest", { x: x0, z, heading: 0 })];
-    appendPiece(w.layout, "buffer-turnback", false, connectorRef(a, 0));
-    const [w1] = chain(w.layout, [S], connectorRef(a, 1));
-    const l1 = loopOn(w.layout, connectorRef(w1, 1), [S, S], [S]);
-    const mid = chain(w.layout, Array(10).fill(S), connectorRef(l1.s2, 0));
-    const l2 = loopOn(w.layout, connectorRef(mid[9], 1), [S, S], [S]);
-    const [e1, bb] = chain(w.layout, [S, "depot-sawmill"], connectorRef(l2.s2, 0));
-    appendPiece(w.layout, "buffer-turnback", false, connectorRef(bb, 1));
-    const forest = w.economy.addDepot("forest", a).id;
-    const mill = w.economy.addDepot("sawmill", bb).id;
-    const put = (pieceId) => {
-      const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId, pathIndex: 0, reversed: false, s: 60 });
-      if (r.kind !== "placed") return -1;
-      const e = w.sim.getTrain(r.trainId).cars[0].id;
-      w.sim.setLever(e, 1);
-      return e;
-    };
-    const starts = [mid[1], l1.main[0]];
-    window.__lineTrains = () => {
-      for (const e of window.__engines ?? []) {
-        const t = w.sim.findCar(e)?.train;
-        if (t) w.sim.removeTrain(t.id);
-      }
-      w.economy.prune();
-      const engines = starts.map(put);
-      const red = editLine(w.economy, engines[0], (s) => s.push({ depotId: forest, action: "auto" }, { depotId: mill, action: "auto" }));
-      joinLine(w.economy, engines[1], red.id);
-      for (const e of engines) w.economy.routeOf(e).next = 1;
-      window.__engines = engines;
-      w.invalidate();
-      return engines;
-    };
-    // Ticks run ahead: goods unloaded at the mill by each engine's train, and ticks both trains ran in the long stretch.
-    window.__lineRun = (secs) => {
-      const out = { unloaded: 0, together: 0, arrived: {}, firstAtMill: {} };
-      const engines = window.__engines;
-      const onMid = (e) => {
-        const t = w.sim.findCar(e)?.train;
-        return !!t && t.speed > 1 && t.bogies.some((x) => mid.includes(x.pieceId));
-      };
-      for (let i = 0; i < secs * 120; i++) {
-        // (The forest kept stocked and the mill's yard cleared, so neither run is held up by the other's goods.)
-        if (i % 120 === 0) {
-          w.economy.depot(forest).piles[CARGO.log.index] = PILE_CAP;
-          w.economy.depot(mill).piles[CARGO.log.index] = 0;
-        }
-        const before = engines.map((e) => w.economy.routeOf(e)?.at ?? false);
-        w.sim.tick();
-        w.economy.tick();
-        for (const ev of w.economy.drainEvents()) if (ev.kind === "unloaded" && ev.depotId === mill) out.unloaded++;
-        engines.forEach((e, k) => {
-          if (!before[k] && w.economy.routeOf(e)?.at) {
-            out.arrived[k] = (out.arrived[k] ?? 0) + 1;
-            const r = w.economy.routeOf(e);
-            if (r.stops[r.next]?.depotId === mill && out.firstAtMill[k] === undefined) out.firstAtMill[k] = i / 120;
-          }
-        });
-        if (onMid(engines[0]) && onMid(engines[1])) out.together++;
-      }
-      w.invalidate();
-      return out;
-    };
-    window.__lineTrains();
-    return { mid, joint: (await import("/src/game/signal-place.ts")).jointPose(w.layout, connectorRef(mid[4], 1)), at: connectorRef(mid[4], 1), engines: window.__engines };
-  });
+  const line = await layLoopLine();
   check("setup: a line of two trains between two loops, on the table", line.engines.every((e) => e !== -1), JSON.stringify(line.engines));
   await glideTo(line.joint, 900);
   await settle();
@@ -1022,8 +1070,320 @@ if (!setup.error) {
   }
 }
 
+}, { about: "a pair dragged on by touch, its card, the Signal tool, the payoff on a line of two trains, idle frames, old saves, posts by hills and raised track" });
+
+// ---- one-way signals ------------------------------------------------------------------------------------------------
+// (The user: "I'd like to make it easier to place one-sided signals". The Signals shelf's second tile, One way: dragged,
+// one signal facing the way the finger or mouse went along the track; tapped, the Signal tool's run puts one down at
+// each joint, facing the way it's drawn. A pair's card: One way only; a lone one's: Turn round and Both ways.)
+
+/** A new game on a fresh page (a phone by touch, or a 1440×900 desktop page by mouse), and the line to the forest. */
+const freshGame = async (phone) => {
+  await ctx.close().catch(() => {});
+  ({ ctx, page: p, session: cdp } = await open({ phone }));
+  await p.goto(PAGE);
+  await start();
+  await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
+  return layLine();
+};
+/** The marks on the joint of joint end `at`: this way (`at`), the other (its other end). */
+const onJoint = (at) =>
+  p.evaluate((at) => {
+    const L = window.woodrail.layout;
+    return { here: L.signalAt(at)?.id ?? -1, other: L.signalAt(L.joinedConnector(at))?.id ?? -1, count: L.signalCount };
+  }, at);
+/** The held ghost's posts: shown each, and the first's foot (world plan x, z). */
+const ghostNow = () =>
+  p.evaluate(() => {
+    const w = window.woodrail;
+    const m = w.interaction.mode;
+    const post = (n) => m.ghost?.getObjectByName(n);
+    const f = post("post0")?.getObjectByName("model")?.children[0];
+    let foot = null;
+    if (f && m.ghost?.visible) {
+      f.updateWorldMatrix(true, false);
+      const v = f.getWorldPosition(new w.camera.position.constructor());
+      foot = { x: v.x, z: v.z };
+    }
+    return { kind: m.kind, target: m.target, oneWay: m.oneWay, ghost: !!m.ghost?.visible, first: !!post("post0")?.visible, second: !!post("post1")?.visible, foot };
+  });
+/** A point `d` mm back from a joint along the way it's crossed (negative: past it). */
+const backOf = (j, d) => ({ x: j.x - Math.cos(j.heading) * d, y: j.y, z: j.z - Math.sin(j.heading) * d });
+/** Plan headings the same way (within 10°)? */
+const sameWay = (a, b) => Math.cos(a - b) > Math.cos(Math.PI / 18);
+/** The joint pose of a piece's connector (`a`, `c`: as `layLine`'s `second`). */
+const jointOf = (a, c) =>
+  p.evaluate(async ([a, c]) => {
+    const { jointPose } = await import("/src/game/signal-place.ts");
+    const { connectorRef } = await import("/src/track/layout.ts");
+    return jointPose(window.woodrail.layout, connectorRef(a, c));
+  }, [a, c]);
+const undo = async (mouse = false) => {
+  const u = await p.evaluate(() => {
+    const r = document.querySelector('button[aria-label="Undo (Ctrl+Z)"]').getBoundingClientRect();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  });
+  if (mouse) await tapped(() => p.mouse.click(...u));
+  else await tapAt(...u);
+  await p.waitForTimeout(300);
+};
+/** A card's lever chips, by their words. */
+const levers = () => p.evaluate(() => [...document.querySelectorAll(".piece-card:not([hidden]) .lever-chip")].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.textContent));
+
+suite.add(
+  "one-way",
+  async () => {
+    const setup = await freshGame(true);
+    check("one-way: setup, a line from the station to the forest", !setup.error, JSON.stringify(setup));
+    if (setup.error) return;
+    const { at, joint } = setup;
+    await glideTo(alongBack(joint), 800);
+    await settle();
+    // The Signals shelf: the Signal (a pair) and One way beside it, each with its own picture.
+    check("one-way: the Signals shelf is on the tray", await openSignalsShelf());
+    const tiles = await p
+      .waitForFunction(() => {
+        const t = (k) => document.querySelector(`.scroller .tray-item[data-key="${k}"]`);
+        const [a, c] = [t("signal"), t("signal:one-way")];
+        return a?.querySelector("img") && c?.querySelector("img") ? { next: a.nextElementSibling === c, label: c.querySelector(".label")?.textContent, pics: [a.querySelector("img").src, c.querySelector("img").src] } : null;
+      }, null, { timeout: 30000 })
+      .then((h) => h.jsonValue())
+      .catch(() => null);
+    check("one-way: One way on the shelf beside the Signal, a picture of its own", !!tiles?.next && tiles.label === "One way" && tiles.pics[0] !== tiles.pics[1] && tiles.pics[1].length > 100, JSON.stringify({ ...tiles, pics: tiles?.pics.map((x) => x.length) }));
+    await shot("ow-0-shelf");
+
+    // Dragged by touch from the tray along the line toward the joint (the way trains go): one post, facing that way.
+    const from = await tileAt("signal:one-way");
+    const [bx, by] = await screenOf(backOf(joint, 120));
+    const [nx, ny] = await screenOf(backOf(joint, 30));
+    const [cx, cy] = await screenOf(backOf(joint, 70));
+    await p.evaluate(() => (window.woodrail.interaction.signalMoveMs.length = 0));
+    let t = Date.now() / 1000;
+    await touch("touchStart", from[0], from[1], t);
+    for (let k = 1; k <= 12; k++) await touch("touchMove", from[0] + ((bx - from[0]) * k) / 12, from[1] + ((by + 56 - from[1]) * k) / 12, (t += 0.03));
+    for (let k = 1; k <= 10; k++) await touch("touchMove", bx + ((nx - bx) * k) / 10, by + 56 + ((ny - by) * k) / 10, (t += 0.03));
+    await frames();
+    const fwd = await ghostNow();
+    await shot("ow-1-held");
+    check("one-way: held over the line, one post, facing the way the finger went", fwd.kind === "drag-signal" && fwd.oneWay && fwd.ghost && fwd.first && !fwd.second && fwd.target === at, JSON.stringify({ ...fwd, at }));
+    // The finger back along the line: it turns to face that way (the joint's other end); on again, back as it was.
+    for (let k = 1; k <= 6; k++) await touch("touchMove", nx + ((cx - nx) * k) / 6, ny + 56 + ((cy - ny) * k) / 6, (t += 0.03));
+    await frames();
+    const rev = await ghostNow();
+    const other = await p.evaluate((at) => window.woodrail.layout.joinedConnector(at), at);
+    await shot("ow-2-held-back");
+    check("one-way: …the finger back along the line: it faces back, one post still", rev.target === other && !rev.second, JSON.stringify({ ...rev, other }));
+    for (let k = 1; k <= 6; k++) await touch("touchMove", cx + ((nx - cx) * k) / 6, cy + 56 + ((ny - cy) * k) / 6, (t += 0.03));
+    await frames();
+    const fwd2 = await ghostNow();
+    check("one-way: …on again: it faces on", fwd2.target === at && !fwd2.second, JSON.stringify(fwd2));
+    const ms = await p.evaluate(() => [...window.woodrail.interaction.signalMoveMs].sort((a, b) => a - b));
+    check("one-way: each pointer move placing it costs under 1 ms (median)", ms.length >= 20 && ms[Math.floor(ms.length / 2)] < 1, JSON.stringify({ moves: ms.length, median: ms[Math.floor(ms.length / 2)], worst: ms.at(-1) }));
+    await p.evaluate(() => {
+      window.__said = [];
+      const h = window.woodrail.hud;
+      const f = h.toast.bind(h);
+      h.toast = (m, ...a) => (m && window.__said.push(m), f(m, ...a));
+    });
+    await touch("touchEnd", 0, 0, (t += 0.05));
+    await settle();
+    const j1 = await onJoint(at);
+    check("one-way: let go: one signal on the joint, facing on, none the other way", j1.here !== -1 && j1.other === -1 && j1.count === 1, JSON.stringify(j1));
+    const top = await p.evaluate((id) => window.woodrail.marksView.topOf(id), j1.here);
+    const off = top && fwd2.foot ? Math.hypot(top.x - fwd2.foot.x, top.z - fwd2.foot.z) : Infinity;
+    check("one-way: …its post just where its preview stood (within 0.5 mm)", off < 0.5, JSON.stringify({ off, top, foot: fwd2.foot }));
+    const said = await p.evaluate(() => window.__said.splice(0));
+    check("one-way: …its toast offers to turn it round", said.includes("One-way signal placed. Tap here to turn it round"), JSON.stringify(said));
+    await shot("ow-3-placed");
+    // The toast tapped: turned round (the joint's other end); Undo: back.
+    const toast = await p.evaluate(() => {
+      const e = [...document.querySelectorAll(".toast")].find((x) => x.classList.contains("show") && x.textContent?.includes("One-way signal placed"));
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2];
+    });
+    if (toast) await tapAt(...toast);
+    await p.waitForTimeout(300);
+    const j2 = await onJoint(at);
+    check("one-way: a tap on the toast turns it round", j2.here === -1 && j2.other === j1.here, JSON.stringify({ toast, ...j2 }));
+    await undo();
+    const j3 = await onJoint(at);
+    check("one-way: …Undo: facing on again", j3.here === j1.here && j3.other === -1, JSON.stringify(j3));
+
+    // Its card: Turn round and Both ways. Both ways: a pair; the pair's card: One way only (this one kept).
+    const tapPost = async (id) => {
+      const top = await p.evaluate((id) => window.woodrail.marksView.topOf(id), id);
+      await tapAt(...(await screenOf({ x: top.x, y: top.y - 20, z: top.z })));
+      await p.waitForTimeout(500);
+    };
+    await tapPost(j1.here);
+    const l1 = await levers();
+    check("one-way: its card offers Turn round and Both ways", l1[0] === "Turn round" && l1[1] === "Both ways", JSON.stringify(l1));
+    await shot("ow-4-card");
+    await tapChip("Both ways");
+    const j4 = await onJoint(at);
+    const l2 = await levers();
+    check("one-way: Both ways: a signal facing back on the joint too, a pair", j4.here === j1.here && j4.other !== -1 && j4.count === 2, JSON.stringify(j4));
+    check("one-way: …the pair's card offers One way only", l2[0] === "One way only" && !l2.includes("Turn round"), JSON.stringify(l2));
+    await shot("ow-5-pair-card");
+    await tapChip("One way only");
+    const j5 = await onJoint(at);
+    check("one-way: One way only: this one kept, the one facing back taken off", j5.here === j1.here && j5.other === -1 && j5.count === 1, JSON.stringify(j5));
+    await p.keyboard.press("Escape");
+    await p.evaluate(() => (window.woodrail.hud.hideCards?.(), window.woodrail.interaction.clearSelection()));
+    await frames();
+
+    // The One way tapped: the Signal tool, putting signals down one each; a tap on the track: one, no pair.
+    const tile = await tileAt("signal:one-way");
+    await tapAt(...tile);
+    const armed = await p.evaluate(() => ({ on: window.woodrail.interaction.signalToolOn, lit: document.querySelector('.scroller .tray-item[data-key="signal:one-way"]')?.classList.contains("armed") }));
+    check("one-way: tapped in the tray: the Signal tool is on, One way lit", armed.on && armed.lit, JSON.stringify(armed));
+    const second = await jointOf(setup.second.a, setup.second.c);
+    if (second) {
+      await glideTo(backOf(second, 40), 800);
+      await settle();
+      const n0 = (await marks()).length;
+      await tapAt(...(await screenOf(backOf(second, 40))));
+      await p.waitForTimeout(300);
+      const ms2 = await marks();
+      const lone = ms2.find((m) => m.id !== j1.here);
+      check("one-way: …a tap on the track puts one down", ms2.length === n0 + 1 && !!lone, JSON.stringify(ms2));
+      check("one-way: …with no signal facing back on its joint", lone && (await onJoint(lone.at)).other === -1, JSON.stringify(lone));
+    } else check("one-way: a second joint for the tool", false, JSON.stringify(setup.second));
+    await tapAt(...(await tileAt("signal:one-way")));
+    check("one-way: …tapped again, put away", !(await p.evaluate(() => window.woodrail.interaction.signalToolOn)));
+
+    // The payoff: on a line of two trains between two loops, One way dragged onto the middle of the long stretch the
+    // way they set out. The train behind leaves its loop while the one ahead is still in the stretch, and both pass it
+    // going its way to the mill and back the other way.
+    const line = await layLoopLine();
+    check("one-way: setup, a line of two trains between two loops", line.engines.every((e) => e !== -1), JSON.stringify(line.engines));
+    await glideTo(line.joint, 900);
+    await settle();
+    const placedAt = await dragSignal(line.joint, "signal:one-way");
+    const lj = await onJoint(line.at);
+    check("one-way: dragged onto the stretch the way the trains go: one signal, facing them", placedAt === line.at && lj.other === -1 && lj.count === 1, JSON.stringify({ placedAt, want: line.at, ...lj }));
+    const withSignal = await p.evaluate(() => window.__lineRun(240));
+    await shot("ow-6-following");
+    check("one-way: payoff, the train behind leaves its loop while the one ahead is still in the stretch", withSignal.together > 120 * 5, JSON.stringify(withSignal));
+    check("one-way: …both pass it going its way and reach the mill", withSignal.firstAtMill[0] !== undefined && withSignal.firstAtMill[1] !== undefined, JSON.stringify(withSignal.firstAtMill));
+    check("one-way: …and come back past it the other way, and on again (it holds no one going against it)", (withSignal.arrived[0] ?? 0) >= 2 && (withSignal.arrived[1] ?? 0) >= 2, JSON.stringify(withSignal.arrived));
+    // (Taken off by the editor, not what's tested here: the pairs group removes them from the card; the trains put back.)
+    await p.evaluate((id) => window.woodrail.editor().removeSignal(id), lj.here);
+    await p.evaluate(() => window.__lineTrains());
+    const without = await p.evaluate(() => window.__lineRun(240));
+    check("one-way: …the train behind delivers sooner than with no signal", (withSignal.firstAtMill[1] ?? Infinity) < (without.firstAtMill[1] ?? Infinity), JSON.stringify({ with: withSignal.firstAtMill, without: without.firstAtMill }));
+    check("one-way: …without it, never both in the stretch at once", without.together === 0, JSON.stringify({ together: without.together }));
+
+    // Paused with a one-way signal: nothing drawn while idle.
+    await p.evaluate(async (at) => {
+      const w = window.woodrail;
+      w.editor().addSignal(at);
+      w.paused = true;
+      w.invalidate();
+    }, line.at);
+    await p.waitForTimeout(2000);
+    await settle();
+    const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
+    await p.waitForTimeout(4000);
+    const f1 = await p.evaluate(() => window.woodrail.framesDrawn);
+    check("one-way: paused with it placed, no frames drawn while idle", f1 === f0, JSON.stringify({ f0, f1 }));
+  },
+  { about: "One way by touch on a phone: its tile, its ghost facing the way the finger goes, placed where shown, the toast's turn, its card's Both ways and One way only, the tool's tap, the payoff of a train following another" },
+);
+
+suite.add(
+  "one-way-mouse",
+  async () => {
+    const setup = await freshGame(false);
+    check("one-way by mouse: setup, a line from the station to the forest", !setup.error, JSON.stringify(setup));
+    if (setup.error) return;
+    const { at, joint } = setup;
+    await glideTo(alongBack(joint), 900);
+    await settle();
+    check("one-way by mouse: the Signals shelf is on the tray", await openSignalsShelf(true));
+    const from = await tileAt("signal:one-way");
+    check("one-way by mouse: One way on it", !!from);
+    if (!from) return;
+    // Dragged by the mouse along the line toward the joint: one post, facing that way, put down where shown.
+    const [bx, by] = await screenOf(backOf(joint, 120));
+    const [nx, ny] = await screenOf(backOf(joint, 30));
+    await p.mouse.move(...from);
+    await p.mouse.down();
+    for (let k = 1; k <= 12; k++) await p.mouse.move(from[0] + ((bx - from[0]) * k) / 12, from[1] + ((by - from[1]) * k) / 12);
+    for (let k = 1; k <= 10; k++) await p.mouse.move(bx + ((nx - bx) * k) / 10, by + ((ny - by) * k) / 10);
+    await frames();
+    const held = await ghostNow();
+    await shot("ow-m-1-held");
+    check("one-way by mouse: held over the line, one post, facing the way the mouse went", held.kind === "drag-signal" && held.first && !held.second && held.target === at, JSON.stringify({ ...held, at }));
+    await p.mouse.up();
+    await settle();
+    const j1 = await onJoint(at);
+    const top = j1.here !== -1 ? await p.evaluate((id) => window.woodrail.marksView.topOf(id), j1.here) : null;
+    const off = top && held.foot ? Math.hypot(top.x - held.foot.x, top.z - held.foot.z) : Infinity;
+    check("one-way by mouse: let go: one signal, facing on, its post where its preview stood (within 0.5 mm)", j1.here !== -1 && j1.other === -1 && off < 0.5, JSON.stringify({ ...j1, off }));
+    await shot("ow-m-2-placed");
+
+    // Clicked in the tray: the Signal tool; drawn along the line back toward the station (against the first): a signal
+    // at joints a train's length apart, each alone and facing the way it was drawn; one Undo takes the run.
+    await tapped(() => p.mouse.click(...from));
+    check("one-way by mouse: clicked in the tray, the Signal tool is on", await p.evaluate(() => window.woodrail.interaction.signalToolOn));
+    const run = await p.evaluate(async (at) => {
+      const { jointPose } = await import("/src/game/signal-place.ts");
+      const { connectorRef, pieceOfRef, indexOfRef } = await import("/src/track/layout.ts");
+      const L = window.woodrail.layout;
+      // (Back along the line from the joint, toward the station: each piece's far joint, twelve pieces back.)
+      const pts = [];
+      let ref = at;
+      for (let k = 0; k < 12; k++) {
+        const id = pieceOfRef(ref);
+        const back = connectorRef(id, 1 - indexOfRef(ref));
+        const next = L.joinedConnector(back);
+        if (next === -1) break;
+        const j = jointPose(L, back);
+        pts.push({ x: j.x, y: j.y, z: j.z });
+        ref = next;
+        if (!L.getPiece(pieceOfRef(ref))?.type.match(/^(straight|curve)/)) break;
+      }
+      return pts;
+    }, at);
+    if (run.length >= 4) {
+      const mid = run[Math.floor(run.length / 2)];
+      await glideTo(mid, 1500);
+      await settle();
+      const scr = [];
+      for (const v of run) scr.push(await screenOf(v));
+      const before = new Set((await marks()).map((m) => m.id));
+      await p.mouse.move(...scr[0]);
+      await p.mouse.down();
+      for (let i = 1; i < scr.length; i++) for (let k = 1; k <= 6; k++) await p.mouse.move(scr[i - 1][0] + ((scr[i][0] - scr[i - 1][0]) * k) / 6, scr[i - 1][1] + ((scr[i][1] - scr[i - 1][1]) * k) / 6);
+      await frames();
+      const ghosts = await p.evaluate(() => {
+        const m = window.woodrail.interaction.mode;
+        return { kind: m.kind, n: m.ghosts?.length ?? 0, seconds: (m.ghosts ?? []).filter((g) => g.getObjectByName("post1")?.visible).length };
+      });
+      await shot("ow-m-3-run");
+      await p.mouse.up();
+      await settle();
+      check("one-way by mouse: the run's ghosts show one post a joint", ghosts.kind === "signal-run" && ghosts.n >= 2 && ghosts.seconds === 0, JSON.stringify(ghosts));
+      const added = (await marks()).filter((m) => !before.has(m.id));
+      const facing = await p.evaluate(async ([ats, h]) => {
+        const { jointPose } = await import("/src/game/signal-place.ts");
+        const L = window.woodrail.layout;
+        return ats.map((a) => ({ a, h: jointPose(L, a).heading, partner: !!L.signalAt(L.joinedConnector(a)) }));
+      }, [added.map((m) => m.at), joint.heading]);
+      check("one-way by mouse: a drag along the line puts signals at joints along it, alone", added.length >= 2 && facing.every((f) => !f.partner), JSON.stringify({ added: added.length, facing }));
+      check("one-way by mouse: …each facing the way it was drawn (back toward the station)", facing.every((f) => sameWay(f.h, joint.heading + Math.PI)), JSON.stringify({ facing, drawn: joint.heading + Math.PI }));
+      await tapped(() => p.mouse.click(...from));
+      await undo(true);
+      check("one-way by mouse: …one Undo takes the run away", (await marks()).length === before.size, JSON.stringify(await marks()));
+    } else check("one-way by mouse: a run of joints along the line", false, JSON.stringify(run));
+  },
+  { about: "One way by mouse on a 1440×900 page: dragged from the tray, placed where shown; the tool's run along the line, each signal facing the way it was drawn" },
+);
+
+await suite.run();
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
-console.log(`${failures === 0 ? "ALL PASSED" : `${failures} FAILED`}`);
 await b.close();
 await server.close();
-process.exit(failures === 0 ? 0 : 1);
+suite.finish();
