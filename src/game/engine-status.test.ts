@@ -834,3 +834,30 @@ describe("a head-on between signals: who faces whom, and who waits behind", () =
     expect(c.get(18)).toBe("Stuck behind the train on the Passengers, which faces the train on the Blue line between the signals. Move one of them");
   });
 });
+
+describe("a wait others go first in: said steadily, with how many (goneFirst)", () => {
+  it("Wren's map: Wren, held for the line to Teasel End as one train after another went first, says how many, not each by name", async () => {
+    // (The user's report, 2026-11-18 (src/play/bugmaps/reports/2026-11-18-wren-stuck.txt): Wren's card named Juniper,
+    // then Pickle, then Poppy … as each held it, flicking between them. Now the first is named; once one has gone first
+    // the card says "Waiting for the line to …: N trains have gone first", the one in the way under Show.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-18-wren-stuck.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const wren = 18;
+    const said: string[] = [];
+    for (let k = 0; k < 90 * 120; k++) {
+      sim.tick();
+      economy.tick();
+      if (k % 120 !== 119) continue;
+      const c = engineStatus(sim, economy, wren, (id) => `D${id}`);
+      if (said[said.length - 1] !== c) said.push(c);
+    }
+    expect(said[0]).toMatch(/^Waiting for Juniper \(passenger train\) to clear the line to D5$/);
+    expect(said).toContain("Waiting for the line to D5: 2 trains have gone first");
+    // (Steady: its waiting words change only as the count goes up, and no train is named after the first. Stalls'
+    // "Stuck" comes and goes between them, a matter of its own.)
+    const waits = said.filter((c) => !c.startsWith("Stuck"));
+    expect(waits.filter((c, i) => c !== waits[i - 1])).toEqual(["Waiting for Juniper (passenger train) to clear the line to D5", "Waiting for the line to D5: 1 train has gone first", "Waiting for the line to D5: 2 trains have gone first"]);
+  }, 120_000);
+});
