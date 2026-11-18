@@ -331,7 +331,7 @@ await tapSel('.scroller .tray-item[data-key="signal"]');
 // leader is past the signal, while the leader is still on the stretch (not yet at the sawmill, nor turned back).
 const logs0 = await p.evaluate(() => window.__logsIn());
 await pause(false);
-const off = await p.evaluate(
+const went = await p.evaluate(
   ({ follower, lead, B }) =>
     new Promise((done) => {
       const w = window.woodrail;
@@ -352,7 +352,7 @@ const off = await p.evaluate(
     }),
   { ...pair, B: setup.B },
 );
-check("6. the follower sets off while the leader is still on the stretch (the signal splits it)", off.ok, JSON.stringify({ pair, off }));
+check("6. the follower sets off while the leader is still on the stretch (the signal splits it)", went.ok, JSON.stringify({ pair, went }));
 const fixed = await until(() => /They follow now/.test(document.querySelector(".toast.show")?.textContent ?? ""), null, 600000);
 check("6. the tip goes with \"✓ They follow now\"", fixed, await toastText());
 await shot("6-fixed");
