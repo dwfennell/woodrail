@@ -174,6 +174,12 @@ aspect is the hold's (§R 3.6).
 1. **Trains turn only at line ends.** A back-up is a reverse along held track and then on the same way, never a turn.
 2. **Points are never a place to wait.** No hold ends with a car over points or a crossing, and no back-up stops on
    them.
+   - **The one exception, as the game has it today:** a train too long for its own stop's plain track may stand there
+     to load with its tail over points ("too long for its yard, its tail is on the points").
+   - **Why it must stay:** without it, a train longer than every stop's clear track never comes to a stop. That's true
+     of the complex map's 440 and 456 mm trains (§12).
+   - **How it's held:** those points stay held by that train while it stands. Its card keeps saying so, with the fix
+     (a longer platform).
 3. **Placement is forgiving** (§R 3.12a). A waiting point is a stretch, not a spot. Tolerances are in train lengths and
    pieces, never millimetres.
 4. **Trains placed by hand are respected.** A train put down mid-line is booked where it stands, and the dispatcher
@@ -360,3 +366,20 @@ Main e2ad5f37, 1800 s, 141 jams.
 3. **Cost:** a whole-map search costs four to five orders of magnitude more than the budget (§5). The dispatcher
    decides per stretch: the trains in a ring of waits and those booked onto the same stretches, cut at waiting points.
    On these maps a "connected network" is the whole map, so §2.1's networks must be cut finer than that.
+
+### 12.1 Corrected (2026-11-18, `claude/dispatch-shadow` 07977287)
+
+The first run's "layout" verdicts were partly the oracle's: it never let a train rest with any of it over points, so
+the complex map's long trains could never be at their stops. Each stuck train "couldn't deliver even alone".
+`oracle.ts` now has `stopOnPoints` (off by default) for the exception in §4 rule 2.
+
+**With it:**
+- each stuck train delivers alone;
+- from saves 1 and 2 the three stuck together are truly locked, and no single back-up frees them;
+- from save 3 (Bluebell's) all three keep going.
+
+**Over 141 jams:** 3 avoidable (complex 2), 3 layout (complex 1–2), none resolvable from the jam, none freed by one
+back-up. 135 are unknown: nearly every whole-map search now hits the 200,000-state cap (23–47 s each).
+
+The whole-map oracle can't judge these maps either way. The per-stretch search (§12, point 3) is needed both as the
+dispatcher's way to meet §5's budget and as a judge that finishes.
