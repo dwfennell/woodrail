@@ -1,0 +1,105 @@
+import { it } from "vitest";
+import { readFileSync } from "node:fs";
+import { loadBugMap, replayBugMap } from "./bugmap";
+import { engineStatus } from "../game/engine-status";
+import { SIM_HZ } from "../sim/sim";
+import { putAway } from "../game/put-away";
+import { editLine, joinLine } from "../game/lines";
+it("jams", async () => {
+  const { world } = await loadBugMap(readFileSync(process.env.MAP!, "utf8"));
+  const { sim, economy } = world;
+  const secs = Number(process.env.SECS ?? 1800);
+  const name = (id: number) => `D${id}`;
+  const since = new Map<number, number>();
+  const said = new Map<number, Map<string, number>>();
+  const where = new Map<number, string>();
+  const out: string[] = [];
+  const close = (e: number, now: number) => {
+    const s0 = since.get(e)!;
+    if (now - s0 >= 60) out.push(`T${e} L${economy.lineIdOf.get(e) ?? "-"} stood ${s0}-${now}s (${now - s0}s) at ${where.get(e)} :: ${[...said.get(e)!].map(([c, n]) => `${c} x${n}`).join(" | ")}`);
+    since.delete(e); said.delete(e);
+  };
+  const timeline: string[] = [];
+  const pend: { at: number; kinds: any[]; piece: number; lineId: number; stops: any[] }[] = [];
+  const stuckSince = new Map<number, number>();
+  const lastStuck = new Map<number, number>();
+  let jams = 0;
+  // CLEAR=<engine>@<piece>: that train taken off at 0 s (the card's "Move one of them"), and put back at 120 s on that
+  // piece (its first stop's), on a line of its stops, set going.
+  let back: (() => void) | null = null;
+  if (process.env.CLEAR) {
+    const [eng, piece] = process.env.CLEAR.split("@").map(Number);
+    const t = sim.findCar(eng)!.train;
+    const kinds = t.cars.map((c) => c.kind);
+    const r0 = economy.routeOf(eng)!;
+    const stops = r0.stops.map((s) => ({ ...s }));
+    const lineId = economy.lineIdOf.get(eng)!;
+    putAway(sim, economy, eng);
+    back = () => {
+      for (const s0 of [100, 300, 50, 500]) for (const rev of [false, true]) {
+        const r = sim.addTrain(kinds, { pieceId: piece, pathIndex: 0, reversed: rev, s: s0 });
+        if (r.kind !== "placed") continue;
+        const e = sim.getTrain(r.trainId)!.cars[0].id;
+        const line = economy.lines.get(lineId);
+        if (line) joinLine(economy, e, lineId);
+        else editLine(economy, e, (st) => st.push(...stops));
+        sim.setLever(e, 1);
+        out.push(`put back T${e} on piece ${piece} line ${economy.lineIdOf.get(e)}`);
+        return;
+      }
+      out.push("could not put it back");
+    };
+  }
+  const r = replayBugMap(world, { seconds: secs, stopAtFirst: false, onTick: () => {
+    if (sim.ticks % SIM_HZ) return;
+    const now = Math.round(sim.ticks / SIM_HZ);
+    if (back && now === 120) { back(); back = null; }
+    if (process.env.AUTOCLEAR) {
+      for (let k = pend.length - 1; k >= 0; k--) if (now >= pend[k].at) { const q = pend[k]; for (const s0 of [100, 300, 50, 500]) { const rr = sim.addTrain(q.kinds, { pieceId: q.piece, pathIndex: 0, reversed: false, s: s0 }); if (rr.kind !== "placed") continue; const ne = sim.getTrain(rr.trainId)!.cars[0].id; if (economy.lines.get(q.lineId)) joinLine(economy, ne, q.lineId); else editLine(economy, ne, (st) => st.push(...q.stops)); sim.setLever(ne, 1); pend.splice(k, 1); out.push(`AC ${now} back T${ne} at p${q.piece}`); break; } }
+      for (const id of sim.trainIds()) {
+        const t = sim.getTrain(id)!; const e = t.cars[0].id; const st = economy.stalls.stuckOf(e) as any;
+        // (Stuck, give or take a flicker: cleared only after 5 s not stuck.)
+        if (!st) { if (now - (lastStuck.get(e) ?? -99) > 5) stuckSince.delete(e); continue; }
+        lastStuck.set(e, now);
+        if (!stuckSince.has(e)) stuckSince.set(e, now);
+        if (now - stuckSince.get(e)! < 30) continue;
+        const r0 = economy.routeOf(e); const lineId = economy.lineIdOf.get(e);
+        if (!r0 || lineId === undefined) continue;
+        const stops = r0.stops.map((x) => ({ ...x }));
+        const piece = economy.depot(stops[0].depotId)!.pieceId;
+        out.push(`AC ${now} jam T${e} L${lineId} kind ${st.kind} by T${st.by} headOn ${JSON.stringify(st.headOn ?? null)} at ${t.bogies.map((b) => b.pieceId).filter((v, i, a) => a.indexOf(v) === i).join(",")} :: ${engineStatus(sim, economy, e, name)}; other at ${st.by >= 0 && sim.findCar(st.by) ? sim.findCar(st.by)!.train.bogies.map((b) => b.pieceId).filter((v, i, a) => a.indexOf(v) === i).join(",") : "-"}`);
+        jams++;
+        pend.push({ at: now + 60, kinds: t.cars.map((c) => c.kind), piece, lineId, stops });
+        putAway(sim, economy, e); stuckSince.delete(e);
+        break;
+      }
+    }
+    if (process.env.SNAP && (process.env.SNAP.includes("-") ? now >= Number(process.env.SNAP.split("-")[0]) && now <= Number(process.env.SNAP.split("-")[1]) : Number(process.env.SNAP) === now)) for (const id of sim.trainIds()) {
+      const t = sim.getTrain(id)!; const e = t.cars[0].id; const r = economy.routeOf(e);
+      out.push(`SNAP ${now} T${e} L${economy.lineIdOf.get(e)} lever ${t.cars.map((c) => c.lever).join("")} v ${t.speed.toFixed(0)} pieces ${t.bogies.map((b) => b.pieceId + (b.reversed ? "r" : "")).join(",")} next D${r ? r.stops[r.next % r.stops.length].depotId : "-"} card ${engineStatus(sim, economy, e, name)} SX ${(() => { const x = economy.sections as any; let st = null; try { st = JSON.stringify(x.stateOf(e)); } catch {} return `mg ${x.managing(e)} st ${st} aw ${x.awaitingGrant(e)} sw ${JSON.stringify((economy as any).sectionWait(e))} single ${JSON.stringify(x.singleTrack(e))} hint ${!!x.steerHint(e)}`; })()} stuck ${JSON.stringify(economy.stalls.stuckOf(e) ?? null).slice(0, 200)}`);
+    }
+    let n = 0;
+    for (const id of sim.trainIds()) {
+      const t = sim.getTrain(id)!;
+      const e = t.cars.find((c) => c.kind === "engine")?.id;
+      if (e === undefined) continue;
+      const on = t.cars.some((c) => c.kind === "engine" && c.lever !== 0);
+      const atStop = !!economy.routeOf(e)?.at;
+      const still = on && !atStop && Math.abs(t.speed) < 1;
+      if (still) {
+        n++;
+        if (!since.has(e)) { since.set(e, now); said.set(e, new Map()); where.set(e, `p${t.bogies[0].pieceId}`); }
+        const c = engineStatus(sim, economy, e, name);
+        const m = said.get(e)!; m.set(c, (m.get(c) ?? 0) + 1);
+      } else if (since.has(e)) close(e, now);
+    }
+    if (now % 60 === 0) timeline.push(`${now}:${n}`);
+  } });
+  const end = Math.round(sim.ticks / SIM_HZ);
+  for (const e of [...since.keys()]) close(e, end);
+  out.push(`AC total ${jams}`);
+  out.push(`PER ${[...r.arrivals].map(([e, n]) => `T${e}:${n}`).join(" ")}`);
+  const tw = (globalThis as any).__tw as Map<string, number> | undefined;
+  if (tw) out.push(`TW ${[...tw].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([k, n]) => `${k}=${(n / 120).toFixed(0)}s`).join(" ")}`);
+  process.stdout.write(`\nJAM first-break ${r.first ? JSON.stringify(r.first).slice(0, 300) : "none"}\nJAM trains ${sim.trainIds().length} arrivals ${[...r.arrivals.values()].reduce((a, b) => a + b, 0)} zero-stop ${[...economy.lineIdOf.keys()].filter((e) => !r.arrivals.get(e)).join(",")}\nJAM standing/min ${timeline.join(" ")}\n` + out.map((x) => "JAM " + x).join("\n") + "\n");
+}, 3_600_000);
