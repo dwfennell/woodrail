@@ -44,10 +44,10 @@ describe("explainers", () => {
       }
   });
 
-  it("Signals covers blocks, pairs, where to put them, the three modes and routes", () => {
+  it("Signals covers blocks, pairs and one way, where to put them, the three modes and routes", () => {
     const s = explainer("signals");
     const words = s.sections.map((x) => `${x.heading} ${x.text}`).join(" ");
-    for (const w of ["block", "pairs", "loop", "passing", "Auto", "Always red", "Always green", "crash", "route"]) expect(words).toContain(w);
+    for (const w of ["block", "pair", "One way", "loop", "passing", "Auto", "Always red", "Always green", "crash", "route"]) expect(words).toContain(w);
     expect(s.seeAlso).toContain("routes");
   });
 
@@ -63,6 +63,6 @@ describe("explainers", () => {
 
   it("every tray key it lists is a real key shape, and leads to an explainer", () => {
     expect(explainedKeys()).toContain(trayKey(SIGNAL_ITEM));
-    for (const k of explainedKeys()) expect(k).toMatch(/^(signal|piece:[\w-]+|tool:\w+|road:[\w-]+|prop:[\w-]+|train:.+)$/);
+    for (const k of explainedKeys()) expect(k).toMatch(/^(signal(:one-way)?|piece:[\w-]+|tool:\w+|road:[\w-]+|prop:[\w-]+|train:.+)$/);
   });
 });

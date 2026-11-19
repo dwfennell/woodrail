@@ -271,7 +271,7 @@ function lineNameOf(sim: Sim, economy: Economy, carId: number): string {
  */
 export function pointsSetFor(economy: Economy, by: number): string {
   const name = lineNameOf(economy.sim, economy, by);
-  return `Set for ${name ? `the train on the ${name}` : "a train"}. They'll switch to your way after it passes`;
+  return `Set for ${name ? lineTrain(name) : "a train"}. They'll switch to your way after it passes`;
 }
 
 /** A train not on the line stands on each road of a passing loop: no loop laid elsewhere gets past it. */
@@ -406,14 +406,23 @@ function facingName(sim: Sim, economy: Economy, car: number, placeOf: (carId: nu
 }
 
 /**
- * A blocker as the card names it: by its line ("the train on the Blue line"), else by where it is (`place`: "Elder",
- * "the sawmill"; "" when nowhere's near), and how it stands ("the train parked by Elder"). Never an id.
+ * A line's train as a card names it, by the line's name as the player wrote it: "the train on the Blue line" for a
+ * name that says it's a line, else "the Passengers line's train" (it read "the train on the Passengers": Wren's map,
+ * 2026-11-18).
+ */
+export function lineTrain(line: string): string {
+  return /\bline$/i.test(line.trim()) ? `the train on the ${line}` : `the ${line} line's train`;
+}
+
+/**
+ * A blocker as the card names it: by its line ("the train on the Blue line", `lineTrain`), else by where it is
+ * (`place`: "Elder", "the sawmill"; "" when nowhere's near), and how it stands ("the train parked by Elder"). Never an id.
  */
 export function blockerName(b: Blocker, place: string): string {
   const by = place ? ` by ${place}` : "";
   if (b.how === "parked") return by ? `the train parked${by}` : "a parked train";
   if (b.how === "stopped") return by ? `the train stopped${by}` : "a stopped train";
-  if (b.line) return `the train on the ${b.line}`;
+  if (b.line) return lineTrain(b.line);
   if (b.how === "running") return by ? `the train${by}` : "a train with no route";
   return "another train";
 }
@@ -459,6 +468,9 @@ function shortEndText(short: { depotId: number; at: number }, nameOf: (depotId: 
 export const LOOP_SIGNAL_FIX = "Move that signal to the loop's end";
 /** The fix for a train kept waiting on a long single track lines share (`single-track`): somewhere to pass. */
 export const SINGLE_TRACK_FIX = "A passing loop in the middle lets trains pass";
+
+/** The lasting fix for two lines' trains nose to nose on track they share: a loop they both fit in. */
+export const HEAD_ON_FIX = "A longer loop lets them pass";
 
 /** Said once ever, when a line's trains wait for each other on a long stretch a signal could split (signals spec §7). */
 export const FOLLOW_TIP = "Trains on this line wait for the whole stretch. A signal here lets them follow · Show me where";
@@ -622,7 +634,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
     case "full-wait":
       return `Waiting: ${fullText(s.full, who, place)}`;
     case "points-wait":
-      if (s.line) return `Waiting for the train on the ${s.line} to pass the points`;
+      if (s.line) return `Waiting for ${lineTrain(s.line)} to pass the points`;
       return who && who.car >= 0 ? `Waiting for ${blockerName(who, place)} to pass the points` : "Waiting for another train to pass the points";
     case "stuck":
       // (The quick fix named too, the card's Remove: QA 2026-11-04, two engines on the starter line both waited.)
@@ -631,7 +643,19 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       if (s.why === "signals" && s.headOn) {
         const fix = s.headOn.loop ? "Add a passing loop here" : "Move one of them";
         const ahead = who ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train";
-        if (!s.headOn.pair) return `Stuck: ${ahead} faces it between the signals. ${fix}`;
+        if (!s.headOn.pair) {
+          // (Two lines' trains: the cause, the track they share with nowhere on it long enough to pass, and the lasting
+          // fix, in the single-track card's words. The quick one, moving one, is the player's to see.)
+          const lines = [engineCarId, s.by].map((e) => economy.lineIdOf.get(e));
+          if (lines[0] !== undefined && lines[1] !== undefined && lines[0] !== lines[1]) {
+            const ends = economy.headOnTrack(engineCarId, s.by);
+            const from = ends ? placeLabel(nameOf, ends.from) : "";
+            const to = ends && ends.to !== ends.from ? placeLabel(nameOf, ends.to) : "";
+            const where = from && to ? ` from ${from} to ${to}` : from || to ? ` by ${from || to}` : "";
+            return `Stuck: two lines use the track${where} and it has no passing place long enough. ${HEAD_ON_FIX}`;
+          }
+          return `Stuck: ${ahead} faces it between the signals. ${fix}`;
+        }
         // (Behind the head-on, going the same way: the two that face each other are named, not the one ahead.)
         const [a, b] = s.headOn.pair.map((car) => facingName(sim, economy, car, placeOf));
         return s.headOn.pair[0] === s.by ? `Stuck behind ${ahead}, which faces ${b} between the signals. ${fix}` : `Stuck: ${a} and ${b} face each other between the signals ahead. ${fix}`;
@@ -669,6 +693,10 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       return who ? `Waiting: ${inTheWay(who, place)}` : "Waiting: something's in the way";
     case "line-wait-for": {
       const to = placeLabel(nameOf, s.to);
+      // (Others have gone first in this wait: said steadily, with how many, not each one in turn as it holds it (Wren's
+      // map, 2026-11-18). The one now in the way is under Show.)
+      const gone = s.holder === "sections" ? economy.sections.goneFirst(engineCarId) : 0;
+      if (gone > 0) return `Waiting for the line${to ? ` to ${to}` : ""}: ${gone} train${gone === 1 ? " has" : "s have"} gone first`;
       return `Waiting for ${trainLabel(sim, s.by)} to clear the line${to ? ` to ${to}` : ""}`;
     }
     case "running": {
