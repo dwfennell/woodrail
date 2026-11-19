@@ -74,7 +74,7 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
           const then = kept.get(since - BEFORE_S);
           const all = (x: StretchJudgement | null) => !!x && x.value >= x.of;
           const b = !j || all(j) || !then ? null : judgeStretch(world.layout, then, engine, j.keys);
-          const verdict = !j ? "none" : all(j) ? "resolvable" : all(b) ? "avoidable" : j.backUp && j.backUp.value > j.value ? "backup" : j.capped || b?.capped ? "unknown" : "layout";
+          const verdict = !j ? "none" : all(j) ? (j.plain >= j.of ? "resolvable" : "detour") : all(b) ? "avoidable" : j.backUp && j.backUp.value > j.value ? "backup" : j.capped || b?.capped ? "unknown" : "layout";
           stretch.push({ at: now, engine, verdict, now: j, before: b, decide, ...(ENV.JAMS_STRETCH_DUMP ? { snaps } : {}) });
         };
       }

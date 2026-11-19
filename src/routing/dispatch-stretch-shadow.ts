@@ -11,10 +11,12 @@
  *   off: today follows close behind within a piece, the model a whole piece back; granularity, not a danger), or
  *   `order` (its move is free, but it costs the most trains delivering: another goes first).
  * - **reroute:** the dispatcher would grant it its move by a loop's other road, not its booked one.
+ * - **reroute-stuck:** no order keeps its stretch going, but its detour does (§2.2 step 4: another way to its next
+ *   stop, off the track the trains in its way stand on, however far round): it would be sent round.
  * - **backup:** no order keeps the stretch going; one with a back-up does (whose).
  * - **no-order:** a jam today (stuck `JAM_S`) where the dispatcher finds no order either: expected (the layout).
  * - **order-found:** a jam today where the dispatcher finds an order that keeps every train in the stretch delivering
- *   (with a back-up: `order-found-backup`): the payoff.
+ *   (with a detour: `order-found-detour`; with a back-up: `order-found-backup`): the payoff.
  *
  * Event-driven, as the dispatcher would be (§5): a decision is made only when something it reads changed (a train came
  * onto another piece, stopped or started, reached a stop or left it, its lever moved), and then only for trains standing
@@ -25,9 +27,9 @@
  */
 import type { Layout } from "../track";
 import { SIM_HZ, type Sim, type Train } from "../sim";
-import { statsLast, blockerOf, bodyOf, buildTrain, DISPATCH_STATES, judgeStretch, relocate, search, snapsOf, stretchOf, type DTrain, type RouteView, type Snap } from "./stretch";
+import { withDetours, statsLast, blockerOf, bodyOf, buildTrain, DISPATCH_STATES, judgeStretch, relocate, search, snapsOf, stretchOf, type DTrain, type RouteView, type Snap } from "./stretch";
 
-export const DKINDS = ["grant-held", "hold-granted:blocked", "hold-granted:follow", "hold-granted:order", "reroute", "backup", "no-order", "order-found", "order-found-backup"] as const;
+export const DKINDS = ["grant-held", "hold-granted:blocked", "hold-granted:follow", "hold-granted:order", "reroute", "reroute-stuck", "backup", "no-order", "order-found", "order-found-detour", "order-found-backup"] as const;
 export type DKind = (typeof DKINDS)[number];
 
 /** How often (ticks) it looks for events: sections' asks' rate (10 a second). */
@@ -94,6 +96,8 @@ export class DispatchShadow {
   readonly probeStates: number[] = [];
   probeCapped = 0;
   readonly probeWarm: [number, number][] = [];
+  /** Time spent planning detours (ms), inside decisions. */
+  detourMs = 0;
 
   constructor(
     private readonly world: DispatchWorld,
@@ -167,7 +171,7 @@ export class DispatchShadow {
           m.jamSaid = true;
           const j = judgeStretch(this.world.layout, this.snaps(), engine.id);
           if (j) {
-            const kind: DKind = j.value >= j.of ? "order-found" : j.backUp && j.backUp.value >= j.of ? "order-found-backup" : "no-order";
+            const kind: DKind = j.plain >= j.of ? "order-found" : j.value >= j.of ? "order-found-detour" : j.backUp && j.backUp.value >= j.of ? "order-found-backup" : "no-order";
             this.say(kind, m, `train ${engine.id} stuck ${JAM_S} s: ${j.value}/${j.of} of its stretch keep delivering${j.backUp ? `, ${j.backUp.value} with a back-up` : ""}${j.capped ? " (capped)" : ""}`);
           }
         }
@@ -183,7 +187,7 @@ export class DispatchShadow {
     const ts = this.trainsOf(snaps);
     standing.sort((a, b) => this.memo.get(a)!.stood - this.memo.get(b)!.stood || a - b);
     const moving = new Set(snaps.filter((x) => x.speed > 0).map((x) => x.key));
-    for (const e of standing) this.decide(ts, e, moving);
+    for (const e of standing) this.decide(ts, e, moving, snaps);
   }
 
   private snaps(): Snap[] {
@@ -213,7 +217,7 @@ export class DispatchShadow {
     return out;
   }
 
-  private decide(ts: DTrain[], engine: number, moving: ReadonlySet<number>): void {
+  private decide(ts: DTrain[], engine: number, moving: ReadonlySet<number>, snaps: Snap[]): void {
     const k = ts.findIndex((t) => t.key === engine);
     const m = this.memo.get(engine)!;
     if (k < 0 || ts[k].fixed) {
@@ -224,7 +228,23 @@ export class DispatchShadow {
     const members = stretchOf(ts, k);
     // (Fair turns: it first (the one asking), then the others by how long they've waited.)
     const order = members.map((_, i) => i).sort((a, b) => (a === 0 ? -1 : b === 0 ? 1 : (this.memo.get(ts[members[a]].key)?.stood ?? Infinity) - (this.memo.get(ts[members[b]].key)?.stood ?? Infinity)));
-    const r = search(ts, members, { cap: DISPATCH_STATES, backUps: "standstill", order });
+    let r = search(ts, members, { cap: DISPATCH_STATES, backUps: "standstill", order });
+    // (Stuck: no order keeps them all going. With detours.)
+    let sent = false;
+    const without = r.plain;
+    if (r.plain < r.of) {
+      const d0 = performance.now();
+      const dt = withDetours(this.world.layout, snaps, ts, members);
+      this.detourMs += performance.now() - d0;
+      // (One decision's states, both searches together.)
+      if (dt && r.states < DISPATCH_STATES) {
+        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: "standstill", order });
+        if (rd.detourValue > r.plain) {
+          sent = rd.firstD[0] >= rd.detourValue && rd.firstToD[0] >= 0 && dt[k].detour[rd.firstToD[0]] === 1;
+          r = { ...rd, first: rd.firstD, firstTo: rd.firstToD, plain: rd.detourValue };
+        }
+      }
+    }
     const ms = performance.now() - t0;
     this.decisions++;
     this.decisionMs.push(ms);
@@ -253,7 +273,8 @@ export class DispatchShadow {
     m.decision = r.first[0] < 0 ? "hold-blocked" : r.first[0] >= r.plain ? "grant" : "hold-order";
     m.behindMoving = m.decision === "hold-blocked" && moving.has(blockerOf(ts, k));
     if (m.decision !== "grant" && was === null) this.agreeHold++;
-    if (m.decision === "grant" && r.firstTo[0] >= ts[k].main) this.say("reroute", m, `train ${engine}: granted by a loop's other road`);
+    if (sent) this.say("reroute-stuck", m, `train ${engine}: stuck; sent round by another way (${r.value}/${r.of} of its stretch keep going, ${without} without)`);
+    else if (m.decision === "grant" && r.firstTo[0] >= ts[k].main) this.say("reroute", m, `train ${engine}: granted by a loop's other road`);
     if (r.backUp >= 0 && r.value > r.plain) this.say("backup", m, `train ${engine}'s stretch: no order keeps ${r.of} going (${r.plain}); with train ${ts[members[r.backUp]].key} backing up, ${r.value}`);
   }
 
@@ -285,6 +306,7 @@ export class DispatchShadow {
       builds: this.builds,
       relocations: this.relocations,
       buildMs: Number(this.buildMs.toFixed(1)),
+      detourMs: Number(this.detourMs.toFixed(1)),
       first: this.first,
     };
   }

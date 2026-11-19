@@ -70,7 +70,7 @@ for (const [path, text] of Object.entries(MAPS)) {
       const then = kept.get(since - BEFORE_S);
       const all = (x: StretchJudgement | null) => !!x && x.value >= x.of;
       const b = !j || all(j) || !then ? null : judgeStretch(world.layout, then, engine, j.keys);
-      const verdict = !j ? "none" : all(j) ? "resolvable" : all(b) ? "avoidable" : j.backUp && j.backUp.value > j.value ? "backup" : j.capped || b?.capped ? "unknown" : "layout";
+      const verdict = !j ? "none" : all(j) ? (j.plain >= j.of ? "resolvable" : "detour") : all(b) ? "avoidable" : j.backUp && j.backUp.value > j.value ? "backup" : j.capped || b?.capped ? "unknown" : "layout";
       jams.push({ at: now, engine, verdict, now: j, before: b, names: (j?.keys ?? [engine]).map((k) => world.sim.nameOf(k)) });
     },
   });

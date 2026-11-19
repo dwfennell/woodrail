@@ -3,7 +3,9 @@ import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from
 import { chain, loopOn } from "../economy/loop-fixtures";
 import { next } from "./graph";
 import { shuttleLine } from "./scenarios";
-import { buildTrain, judgeStretch, search, stretchOf, type Snap } from "./stretch";
+import { buildTrain, judgeStretch, search, snapOf, stretchOf, withDetours, type Snap } from "./stretch";
+import { loadBugMap } from "../play/bugmap";
+import complex3 from "../play/bugmaps/reference/complex-3.txt?raw";
 import type { Elem } from "./oracle";
 
 const S: PieceTypeId = "straight-216";
@@ -98,5 +100,23 @@ describe("the per-stretch search (dispatcher spec §5)", () => {
     const snaps = [snap(layout, 1, [ids[1], ids[2]], [b, a]), snap(layout, 2, [ids[8], ids[9]], [a, b])];
     const j = judgeStretch(layout, snaps, 1, [], 10_000, true, 2)!;
     expect(j.value).toBe(2);
+  });
+
+  it("save 3's stand-off (complex map, Bluebell and Wren nose to nose at points 94): no order, but Bluebell's detour frees both", async () => {
+    const { world } = await loadBugMap(complex3);
+    const snaps = snapOf(world.layout, world.sim, world.economy);
+    const ts = snaps.map((s) => buildTrain(world.layout, s));
+    const k = ts.findIndex((t) => world.sim.nameOf(t.key) === "Bluebell");
+    const members = stretchOf(ts, k);
+    expect(members.map((i) => world.sim.nameOf(ts[i].key)).sort()).toEqual(["Bluebell", "Wren"]);
+    const plain = search(ts, members, { backUps: true });
+    expect(plain.value).toBe(0);
+    const dt = withDetours(world.layout, snaps, ts, members)!;
+    const r = search(dt, members, {});
+    expect(r.plain).toBe(0);
+    expect(r.detourValue).toBe(2);
+    // (Bluebell goes first, round by its detour.)
+    expect(r.order[0].k).toBe(0);
+    expect(dt[k].detour[r.order[0].to]).toBe(1);
   });
 });

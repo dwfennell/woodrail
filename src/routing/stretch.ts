@@ -149,6 +149,8 @@ export interface DTrain {
   order: Float64Array;
   /** The booked way's own nodes (the rest are other roads). */
   main: number;
+  /** A stuck train's detour (§2.2 step 4): nodes of another way to its next stop, off the booked way's track. */
+  detour: Uint8Array;
   /** Where it stands now, and its goal (a main node; −1: none). */
   at: number;
   goal: number;
@@ -187,7 +189,7 @@ export const ROAD_SLACK = 2000;
 const ROAD_MAX = 24;
 
 /** Train `s` along its booked way (`horizon`: its goal, stops ahead; `BOOKED`). */
-export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON): DTrain {
+export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: ReadonlySet<number>): DTrain {
   const L = s.length;
   const pos: number[][] = [];
   const rest: boolean[] = [];
@@ -288,6 +290,12 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON): DTrain {
       arrivals.push(last);
     }
   }
+  // (Standing on its next stop already, not yet "at" it: that stop is where it is; its goals are the ones after.)
+  let skip = 0;
+  if (arrivals.length > 0 && arrivals[0] === at) {
+    arrivals.shift();
+    skip = 1;
+  }
   const main = pos.length;
   const succ: number[][] = pos.map((_, i) => (i + 1 < main ? [i + 1] : []));
   const prev: number[] = pos.map((_, i) => (i > 0 && seg[i] === seg[i - 1] ? i - 1 : -1));
@@ -356,6 +364,94 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON): DTrain {
       }
     }
   }
+  // A detour (§2.2 step 4, stuck; given `avoid`, the pieces the trains in its way stand on): to its next stop by
+  // another way off those of them on its booked way, however far round (save 3's Bluebell: about 9× the direct way); on
+  // to the stops after as booked from there. Searched only when no order keeps the stretch going.
+  const detourFrom = pos.length;
+  const extra: [number, number][] = [];
+  if (!fixed && avoid && arrivals.length > 0 && pos.length < MAX_POSITIONS) {
+    const stops = s.stops!;
+    const first = (s.at ? s.next + 1 : s.next) + skip;
+    const target0 = stops[first % stops.length];
+    const off = new Set<number>();
+    for (let i = at + 1; i <= arrivals[0]; i++) for (const p of pos[i]) if (avoid.has(p)) off.add(p);
+    for (const p of pos[at]) off.delete(p);
+    off.delete(target0);
+    const offWay = { id: "detour", against: (pieceId: number, exit: number) => off.has(next(layout, pieceId, exit)?.pieceId ?? -1) };
+    lane = s.elems.map((e) => ({ ...e }));
+    cum = cumOf(lane);
+    let dRun = 0;
+    let before = at;
+    const dPush = (body: Elem[], stop: boolean, turn: boolean, order0: number) => {
+      const id = node(body.map((e) => e.p), stop, turn, dRun, cum[lane.length - 1], -1);
+      extra.push([before, id]);
+      prevD.push(seg[before] === dRun ? before : -1);
+      orderD.push(order0);
+      before = id;
+      return id;
+    };
+    const prevD: number[] = [];
+    const orderD: number[] = [];
+    let leg = 0;
+    const orderNow = () => (arrivals[leg] ?? main + leg) - 0.5;
+    const applyD = (st: { pieceId: number; entry: number; exit: number; reverse?: boolean }): boolean => {
+      const f = lane[lane.length - 1];
+      if (st.pieceId === f.p) {
+        if (f.ex !== st.exit) lane[lane.length - 1] = { p: f.p, en: f.en, ex: st.exit };
+      } else if (pos[before].includes(st.pieceId)) {
+        // (After a turn: back through pieces it's on already.)
+      } else {
+        const nx = f.ex < 0 ? null : next(layout, f.p, f.ex);
+        if (!nx || nx.pieceId !== st.pieceId) return false;
+        lane.push({ p: st.pieceId, en: st.entry, ex: st.exit });
+        cum.push(cum[cum.length - 1] + lenOf(layout, lane[lane.length - 1]));
+        dPush(bodyOf(lane, lane.length - 1, true)!, false, false, orderNow());
+      }
+      if (st.reverse) {
+        const body = bodyOf(lane, lane.length - 1, true)!;
+        lane = body.reverse().map((e) => ({ p: e.p, en: e.ex, ex: e.en }));
+        cum = cumOf(lane);
+        dRun = dRun === 0 ? run + 1 : dRun + 1;
+        dPush(bodyOf(lane, lane.length - 1, true)!, false, true, orderNow());
+      }
+      return pos.length < MAX_POSITIONS;
+    };
+    const front = lane[lane.length - 1];
+    let state: PlanState | null = { pieceId: front.p, entry: front.en, lead: true };
+    for (leg = 0; leg < BOOKED - skip && state; leg++) {
+      const target = stops[(first + leg) % stops.length];
+      const p = plan(layout, state, target, ROUTE_COSTS, undefined, leg === 0 ? offWay : undefined);
+      if (!p) break;
+      let ok = true;
+      for (const st of p.steps) if (!(ok = applyD(st))) break;
+      if (!ok) break;
+      const f = lane[lane.length - 1];
+      if (f.p !== target) {
+        const nx = f.ex < 0 ? null : next(layout, f.p, f.ex);
+        if (!nx || nx.pieceId !== target) break;
+        const w = waysFrom(layout, nx.pieceId, nx.entry, () => true)[0];
+        if (!applyD({ pieceId: nx.pieceId, entry: nx.entry, exit: w?.exit ?? -1 })) break;
+        state = { pieceId: nx.pieceId, entry: nx.entry, lead: true };
+      }
+      const last = pos.length - 1;
+      if (last < detourFrom) break;
+      isStop[last] = true;
+      rest[last] = true;
+      orderD[last - detourFrom] = arrivals[leg] ?? main + leg;
+    }
+    if (off.size === 0 || pos.length === detourFrom || !isStop.slice(detourFrom).some((x) => x)) {
+      // (No other way to its stop: none.)
+      pos.length = rest.length = plain.length = seg.length = dist.length = isStop.length = turned.length = laneAt.length = detourFrom;
+      extra.length = 0;
+    } else {
+      for (let k = 0; k < pos.length - detourFrom; k++) {
+        succ.push([]);
+        prev.push(prevD[k]);
+        order.push(orderD[k]);
+      }
+      for (const [a, b] of extra) succ[a].push(b);
+    }
+  }
   const n = pos.length;
   const restA = Uint8Array.from(rest, (b) => (b ? 1 : 0));
   const wait = new Uint8Array(n);
@@ -375,10 +471,50 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON): DTrain {
     dist: Float64Array.from(dist),
     order: Float64Array.from(order),
     main,
+    detour: Uint8Array.from({ length: n }, (_, i) => (i >= detourFrom && extra.length > 0 ? 1 : 0)),
     at,
     goal,
     arrivals,
   };
+}
+
+/**
+ * The stretch's trains with detours (§2.2 step 4): each member rebuilt with another way to its next stop off the
+ * pieces the other members stand on, where its booked way runs over them. A copy of `trains` (the others as they were),
+ * or null if none has one.
+ */
+const detourCache = new Map<string, DTrain>();
+
+export function withDetours(layout: Layout, snaps: readonly Snap[], trains: readonly DTrain[], members: readonly number[], horizon = HORIZON): DTrain[] | null {
+  const out = trains.slice();
+  let any = false;
+  for (const k of members) {
+    const t = trains[k];
+    if (t.fixed) continue;
+    const others = new Set<number>();
+    for (const j of members) if (j !== k) for (const p of trains[j].pos[trains[j].at]) others.add(p);
+    // (Only what stands on its way to its next stop matters: none, no detour frees anything.)
+    const avoid = new Set<number>();
+    const to = t.arrivals[0] ?? t.main - 1;
+    for (let i = t.at + 1; i <= to && i < t.main; i++) for (const p of t.pos[i]) if (others.has(p)) avoid.add(p);
+    if (avoid.size === 0) continue;
+    const s = snaps.find((x) => x.key === t.key);
+    if (!s) continue;
+    // (Cached by where it stands, its route and what it avoids: a jam that lasts plans its detours once.)
+    const f = s.elems[s.elems.length - 1];
+    const ck = `${s.key}.${f.p}.${f.en}.${s.next}.${s.at ? 1 : 0}.${horizon}.${[...avoid].sort((a, b) => a - b).join(",")}`;
+    let d = detourCache.get(ck);
+    if (!d) {
+      d = buildTrain(layout, s, horizon, avoid);
+      if (detourCache.size > 4000) detourCache.clear();
+      detourCache.set(ck, d);
+    }
+    if (d.detour.some((x) => x === 1)) {
+      out[k] = d;
+      any = true;
+    }
+  }
+  return any ? out : null;
 }
 
 /** The nodes of `t`'s way from where it stands on to its goal (every road), and to its first waiting points. */
@@ -391,7 +527,7 @@ function wayTo(t: DTrain, until: (i: number) => boolean, into: Set<number>): voi
     seen.add(i);
     for (const p of t.pos[i]) into.add(p);
     if (i !== t.at && until(i)) continue;
-    for (const x of t.succ[i]) todo.push(x);
+    for (const x of t.succ[i]) if (!t.detour[x]) todo.push(x);
   }
 }
 
@@ -457,8 +593,12 @@ export interface SearchResult {
   first: number[];
   /** Per member: the node its best first move goes to (−1: none). */
   firstTo: number[];
-  /** The value with no back-up (`value` may use one). */
+  /** The value with no back-up or detour (`value` may use them). */
   plain: number;
+  /** With detours (searched only when `plain` falls short), and the first moves then (as `first`, `firstTo`). */
+  detourValue: number;
+  firstD: number[];
+  firstToD: number[];
   /** Did the best use a back-up (whose, index into members; −1 none)? */
   backUp: number;
   /** The best order's moves, in order (member index, node). */
@@ -472,6 +612,8 @@ export interface SearchOptions {
    * move at all (`"standstill"`: the dispatcher's, "only when the search finds nothing else").
    */
   backUps?: boolean | "standstill";
+  /** Detours for stuck trains (default on). */
+  detours?: boolean;
   /** Members tried first (fair turns: longest waiter first); default their order. */
   order?: number[];
 }
@@ -493,6 +635,8 @@ interface Branch {
   flat: Int32Array;
   /** Ends at a waiting point (else at the end of its booked way). */
   wait: boolean;
+  /** Takes the train's detour (searched only when stuck). */
+  detour: boolean;
 }
 
 /** Per booked way (its `pos`, shared by the copies `relocate` makes): each node's branches. */
@@ -519,7 +663,7 @@ function branchesOf(t: DTrain, i: number): Branch[] {
         before = nd;
       });
       off[path.length] = flat.length;
-      bs.push({ nodes: Int32Array.from(path), off, flat: Int32Array.from(flat), wait: t.wait[y] === 1 });
+      bs.push({ nodes: Int32Array.from(path), off, flat: Int32Array.from(flat), wait: t.wait[y] === 1, detour: t.detour[path[0]] === 1 && t.detour[i] === 0 });
     } else for (const z of t.succ[y]) walk(z);
     path.pop();
   };
@@ -666,6 +810,8 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   const fwds: Int32Array[] = [];
   const fwdAt = (d: number) => fwds[d] ?? (fwds[d] = new Int32Array(n * W));
   const brs: (Branch[] | undefined)[][] = ts.map((t) => new Array(t.pos.length));
+  /** Detours searched (a phase: only when no order without keeps them all going). */
+  let detours = false;
   const forward = (k: number, out: Int32Array) => {
     const o = k * W;
     out[o] = 0;
@@ -676,6 +822,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
     const bl = brs[k][i] ?? (brs[k][i] = branchesOf(t, i));
     for (let bi = 0; bi < bl.length; bi++) {
       const b = bl[bi];
+      if (b.detour && !detours) continue;
       let lastRest = -1;
       let j = 0;
       for (; j < b.nodes.length; j++) {
@@ -843,6 +990,26 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   let usedBackUps = false;
   let still = true;
   for (let k = 0; k < n; k++) if (root[k * W] > 0) still = false;
+  // (No order keeps them all going: with detours, stuck trains going round by another way (§2.2 step 4).)
+  let detourValue = v;
+  const firstD = new Array<number>(n).fill(-1);
+  const firstToD = new Array<number>(n).fill(-1);
+  if (v < of && opts.detours !== false && ts.some((t) => t.detour.some((x) => x === 1))) {
+    table.clear();
+    done = false;
+    detours = true;
+    const keep = first.slice();
+    const keepTo = firstTo.slice();
+    first.fill(-1);
+    firstTo.fill(-1);
+    for (let k = 0; k < n; k++) forward(k, root);
+    detourValue = Math.ceil(value(0, false, 0) / SCORE);
+    firstD.splice(0, n, ...first);
+    firstToD.splice(0, n, ...firstTo);
+    first.splice(0, n, ...keep);
+    firstTo.splice(0, n, ...keepTo);
+    if (detourValue > v) v = detourValue;
+  }
   if (v < of && (opts.backUps === true || (opts.backUps === "standstill" && still))) {
     // (No order keeps them all going: with one back-up a train, the fewest. First moves as found without.)
     table.clear();
@@ -873,7 +1040,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
     if (back) mask |= 1 << k;
   }
   const backUp = usedBackUps ? (orderOut.find((m) => m.back)?.k ?? -1) : -1;
-  return { value: v, of, states, capped, first, firstTo, plain, backUp, order: orderOut };
+  return { value: v, of, states, capped, first, firstTo, plain, detourValue, firstD, firstToD, backUp, order: orderOut };
 }
 
 /** A judgement of one jam: the stretch round the stuck train, and the most of it a dispatcher keeps delivering. */
@@ -888,6 +1055,8 @@ export interface StretchJudgement {
   backUp?: { value: number; by: number };
   /** The trains judged (their keys). */
   keys: number[];
+  /** Without detours (`value` may use them: §2.2 step 4). */
+  plain: number;
 }
 
 /**
@@ -904,11 +1073,20 @@ export function judgeStretch(layout: Layout, snaps: readonly Snap[], key: number
     const j = trains.findIndex((t) => t.key === a);
     if (j >= 0 && !members.includes(j)) members.push(j);
   }
-  const r = search(trains, members, { cap, backUps: false });
+  let r = search(trains, members, { cap, backUps: false });
+  if (r.value < r.of) {
+    const dt = withDetours(layout, snaps, trains, members, horizon);
+    if (dt) {
+      const plain = r.plain;
+      r = search(dt, members, { cap, backUps: false });
+      r.plain = plain;
+      trains.splice(0, trains.length, ...dt);
+    }
+  }
   let backUp: StretchJudgement["backUp"];
   if (backUps && r.value < r.of && !r.capped) {
     const b = search(trains, members, { cap, backUps: true });
     backUp = { value: b.value, by: b.backUp >= 0 ? trains[members[b.backUp]].key : -1 };
   }
-  return { trains: members.length, value: r.value, of: r.of, states: r.states, capped: r.capped, ms: performance.now() - t0, keys: members.map((i) => trains[i].key), ...(backUp ? { backUp } : {}) };
+  return { trains: members.length, value: r.value, of: r.of, plain: r.plain, states: r.states, capped: r.capped, ms: performance.now() - t0, keys: members.map((i) => trains[i].key), ...(backUp ? { backUp } : {}) };
 }
