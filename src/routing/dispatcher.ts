@@ -22,14 +22,17 @@
  */
 import { CAR_SPECS, flipCursor, stopDistance, type Cursor, type Sim, type Train } from "../sim";
 import { ACCELERATION } from "../sim/brakes";
-import { connectorRef, getPieceDef, pathExitConnector, pathLength, type Layout } from "../track";
+import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, indexOfRef, type Layout } from "../track";
+import { next } from "./graph";
 import { STAND_SHORT } from "../economy/sections";
 import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
+/** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
+const TO_END = 1000;
 /** A granted train standing short of its hold's end this long (s) gives the rest back. */
-const GIVE_BACK_S = 5;
+const GIVE_BACK_S = 3;
 /** A waiting train counts once more in the search's goal for each this long (s) it has stood (fair turns). */
 const WEIGH_S = 20;
 /** A train asking, not decided this long (ticks), is decided again though nothing changed (2 s). */
@@ -45,6 +48,8 @@ export interface DispatcherHost {
   busy(train: Train, engine: number): boolean;
   /** A train's net drive toward its front. */
   drive(train: Train): number;
+  /** Told of each grant (the router steers it at once). */
+  granted?(engine: number): void;
 }
 
 interface Hold {
@@ -91,7 +96,7 @@ export class Dispatcher {
   /** Per train: grants, holds. */
   readonly perTrain = new Map<number, [number, number]>();
   readonly decisionMs: number[] = [];
-  private readonly holds = new Map<number, Hold>();
+  private readonly holdsBy = new Map<number, Hold>();
   private sigs = new Map<number, string>();
   /** The signal at each held train's hold's end (joint ref → train id), for `gateAt`. */
   private gate = new Map<number, number>();
@@ -119,7 +124,7 @@ export class Dispatcher {
         this.sigs.set(engine.id, sig);
         changed = true;
       }
-      const h = this.holds.get(engine.id);
+      const h = this.holdsBy.get(engine.id);
       if (!r || engine.lever === 0 || busy) {
         if (h) h.stood = -1;
         continue;
@@ -142,9 +147,9 @@ export class Dispatcher {
         asking.push(engine.id);
       } else if (h) h.stood = -1;
     }
-    for (const e of [...this.holds.keys()])
+    for (const e of [...this.holdsBy.keys()])
       if (!live.has(e)) {
-        this.holds.delete(e);
+        this.holdsBy.delete(e);
         this.sigs.delete(e);
         changed = true;
       }
@@ -152,11 +157,11 @@ export class Dispatcher {
     // time may have come; nothing else changes while every train stands).)
     this.refreshGate();
     if (asking.length === 0) return;
-    if (!changed && !asking.some((e) => sim.ticks - (this.holds.get(e)?.decided ?? -Infinity) >= RETRY_TICKS)) return;
+    if (!changed && !asking.some((e) => sim.ticks - (this.holdsBy.get(e)?.decided ?? -Infinity) >= RETRY_TICKS)) return;
     // The event: each asking train decided, longest waiter first.
     const snaps = snapsOf(layout, sim, this.host.route);
     const ts = this.trainsOf(snaps);
-    asking.sort((a, b) => (this.holds.get(a)?.stood ?? Infinity) - (this.holds.get(b)?.stood ?? Infinity) || a - b);
+    asking.sort((a, b) => (this.holdsBy.get(a)?.stood ?? Infinity) - (this.holdsBy.get(b)?.stood ?? Infinity) || a - b);
     for (const e of asking) this.decide(ts, snaps, e);
     this.refreshGate();
   }
@@ -166,7 +171,7 @@ export class Dispatcher {
     const { layout, sim } = this.host;
     return snaps.map((s) => {
       const sig = `${s.stops?.join(",") ?? "-"}.${s.next}.${s.at ? 1 : 0}.${s.lever ? 1 : 0}`;
-      const h = this.holds.get(s.key);
+      const h = this.holdsBy.get(s.key);
       if (h && h.sig === sig) {
         const moved = relocate(h.t, bodyOf(layout, s));
         if (moved) {
@@ -188,23 +193,16 @@ export class Dispatcher {
         h.t = t;
         h.sig = sig;
         h.trainId = trainId;
-        const same = this.nodeLike(t, h);
-        this.setHold(h, same ?? t.at, same !== null ? this.pathTo(t, same) : []);
+        // (Rebuilt (its route moved on, it turned, it left its way): held where it stands, asking afresh. Carrying the old
+        // hold's end over could hand it track it was never granted (a turned train's old end lies the other way).)
+        this.setHold(h, t.at, []);
       } else {
         const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
-        this.holds.set(s.key, nh);
+        this.holdsBy.set(s.key, nh);
         this.setHold(nh, t.at, []);
       }
       return t;
     });
-  }
-
-  /** In a rebuilt way, the node standing where `h`'s old hold ended (null: none). */
-  private nodeLike(t: DTrain, h: Hold): number | null {
-    const old = h.t.pos[h.end];
-    if (!old) return null;
-    for (let i = t.at; i < t.main; i++) if (t.pos[i].length === old.length && t.pos[i].every((p, k) => p === old[k])) return i;
-    return null;
   }
 
   /** The nodes from `t.at` to `end` along its way (any road), or [] if it isn't ahead. */
@@ -235,6 +233,8 @@ export class Dispatcher {
     let stop = end;
     let p = path.length > 0 ? path : [t.at];
     const turn = p.findIndex((i, k) => k > 0 && t.turned[i]);
+    // (Its way turns at a line end: on to the end of the track there (the buffer stops it, the sim turns it).)
+    const toEnd = turn > 0;
     if (turn > 0) {
       stop = p[turn - 1];
       p = p.slice(0, turn);
@@ -247,7 +247,11 @@ export class Dispatcher {
     h.end = stop;
     h.path = p;
     h.rem = new Map();
-    let run = 0;
+    // (Only where the track really ends past its hold's front piece: nothing beyond to run onto.)
+    const ref = t.frontRef[stop];
+    const beyond = ref >= 0 ? next(this.host.layout, pieceOfRef(ref), indexOfRef(ref)) : null;
+    const ends = !beyond || (this.host.layout.getPiece(beyond.pieceId)?.type.startsWith("buffer") ?? false);
+    let run = toEnd && ends ? TO_END : 0;
     let last = -1;
     for (let k = p.length - 1; k >= 0; k--) {
       const i = p[k];
@@ -271,30 +275,30 @@ export class Dispatcher {
   }
 
   private decide(ts: DTrain[], snaps: Snap[], engine: number): void {
-    const h = this.holds.get(engine);
+    const h = this.holdsBy.get(engine);
     const k = ts.findIndex((t) => t.key === engine);
     if (!h || k < 0 || ts[k].fixed) return;
     h.decided = this.host.sim.ticks;
     const t0 = performance.now();
     // (Each held train where its hold ends: it'll get there. The track up to there is its own: taken.)
     const placed = ts.map((t) => {
-      const o = this.holds.get(t.key);
+      const o = this.holdsBy.get(t.key);
       return o && o.t.pos === t.pos && o.end !== t.at ? { ...t, at: o.end } : t;
     });
     const members = stretchOf(placed, k);
     // (Every other held train's track up to its hold's end, member or not: it's on its way over it.)
     const taken = new Set<number>();
     placed.forEach((t, i) => {
-      const o = this.holds.get(t.key);
+      const o = this.holdsBy.get(t.key);
       if (!o || i === k || o.t.pos !== t.pos) return;
       for (const n of o.path) for (const p of t.pos[n]) taken.add(p);
     });
     for (const p of placed[k].pos[ts[k].at]) taken.delete(p);
-    const order = members.map((_, i) => i).sort((a, b) => (a === 0 ? -1 : b === 0 ? 1 : (this.holds.get(placed[members[a]].key)?.stood ?? Infinity) - (this.holds.get(placed[members[b]].key)?.stood ?? Infinity)));
+    const order = members.map((_, i) => i).sort((a, b) => (a === 0 ? -1 : b === 0 ? 1 : (this.holdsBy.get(placed[members[a]].key)?.stood ?? Infinity) - (this.holdsBy.get(placed[members[b]].key)?.stood ?? Infinity)));
     // (Fair turns: a train counts for more the longer it has stood waiting, so an order that strands a long waiter loses.)
     const now = this.host.sim.ticks;
     const weights = members.map((i) => {
-      const st = this.holds.get(placed[i].key)?.stood ?? -1;
+      const st = this.holdsBy.get(placed[i].key)?.stood ?? -1;
       return st < 0 ? 1 : 1 + Math.floor((now - st) / (WEIGH_S * 120));
     });
     let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, weights });
@@ -326,24 +330,41 @@ export class Dispatcher {
     pt[to < 0 ? 1 : 0]++;
     // (Who it waits for: the train in its move's way, or (its turn not yet) the one the best order lets go first.)
     const firstOther = r.order.find((m) => m.k !== 0);
-    h.waitsOn = to >= 0 ? -1 : r.first[0] < 0 ? blockerOf(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    h.waitsOn = to >= 0 ? -1 : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
-      if (this.debug && this.notes.length < 400 && (this.host.sim.ticks / 120) % 30 < 1)
-        this.notes.push(`${(this.host.sim.ticks / 120).toFixed(0)}s train ${engine} held ${r.first[0] < 0 ? "blocked" : "order"}: at ${ts[k].at} end ${h.end} first ${r.first[0]} plain ${r.plain}/${r.of} members ${members.length} wait-ahead ${branchesSummary(placed[k])} taken-by ${takenBy(placed, k, this.holds)}`);
+      if (this.debug && this.notes.length < 400)
+        this.notes.push(`${(this.host.sim.ticks / 120).toFixed(0)}s train ${engine} held ${r.first[0] < 0 ? "blocked" : "order"}: at ${ts[k].at} end ${h.end} first ${r.first[0]} plain ${r.plain}/${r.of} members ${members.length} wait-ahead ${branchesSummary(placed[k])} taken-by ${takenBy(placed, k, this.holdsBy)}`);
       return;
     }
     h.passed = 0;
     this.grants++;
     // (Granted: its way (a detour's, if that's it) from where it stands to the move's waiting point.)
     const t = ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at };
-    if (t.pos !== h.t.pos) {
-      h.t = t;
-      h.sig = `${snaps.find((x) => x.key === engine)?.stops?.join(",") ?? "-"}`;
-    }
+    // (Its way now a detour's, if that's what it's granted: moved along it from here on, its route the same.)
+    if (t.pos !== h.t.pos) h.t = t;
     const path = this.pathTo(t, to);
     if (path.length > 0) this.setHold(h, to, path);
+    this.host.granted?.(engine);
+  }
+
+  /** The train in a held train's way: on its next move's track as it stands, where its hold ends, or on its way there. */
+  private blocker(placed: DTrain[], k: number): number {
+    const b = blockerOf(placed, k);
+    if (b >= 0) return b;
+    const mine = new Set<number>();
+    const t = placed[k];
+    for (let i = t.succ[t.at][0] ?? -1, n = 0; i >= 0 && n < 400; i = t.succ[i][0] ?? -1, n++) {
+      for (const p of t.pos[i]) mine.add(p);
+      if (t.wait[i]) break;
+    }
+    for (const p of t.pos[t.at]) mine.delete(p);
+    for (const [key, o] of this.holdsBy) {
+      if (key === t.key) continue;
+      for (const n of o.path) for (const p of o.t.pos[n]) if (mine.has(p)) return key;
+    }
+    return -1;
   }
 
   /** How far (mm) the train's nose is from its hold's end, less `STAND_SHORT`; Infinity off its way (the next look sorts it). */
@@ -368,10 +389,16 @@ export class Dispatcher {
     return len - c.s + rem - CAR_SPECS[lead.kind].bogieInset - STAND_SHORT;
   }
 
+  /** Does it hold this train (a routed one with its lever on)? */
+  holds(train: Train): boolean {
+    const engine = train.cars.find((c) => c.kind === "engine");
+    return !!engine && engine.lever !== 0 && this.holdsBy.has(engine.id);
+  }
+
   /** The speed limit a routed train's hold puts on it (Infinity: none: hand-run, parked, or not held). */
   cap(train: Train): number {
     const engine = train.cars.find((c) => c.kind === "engine");
-    const h = engine ? this.holds.get(engine.id) : undefined;
+    const h = engine ? this.holdsBy.get(engine.id) : undefined;
     if (!h || engine!.lever === 0) return Infinity;
     const room = this.gapTo(train, h);
     return room === Infinity ? room : room > 0 ? Math.sqrt(2 * ACCELERATION * room) : 0;
@@ -379,7 +406,7 @@ export class Dispatcher {
 
   /** The router's steer for a train granted a loop road or detour: aim at a piece on it till it's passed. */
   steerHint(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined {
-    const h = this.holds.get(engine);
+    const h = this.holdsBy.get(engine);
     if (!h || h.aim < 0) return undefined;
     // (On it: from there it's steered as booked again.)
     const train = this.host.sim.getTrain(h.trainId);
@@ -390,9 +417,15 @@ export class Dispatcher {
     return { follow: () => true, aim: h.aim };
   }
 
+  /** Held where it stands (no move granted on): the router steers it nothing yet (its `awaitingGrant`). */
+  awaiting(engine: number): boolean {
+    const h = this.holdsBy.get(engine);
+    return !!h && h.end === h.t.at;
+  }
+
   /** The train (its engine) a held train waits for, its move's way taken by it (stall detection's wait graph). */
   waitingOn(engine: number): { engine: number } | null {
-    const h = this.holds.get(engine);
+    const h = this.holdsBy.get(engine);
     return h && h.waitsOn >= 0 && h.stood >= 0 ? { engine: h.waitsOn } : null;
   }
 
@@ -409,7 +442,7 @@ export class Dispatcher {
     const { layout, sim } = this.host;
     const next = new Map<number, number>();
     if (layout.signalCount > 0)
-      for (const h of this.holds.values()) {
+      for (const h of this.holdsBy.values()) {
         const ref = h.t.frontRef[h.end];
         if (ref >= 0 && layout.signalAt(ref)) next.set(ref, h.trainId);
         // (Standing, held where it stands (not granted on): the signal it faces there shows red too.)

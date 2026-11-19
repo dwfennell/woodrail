@@ -74,6 +74,8 @@ export interface InvariantWorld {
    * not held? (`greenHeld`; default: never.)
    */
   busy?(train: Train, engine: number): boolean;
+  /** The steering hint a routed train runs by (default sections'; the dispatcher's when it's on). */
+  steerHint?(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined;
 }
 
 /** A broken invariant, as told to `onBreak`. */
@@ -749,7 +751,7 @@ export class Invariants {
     this.facing++;
     const taken = ways.find((w) => w.path === b.pathIndex);
     if (!taken) return;
-    const held = sections.steerHint(engine);
+    const held = this.world.steerHint ? this.world.steerHint(engine) : sections.steerHint(engine);
     const followed = held ? ways.filter((w) => held.follow(b.pieceId, w.path)) : [];
     let wrong: boolean;
     if (followed.length === 1) wrong = followed[0].option !== taken.option;

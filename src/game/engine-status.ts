@@ -299,9 +299,9 @@ function lineWaitFor(economy: Economy, train: Train): TrainState | null {
     if (economy.dispatcher) {
       const d = economy.dispatcher.waitingOn(car.id);
       if (d) return { kind: "line-wait-for", by: d.engine, to: nextStopOf(economy, car.id), holder: "dispatcher" };
-      continue;
     }
-    const w = economy.sectionWait(car.id);
+    // (Sections' waits are none of its business with the dispatcher on: it holds no one then.)
+    const w = economy.dispatcher ? null : economy.sectionWait(car.id);
     const by = w && "engine" in w && w.engine >= 0 ? w.engine : -1;
     const r = by === -1 ? economy.router.waitOf(car.id) : null;
     const rb = r && r.kind === "points" ? r.by : -1;

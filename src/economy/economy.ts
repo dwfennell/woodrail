@@ -738,7 +738,7 @@ export class Economy {
       owner: (engine) => this.ownerOf(engine),
       drive: (train) => this.drive(train),
       granted: (engine) => (this.dispatcher ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine)),
-      awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
+      awaitingGrant: (engine) => (this.dispatcher ? this.dispatcher.awaiting(engine) : this.sections.awaitingGrant(engine)),
       soon: this.sections.steerSoon,
       fullAt: (engine) => this.fullAt(engine),
     });
@@ -2773,7 +2773,8 @@ export class Economy {
     const kit = this.kitStops.cap(train);
     if (kit === 0) return 0;
     // (With the dispatcher on (§8 step 2), its holds in place of sections'.)
-    const held = this.dispatcher ? this.dispatcher.cap(train) : this.sections.cap(train);
+    // (Trains it doesn't hold (hand-run, parked) keep sections' cap: it never grants them anything.)
+    const held = this.dispatcher?.holds(train) ? this.dispatcher.cap(train) : this.sections.cap(train);
     return Math.min(depot, kit, held, this.router.speedCap(train));
   }
 
@@ -2799,6 +2800,8 @@ export class Economy {
         // (Busy: the depot or a kit's stop holds it (working, its dwell), or it's turning back: it asks for nothing.)
         busy: (train) => train.turnback >= 0 || this.depotCap(train) === 0 || this.kitStops.cap(train) === 0,
         drive: (train) => this.drive(train),
+        // (A grant steers it at once, as a sections grant does: the router sets the points ahead.)
+        granted: (engine) => this.sections.steerSoon.add(engine),
       });
       this.dispatcher = d;
       this.gateBefore = sim.signalGate;
