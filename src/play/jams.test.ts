@@ -3,6 +3,10 @@ import { loadBugMap } from "./bugmap";
 import { runJams, type JamsHooks } from "./jams";
 import { BEFORE_S, judge, judgeWithBackUp, oTrainsOf, verdictOf, type Judgement } from "../routing/dispatch-shadow";
 import type { OTrain } from "../routing/oracle";
+import { DispatchShadow } from "../routing/dispatch-stretch-shadow";
+import { economyWorld } from "../game/dev-checks";
+import { trainState } from "../game/engine-status";
+import { buildTrain, DISPATCH_STATES, judgeStretch, search, snapOf, stretchOf, type Snap, type StretchJudgement } from "../routing/stretch";
 
 /**
  * The jams bar's runs (src/play/jams.ts), one a reference map: `npm run jams` (scripts/jams.mjs) runs them sharded and
@@ -43,8 +47,67 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
           shadow.push({ at: now, engine, verdict: backUp && backUp.best > j.best ? "backup" : verdict, now: j, before: b, ...(backUp ? { backUp } : {}) });
         };
       }
+      // (JAMS_STRETCH: the per-stretch search's judgement of each jam (routing/stretch.ts): now, as it stood `BEFORE_S`
+      // before it began, and with one back-up.)
+      const stretch: { at: number; engine: number; verdict: string; now: StretchJudgement | null; before: StretchJudgement | null; decide?: { build: number; ms: number; states: number; capped: boolean; trains: number; value: number; of: number }; snaps?: Snap[] }[] = [];
+      if (ENV.JAMS_STRETCH) {
+        const kept = new Map<number, Snap[]>();
+        const second = hooks.second;
+        hooks.second = (now) => {
+          second?.(now);
+          kept.set(now, snapOf(world.layout, world.sim, world.economy));
+          kept.delete(now - BEFORE_S - 90);
+        };
+        const jam = hooks.jam;
+        hooks.jam = (now, engine, since) => {
+          jam?.(now, engine, since);
+          const snaps = snapOf(world.layout, world.sim, world.economy);
+          // (A dispatcher's decision here: its trains built (the dispatcher keeps them, cached), then one search at its cap.)
+          const t0 = performance.now();
+          const trains = snaps.map((x) => buildTrain(world.layout, x));
+          const t1 = performance.now();
+          const k = trains.findIndex((t) => t.key === engine);
+          const d = k < 0 ? null : search(trains, stretchOf(trains, k), { cap: DISPATCH_STATES, backUps: true });
+          const t2 = performance.now();
+          const decide = d ? { build: t1 - t0, ms: t2 - t1, states: d.states, capped: d.capped, trains: stretchOf(trains, k).length, value: d.value, of: d.of } : undefined;
+          const j = judgeStretch(world.layout, snaps, engine);
+          const then = kept.get(since - BEFORE_S);
+          const all = (x: StretchJudgement | null) => !!x && x.value >= x.of;
+          const b = !j || all(j) || !then ? null : judgeStretch(world.layout, then, engine, j.keys);
+          const verdict = !j ? "none" : all(j) ? "resolvable" : all(b) ? "avoidable" : j.backUp && j.backUp.value > j.value ? "backup" : j.capped || b?.capped ? "unknown" : "layout";
+          stretch.push({ at: now, engine, verdict, now: j, before: b, decide, ...(ENV.JAMS_STRETCH_DUMP ? { snaps } : {}) });
+        };
+      }
+      // (JAMS_DISPATCH: the dispatcher's grant/hold model in shadow beside today's rules (dispatch-stretch-shadow.ts).)
+      let dispatch: DispatchShadow | null = null;
+      if (ENV.JAMS_DISPATCH) {
+        const eco = world.economy;
+        const live = economyWorld(eco);
+        dispatch = new DispatchShadow({
+          layout: world.layout,
+          sim: world.sim,
+          route: (e) => {
+            const route = eco.routeOf(e);
+            if (!route || route.stops.length === 0) return null;
+            const stops = route.stops.map((x) => eco.depot(x.depotId)?.pieceId ?? -1);
+            return stops.every((p) => p >= 0) ? { stops, next: route.next, at: !!route.at } : null;
+          },
+          busy: (t, e) => live.busy!(t, e),
+          stuck: (e) => !!eco.stalls.stuckOf(e),
+          why: (t, e) => {
+            const found = eco.sim.findCar(e);
+            const st = trainState(eco.sim, eco, t, found ? found.train.cars[found.index].lever : 0);
+            return st.kind === "stuck" ? `stuck:${st.why}` : st.kind;
+          },
+        });
+        const tick = hooks.tick;
+        hooks.tick = () => {
+          tick?.();
+          dispatch!.tick();
+        };
+      }
       const r = runJams(world, SECONDS, hooks);
-      const line = { map: file, jams: r.jams, arrivals: r.arrivals, longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}) };
+      const line = { map: file, jams: r.jams, arrivals: r.arrivals, longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}) };
       (globalThis as { process?: { stdout: { write(s: string): void } } }).process?.stdout.write(`\nJAMS ${JSON.stringify(line)}\n`);
     }, 3_600_000);
   }

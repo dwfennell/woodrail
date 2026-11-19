@@ -39,6 +39,8 @@ export interface JamsRun {
 
 /** Hooks for a shadow beside the run (dispatcher spec §8 step 1): each second, and each jam just before it's cleared. */
 export interface JamsHooks {
+  /** Each sim tick (a shadow's own clock). */
+  tick?(): void;
   second?(now: number): void;
   /** `since`: when its train was first found stuck (s). */
   jam?(now: number, engine: number, since: number): void;
@@ -55,6 +57,7 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}): J
     seconds,
     stopAtFirst: false,
     onTick: () => {
+      hooks.tick?.();
       if (sim.ticks % 120) return;
       const now = Math.round(sim.ticks / 120);
       hooks.second?.(now);
