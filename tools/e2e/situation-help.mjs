@@ -372,6 +372,7 @@ await tapSel(".tips-item");
 await menuOpen();
 const off = await p.evaluate(() => ({ text: document.querySelector(".tips-item")?.textContent, stored: localStorage.getItem("woodrail.tips") }));
 check("8. a tap: Tips: off, kept", off.text === "Tips: off" && off.stored === "0", JSON.stringify(off));
+await menuOpen();
 await tapSel(".tips-item");
 const on = await p.evaluate(() => ({ text: document.querySelector(".tips-item")?.textContent, stored: localStorage.getItem("woodrail.tips"), done: window.woodrail.situations().isDone("jam-follow") }));
 check("8. again: on, and the kinds done this game may show again", on.text === "Tips: on" && on.stored === "1" && !on.done, JSON.stringify(on));
