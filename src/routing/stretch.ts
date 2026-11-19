@@ -30,7 +30,7 @@
  * Event-driven and allocation-light: built per train and cached by the caller; a search allocates its memo only.
  * Nothing in the game runs it yet (shadow, §8 step 1).
  */
-import { getPieceDef, pathLength, type Layout } from "../track";
+import { connectorRef, getPieceDef, pathLength, type Layout } from "../track";
 import { next, waysFrom } from "./graph";
 import { plan, ROUTE_COSTS, type PlanState } from "./plan";
 import { elemsOf, isSwitch, piecesFor, type Elem } from "./oracle";
@@ -38,6 +38,13 @@ import { trainLength } from "../sim/train-cars";
 import type { Sim } from "../sim";
 import type { Economy } from "../economy/economy";
 
+/**
+ * Signals as waiting points (§2.1): a train resting clear of points with its front at a signal facing its way waits
+ * there (the hold shows as the signal's aspect). A signal whose block is too short to rest clear of points isn't one.
+ * Off by default (`DISPATCH_SIGNAL_WAITS=1` on): on the eight maps it changed no decision's kind but capped 60% more
+ * decisions (10,212 against 6,416) and left 17 jams unjudged against 7 (2026-11-19).
+ */
+export const SIGNAL_WAITS = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DISPATCH_SIGNAL_WAITS === "1";
 /** The stops ahead a train's goal is (its next stop is 1). */
 export const HORIZON = 1;
 /** Stops ahead its booked way runs to (past its goal: room to move on out of the others' way). */
@@ -236,6 +243,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
   const tailEn: number[] = [];
   const frontEn: number[] = [];
   const frontLen: number[] = [];
+  const atSignal: boolean[] = [];
   const node = (body: Elem[], stop: boolean, turn: boolean, sg: number, d: number, li: number) => {
     const ps = body.map((e) => e.p);
     // (How much of its tail piece it covers (mm, from that piece's far end) and which way it runs onto it; its front's.)
@@ -245,6 +253,9 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     tailEn.push(body[0]?.en ?? -1);
     frontEn.push(body[body.length - 1]?.en ?? -1);
     frontLen.push(body.length > 0 ? lenOf(layout, body[body.length - 1]) : 0);
+    // (Its front at a signal facing its way: a waiting point if it rests clear of points there (§2.1).)
+    const fr = body[body.length - 1];
+    atSignal.push(SIGNAL_WAITS && !!fr && fr.ex >= 0 && !!layout.signalAt(connectorRef(fr.p, fr.ex)));
     const clear = ps.every((p) => !swOf(layout, p));
     pos.push(ps);
     plain.push(clear);
@@ -466,7 +477,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     }
     if (off.size === 0 || pos.length === detourFrom || !isStop.slice(detourFrom).some((x) => x)) {
       // (No other way to its stop: none.)
-      pos.length = rest.length = plain.length = seg.length = dist.length = isStop.length = turned.length = laneAt.length = tailCover.length = tailEn.length = frontEn.length = frontLen.length = detourFrom;
+      pos.length = rest.length = plain.length = seg.length = dist.length = isStop.length = turned.length = laneAt.length = tailCover.length = tailEn.length = frontEn.length = frontLen.length = atSignal.length = detourFrom;
       extra.length = 0;
     } else {
       for (let k = 0; k < pos.length - detourFrom; k++) {
@@ -502,6 +513,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
       tailEn.push(tailEn[m - 1]);
       frontEn.push(frontEn[m]);
       frontLen.push(frontLen[m]);
+      atSignal.push(false);
       succ.push([m]);
       prev.push(m - 1);
       order.push(m - 0.5);
@@ -512,7 +524,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
   const n = pos.length;
   const restA = Uint8Array.from(rest, (b) => (b ? 1 : 0));
   const wait = new Uint8Array(n);
-  for (let i = at; i < n; i++) wait[i] = restA[i] && (isStop[i] || turned[i] || succ[i].length === 0 || succ[i].some((x) => !restA[x])) ? 1 : 0;
+  for (let i = at; i < n; i++) wait[i] = restA[i] && (isStop[i] || turned[i] || atSignal[i] || succ[i].length === 0 || succ[i].some((x) => !restA[x])) ? 1 : 0;
   const goal = fixed || arrivals.length === 0 ? -1 : arrivals[Math.min(horizon, arrivals.length) - 1];
   return {
     key: s.key,
