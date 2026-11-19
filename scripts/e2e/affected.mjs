@@ -61,7 +61,7 @@ export const SUITES = {
   "focus-ring": { script: "e2e:focus-ring", minutes: 4 },
   "hopper-load": { script: "e2e:hopper-load", minutes: 1.5 },
   locked: { script: "e2e:locked", minutes: 6 },
-  signals: { script: "e2e:signals", minutes: 7 },
+  signals: { script: "e2e:signals", minutes: 17 },
   "learn-more": { script: "e2e:learn-more", minutes: 2 },
   life: { script: "e2e:life", minutes: 4 },
   "low-bridge": { script: "e2e:low-bridge", groups: true },

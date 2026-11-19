@@ -134,17 +134,33 @@ export interface MarkModels {
 const KIT_OF: Record<Exclude<Look, "plain">, PieceTypeId> = { semaphore: "kit-semaphore-signal", "colour-light": "kit-colour-light-signal", gantry: "kit-signal-gantry" };
 
 /**
- * The Signal's tray picture: the toy colour light alone, both lamps lit (it reads as a signal at a glance, not as
- * track: the user's "signals look like tracks when placing"), turned to face the camera.
+ * The Signal's tray picture: the toy colour light (it reads as a signal at a glance, not as track: the user's "signals
+ * look like tracks when placing"), turned to face the camera, both lamps lit, an arrow on the track the way it guards;
+ * the Signal's (a pair, one each way) an arrow back as well, `oneWay` (the One way's) the one.
  */
-export function signalThumbnail(mats: Materials): Group {
+export function signalThumbnail(mats: Materials, oneWay = false): Group {
+  const light = () => {
+    const l = new Group();
+    for (const p of toyLight(mats)) {
+      if (p.role === "fixed" && p.material !== mats.naturalWood && p.shadow === false) continue;
+      const mesh = new Mesh(p.geometry, p.material);
+      mesh.applyMatrix4(new Matrix4().makeTranslation(-(PIECE_LENGTH - TOY_BACK), 0, -TOY_SIDE).multiply(p.frame));
+      l.add(mesh);
+    }
+    return l;
+  };
   const g = new Group();
-  for (const p of toyLight(mats)) {
-    if (p.role === "fixed" && p.material !== mats.naturalWood && p.shadow === false) continue;
-    const mesh = new Mesh(p.geometry, p.material);
-    mesh.applyMatrix4(new Matrix4().makeTranslation(-(PIECE_LENGTH - TOY_BACK), 0, -TOY_SIDE).multiply(p.frame));
-    g.add(mesh);
-  }
+  g.add(light());
+  // (Big arrows on the track's centre line, flat and lit green as a lamp's: the one way it guards, past the post; a
+  // pair's both ways, the same light with an arrow back too. The same light on both tiles: the arrows are the difference.)
+  const arrow = (x: number, back: boolean) => {
+    const a = new Mesh(chevron().scale(2.2, 1, 2.2), LIT_GREEN);
+    a.position.set(x, 0, -TOY_SIDE);
+    if (back) a.rotation.y = Math.PI;
+    g.add(a);
+  };
+  arrow(TOY_BACK + 26, false);
+  if (!oneWay) arrow(TOY_BACK - 30, true);
   g.rotation.y = 2.3;
   return g;
 }

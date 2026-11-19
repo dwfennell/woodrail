@@ -6,7 +6,7 @@ import { joinLine, startLine } from "./lines";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { oval } from "../routing/scenarios";
 import { signal } from "../routing/harness";
-import { blockerName, engineStatus, engineView, fullLineToast, headOnTip, trainState, trainsForReport, type Blocker } from "./engine-status";
+import { blockerName, lineTrain, engineStatus, engineView, fullLineToast, headOnTip, trainState, trainsForReport, type Blocker } from "./engine-status";
 
 function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] };
 function chain(types: PieceTypeId[], layout: Layout): number[];
@@ -804,4 +804,71 @@ describe("stepping aside into a spare platform (the user's A1)", () => {
     }
     expect([...said]).toEqual([`Letting the ${lineOf70} train by`]);
   });
+});
+
+describe("a head-on between signals: who faces whom, and who waits behind", () => {
+  // (The user's complex map, saved twice jammed, 2026-11-18 (src/play/bugmaps/reports/): a train queued behind a
+  // head-on, going the same way, was told the train ahead "faces it". Now the two nose to nose say so of each other, and
+  // one behind them names them both.)
+  const cards = async (file: string): Promise<Map<number, string>> => {
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL(`../play/bugmaps/reports/${file}`, import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    for (let k = 0; k < 10 * 120; k++) {
+      sim.tick();
+      economy.tick();
+    }
+    return new Map([7, 10, 18].map((e) => [e, engineStatus(sim, economy, e, (id) => `D${id}`)]));
+  };
+  // (The two nose to nose, of two lines: the track they share, named by the first place past each on the other's way, and
+  // the lasting fix (HEAD_ON_FIX). D3: the town west of the triangle; D10: the mill east of it.)
+  it("saved jammed at the triangle of points: Blue and Purple face each other; Passengers waits behind Blue", async () => {
+    const c = await cards("2026-11-18-complex-jams.txt");
+    expect(c.get(7)).toBe("Stuck: two lines use the track from D10 to D3 and it has no passing place long enough. A longer loop lets them pass");
+    expect(c.get(18)).toBe("Stuck: two lines use the track from D3 to D10 and it has no passing place long enough. A longer loop lets them pass");
+    expect(c.get(10)).toBe("Stuck behind the train on the Blue line, which faces the train on the Purple line between the signals. Move one of them");
+  });
+  it("saved jammed at the town: Blue and Passengers face each other; Purple waits behind Passengers", async () => {
+    const c = await cards("2026-11-18-complex-jams-2.txt");
+    expect(c.get(7)).toBe("Stuck: two lines use the track from D2 to D1 and it has no passing place long enough. A longer loop lets them pass");
+    expect(c.get(10)).toBe("Stuck: two lines use the track from D1 to D2 and it has no passing place long enough. A longer loop lets them pass");
+    expect(c.get(18)).toBe("Stuck behind the Passengers line's train, which faces the train on the Blue line between the signals. Move one of them");
+  });
+});
+
+describe("a line's train by the line's name as the player wrote it (lineTrain)", () => {
+  it("a name that says it's a line: the train on it; any other: that line's train", () => {
+    expect(lineTrain("Blue line")).toBe("the train on the Blue line");
+    expect(lineTrain("Coast Line")).toBe("the train on the Coast Line");
+    expect(lineTrain("Passengers")).toBe("the Passengers line's train");
+    expect(lineTrain("Mainline")).toBe("the Mainline line's train");
+  });
+});
+
+describe("a wait others go first in: said steadily, with how many (goneFirst)", () => {
+  it("Wren's map: Wren, held for the line to Teasel End as one train after another went first, says how many, not each by name", async () => {
+    // (The user's report, 2026-11-18 (src/play/bugmaps/reports/2026-11-18-wren-stuck.txt): Wren's card named Juniper,
+    // then Pickle, then Poppy … as each held it, flicking between them. Now the first is named; once one has gone first
+    // the card says "Waiting for the line to …: N trains have gone first", the one in the way under Show.)
+    const { readFileSync } = (await import(/* @vite-ignore */ "node:" + "fs")) as { readFileSync(path: URL, enc: "utf8"): string };
+    const { loadBugMap } = await import("../play/bugmap");
+    const { world } = await loadBugMap(readFileSync(new URL("../play/bugmaps/reports/2026-11-18-wren-stuck.txt", import.meta.url), "utf8"));
+    const { sim, economy } = world;
+    const wren = 18;
+    const said: string[] = [];
+    for (let k = 0; k < 90 * 120; k++) {
+      sim.tick();
+      economy.tick();
+      if (k % 120 !== 119) continue;
+      const c = engineStatus(sim, economy, wren, (id) => `D${id}`);
+      if (said[said.length - 1] !== c) said.push(c);
+    }
+    expect(said[0]).toMatch(/^Waiting for Juniper \(passenger train\) to clear the line to D5$/);
+    expect(said).toContain("Waiting for the line to D5: 2 trains have gone first");
+    // (Steady: its waiting words change only as the count goes up, and no train is named after the first. Stalls'
+    // "Stuck" comes and goes between them, a matter of its own.)
+    const waits = said.filter((c) => !c.startsWith("Stuck"));
+    expect(waits.filter((c, i) => c !== waits[i - 1])).toEqual(["Waiting for Juniper (passenger train) to clear the line to D5", "Waiting for the line to D5: 1 train has gone first", "Waiting for the line to D5: 2 trains have gone first"]);
+  }, 120_000);
 });

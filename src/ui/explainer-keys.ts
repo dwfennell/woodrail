@@ -14,6 +14,7 @@ export type ExplainerId = keyof typeof EXPLAINER_TITLES;
 /** Which tray items have an explainer, by `trayKey` ("signal", "piece:switch", …). Add a line for another. */
 const FOR_ITEM: Readonly<Record<string, ExplainerId>> = {
   signal: "signals",
+  "signal:one-way": "signals",
   // (The old signal piece, still on a few saves' trays and maps.)
   "piece:signal": "signals",
 };

@@ -10,6 +10,6 @@ export default defineConfig({
     ssr: true,
     outDir: "dist-bench",
     emptyOutDir: true,
-    rollupOptions: { input: { track: "bench/track.bench.ts", tick: "bench/tick.bench.ts" } },
+    rollupOptions: { input: { track: "bench/track.bench.ts", tick: "bench/tick.bench.ts", dispatch: "bench/dispatch.bench.ts" } },
   },
 });

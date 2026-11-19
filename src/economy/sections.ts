@@ -263,6 +263,8 @@ interface Way {
 
 interface TrainState {
   engine: number;
+  /** Trains that held it earlier in this wait and have gone on since (`goneFirst`; empty, or none: a wait of one). */
+  passedBy?: Set<number>;
   trainId: number;
   /** Its front's piece, path and way, as last looked (`-1`: not yet). */
   frontKey: number;
@@ -3429,7 +3431,14 @@ export class Sections {
   }
 
   private hold(st: TrainState, wait: BlockWait): void {
-    if (!st.wait) st.waitSince = this.sim.ticks;
+    if (!st.wait) {
+      st.waitSince = this.sim.ticks;
+      st.passedBy?.clear();
+    } else if ("engine" in st.wait && "engine" in wait && st.wait.engine >= 0 && wait.engine !== st.wait.engine) {
+      // (Held for another now: the one before went on first, or some other way round.)
+      (st.passedBy ??= new Set()).add(st.wait.engine);
+    }
+    if ("engine" in wait) st.passedBy?.delete(wait.engine);
     st.stretch = undefined;
     st.wait = wait;
     this.refused++;
@@ -3837,6 +3846,15 @@ export class Sections {
       if (lineId >= 0 && this.line(lineId).admitted.has(engine)) return null;
     }
     return w;
+  }
+
+  /**
+   * How many other trains have held this one in its present wait and gone on since (the card: "Waiting for the line to
+   * Teasel End: 3 trains have gone first"; Wren's map, 2026-11-18, its card named each in turn). 0: none, or not waiting.
+   */
+  goneFirst(engine: number): number {
+    const st = this.states.get(engine);
+    return st?.wait ? (st.passedBy?.size ?? 0) : 0;
   }
 
   /** Where a train's front is (a slot id, or −1 in a section) and its move, for tests. */

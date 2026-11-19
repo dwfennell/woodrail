@@ -3607,6 +3607,62 @@ export class Economy {
   }
 
   /**
+   * Two trains nose to nose (engines `a` and `b`): the places at the two ends of the track they share, for the card
+   * ("from X to Y"): the first stop past `a` on `b`'s way on, and past `b` on `a`'s (−1: none on it). Each way: its plan
+   * from its front through its next stop and on to the stop after (`wayOnFrom`). Null: either not routed or not moving.
+   */
+  headOnTrack(a: number, b: number): { from: number; to: number } | null {
+    const ta = this.sim.findCar(a)?.train;
+    const tb = this.sim.findCar(b)?.train;
+    const wa = ta ? this.wayOnFrom(ta) : null;
+    const wb = tb ? this.wayOnFrom(tb) : null;
+    if (!ta || !tb || !wa || !wb) return null;
+    const past = (way: readonly number[], t: Train): number => {
+      let reached = false;
+      for (const p of way) {
+        const on = t.bogies.some((x) => x.pieceId === p);
+        if (on) reached = true;
+        const d = reached && !on ? this.depotAtPiece(p) : undefined;
+        if (d) return d.id;
+      }
+      return -1;
+    };
+    return { from: past(wb, ta), to: past(wa, tb) };
+  }
+
+  /** A routed train's way on from its front, the way it drives: its plan's pieces through its next stop and on to the one after. */
+  private wayOnFrom(t: Train): number[] | null {
+    const engine = t.cars.find((c) => c.kind === "engine")?.id;
+    const r = engine === undefined ? undefined : this.routes.get(engine);
+    const d = driveOf(t);
+    if (!r || r.stops.length === 0 || d === 0) return null;
+    const lead = d > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+    const piece = this.layout.getPiece(lead.pieceId);
+    if (!piece) return null;
+    const exit = pathExitConnector(getPieceDef(piece.type, piece.flipped), lead.pathIndex, d > 0 ? lead.reversed : !lead.reversed);
+    let at = exit < 0 ? null : nextPiece(this.layout, lead.pieceId, exit);
+    const out: number[] = [];
+    for (let leg = 0; at && leg < 2; leg++) {
+      const stop = this.liveDepot(r.stops[(r.next + leg + (r.at ? 1 : 0)) % r.stops.length].depotId);
+      if (!stop) break;
+      const way = at.pieceId === stop.pieceId ? { steps: [] } : plan(this.layout, { pieceId: at.pieceId, entry: at.entry, lead: true }, stop.pieceId);
+      if (!way) break;
+      let last: { pieceId: number; exit: number } | null = null;
+      for (const step of way.steps) {
+        out.push(step.pieceId);
+        if (step.reverse) return out;
+        last = step;
+      }
+      const into = last ? nextPiece(this.layout, last.pieceId, last.exit) : at;
+      if (!into) break;
+      out.push(into.pieceId);
+      const ways = waysFrom(this.layout, into.pieceId, into.entry, () => false);
+      at = ways.length === 1 && ways[0].exit >= 0 ? nextPiece(this.layout, into.pieceId, ways[0].exit) : null;
+    }
+    return out;
+  }
+
+  /**
    * A routed train whose next stop it can't reach from where it is, for a line end too short for it on the only way
    * there (stubs.ts: turned in it, its tail over the points at its mouth, it can only come out by the road it went in
    * by), goes on to the next of its stops it can reach, and its card says why (`shortSkipOf`). Else it ran round for
