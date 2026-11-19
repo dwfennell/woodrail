@@ -361,9 +361,11 @@ check("7. after a reload the tip is still done (saved with the game)", kept.done
 
 // ---- 8. ☰ Tips: off, then on -----------------------------------------------------------------------------------------
 await p.keyboard.press("Escape");
+/** ☰ open (a tap on Menu only if it's shut: a second tap shuts it), and done appearing. */
 const menuOpen = async () => {
-  await tapSel('button[title="Menu"]');
+  if (await p.evaluate(() => document.querySelector(".menu")?.hidden !== false)) await tapSel('button[title="Menu"]');
   await until(() => !document.querySelector(".menu")?.hidden, null, 5000);
+  await p.waitForTimeout(400);
 };
 await menuOpen();
 const item = await p.evaluate(() => document.querySelector(".tips-item")?.textContent ?? null);
