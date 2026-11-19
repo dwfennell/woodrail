@@ -90,3 +90,22 @@ export function saveChainHints(on: boolean): void {
     // storage unavailable: the choice lasts for this session only
   }
 }
+
+const TIPS_KEY = "woodrail.tips";
+
+/** ☰ Tips: the 💡 tips under the goals, feature and situation (on unless switched off). This device. */
+export function loadTipsOn(): boolean {
+  try {
+    return localStorage.getItem(TIPS_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function saveTipsOn(on: boolean): void {
+  try {
+    localStorage.setItem(TIPS_KEY, on ? "1" : "0");
+  } catch {
+    // storage unavailable: the choice lasts for this session only
+  }
+}

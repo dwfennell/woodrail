@@ -48,6 +48,8 @@ export interface HudHandlers {
   showPlace?(depotId: number): void;
   /** ☰ Chain hints switched on or off (Sandbox). */
   toggleChainHints?(): void;
+  /** ☰ Tips switched on or off (Game mode: the 💡 tips under the goals). */
+  toggleTips?(): void;
   undo(): void;
   redo(): void;
   rerailAll(): void;
@@ -377,6 +379,8 @@ export class Hud {
   private readonly depotChain = el("div", "depot-chain");
   /** The ☰ menu's Chain hints switch (Sandbox only). */
   private readonly chainItem: HTMLButtonElement;
+  /** ☰ Tips: on/off (Game mode). */
+  private readonly tipsItem: HTMLButtonElement;
   /** A warehouse's goods, each with what it lets trains do with it (`StoreView`), or hidden. */
   private readonly depotStore = el("div", "depot-store");
   /** What the warehouse rows show now (drawn again only when it changes), and its "+ Add a good" picker open. */
@@ -643,6 +647,11 @@ export class Hud {
       this.menu.hidden = true;
       h.toggleChainHints?.();
     }, "menu-item chain-item");
+    // Game mode's 💡 tips under the goals (a new system, a jam on the map): all off, or back on (hidden kinds again).
+    this.tipsItem = button("Tips: on", "Tips under the goals: new things learned, and help when trains are stuck", () => {
+      this.menu.hidden = true;
+      h.toggleTips?.();
+    }, "menu-item tips-item");
     onFullscreenChange((on) => this.setFullscreen(on));
     this.linesItem = button("Lines", "Every line: its colour, its name, its trains", () => {
       this.menu.hidden = true;
@@ -657,6 +666,7 @@ export class Hud {
       this.soundItem,
       this.fullItem,
       this.chainItem,
+      this.tipsItem,
       quality,
       sep(),
       button("How to play", "Show help", () => {
@@ -1644,6 +1654,7 @@ export class Hud {
     this.modeTag.className = `mode-tag mode-${mode}`;
     for (const b of this.sandboxItems) b.hidden = mode !== "sandbox";
     this.chainItem.hidden = mode !== "sandbox";
+    this.tipsItem.hidden = mode !== "game";
     for (const b of this.gameItems) b.hidden = mode !== "game";
     // (The help's line about goals: only Game has them.)
     const goalsHelp = this.help.querySelector<HTMLElement>(".help-goals");
@@ -2623,6 +2634,11 @@ export class Hud {
     const mode = depotModeText(auto, waitFull);
     if (this.depotModeHint.textContent !== mode) this.depotModeHint.textContent = mode;
     this.depotModeHint.hidden = !mode;
+  }
+
+  /** The ☰ Tips item's words. */
+  setTips(on: boolean): void {
+    this.tipsItem.textContent = on ? "Tips: on" : "Tips: off";
   }
 
   /** The ☰ Chain hints item's words. */

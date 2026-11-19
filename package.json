@@ -101,6 +101,7 @@
     "e2e:gl-lost-desktop": "node scripts/e2e/lib/run.mjs tools/e2e/gl-lost-desktop.mjs",
     "e2e:leftovers": "node scripts/e2e/lib/run.mjs tools/e2e/leftovers.mjs",
     "e2e:feature-tips": "node scripts/e2e/lib/run.mjs tools/e2e/feature-tips.mjs",
+    "e2e:situation-help": "node scripts/e2e/lib/run.mjs tools/e2e/situation-help.mjs",
     "e2e:routes-ux": "node scripts/e2e/lib/run.mjs tools/e2e/routes-ux.mjs",
     "e2e:route-insert": "node scripts/e2e/lib/run.mjs tools/e2e/route-insert.mjs",
     "e2e:train-off-line": "node scripts/e2e/lib/run.mjs tools/e2e/train-off-line.mjs",

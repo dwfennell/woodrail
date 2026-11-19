@@ -1,0 +1,278 @@
+commit 54742bada74d88fdc54848afa84b1e279e979a96
+Author: Claude <noreply@anthropic.com>
+Date:   Wed Nov 18 03:58:36 2026 +0000
+
+    Signals: no train let into two-way track a train is coming the other way on, or let into from its far end
+    
+    The user's complex map (2026-11-18, src/play/bugmaps/reports/): plain and path
+    signals cleared each train into a free block, and two lines' trains were let
+    into one stretch of single track from its two ends (on main, Blue leaving the
+    school east and Purple leaving the town west in the same second) and stood nose
+    to nose between the signals for good.
+    
+    A signal clear for a train now also asks for the two-way track its way takes
+    beyond it: through its next stop and on to the stop after, up to the first
+    passing place long enough for it (a loop's road in sections' topology for its
+    length, as the single-line rule for managed lines passes at; one too short for it
+    isn't one). Red for it if a train is on that track coming the other way (its
+    front leaving a piece by the end this one would come onto it by), or has been let
+    into it from the far end and is still asking (a claim). Trains ask one by one in
+    a tick, so of two coming at once the first asked goes. A plain signal shows that
+    red. Always green, set by the player, lets it by.
+    
+    - src/sim/two-way.ts: the stretch type and the head-on test.
+    - Sim.twoWayGate (beside signalGate): the economy's stretch for a train past a
+      signal (`Economy.twoWayStretch`, kept till its stops or the track change).
+    - The claim lapses two ticks after its train stops asking. Held while the train
+      is on the stretch instead, two trains standing at stops on each other's long
+      stretch waited on each other for good (17 jams, 458 arrivals on save 1).
+    
+    Complex map, each jam cleared as the player would (one of the two put back at
+    its first stop 60 s after 30 s stuck), 1800 s:
+    - save 1: 4 jams, 547 arrivals (main: 11, 511)
+    - save 2: 6 jams, 427 arrivals (main: 19, 430)
+    No invariant broken. The jams left are mostly the two longest trains (Blue
+    456 mm, Passengers 440 mm): the map's one passing loop (432 and 499 mm roads)
+    holds trains up to about 420 mm.
+    
+    Test (src/sim/two-way.test.ts): save 1, Purple put away and put back at its mill
+    at 120 s, 600 s: no invariant broken, no train stands a minute, every train
+    comes to its stops. On main: a train stands 449 s (the head-on at 152 s).
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_0121cKbnNwAsMDTUDb4QByCR
+
+diff --git a/src/economy/economy.ts b/src/economy/economy.ts
+index 67cb71c9..f91522b5 100644
+--- a/src/economy/economy.ts
++++ b/src/economy/economy.ts
+@@ -10,7 +10,8 @@ import { Spacing } from "./spacing";
+ import type { Bag } from "./goods";
+ import { KitStops } from "./kit-stops";
+ import type { BoatState, YardOrder } from "./boats";
+-import { Sections, type BlockWait } from "./sections";
++import { Sections, topologyOf, type BlockWait } from "./sections";
++import type { Stretch } from "../sim/two-way";
+ import { Stalls } from "./stalls";
+ import { Breakdown } from "./breakdown";
+ import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
+@@ -747,6 +748,8 @@ export class Economy {
+     // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
+     const sections = this.sections;
+     sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
++    // (And the two-way track past a signal a train's way takes (sim/two-way.ts): to keep two from it head on.)
++    sim.twoWayGate = { stretch: (trainId, ref) => this.twoWayStretch(trainId, ref) };
+     this.stalls = new Stalls(sim, this.sections, {
+       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
+       routeWait: (engine) => this.router.waitingOn(engine),
+@@ -3606,6 +3609,50 @@ export class Economy {
+     return out;
+   }
+ 
++  /**
++   * The two-way track a routed train's way takes past a signal (its piece and the end it leaves by, `ref`): each piece,
++   * with the ends it comes onto it by and leaves it by, on through its next stop and on to the stop after, up to the
++   * first passing place long enough for it (a loop's road in sections' topology for its length: what the single-line
++   * rule passes at, `comingAt`), or where it turns. Null: not routed, or no way. Kept till its stops or the track change.
++   */
++  private twoWayStretch(trainId: number, ref: number): Stretch | null {
++    const t = this.sim.getTrain(trainId);
++    const engine = t?.cars.find((c) => c.kind === "engine")?.id;
++    const r = engine === undefined ? undefined : this.routes.get(engine);
++    if (!t || !r || r.stops.length === 0) return null;
++    const key = `${ref}:${r.next}:${r.at ? 1 : 0}:${this.layout.revision}`;
++    const hit = this.twoWays.get(trainId);
++    if (hit && hit.key === key) return hit.stretch;
++    const topo = topologyOf(this.layout, trainLength(t));
++    const out = new Map<number, { entry: number; exit: number }>();
++    const done = (): Stretch => (this.twoWays.set(trainId, { key, stretch: out }), out);
++    let at = nextPiece(this.layout, pieceOfRef(ref), indexOfRef(ref));
++    for (let leg = 0; at && leg < 2; leg++) {
++      const stop = r.stops[(r.next + leg + (r.at ? 1 : 0)) % r.stops.length];
++      const d = this.liveDepot(stop.depotId);
++      if (!d) break;
++      const way = at.pieceId === d.pieceId ? { steps: [] } : plan(this.layout, { pieceId: at.pieceId, entry: at.entry, lead: true }, d.pieceId);
++      if (!way) break;
++      let last: { pieceId: number; exit: number } | null = null;
++      for (const step of way.steps) {
++        const sl = topo.slotOf.get(step.pieceId);
++        if (sl !== undefined && topo.slots[sl].kind === "road") return done();
++        if (!out.has(step.pieceId)) out.set(step.pieceId, { entry: step.entry, exit: step.exit });
++        if (step.reverse) return done();
++        last = step;
++      }
++      // (The stop's piece, and on through it the way it came.)
++      const into = last ? nextPiece(this.layout, last.pieceId, last.exit) : at;
++      if (!into) break;
++      const ways = waysFrom(this.layout, into.pieceId, into.entry, () => false);
++      const through = ways.length === 1 ? ways[0].exit : -1;
++      if (!out.has(into.pieceId)) out.set(into.pieceId, { entry: into.entry, exit: through });
++      at = through >= 0 ? nextPiece(this.layout, into.pieceId, through) : null;
++    }
++    return done();
++  }
++  private readonly twoWays = new Map<number, { key: string; stretch: Stretch }>();
++
+   /**
+    * A routed train whose next stop it can't reach from where it is, for a line end too short for it on the only way
+    * there (stubs.ts: turned in it, its tail over the points at its mouth, it can only come out by the road it went in
+diff --git a/src/sim/sim.ts b/src/sim/sim.ts
+index 024adeee..55c5edbb 100644
+--- a/src/sim/sim.ts
++++ b/src/sim/sim.ts
+@@ -17,6 +17,7 @@ import { nearestCursor } from "./nearest";
+ import { cleanEngineName, pickEngineName } from "./engine-names";
+ import { ACCELERATION, brakeTo, ENGINE_SPEED, stopDistance } from "./brakes";
+ import { driveOf, hasEngine, trainLength } from "./train-cars";
++import { meetHeadOn, type Stretch } from "./two-way";
+ 
+ export const SIM_HZ = 120;
+ export const SIM_DT = 1 / SIM_HZ;
+@@ -68,6 +69,8 @@ export { ACCELERATION, ENGINE_SPEED } from "./brakes";
+ const SIDE_HIT_DISTANCE = 12;
+ /** How far ahead (mm) a train looks for a signal at red, and in what steps: well past its stopping distance. */
+ const SIGNAL_LOOK = 300;
++/** Ticks a train let into two-way track past a signal keeps its claim without being let in again (`twoWayBy`). */
++const TWO_WAY_KEEP = 2;
+ const SIGNAL_STEP = 12;
+ /** A train stands with its nose this far (mm) short of a red mark's joint (as sections' `STAND_SHORT`). */
+ const MARK_STAND = 6;
+@@ -359,6 +362,11 @@ export class Sim {
+    * `version` changes whenever an answer would. Null: no sections.
+    */
+   signalGate: { at(ref: number): number; version(): number; callOn?(ref: number, trainId: number): boolean } | null = null;
++  /**
++   * The two-way track a train's way takes past a signal (its piece and the end it leaves by), up to the next place it
++   * can pass a train coming the other way (two-way.ts, `twoWayBy`); null: none known (a train with no route).
++   */
++  twoWayGate: { stretch(trainId: number, ref: number): Stretch | null } | null = null;
+   /**
+    * Call-ons (the user's yes, 2026-11-14): a signal passed at red by a line-mate let into the line end behind the train
+    * standing there, to turn behind it (`signalGate.callOn`): by `${signal key}:${train id}`, the tick. For the invariants
+@@ -2105,6 +2113,8 @@ export class Sim {
+     }
+     stamp = (Math.imul(stamp, 0x01000193) ^ (this.pathLocks ? this.pathLocks.version() : 0)) | 0;
+     stamp = (Math.imul(stamp, 0x01000193) ^ (this.signalGate ? this.signalGate.version() : 0)) | 0;
++    if (this.twoWayHeld.size > 0) for (const [key, at] of this.twoWayHeld) if (this.ticks - at > TWO_WAY_KEEP) this.holdTwoWay(key, false);
++    stamp = (Math.imul(stamp, 0x01000193) ^ this.twoWayHeldVer) | 0;
+     // (Signals placed, moved or turned, and track laid or taken up, change blocks: worked out again then too, though no
+     // train moved. Before, a signal put down beside a standing train showed clear, the default, till a train moved.)
+     stamp = (Math.imul(stamp, 0x01000193) ^ this.layout.signalsVersion) | 0;
+@@ -2140,7 +2150,7 @@ export class Sim {
+       }
+       const by = this.isHeld(g) || this.isForced(g) ? -1 : this.blockOccupant(g, -1);
+       this.blockBy.set(g.key, by);
+-      const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;
++      const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1 && !this.twoWayHeld.has(g.key);
+       if (this.aspects.get(g.key) !== clear) {
+         this.aspects.set(g.key, clear);
+         this.signalsVersion++;
+@@ -2319,11 +2329,73 @@ export class Sim {
+       this.comingTo(g.key, false, dist);
+       return { by: -1 };
+     }
+-    if (!g.junction) return this.aspects.get(g.key) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
++    if (!g.junction) {
++      // (Its block's own red first: held, a train in it, a waiting point's. Else the two-way track beyond: shown red
++      // while it holds this train, `twoWayHeld`.)
++      const by = this.blockBy.get(g.key) ?? -1;
++      if (this.isHeld(g) || by !== -1 || this.gatedFor(g) !== -1) return this.aspects.get(g.key) === false ? { by } : null;
++      const facing = this.twoWayBy(train, g);
++      this.holdTwoWay(g.key, facing !== -1);
++      return facing === -1 ? null : { by: facing };
++    }
+     const r = this.pathFor(train, g, true, Math.max(0, dist));
+-    this.comingTo(g.key, r.clear, dist);
+-    return r.clear ? null : { by: r.by };
++    const facing = r.clear ? this.twoWayBy(train, g) : -1;
++    this.comingTo(g.key, r.clear && facing === -1, dist);
++    return r.clear && facing === -1 ? null : { by: facing !== -1 ? facing : r.by };
++  }
++
++  /**
++   * A signal clear for a train, its block free: is a train coming the other way on the two-way track beyond it (up to
++   * the next place they can pass, `stretchFrom`), or let into that track from its far end (`twoWay`)? That one (a train
++   * id), and the signal's red for this train; else −1, and this train is let in (noted, so one coming to the far end
++   * now is held: trains are asked one by one, so of two coming at once the first asked goes). An Always green signal
++   * the player set lets it by regardless. (two-way.ts: the complex map's head-ons, 2026-11-18.)
++   */
++  private twoWayBy(train: Train, g: SignalAt): number {
++    if (g.exit < 0 || this.isForced(g) || !this.twoWayGate) return -1;
++    const stretch = this.twoWayGate.stretch(train.id, connectorRef(g.pieceId, g.exit));
++    if (!stretch || stretch.size === 0) return -1;
++    for (const t of this.byId.values()) {
++      if (t === train || t.derailed) continue;
++      const d = driveOf(t);
++      if (d === 0) continue;
++      const lead = d > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1];
++      const on = stretch.get(lead.pieceId);
++      if (!on) continue;
++      const piece = this.layout.getPiece(lead.pieceId);
++      if (!piece) continue;
++      // (Its front on it, leaving its piece by the end this one would come onto it by: coming at it.)
++      if (pathExitConnector(getPieceDef(piece.type, piece.flipped), lead.pathIndex, d > 0 ? lead.reversed : !lead.reversed) === on.entry) return t.id;
++    }
++    for (const [id, c] of this.twoWay) {
++      if (id === train.id) continue;
++      // (Let in, and gone past its signal or no longer asking: its claim lapses. On the track now, it's seen above.)
++      if (this.ticks - c.tick > TWO_WAY_KEEP || !this.byId.has(id)) {
++        this.twoWay.delete(id);
++        continue;
++      }
++      if (meetHeadOn(stretch, c.stretch)) return id;
++    }
++    this.twoWay.set(train.id, { stretch, tick: this.ticks });
++    return -1;
++  }
++
++
++  /** Trains let into two-way track past a signal (`twoWayBy`): that track, and the tick it was last let in. */
++  private readonly twoWay = new Map<number, { stretch: Stretch; tick: number }>();
++
++  /**
++   * A plain signal red for the two-way track beyond it (`twoWayBy`), shown so (the block alone would show clear): kept
++   * while the train it holds asks each tick, let go the tick it's let in or stops asking (`TWO_WAY_KEEP`).
++   */
++  private holdTwoWay(key: number, held: boolean): void {
++    if (held) {
++      if (!this.twoWayHeld.has(key)) this.twoWayHeldVer++;
++      this.twoWayHeld.set(key, this.ticks);
++    } else if (this.twoWayHeld.delete(key)) this.twoWayHeldVer++;
+   }
++  private readonly twoWayHeld = new Map<number, number>();
++  private twoWayHeldVer = 0;
+ 
+   /**
+    * A train coming to a path signal, its stop point `dist` ahead, could go on (`clear`) or not: shown next tick if it's
+diff --git a/src/sim/two-way.ts b/src/sim/two-way.ts
+new file mode 100644
+index 00000000..8930d9b4
+--- /dev/null
++++ b/src/sim/two-way.ts
+@@ -0,0 +1,26 @@
++/**
++ * Two-way track beyond a signal (the user's complex map, 2026-11-18): plain block signals let two trains of different
++ * lines into one stretch of single track from its two ends, each into a free block, and they met between the signals
++ * nose to nose for good. A signal shows clear to a train only if no train is coming the other way on the track its way
++ * takes beyond it, up to the next place they can pass (`Sim.twoWayGate`: the economy's, a loop's road long enough for
++ * it in sections' topology), and none has been let into that track from its far end (the sim's claims, `twoWayBy`).
++ * It's the single-line rule sections keep for a managed line's trains (`comingAt`, `comingOnto`: one let into the
++ * single track from the far end is coming as surely as one on it), for trains the signals work.
++ */
++
++/** A stretch: each piece, with the ends a train going into it comes onto it by and leaves it by (−1: a stop it ends at). */
++export type Stretch = ReadonlyMap<number, { entry: number; exit: number }>;
++
++/**
++ * Do two trains going through these stretches meet head on: on a piece of both (of `b`'s, from its `from`th on), one
++ * leaving it by the end the other comes onto it by?
++ */
++export function meetHeadOn(a: Stretch, b: Stretch, from = 0): boolean {
++  let k = 0;
++  for (const [p, t] of b) {
++    if (k++ < from) continue;
++    const s = a.get(p);
++    if (s && (s.entry === t.exit || s.exit === t.entry)) return true;
++  }
++  return false;
++}

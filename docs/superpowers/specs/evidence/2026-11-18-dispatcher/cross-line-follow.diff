@@ -1,0 +1,39 @@
+diff --git a/src/economy/sections.ts b/src/economy/sections.ts
+index fdff6442..3dfdaddf 100644
+--- a/src/economy/sections.ts
++++ b/src/economy/sections.ts
+@@ -1386,7 +1386,7 @@ export class Sections {
+           const inBy = connectorRef(at.pieceId, at.entry);
+           const way = depth === 0 ? s.ways?.find((w) => w.back === inBy) : undefined;
+           if (way && (!own || s.length + this.plainBehind(steps, through, topo) >= trainLength(own) + ROAD_MARGIN)) {
+-            if (u !== -1) return { steps, sections, through, dest: -1, outBy: -1, blockedBy: u };
++            if (u !== -1 && !this.rotates(s, way, st.engine, u)) return { steps, sections, through, dest: -1, outBy: -1, blockedBy: u };
+             const c = this.convoy(st, info, way);
+             return { steps, sections, through, dest: c === -1 ? slot : -1, outBy: -1, blockedBy: c };
+           }
+@@ -1874,6 +1874,25 @@ export class Sections {
+    * it one behind the other with the sim's gap: so clear of the signal at its way in and of points (a waiting point
+    * runs from its signal back to the next signal or points). The way `u` stands at (its way in, for `callOnAt`), or null.
+    */
++  /**
++   * Two lines' trains each waiting for the other's waiting point, going the same way round (Wren's map, 2026-11-18:
++   * Wren's way on ended in Juniper's waiting point and Juniper's in Wren's; neither could go first, and they stood for
++   * good): `engine`'s way into `u`'s waiting point, going `way`, is let in behind it when `u` stands at that way's far
++   * signal (it leaves the way this one comes on) waiting for `engine` and nothing else. This one's tail is soon out of
++   * its own waiting point, `u` is let into it, and the sim keeps this one back from `u` as it follows. Line-mates have
++   * their own rules (`followsInto`, `permits`).
++   */
++  private rotates(sl: Slot, way: SignalWay, engine: number, u: number): boolean {
++    const mine = this.host.lineOf(engine);
++    const theirs = this.host.lineOf(u);
++    if (mine < 0 || theirs < 0 || mine === theirs) return false;
++    const w = this.states.get(u);
++    if (!w || w.move || w.slot !== sl.id || !w.wait || !("engine" in w.wait) || w.wait.engine !== engine) return false;
++    const b = this.sim.findCar(u)?.train;
++    if (!b || Math.abs(b.speed) >= 1 || !b.bogies.every((x) => sl.pieces.has(x.pieceId))) return false;
++    return this.sim.redSignalAhead(b.id) === pieceOfRef(way.mark);
++  }
++
+   private permits(info: LineInfo, sl: Slot, engine: number, u: number): SignalWay | null {
+     if (!info.users.includes(u) || !info.users.includes(engine) || info.loose.includes(u) || info.loose.includes(engine)) return null;
+     const a = this.sim.findCar(engine)?.train;

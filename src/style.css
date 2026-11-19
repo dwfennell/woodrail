@@ -2344,3 +2344,12 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .gl-lost-card h2 { margin: 0; font-size: 22px; }
 .gl-lost-card p { margin: 0; line-height: 1.4; color: var(--ink-soft); }
 .gl-lost-card .chip { align-self: center; font-size: 17px; padding: 12px 22px; }
+
+/* Situation help (src/game/situation-tips.ts): a tip about the map now, stamped "Tip"; Learn more a link under its
+   line; Show where printed, not painted (the goal keeps the one painted Show me). */
+.tip-stamp { display: inline-block; margin-right: 4px; padding: 1px 6px 2px; font-family: "Woodrail Icons", "Nunito", system-ui, sans-serif; font-size: 11.5px; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.3; vertical-align: 2px; color: var(--stamp-gold-ink); border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--stamp-gold); transform: rotate(-2deg); }
+.tip-more { display: inline-flex; align-items: center; min-height: 44px; margin: 0; padding: 0; border: 0; background: none; font: inherit; font-size: 14px; font-weight: 800; line-height: 1.2; color: var(--blue-cut); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.goals-body .tip-buttons .tip-show.tip-where { color: var(--wood-ink); text-shadow: none; background: var(--sheen), var(--maple) !important; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -4px 0 var(--maple-cut), var(--block-drop) !important; }
+.goals-tip-badge { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; font-size: 15px; line-height: 1; border-radius: 5px; background: var(--sheen), var(--maple); box-shadow: inset 0 -2px 0 var(--maple-cut); }
+.goals:not(.collapsed) .goals-tip-badge { display: none; }
+.goals-tip-badge[hidden] { display: none; }

@@ -10,6 +10,8 @@ import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { chain, loopOn } from "../economy/loop-fixtures";
 import { topologyOf, trainLength } from "../economy/sections";
 import { HarnessRun, INVARIANTS, signal, type Report, type Scenario } from "./harness";
+import { JAM_FOLLOW } from "../game/situation-tips";
+import type { World } from "../game/world";
 
 const S: PieceTypeId = "straight-216";
 const STOP: PieceTypeId = "depot-forest";
@@ -228,6 +230,40 @@ describe("signals: sections' waiting points (step 3)", { timeout: 120_000 }, () 
     expect(stretch).toContain(Math.floor(spot / 8));
     run.layout.addSignal(spot);
     expect(waitingPoints(run)).toBe(1);
+  });
+
+  it("the follow hint says who waits (followWait), and the situation tip names the line and where they're bound", () => {
+    const run = new HarnessRun(new Layout(), followers(false, 14));
+    let found: ReturnType<typeof run.sections.followWait> = null;
+    for (let i = 0; i < 300 * SIM_HZ && !found; i++) {
+      run.step();
+      if (i % SIM_HZ === 0) found = run.sections.followWait();
+    }
+    expect(found).not.toBeNull();
+    expect(run.sections.followSpot()).toBe(found!.at);
+    expect(run.engines).toContain(found!.engine);
+    expect(run.engines).toContain(found!.lead);
+    expect(found!.lead).not.toBe(found!.engine);
+    // The detector on that wait (an economy's view of it, stubbed: one line, the waiting train bound for B).
+    const w = {
+      economy: {
+        sections: run.sections,
+        stalls: { stuckOf: () => null },
+        lineIdOf: new Map(run.engines.map((e) => [e, 1])),
+        lines: new Map([[1, { id: 1, name: "Red line" }]]),
+        routeOf: () => ({ stops: [{ depotId: 1 }, { depotId: 2 }], next: 1 }),
+      },
+    } as unknown as World;
+    const ctx = { learned: new Set(["routes"]), nameOf: (id: number) => (id === 2 ? "the sawmill" : "the forest") };
+    const sit = JAM_FOLLOW.look(w, ctx);
+    expect(sit?.title).toBe("Trains queuing on the Red line");
+    expect(sit?.text).toContain("reaches the sawmill");
+    expect(sit?.signalAt).toBe(found!.at);
+    expect(sit?.engine).toBe(found!.engine);
+    // Not before Signals is learned; not for a train the stall classifier says is stuck (another fix).
+    expect(JAM_FOLLOW.look(w, { ...ctx, learned: new Set() })).toBeNull();
+    const stuck = { ...w, economy: { ...(w as unknown as { economy: object }).economy, stalls: { stuckOf: () => ({ kind: "in-way", by: 0, loop: true }) } } } as unknown as World;
+    expect(JAM_FOLLOW.look(stuck, ctx)).toBeNull();
   });
 
   it("no follow hint where a train only waits for one coming the other way", () => {

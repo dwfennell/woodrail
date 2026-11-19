@@ -1,4 +1,5 @@
 import { dateText } from "../game/calendar";
+import { EXPLAINER_TITLES, type ExplainerId } from "./explainer-keys";
 import { GOALS, type Goal, type GoalProgress } from "../game/goals";
 import { type Journal, type JournalEntry, type JournalPlace } from "../game/journal";
 import { STICKERS, type Sticker, type StickerTheme } from "../game/stickers";
@@ -81,22 +82,41 @@ export interface GoalsPanelHandlers {
   showTip?(): void;
   /** The tip was tapped away ("Got it"): it goes for good. */
   tipDone?(id: string): void;
+  /** A situation tip's Learn more: its explainer sheet. */
+  learnMore?(id: ExplainerId): void;
   /** An achievement's Show me: fly to its grand project's site (or, not started, to a City ★ to start it from). */
   showGrand?(id: string): void;
   /** An achievement's "Build it in" row: that town's card, on the project (its Start ringed) or on Grow. */
   showGrandIn?(id: string, townId: number): void;
 }
 
-/** A tip shown on the Goals tab (`FeatureTip`, src/game/feature-tips.ts): a new system and how to use it. */
+/**
+ * A tip shown on the Goals tab: a new system and how to use it (`FeatureTip`, src/game/feature-tips.ts), or a
+ * situation on the map and its fix (`situation`: src/game/situation-tips.ts).
+ */
 export interface TipShown {
   id: string;
   title: string;
   text: string;
+  situation?: {
+    /** The chip's short title, while its toast is up ("Trains queuing"). */
+    short: string;
+    /** Its explainer, for the Learn more link. */
+    more?: ExplainerId;
+  };
 }
 
-/** The tip's row: 💡 its name and line, Show me and Got it. */
+/**
+ * The tip's row: 💡 its name and line, Show me and Got it. A situation tip is stamped "Tip" (a feature tip says
+ * "New:"), has a Learn more link under its line, and a printed Show where (the goal keeps the one painted Show me).
+ */
 export function tipRowHtml(t: TipShown): string {
-  return `<div class="goal feature-tip" data-feature-tip="${escapeHtml(t.id)}"><span class="goal-box tip-box" aria-hidden="true">💡</span><div><b>New: ${escapeHtml(t.title)}</b><p>${escapeHtml(t.text)}</p><span class="tip-buttons"><button class="chip text tip-show" title="Show me where to use it">Show me</button><button class="chip text tip-done" title="Hide this tip">Got it</button></span></div></div>`;
+  const sit = t.situation;
+  const head = sit ? `<span class="tip-stamp">Tip</span> ${escapeHtml(t.title)}` : `New: ${escapeHtml(t.title)}`;
+  const more = sit?.more ? `<button class="tip-more" data-more="${sit.more}">Learn more about ${EXPLAINER_TITLES[sit.more].toLowerCase()} ›</button>` : "";
+  const show = sit ? `<button class="chip text tip-show tip-where" title="Show where">Show where</button>` : `<button class="chip text tip-show" title="Show me where to use it">Show me</button>`;
+  const done = `<button class="chip text tip-done" title="${sit ? "Hide tips like this" : "Hide this tip"}">Got it</button>`;
+  return `<div class="goal feature-tip${sit ? " situation-tip" : ""}" data-feature-tip="${escapeHtml(t.id)}"><span class="goal-box tip-box" aria-hidden="true">💡</span><div><b>${head}</b><p>${escapeHtml(t.text)}</p>${more}<span class="tip-buttons">${show}${done}</span></div></div>`;
 }
 
 /**
@@ -129,6 +149,10 @@ export class GoalsPanel {
   /** The sticker whose ticket is open. */
   private picked: string | null = null;
   private readonly bell = document.createElement("span");
+  /** A situation tip under the goals, said on the chip as a 💡 beside the bell (the goal keeps the chip's words). */
+  private readonly tipBadge = document.createElement("span");
+  /** The situation tip's toast is up: the chip says the tip's short title for now. */
+  private tipLoud = false;
   private readonly newsBadge = document.createElement("span");
   private tab: Tab = "goals";
   /** The journal entry each News row shows, and the newest entry seq drawn, so a new entry adds to the list in place. */
@@ -163,6 +187,10 @@ export class GoalsPanel {
     this.now.className = "goals-now";
     this.bell.className = "goals-bell";
     this.bell.hidden = true;
+    this.tipBadge.className = "goals-tip-badge";
+    this.tipBadge.textContent = "💡";
+    this.tipBadge.title = "A tip under the goals";
+    this.tipBadge.hidden = true;
     this.dot.className = "goals-dot";
     this.dot.hidden = true;
     this.dot.title = "A sticker earned! Finish the goals to see your stickers.";
@@ -171,7 +199,7 @@ export class GoalsPanel {
     fold.className = "goals-fold";
     fold.setAttribute("aria-hidden", "true");
     fold.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>`;
-    head.append(this.count, this.bell, this.dot, this.now, fold);
+    head.append(this.count, this.bell, this.tipBadge, this.dot, this.now, fold);
     this.head = head;
     head.setAttribute("aria-expanded", String(!this.root.classList.contains("collapsed")));
     head.addEventListener("click", (e) => {
@@ -305,6 +333,11 @@ export class GoalsPanel {
         e.stopPropagation();
         this.setOpen(false);
         handlers.showTip?.();
+      }
+      const more = t.closest<HTMLElement>(".tip-more");
+      if (more) {
+        e.stopPropagation();
+        handlers.learnMore?.(more.dataset.more as ExplainerId);
       }
       const gone = t.closest<HTMLElement>(".tip-done");
       if (gone) {
@@ -582,8 +615,9 @@ export class GoalsPanel {
   }
 
   /** The tip to show under the goals (null: none). Drawn with the next `show`; cheap when unchanged. */
-  setTip(tip: TipShown | null): void {
+  setTip(tip: TipShown | null, loud = false): void {
     this.tip = tip;
+    this.tipLoud = loud && !!tip?.situation;
   }
 
   /**
@@ -591,17 +625,21 @@ export class GoalsPanel {
    * wait for blueprints (`locked` says which to learn).
    */
   show(done: number, current: Goal | null, progress: GoalProgress | null, next: Goal | null, total = GOALS.length, locked: string | null = null, lockedCount = 0): void {
-    const key = `${done}|${total}|${lockedCount}|${current?.id}|${progress?.count}|${progress?.hint}|${next?.id}|${locked}|${this.stickers.open}|${this.stickers.earned.length}|${this.tip?.id}`;
+    const key = `${done}|${total}|${lockedCount}|${current?.id}|${progress?.count}|${progress?.hint}|${next?.id}|${locked}|${this.stickers.open}|${this.stickers.earned.length}|${this.tip?.id}|${this.tip?.title}|${this.tip?.text}|${this.tipLoud}`;
     if (key === this.shownKey) return;
     const fresh = this.shownKey !== "" && !this.shownKey.startsWith(`${done}|`);
     this.shownKey = key;
     this.count.textContent = goalsCountText(done, total, lockedCount);
     // (Every goal done, or one waiting for blueprints: a tip, folded, says itself on the chip, with its Show me.)
-    this.goalShown = !!current;
-    const tipChip = !current && this.tip ? `💡 ${this.tip.title}` : null;
-    this.now.textContent = current?.title ?? tipChip ?? locked ?? (this.stickers.open ? `Goals ✓ · 🌟 ${this.stickers.earned.length} / ${STICKERS.length}` : "All done!");
+    const tipChip = !current && this.tip ? `💡 ${this.tip.situation?.short ?? this.tip.title}` : null;
+    // (A situation tip says itself on the chip only while its toast is up; then a 💡 beside the bell.)
+    const loud = this.tipLoud && this.tip?.situation ? `💡 ${this.tip.situation.short}` : null;
+    this.tipBadge.hidden = !(this.tip?.situation && current && !loud);
+    // (While the chip says the tip, its Show me is the tip's.)
+    this.goalShown = !!current && !loud;
+    this.now.textContent = loud ?? current?.title ?? tipChip ?? locked ?? (this.stickers.open ? `Goals ✓ · 🌟 ${this.stickers.earned.length} / ${STICKERS.length}` : "All done!");
     this.showBtn.hidden = !current && !this.tip;
-    this.showBtn.title = current || !this.tip ? "Show me where to do this goal" : `Show me where to use ${this.tip.title}`;
+    this.showBtn.title = this.goalShown || !this.tip ? "Show me where to do this goal" : `Show me where to use ${this.tip.title}`;
     this.showBtn.setAttribute("aria-label", this.showBtn.title);
     this.fitShow();
     const tipRow = this.tip ? tipRowHtml(this.tip) : "";

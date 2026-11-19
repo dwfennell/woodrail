@@ -140,7 +140,9 @@ import { MAX_TRACKS, planTracks, TRACK_PRICES, TRACK_ROLES, TRACKS_TECH, tracksA
 import { TURNTABLE_CONTROLS } from "./game/deck-roads";
 import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upgradeLand, type StationUpgrade } from "./game/station-upgrade";
 import { propsInRect } from "./props/placement";
-import { hintSeen, loadChainHints, loadMuted, markHintSeen, saveChainHints, saveMuted } from "./ui/prefs";
+import { hintSeen, loadChainHints, loadMuted, loadTipsOn, markHintSeen, saveChainHints, saveMuted, saveTipsOn } from "./ui/prefs";
+import { SituationTracker, type Situation } from "./game/situation-tips";
+import { postAt } from "./game/signal-place";
 import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game/chains";
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
@@ -595,6 +597,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       sendCrane: () => sendCrane(),
       showPlace: (id) => showPlace(id),
       toggleChainHints: () => setChainHints(!chainHintsOn),
+      toggleTips: () => setTipsOn(!tipsOn),
       tabOpened: (id) => {
         // Sandbox's Industries tab: the industries' models (Game mode's set) come in the first time it opens.
         if (id !== "industries" || mode !== "sandbox") return;
@@ -1573,7 +1576,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A Game railway no game is open for, the starter map from a first start: it becomes one.)
     if (mode === "game" && slots.openId === null) slots.startUp();
     const slot = mode === "game" ? slots.openTag() : null;
-    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON(), ...(slot ? { slot } : {}) });
+    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON(), ...(slot ? { slot } : {}), ...(mode === "game" ? { situations: situations.toJSON() } : {}) });
     if (mode === "game") {
       const data = progress.toJSON();
       saveProgress(data);
@@ -1609,6 +1612,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showDate();
     if (s) journal.restore(s.journal);
     else journal.clear();
+    // This game's situation tips; an older session without them carries the device's "told once" for the follow tip.
+    situations = new SituationTracker(s?.situations ?? null);
+    if (s && !s.situations && oldFollowTold()) situations.markDone("jam-follow");
     // A v12 Game save's offers: drawn again as cards on its own map.
     if (m === "game" && fromSave && redrawOldOffers(progress, game.world, Math.random)) saveProgress(progress.toJSON());
     if (s) {
@@ -1617,6 +1623,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.setPaused(s.paused);
     }
     goalsPanel.newsChanged();
+  }
+  /** The device-wide "told once" of the follow toast before situation tips (`woodrail.followTip`). */
+  function oldFollowTold(): boolean {
+    try {
+      return localStorage.getItem("woodrail.followTip") === "1";
+    } catch {
+      return false;
+    }
   }
   /** False while the title is up. */
   let playing = false;
@@ -2031,6 +2045,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let stickersOpen = false;
   /** Feature tips (src/game/feature-tips.ts): a 💡 row under the goals for a system just learned, till it's used. */
   let tips = ((t) => new TipTracker(t.done, t.shown))(loadTips());
+  /** Situation tips (src/game/situation-tips.ts): a 💡 row for a jam on the map now. This game's: saved in its session. */
+  let situations = new SituationTracker();
+  /** ☰ Tips: on unless switched off (this device). Off, no 💡 row at all. */
+  let tipsOn = loadTipsOn();
+  /** Till when (performance.now) the chip says the situation tip, its toast up. */
+  let situationLoudUntil = 0;
   // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
   // Refusals aren't logged: they stay plain `hud.toast`s.
   // On game time: "2 min ago" means two minutes of play (it stands still while paused).
@@ -2046,11 +2066,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         showStickers();
       },
       showTip: () => showTip(),
+      learnMore: (id) => {
+        situations.looked(game.simSeconds);
+        hud.showExplainer(id);
+      },
       showGrand: (id) => showGrandSite(id),
       showGrandIn: (id, townId) => showGrandIn(id, townId),
       tipDone: (id) => {
-        tips.finish(id);
-        saveTips(tips.toJSON());
+        if (situations.current()?.id === id) {
+          // (Kept with the game's session, saved with the next save or on leaving.)
+          situations.dismiss(id, game.simSeconds);
+        } else {
+          tips.finish(id);
+          saveTips(tips.toJSON());
+        }
         checkGoals(false);
       },
     },
@@ -2309,9 +2338,57 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function checkTips(announce: boolean): void {
     const { first, changed } = tips.update(game.world, tipContext());
     if (changed) saveTips(tips.toJSON());
-    if (first && announce) hud.toast(`💡 ${first.text}`, false, 6000, () => showTip());
+    // Situation tips (a jam on the map now): never in the tutorial, nor with ☰ Tips off; one at a time, before a
+    // feature tip. Looked for on the game's clock (nothing while paused), from the goals' check, never per frame.
+    const sit = mode === "game" ? situations.update(game.world, { learned: progress.learned, nameOf: (id) => routeStops(game.world).find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id) }, { now: game.simSeconds, quiet: !tipsOn || goals.inTutorial() }) : null;
+    if (sit?.fixed && announce) hud.toast(sit.fixed.fixed, true, 3200);
+    if (sit?.first && announce) {
+      situationLoudUntil = performance.now() + 8000;
+      hud.toast(`💡 ${sit.first.toast} · Show where ›`, false, 8000, () => showSituation());
+    }
+    if (first && announce && tipsOn) hud.toast(`💡 ${first.text}`, false, 6000, () => showTip());
+    const s = situations.current();
     const t = tips.current();
-    goalsPanel.setTip(t ? { id: t.id, title: t.title, text: t.text } : null);
+    if (!tipsOn) goalsPanel.setTip(null);
+    else if (s) goalsPanel.setTip({ id: s.id, title: s.title, text: s.text, situation: { short: s.short, more: s.more } }, performance.now() < situationLoudUntil);
+    else goalsPanel.setTip(t ? { id: t.id, title: t.title, text: t.text } : null);
+  }
+
+  /** ☰ Tips on or off (this device). Back on, the kinds hidden with Got it in this game may show again. */
+  function setTipsOn(on: boolean): void {
+    tipsOn = on;
+    saveTipsOn(on);
+    hud.setTips(on);
+    if (on) situations.showAgain();
+    else situations.hide();
+    checkGoals(false);
+  }
+
+  /**
+   * A situation tip's Show where: for a queue a signal would split, the waiting train and the spot framed together,
+   * the ghost signal and its block's tint there, "Put a signal here" over it, and the Signal ringed on its shelf.
+   */
+  function showSituation(): void {
+    const s: Situation | null = situations.current();
+    if (!s) return;
+    situations.looked(game.simSeconds);
+    situationLoudUntil = 0;
+    if (s.signalAt === undefined) return;
+    const post = postAt(game.layout, s.signalAt);
+    if (!post) return;
+    interaction.showSignalSpot(s.signalAt);
+    const pts = [new Vector3(post.x, 0, post.z)];
+    const b = s.engine === undefined ? undefined : game.sim.findCar(s.engine)?.train.bogies[0];
+    const at = b ? game.layout.getPiece(b.pieceId)?.pose : undefined;
+    if (at) pts.push(new Vector3(at.x, 0, at.z));
+    const f = frameAlong(pts.map((p) => ({ x: p.x, z: p.z })), game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+    frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length, f.theta ?? undefined);
+    hud.openTray("track", "Signals");
+    hud.pointAtTile("signal");
+    // (Up longer than a goal's names: a moment to find the Signal on its shelf.)
+    const labels = goalLabels(game.camera, game.canvas, [{ x: post.x, y: post.y + 90, z: post.z, text: "Put a signal here" }], 10);
+    if (labels) game.flourishes.add(labels);
+    game.invalidate();
   }
 
   // Game mode's toy box and workshop: what you own (worked out against what's on the map), and what's being made.
@@ -6990,6 +7067,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** The tip's Show me: where to use it (an industry's card, a hill by the line, the tray's shelf, the research board). */
   function showTip(): void {
+    if (situations.current()) {
+      showSituation();
+      return;
+    }
     const tip = tips.current();
     if (!tip) return;
     const guide: TipGuide = tip.guide(game.world, tipContext());
@@ -7058,6 +7139,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     saveStickersSeen([]);
     stickersOpen = false;
     tips = new TipTracker();
+    situations = new SituationTracker();
     saveTips(tips.toJSON());
     journal.clear();
     growth = null;
@@ -7173,6 +7255,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Sandbox's chain hints (see `showDepotChain`); its own industries' models, if the map has any of Game mode's kinds.
     interaction.depotChain = chainsShown() ? showDepotChain : null;
     hud.setChainHints(chainHintsOn);
+    hud.setTips(tipsOn);
     hideChainHints();
     if (mode === "sandbox" && game.economy.allDepots().some((d) => INDUSTRY_ROLE[game.layout.getPiece(d.pieceId)?.type ?? "straight-216"] && d.role !== "forest" && d.role !== "sawmill")) ensureGameModels();
     // (A town's card: its ledger in Game mode, its goods in Sandbox.)
@@ -7526,9 +7609,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   })();
   let followLooked = 0;
   function lookForFollowers(): void {
-    if (followTold || Math.abs(game.simSeconds - followLooked) < 1) return;
+    // (Game mode: the situation tip says it, src/game/situation-tips.ts. Sandbox: this toast, once a device.)
+    if (mode === "game" || followTold || Math.abs(game.simSeconds - followLooked) < 1) return;
     followLooked = game.simSeconds;
-    if (mode === "game" && !progress.learned.has("routes")) return;
     const at = game.economy.sections.followSpot();
     if (at === -1) return;
     followTold = true;
@@ -7724,7 +7807,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   hud.setHistory(false, false);
   updateConnections(false);
 
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving, slots });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, situations: () => situations, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving, slots });
   // (Its code is loaded the first time it's shown.)
   const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m)), lazyFailed) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));

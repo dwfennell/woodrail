@@ -1,0 +1,26 @@
+import { it } from "vitest";
+import { readFileSync } from "node:fs";
+import { loadBugMap } from "./bugmap";
+import { SIM_HZ } from "../sim/sim";
+it("play", async () => {
+  const { world } = await loadBugMap(readFileSync(process.env.MAP!, "utf8"));
+  const ec = world.economy as any; const sx = ec.sections;
+  const engines = [...ec.lineIdOf.keys()] as number[];
+  const stops = new Map<number, number>(), stuck = new Map<number, number>(), held = new Map<number, number>(), aside = new Map<number, number>();
+  const at = new Map<number, boolean>();
+  const secs = Number(process.env.SECS ?? 600);
+  for (let i = 0; i < secs * SIM_HZ; i++) {
+    world.sim.tick(); world.economy.tick();
+    if (i % SIM_HZ) continue;
+    for (const e of engines) {
+      const r = ec.routeOf(e); const now = !!r?.at; if (now && !at.get(e)) stops.set(e, (stops.get(e) ?? 0) + 1); at.set(e, now);
+      if (ec.stalls.stuckOf(e)) stuck.set(e, (stuck.get(e) ?? 0) + 1);
+      if (sx.heldForRoom(e)) held.set(e, (held.get(e) ?? 0) + 1);
+      if (sx.lettingBy(e) >= 0) aside.set(e, (aside.get(e) ?? 0) + 1);
+    }
+  }
+  const info = sx.line(ec.lineIdOf.get(engines[0]));
+  console.log("TOPO loops", info.topo.loops.length, "line loops", JSON.stringify(engines.map((e) => [ec.lineIdOf.get(e), sx.line(ec.lineIdOf.get(e)).loops])));
+  process.stdout.write("\nPLAY " + [process.env.MAP!.split("/").pop(), JSON.stringify(engines.map((e) => ({ e, L: ec.lineIdOf.get(e), stops: stops.get(e) ?? 0, stuck: stuck.get(e) ?? 0, room: held.get(e) ?? 0, aside: aside.get(e) ?? 0 })))].join(" ") + "\n");
+  process.stdout.write("\nSUM " + ["stops", [...stops.values()].reduce((a, b) => a + b, 0), "stuck-s", [...stuck.values()].reduce((a, b) => a + b, 0), "aside-s", [...aside.values()].reduce((a, b) => a + b, 0), "trains-with-0-stops", engines.filter((e) => !stops.get(e)).length].join(" ") + "\n");
+}, 900000);
