@@ -15,6 +15,7 @@ import { Stalls } from "./stalls";
 import { Breakdown } from "./breakdown";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
+import { Dispatcher } from "../routing/dispatcher";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone } from "../routing/via";
 import { RoadVehicles } from "../roads/vehicles";
 import { driveOf, trainLength } from "../sim/train-cars";
@@ -736,7 +737,7 @@ export class Economy {
       lapRule: (engine) => this.sections.lapRule(engine),
       owner: (engine) => this.ownerOf(engine),
       drive: (train) => this.drive(train),
-      granted: (engine) => this.sections.steerHint(engine),
+      granted: (engine) => (this.dispatcher ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine)),
       awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
       soon: this.sections.steerSoon,
       fullAt: (engine) => this.fullAt(engine),
@@ -749,7 +750,7 @@ export class Economy {
     sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
-      routeWait: (engine) => this.router.waitingOn(engine),
+      routeWait: (engine) => this.dispatcher?.waitingOn(engine) ?? this.router.waitingOn(engine),
       // (A train with no stops goes anywhere: it gives way first.)
       routed: (engine) => (this.routes.get(engine)?.stops.length ?? 0) > 0,
       goal: (engine) => this.goalOf(engine, 0),
@@ -2771,8 +2772,43 @@ export class Economy {
     if (depot === 0) return 0;
     const kit = this.kitStops.cap(train);
     if (kit === 0) return 0;
-    return Math.min(depot, kit, this.sections.cap(train), this.router.speedCap(train));
+    // (With the dispatcher on (§8 step 2), its holds in place of sections'.)
+    const held = this.dispatcher ? this.dispatcher.cap(train) : this.sections.cap(train);
+    return Math.min(depot, kit, held, this.router.speedCap(train));
   }
+
+  /**
+   * The dispatcher (routing/dispatcher.ts, dispatcher spec §8 step 2): behind a setting, off by default. On, it grants
+   * track to routed trains in place of sections' holds, steering hints and signal gate; off, as before.
+   */
+  dispatcher: Dispatcher | null = null;
+
+  useDispatcher(on: boolean): void {
+    if (on === !!this.dispatcher) return;
+    const sim = this.sim;
+    if (on) {
+      const d = new Dispatcher({
+        layout: this.layout,
+        sim,
+        route: (e) => {
+          const route = this.routeOf(e);
+          if (!route || route.stops.length === 0) return null;
+          const stops = route.stops.map((x) => this.depot(x.depotId)?.pieceId ?? -1);
+          return stops.every((p) => p >= 0) ? { stops, next: route.next, at: !!route.at } : null;
+        },
+        // (Busy: the depot or a kit's stop holds it (working, its dwell), or it's turning back: it asks for nothing.)
+        busy: (train) => train.turnback >= 0 || this.depotCap(train) === 0 || this.kitStops.cap(train) === 0,
+        drive: (train) => this.drive(train),
+      });
+      this.dispatcher = d;
+      this.gateBefore = sim.signalGate;
+      sim.signalGate = { at: (ref) => d.gateAt(ref), version: () => d.gateVersion() };
+    } else {
+      this.dispatcher = null;
+      sim.signalGate = this.gateBefore;
+    }
+  }
+  private gateBefore: Sim["signalGate"] = null;
 
   /**
    * The speed limit a depot puts on a powered train: on an automatic depot where one of its cars has work, it pulls up
@@ -3333,6 +3369,8 @@ export class Economy {
     if (this.stopsClear.size > 0) for (const engine of [...this.stopsClear.keys()]) this.stopIfClear(engine);
     // Switches ahead of routed trains (routing/router.ts; nothing with none).
     this.router.tick();
+    // (The dispatcher, where it's on: grants on events.)
+    this.dispatcher?.tick();
     // Trains stuck for good, for their cards (every CHECK_TICKS, with two trains or more).
     this.stalls.tick();
     // Breakdown cranes driving out and lifting trains (a look every half second with none at work).

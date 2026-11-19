@@ -29,7 +29,7 @@
  */
 import type { Layout } from "../track";
 import { SIM_HZ, type Sim, type Train } from "../sim";
-import { whyBlocked, withDetours, statsLast, blockerOf, bodyOf, buildTrain, DISPATCH_STATES, judgeStretch, relocate, search, snapsOf, stretchOf, type DTrain, type RouteView, type Snap } from "./stretch";
+import { FAIR_TURNS, REROUTE_AFTER_S, whyBlocked, withDetours, statsLast, blockerOf, bodyOf, buildTrain, DISPATCH_STATES, judgeStretch, relocate, search, snapsOf, stretchOf, type DTrain, type RouteView, type Snap } from "./stretch";
 
 export const DKINDS = ["grant-held", "hold-granted:blocked", "hold-granted:follow", "hold-granted:order", "reroute", "reroute-stuck", "fair-turn", "backup", "no-order", "order-found", "order-found-detour", "order-found-backup"] as const;
 export type DKind = (typeof DKINDS)[number];
@@ -38,13 +38,6 @@ export type DKind = (typeof DKINDS)[number];
 const LOOK_TICKS = 12;
 /** A train standing this long (s), granted, is a grant-held. */
 export const HELD_S = 5;
-/**
- * A detour is looked for only once the train has stood this long (s) (§10's `REROUTE_AFTER`: not while the wait is
- * young; a short wait often clears by itself, and planning detours is a decision's dearest part).
- */
-export const REROUTE_AFTER_S = 10;
-/** Held this many decisions in a row with its move free: its turn comes, at the cost of at most one train's delivery. */
-export const FAIR_TURNS = 8;
 /** A train stuck (today's stalls) this long (s) is a jam. */
 export const JAM_S = 30;
 

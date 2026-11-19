@@ -45,6 +45,13 @@ import type { Economy } from "../economy/economy";
  * decisions (10,212 against 6,416) and left 17 jams unjudged against 7 (2026-11-19).
  */
 export const SIGNAL_WAITS = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DISPATCH_SIGNAL_WAITS === "1";
+/**
+ * A detour is looked for only once the train has stood this long (s) (§10's `REROUTE_AFTER`: not while the wait is
+ * young; a short wait often clears by itself, and planning detours is a decision's dearest part).
+ */
+export const REROUTE_AFTER_S = 10;
+/** Held this many decisions in a row with its move free: its turn comes, at the cost of at most one train's delivery. */
+export const FAIR_TURNS = 8;
 /** The stops ahead a train's goal is (its next stop is 1). */
 export const HORIZON = 1;
 /** Stops ahead its booked way runs to (past its goal: room to move on out of the others' way). */
@@ -171,6 +178,10 @@ export interface DTrain {
   frontLen: Float64Array;
   /** The highest piece id on its way (for sizing a search's tables). */
   maxPiece: number;
+  /** The joint at each node's front, the way it runs (`connectorRef` of its front piece's exit; −1: none). */
+  frontRef: Int32Array;
+  /** A turn node (it has just turned at a line's end). */
+  turned: Uint8Array;
   /** Where it stands now, and its goal (a main node; −1: none). */
   at: number;
   goal: number;
@@ -244,6 +255,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
   const frontEn: number[] = [];
   const frontLen: number[] = [];
   const atSignal: boolean[] = [];
+  const frontRef: number[] = [];
   const node = (body: Elem[], stop: boolean, turn: boolean, sg: number, d: number, li: number) => {
     const ps = body.map((e) => e.p);
     // (How much of its tail piece it covers (mm, from that piece's far end) and which way it runs onto it; its front's.)
@@ -255,6 +267,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     frontLen.push(body.length > 0 ? lenOf(layout, body[body.length - 1]) : 0);
     // (Its front at a signal facing its way: a waiting point if it rests clear of points there (§2.1).)
     const fr = body[body.length - 1];
+    frontRef.push(fr && fr.ex >= 0 ? connectorRef(fr.p, fr.ex) : -1);
     atSignal.push(SIGNAL_WAITS && !!fr && fr.ex >= 0 && !!layout.signalAt(connectorRef(fr.p, fr.ex)));
     const clear = ps.every((p) => !swOf(layout, p));
     pos.push(ps);
@@ -477,7 +490,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     }
     if (off.size === 0 || pos.length === detourFrom || !isStop.slice(detourFrom).some((x) => x)) {
       // (No other way to its stop: none.)
-      pos.length = rest.length = plain.length = seg.length = dist.length = isStop.length = turned.length = laneAt.length = tailCover.length = tailEn.length = frontEn.length = frontLen.length = atSignal.length = detourFrom;
+      pos.length = rest.length = plain.length = seg.length = dist.length = isStop.length = turned.length = laneAt.length = tailCover.length = tailEn.length = frontEn.length = frontLen.length = atSignal.length = frontRef.length = detourFrom;
       extra.length = 0;
     } else {
       for (let k = 0; k < pos.length - detourFrom; k++) {
@@ -514,6 +527,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
       frontEn.push(frontEn[m]);
       frontLen.push(frontLen[m]);
       atSignal.push(false);
+      frontRef.push(frontRef[m]);
       succ.push([m]);
       prev.push(m - 1);
       order.push(m - 0.5);
@@ -546,6 +560,8 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     tailEn: Int32Array.from(tailEn),
     frontEn: Int32Array.from(frontEn),
     frontLen: Float64Array.from(frontLen),
+    frontRef: Int32Array.from(frontRef),
+    turned: Uint8Array.from(turned, (b) => (b ? 1 : 0)),
     maxPiece: pos.reduce((m, ps) => ps.reduce((a, p) => (p > a ? p : a), m), 0),
     detour: Uint8Array.from({ length: n }, (_, i) => (i >= detourFrom && extra.length > 0 ? 1 : 0)),
     at,
@@ -690,6 +706,8 @@ export interface SearchOptions {
   backUps?: boolean | "standstill";
   /** Detours for stuck trains (default on). */
   detours?: boolean;
+  /** Pieces no member may have (granted to trains on their way over them: the dispatcher's holds in transit). */
+  taken?: ReadonlySet<number>;
   /** Members tried first (fair turns: longest waiter first); default their order. */
   order?: number[];
 }
@@ -907,6 +925,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   trains.forEach((t, i) => {
     if (!isMember[i]) for (const p of t.pos[t.at]) owner[p] = -1;
   });
+  if (opts.taken) for (const p of opts.taken) if (p <= maxP) owner[p] = -1;
   const goalOf = ts.map((t) => (t.fixed ? Infinity : t.goal));
   const of = ts.filter((t) => !t.fixed).length;
   const cur = Int32Array.from(ts.map((t) => t.at));

@@ -75,7 +75,7 @@ export type TrainState =
    * "Waiting for Bramble (hopper train) to clear the line to the mill" (`trainLabel`, `placeLabel`). `signalId`: the red
    * signal it stands at, when it does (as `red-signal`'s).
    */
-  | { kind: "line-wait-for"; by: number; to: number; holder: "sections" | "router"; signalId?: number }
+  | { kind: "line-wait-for"; by: number; to: number; holder: "sections" | "router" | "dispatcher"; signalId?: number }
   | { kind: "starting" }
   | { kind: "running" };
 
@@ -295,6 +295,12 @@ export interface Blocker {
 function lineWaitFor(economy: Economy, train: Train): TrainState | null {
   for (const car of train.cars) {
     if (car.kind !== "engine") continue;
+    // (The dispatcher on (§8 step 2): its holds are the waits.)
+    if (economy.dispatcher) {
+      const d = economy.dispatcher.waitingOn(car.id);
+      if (d) return { kind: "line-wait-for", by: d.engine, to: nextStopOf(economy, car.id), holder: "dispatcher" };
+      continue;
+    }
     const w = economy.sectionWait(car.id);
     const by = w && "engine" in w && w.engine >= 0 ? w.engine : -1;
     const r = by === -1 ? economy.router.waitOf(car.id) : null;

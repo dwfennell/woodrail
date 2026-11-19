@@ -25,6 +25,8 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
     if (ONLY && !ONLY.has(file)) continue;
     it(file, async () => {
       const { world } = await loadBugMap(text);
+      // (JAMS_DISPATCHER: the dispatcher acting (§8 step 2), in place of sections' holds.)
+      if (ENV.JAMS_DISPATCHER) world.economy.useDispatcher(true);
       const t0 = performance.now();
       // (JAMS_SHADOW: the dispatcher's first report (routing/dispatch-shadow.ts): each jam judged now and as it stood
       // `BEFORE_S` before it began, from where every train stood each second.)
@@ -107,7 +109,7 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
         };
       }
       const r = runJams(world, SECONDS, hooks);
-      const line = { map: file, jams: r.jams, arrivals: r.arrivals, longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}) };
+      const line = { map: file, jams: r.jams, arrivals: r.arrivals, longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}), ...(world.economy.dispatcher ? { dispatcher: { decisions: world.economy.dispatcher.decisions, grants: world.economy.dispatcher.grants, detours: world.economy.dispatcher.detours, heldBlocked: world.economy.dispatcher.heldBlocked, heldOrder: world.economy.dispatcher.heldOrder, notes: world.economy.dispatcher.notes, perTrain: Object.fromEntries(world.economy.dispatcher.perTrain), offWay: world.economy.dispatcher.offWay, offNotes: world.economy.dispatcher.offNotes } } : {}) };
       (globalThis as { process?: { stdout: { write(s: string): void } } }).process?.stdout.write(`\nJAMS ${JSON.stringify(line)}\n`);
     }, 3_600_000);
   }
