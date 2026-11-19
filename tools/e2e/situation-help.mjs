@@ -102,7 +102,7 @@ const idleFrames = () =>
   });
 /** Paused or not, by the top bar's Pause button (not what's tested). */
 const pause = async (on) => {
-  if ((await p.evaluate(() => window.woodrail.paused)) !== on) await tapSel('.actions button[title^="Pause"], .actions button[title^="Play"], .actions button[title^="Run"]');
+  if ((await p.evaluate(() => window.woodrail.paused)) !== on) await tapSel('.actions button[aria-label^="Pause"]');
   if ((await p.evaluate(() => window.woodrail.paused)) !== on) await p.keyboard.press("Space");
   await frames();
 };
@@ -363,7 +363,7 @@ check("7. after a reload the tip is still done (saved with the game)", kept.done
 await p.keyboard.press("Escape");
 /** ☰ open (a tap on Menu only if it's shut: a second tap shuts it), and done appearing. */
 const menuOpen = async () => {
-  if (await p.evaluate(() => document.querySelector(".menu")?.hidden !== false)) await tapSel('button[title="Menu"]');
+  if (await p.evaluate(() => document.querySelector(".menu")?.hidden !== false)) await tapSel('button[aria-label="Menu"]');
   await until(() => !document.querySelector(".menu")?.hidden, null, 5000);
   await p.waitForTimeout(400);
 };
