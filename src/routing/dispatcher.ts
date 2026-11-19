@@ -22,8 +22,8 @@
  */
 import { CAR_SPECS, flipCursor, stopDistance, type Cursor, type Sim, type Train } from "../sim";
 import { ACCELERATION } from "../sim/brakes";
-import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, indexOfRef, type Layout } from "../track";
-import { next } from "./graph";
+import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, indexOfRef, pointsWayFrom, type Layout } from "../track";
+import { next, waysFrom } from "./graph";
 import { STAND_SHORT } from "../economy/sections";
 import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
@@ -33,6 +33,8 @@ const LOOK_TICKS = 12;
 const TO_END = 1000;
 /** A granted train standing short of its hold's end this long (s) gives the rest back. */
 const GIVE_BACK_S = 3;
+/** A granted train standing short this long (s) has the signal it faces shown red (it isn't going yet). */
+const GATE_SHORT_S = 2;
 /** A waiting train counts once more in the search's goal for each this long (s) it has stood (fair turns). */
 const WEIGH_S = 20;
 /** A train asking, not decided this long (ticks), is decided again though nothing changed (2 s). */
@@ -61,6 +63,8 @@ interface Hold {
   /** The nodes from where it stands to `end` (the granted way), and per front piece on them the run (mm) beyond that piece's far end to the hold's end. */
   path: number[];
   rem: Map<number, number>;
+  /** Points on the way: the piece, the ends it's run in and out by, and its run (mm) to the hold's end from its near end. */
+  points: { p: number; en: number; ex: number; from: number }[];
   /** Steered by: a piece on a loop road or detour it's granted, the router's aim till it's passed (−1: none). */
   aim: number;
   /** Standing waiting since (tick; −1: not). */
@@ -197,7 +201,7 @@ export class Dispatcher {
         // hold's end over could hand it track it was never granted (a turned train's old end lies the other way).)
         this.setHold(h, t.at, []);
       } else {
-        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
+        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
         this.holdsBy.set(s.key, nh);
         this.setHold(nh, t.at, []);
       }
@@ -253,11 +257,14 @@ export class Dispatcher {
     const ends = !beyond || (this.host.layout.getPiece(beyond.pieceId)?.type.startsWith("buffer") ?? false);
     let run = toEnd && ends ? TO_END : 0;
     let last = -1;
+    h.points = [];
     for (let k = p.length - 1; k >= 0; k--) {
       const i = p[k];
       const fp = t.pos[i][t.pos[i].length - 1];
       if (fp === last) continue;
       if (!h.rem.has(fp)) h.rem.set(fp, run);
+      // (Points its front runs over on the way: they must lie for it before it may run onto them.)
+      if (k > 0 && t.frontRef[i] >= 0 && waysFrom(this.host.layout, fp, t.frontEn[i]).length > 1) h.points.push({ p: fp, en: t.frontEn[i], ex: indexOfRef(t.frontRef[i]), from: run + t.frontLen[i] });
       run += t.frontLen[i];
       last = fp;
     }
@@ -386,13 +393,27 @@ export class Dispatcher {
     const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
     const len = pathLength(getPieceDef(piece.type, piece.flipped).paths[c.pathIndex].geom);
     // (`s` runs the cursor's own way: what's left of the piece is the rest of it.)
-    return len - c.s + rem - CAR_SPECS[lead.kind].bogieInset - STAND_SHORT;
+    let gap = len - c.s + rem;
+    // (Points ahead on its way not lying for it yet (the router sets them as it comes): it stands short of them.)
+    for (const q of h.points) {
+      // (Ahead of its front piece: its run to the hold's end from its near end is no more than the front piece's beyond.)
+      if (q.from <= rem + 1 && q.p !== c.pieceId && !this.liesFor(q.p, q.en, q.ex)) gap = Math.min(gap, len - c.s + rem - q.from);
+    }
+    return gap - CAR_SPECS[lead.kind].bogieInset - STAND_SHORT;
   }
 
   /** Does it hold this train (a routed one with its lever on)? */
   holds(train: Train): boolean {
     const engine = train.cars.find((c) => c.kind === "engine");
     return !!engine && engine.lever !== 0 && this.holdsBy.has(engine.id);
+  }
+
+  /** Do these points lie for a run in by `en` and out by `ex`? */
+  private liesFor(p: number, en: number, ex: number): boolean {
+    const ways = waysFrom(this.host.layout, p, en, () => true);
+    if (ways.length < 2) return true;
+    const set = ways[pointsWayFrom(this.host.layout, p, en, ways.length)];
+    return !!set && set.exit === ex;
   }
 
   /** The speed limit a routed train's hold puts on it (Infinity: none: hand-run, parked, or not held). */
@@ -445,8 +466,9 @@ export class Dispatcher {
       for (const h of this.holdsBy.values()) {
         const ref = h.t.frontRef[h.end];
         if (ref >= 0 && layout.signalAt(ref)) next.set(ref, h.trainId);
-        // (Standing, held where it stands (not granted on): the signal it faces there shows red too.)
-        if (h.end !== h.t.at) continue;
+        // (Standing, held where it stands (not granted on), or granted but standing short a while (something else holds
+        // it: its grant goes back soon): the signal it faces there shows red too.)
+        if (h.end !== h.t.at && !(h.short >= 0 && sim.ticks - h.short >= GATE_SHORT_S * 120)) continue;
         const train = sim.getTrain(h.trainId);
         if (!train || train.speed !== 0) continue;
         const net = this.host.drive(train);

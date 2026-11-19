@@ -70,6 +70,13 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}): J
         for (const s of [100, 300, 50, 500]) {
           const placed = sim.addTrain(q.kinds, { pieceId: q.piece, pathIndex: 0, reversed: false, s });
           if (placed.kind !== "placed") continue;
+          // (Not onto a piece another train is on (the sim places it over points another is crossing): off again, the
+          // next spot tried, as a player would put it down clear.)
+          const mine = new Set(sim.getTrain(placed.trainId)!.bogies.map((b) => b.pieceId));
+          if ([...sim.trains()].some((o) => o.id !== placed.trainId && o.bogies.some((b) => mine.has(b.pieceId)))) {
+            putAway(sim, economy, sim.getTrain(placed.trainId)!.cars[0].id);
+            continue;
+          }
           const e = sim.getTrain(placed.trainId)!.cars[0].id;
           if (economy.lines.get(q.lineId)) joinLine(economy, e, q.lineId);
           else editLine(economy, e, (st) => st.push(...q.stops));

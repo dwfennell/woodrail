@@ -31,6 +31,7 @@
  * Nothing in the game runs it yet (shadow, §8 step 1).
  */
 import { connectorRef, getPieceDef, pathLength, type Layout } from "../track";
+import { blocksOf } from "../game/signal-place";
 import { next, waysFrom } from "./graph";
 import { plan, ROUTE_COSTS, type PlanState } from "./plan";
 import { elemsOf, isSwitch, piecesFor, type Elem } from "./oracle";
@@ -182,6 +183,12 @@ export interface DTrain {
   frontRef: Int32Array;
   /** A turn node (it has just turned at a line's end). */
   turned: Uint8Array;
+  /**
+   * Per node: the pieces of the plain signal block beyond its front (a signal at its front's joint facing its way, its
+   * block with no points in it), which a move on past it needs free as well as its own way (the sim shows that signal
+   * red while a train is anywhere in it); null: none.
+   */
+  blockAfter: (Int32Array | null)[];
   /** Where it stands now, and its goal (a main node; −1: none). */
   at: number;
   goal: number;
@@ -212,6 +219,21 @@ function swOf(layout: Layout, p: number): boolean {
   let v = m.get(p);
   if (v === undefined) m.set(p, (v = isSwitch(layout, p)));
   return v;
+}
+
+/** A plain block's pieces beyond the signal at `ref` (cached per layout and its signals' version); null: a path signal's. */
+const blockCache = new WeakMap<Layout, { ver: string; m: Map<number, Int32Array | null> }>();
+function plainBlock(layout: Layout, ref: number): Int32Array | null {
+  const ver = `${layout.signalsVersion}.${layout.revision}`;
+  let c = blockCache.get(layout);
+  if (!c || c.ver !== ver) blockCache.set(layout, (c = { ver, m: new Map() }));
+  let b = c.m.get(ref);
+  if (b === undefined) {
+    const pieces = [...blocksOf(layout, ref).ahead.keys()];
+    b = pieces.some((p) => swOf(layout, p)) ? null : Int32Array.from(pieces);
+    c.m.set(ref, b);
+  }
+  return b;
 }
 
 /** A loop's other road costing up to this much more (mm) than the booked one is one it may take (the router's). */
@@ -561,6 +583,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     frontEn: Int32Array.from(frontEn),
     frontLen: Float64Array.from(frontLen),
     frontRef: Int32Array.from(frontRef),
+    blockAfter: frontRef.map((ref) => (ref >= 0 && layout.signalAt(ref) ? plainBlock(layout, ref) : null)),
     turned: Uint8Array.from(turned, (b) => (b ? 1 : 0)),
     maxPiece: pos.reduce((m, ps) => ps.reduce((a, p) => (p > a ? p : a), m), 0),
     detour: Uint8Array.from({ length: n }, (_, i) => (i >= detourFrom && extra.length > 0 ? 1 : 0)),
@@ -760,6 +783,9 @@ function branchesOf(t: DTrain, i: number): Branch[] {
         // (Out of a close-up, its front piece is shared till then: still to be had.)
         const had = t.half[before] ? t.pos[before].subarray(0, t.pos[before].length - 1) : t.pos[before];
         for (const p of t.pos[nd]) if (!had.includes(p)) flat.push(p);
+        // (On past a plain signal: its whole block must be free too.)
+        const blk = t.blockAfter?.[before];
+        if (blk && t.frontRef[before] !== t.frontRef[nd]) for (const p of blk) if (!had.includes(p)) flat.push(p);
         before = nd;
       });
       off[path.length] = flat.length;
