@@ -119,4 +119,23 @@ describe("the per-stretch search (dispatcher spec §5)", () => {
     expect(r.order[0].k).toBe(0);
     expect(dt[k].detour[r.order[0].to]).toBe(1);
   });
+
+  it("part pieces: a train closes up into the piece the parked train ahead's tail is only part way onto", () => {
+    const layout = new Layout();
+    const ids = shuttleLine(layout, 8);
+    // (The parked one, 300 mm on 216 mm straights: its tail covers 84 mm of the far end of ids[4].)
+    const parked = { ...snap(layout, 1, [ids[3], ids[4], ids[5]], null, 300), lever: false };
+    const follower = snap(layout, 2, [ids[1], ids[2]], [ids[9], ids[0]], 300);
+    const ts = [buildTrain(layout, follower), buildTrain(layout, parked)];
+    const r = search(ts, [0, 1], { cap: 1000 });
+    const to = r.firstTo[0];
+    expect(to).toBeGreaterThanOrEqual(0);
+    expect(ts[0].half[to]).toBe(1);
+    expect([...ts[0].pos[to]].pop()).toBe(ids[4]);
+    // (A train whose tail covers the piece nearly whole leaves no room: a node back.)
+    const long = { ...snap(layout, 1, [ids[3], ids[4], ids[5]], null, 420), lever: false };
+    const r2 = search([buildTrain(layout, follower), buildTrain(layout, long)], [0, 1], { cap: 1000 });
+    const t2 = buildTrain(layout, follower);
+    expect(t2.half[r2.firstTo[0]] ?? 0).toBe(0);
+  });
 });

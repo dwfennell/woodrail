@@ -13,6 +13,8 @@
  * - **reroute:** the dispatcher would grant it its move by a loop's other road, not its booked one.
  * - **reroute-stuck:** no order keeps its stretch going, but its detour does (§2.2 step 4: another way to its next
  *   stop, off the track the trains in its way stand on, however far round): it would be sent round.
+ * - **fair-turn:** held `FAIR_TURNS` decisions in a row with its move free (another went first each time), it's granted
+ *   anyway, if that costs at most one other train's delivery and leaves some delivering (fair turns, §2.2, §6).
  * - **backup:** no order keeps the stretch going; one with a back-up does (whose).
  * - **no-order:** a jam today (stuck `JAM_S`) where the dispatcher finds no order either: expected (the layout).
  * - **order-found:** a jam today where the dispatcher finds an order that keeps every train in the stretch delivering
@@ -27,15 +29,22 @@
  */
 import type { Layout } from "../track";
 import { SIM_HZ, type Sim, type Train } from "../sim";
-import { withDetours, statsLast, blockerOf, bodyOf, buildTrain, DISPATCH_STATES, judgeStretch, relocate, search, snapsOf, stretchOf, type DTrain, type RouteView, type Snap } from "./stretch";
+import { whyBlocked, withDetours, statsLast, blockerOf, bodyOf, buildTrain, DISPATCH_STATES, judgeStretch, relocate, search, snapsOf, stretchOf, type DTrain, type RouteView, type Snap } from "./stretch";
 
-export const DKINDS = ["grant-held", "hold-granted:blocked", "hold-granted:follow", "hold-granted:order", "reroute", "reroute-stuck", "backup", "no-order", "order-found", "order-found-detour", "order-found-backup"] as const;
+export const DKINDS = ["grant-held", "hold-granted:blocked", "hold-granted:follow", "hold-granted:order", "reroute", "reroute-stuck", "fair-turn", "backup", "no-order", "order-found", "order-found-detour", "order-found-backup"] as const;
 export type DKind = (typeof DKINDS)[number];
 
 /** How often (ticks) it looks for events: sections' asks' rate (10 a second). */
 const LOOK_TICKS = 12;
 /** A train standing this long (s), granted, is a grant-held. */
 export const HELD_S = 5;
+/**
+ * A detour is looked for only once the train has stood this long (s) (§10's `REROUTE_AFTER`: not while the wait is
+ * young; a short wait often clears by itself, and planning detours is a decision's dearest part).
+ */
+export const REROUTE_AFTER_S = 10;
+/** Held this many decisions in a row with its move free: its turn comes, at the cost of at most one train's delivery. */
+export const FAIR_TURNS = 8;
 /** A train stuck (today's stalls) this long (s) is a jam. */
 export const JAM_S = 30;
 
@@ -58,8 +67,11 @@ interface Memo {
   /** Standing waiting since (tick; −1: not standing). */
   stood: number;
   decision: Decision | null;
-  /** Held, blocked: the train in its way was moving then. */
+  /** Decisions in a row it was held with its move free (another going first). */
+  passed: number;
+  /** Held, blocked: the train in its way was moving then; and why it can't close up behind it. */
   behindMoving: boolean;
+  blockWhy?: string;
   said: Set<DKind>;
   stuckSince: number;
   jamSaid: boolean;
@@ -96,6 +108,8 @@ export class DispatchShadow {
   readonly probeStates: number[] = [];
   probeCapped = 0;
   readonly probeWarm: [number, number][] = [];
+  /** hold-granted:blocked and follow, by why the model couldn't close it up (diagnostic). */
+  readonly blockWhy = new Map<string, number>();
   /** Time spent planning detours (ms), inside decisions. */
   detourMs = 0;
 
@@ -121,7 +135,7 @@ export class DispatchShadow {
       const tail = t.bogies[t.bogies.length - 1].pieceId;
       const sig = `${front}.${tail}.${t.speed > 0 ? 1 : 0}.${r ? `${r.next}.${r.at ? 1 : 0}` : "-"}.${engine?.lever ?? 0}`;
       let m = this.memo.get(key);
-      if (!m) this.memo.set(key, (m = { sig: "", stood: -1, decision: null, behindMoving: false, said: new Set(), stuckSince: -1, jamSaid: false }));
+      if (!m) this.memo.set(key, (m = { sig: "", stood: -1, decision: null, passed: 0, behindMoving: false, said: new Set(), stuckSince: -1, jamSaid: false }));
       if (m.sig !== sig) {
         m.sig = sig;
         changed = true;
@@ -133,11 +147,14 @@ export class DispatchShadow {
         this.ways.delete(k);
         changed = true;
       }
-    // Departures and stands, today's: compared with the last decision.
+    // Who stands waiting, and who has just gone (today's rules let it) since the last look.
     const standing: number[] = [];
+    const departed: number[] = [];
+    const byKey = new Map<number, Train>();
     for (const t of trains) {
       const engine = t.cars.find((c) => c.kind === "engine");
       if (!engine) continue;
+      byKey.set(engine.id, t);
       const m = this.memo.get(engine.id)!;
       const r = this.world.route(engine.id);
       const waiting = !!r && engine.lever !== 0 && t.speed === 0 && t.turnback < 0 && !this.world.busy(t, engine.id);
@@ -148,23 +165,47 @@ export class DispatchShadow {
           m.decision = null;
         }
         standing.push(engine.id);
-        if (m.decision === "grant" && sim.ticks - m.stood >= HELD_S * SIM_HZ && !m.said.has("grant-held")) {
-          const why = this.world.why?.(t, engine.id) ?? "standing";
-          this.heldBy.set(why, (this.heldBy.get(why) ?? 0) + 1);
-          this.say("grant-held", m, `train ${engine.id} stood ${HELD_S} s (${why}); the dispatcher grants it`);
-        }
-      } else if (m.stood >= 0) {
-        // (It went, today.)
-        if (t.speed > 0) {
-          if (m.decision === "hold-blocked" && m.behindMoving) this.say("hold-granted:follow", m, `train ${engine.id} went close behind a train moving off; the dispatcher held it a piece back`);
-          else if (m.decision === "hold-blocked") this.say("hold-granted:blocked", m, `train ${engine.id} went; the dispatcher held it (its move's way is taken by a standing train)`);
-          else if (m.decision === "hold-order") this.say("hold-granted:order", m, `train ${engine.id} went; the dispatcher held it (another goes first)`);
-          else if (m.decision === "grant") this.agreeGo++;
-        }
+      } else if (m.stood >= 0 && t.speed > 0) departed.push(engine.id);
+      else if (m.stood >= 0) {
         m.stood = -1;
         m.decision = null;
       }
-      // Jams, today's.
+    }
+    // The event: each standing waiter decided afresh, longest waiter first; and each that has just gone, from where things
+    // stand now (it has moved less than a look's worth), so it's compared with what the dispatcher would say at the moment
+    // its way cleared, not before.
+    if (changed && standing.length + departed.length > 0) {
+      this.events++;
+      const snaps = this.snaps();
+      const ts = this.trainsOf(snaps);
+      const asking = [...departed, ...standing].sort((a, b) => this.memo.get(a)!.stood - this.memo.get(b)!.stood || a - b);
+      const moving = new Set(snaps.filter((x) => x.speed > 0 && !departed.includes(x.key)).map((x) => x.key));
+      for (const e of asking) this.decide(ts, e, moving, snaps);
+    }
+    for (const e of departed) {
+      const m = this.memo.get(e)!;
+      if (m.decision === "hold-blocked") this.blockWhy.set(m.blockWhy ?? "?", (this.blockWhy.get(m.blockWhy ?? "?") ?? 0) + 1);
+      if (m.decision === "hold-blocked" && m.behindMoving) this.say("hold-granted:follow", m, `train ${e} went close behind a train moving off; the dispatcher held it a piece back`);
+      else if (m.decision === "hold-blocked") this.say("hold-granted:blocked", m, `train ${e} went; the dispatcher held it (its move's way is taken by a standing train)`);
+      else if (m.decision === "hold-order") this.say("hold-granted:order", m, `train ${e} went; the dispatcher held it (another goes first)`);
+      else if (m.decision === "grant") this.agreeGo++;
+      m.stood = -1;
+      m.decision = null;
+      m.passed = 0;
+    }
+    for (const e of standing) {
+      const m = this.memo.get(e)!;
+      if (m.decision === "grant" && sim.ticks - m.stood >= HELD_S * SIM_HZ && !m.said.has("grant-held")) {
+        const why = this.world.why?.(byKey.get(e)!, e) ?? "standing";
+        this.heldBy.set(why, (this.heldBy.get(why) ?? 0) + 1);
+        this.say("grant-held", m, `train ${e} stood ${HELD_S} s (${why}); the dispatcher grants it`);
+      }
+    }
+    // Jams, today's.
+    for (const t of trains) {
+      const engine = t.cars.find((c) => c.kind === "engine");
+      if (!engine) continue;
+      const m = this.memo.get(engine.id)!;
       if (this.world.stuck(engine.id)) {
         if (m.stuckSince < 0) m.stuckSince = sim.ticks;
         if (!m.jamSaid && sim.ticks - m.stuckSince >= JAM_S * SIM_HZ) {
@@ -180,14 +221,6 @@ export class DispatchShadow {
         m.jamSaid = false;
       }
     }
-    if (!changed || standing.length === 0) return;
-    this.events++;
-    // The event: each standing waiter decided afresh, longest waiter first.
-    const snaps = this.snaps();
-    const ts = this.trainsOf(snaps);
-    standing.sort((a, b) => this.memo.get(a)!.stood - this.memo.get(b)!.stood || a - b);
-    const moving = new Set(snaps.filter((x) => x.speed > 0).map((x) => x.key));
-    for (const e of standing) this.decide(ts, e, moving, snaps);
   }
 
   private snaps(): Snap[] {
@@ -232,7 +265,7 @@ export class DispatchShadow {
     // (Stuck: no order keeps them all going. With detours.)
     let sent = false;
     const without = r.plain;
-    if (r.plain < r.of) {
+    if (r.plain < r.of && this.world.sim.ticks - m.stood >= REROUTE_AFTER_S * SIM_HZ) {
       const d0 = performance.now();
       const dt = withDetours(this.world.layout, snaps, ts, members);
       this.detourMs += performance.now() - d0;
@@ -271,10 +304,20 @@ export class DispatchShadow {
     }
     const was = m.decision;
     m.decision = r.first[0] < 0 ? "hold-blocked" : r.first[0] >= r.plain ? "grant" : "hold-order";
+    // (Fair turns: passed over `FAIR_TURNS` times in a row, it goes, if that costs at most one train's delivery.)
+    if (m.decision === "hold-order") {
+      m.passed++;
+      if (m.passed >= FAIR_TURNS && r.first[0] >= r.plain - 1 && r.first[0] > 0) {
+        m.decision = "grant";
+        this.say("fair-turn", m, `train ${engine}: passed over ${m.passed} times; its turn (${r.first[0]}/${r.of} keep delivering, ${r.plain} if it waited)`);
+        m.passed = 0;
+      }
+    } else if (m.decision === "grant") m.passed = 0;
     m.behindMoving = m.decision === "hold-blocked" && moving.has(blockerOf(ts, k));
+    if (m.decision === "hold-blocked") m.blockWhy = whyBlocked(ts, k);
     if (m.decision !== "grant" && was === null) this.agreeHold++;
     if (sent) this.say("reroute-stuck", m, `train ${engine}: stuck; sent round by another way (${r.value}/${r.of} of its stretch keep going, ${without} without)`);
-    else if (m.decision === "grant" && r.firstTo[0] >= ts[k].main) this.say("reroute", m, `train ${engine}: granted by a loop's other road`);
+    else if (m.decision === "grant" && r.firstTo[0] >= ts[k].main && !ts[k].half[r.firstTo[0]] && !ts[k].detour[r.firstTo[0]]) this.say("reroute", m, `train ${engine}: granted by a loop's other road`);
     if (r.backUp >= 0 && r.value > r.plain) this.say("backup", m, `train ${engine}'s stretch: no order keeps ${r.of} going (${r.plain}); with train ${ts[members[r.backUp]].key} backing up, ${r.value}`);
   }
 
@@ -307,6 +350,7 @@ export class DispatchShadow {
       relocations: this.relocations,
       buildMs: Number(this.buildMs.toFixed(1)),
       detourMs: Number(this.detourMs.toFixed(1)),
+      blockWhy: Object.fromEntries(this.blockWhy),
       first: this.first,
     };
   }

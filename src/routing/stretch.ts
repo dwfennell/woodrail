@@ -151,6 +151,19 @@ export interface DTrain {
   main: number;
   /** A stuck train's detour (§2.2 step 4): nodes of another way to its next stop, off the booked way's track. */
   detour: Uint8Array;
+  /**
+   * Part pieces: a close-up node (its front piece only part way) and each main node's close-up (−1: none); how much of
+   * its tail piece a node covers (mm, from that piece's far end) and the connector it runs onto it by; its front's.
+   */
+  half: Uint8Array;
+  closeOf: Int32Array;
+  tailCover: Float64Array;
+  tailEn: Int32Array;
+  frontEn: Int32Array;
+  /** Its front piece's length (mm, along its path). */
+  frontLen: Float64Array;
+  /** The highest piece id on its way (for sizing a search's tables). */
+  maxPiece: number;
   /** Where it stands now, and its goal (a main node; −1: none). */
   at: number;
   goal: number;
@@ -219,7 +232,19 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     if (sum < L && !partial) return null;
     return ln.slice(j + 1, i + 1);
   };
-  const node = (ps: number[], stop: boolean, turn: boolean, sg: number, d: number, li: number) => {
+  const tailCover: number[] = [];
+  const tailEn: number[] = [];
+  const frontEn: number[] = [];
+  const frontLen: number[] = [];
+  const node = (body: Elem[], stop: boolean, turn: boolean, sg: number, d: number, li: number) => {
+    const ps = body.map((e) => e.p);
+    // (How much of its tail piece it covers (mm, from that piece's far end) and which way it runs onto it; its front's.)
+    let sum = 0;
+    for (const e of body) sum += lenOf(layout, e);
+    tailCover.push(body.length > 0 ? lenOf(layout, body[0]) - Math.max(0, sum - L) : 0);
+    tailEn.push(body[0]?.en ?? -1);
+    frontEn.push(body[body.length - 1]?.en ?? -1);
+    frontLen.push(body.length > 0 ? lenOf(layout, body[body.length - 1]) : 0);
     const clear = ps.every((p) => !swOf(layout, p));
     pos.push(ps);
     plain.push(clear);
@@ -231,11 +256,11 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     laneAt.push(li);
     return pos.length - 1;
   };
-  const push = (body: Elem[], stop: boolean, turn: boolean) => node(body.map((e) => e.p), stop, turn, run, cum[lane.length - 1], lane.length - 1);
+  const push = (body: Elem[], stop: boolean, turn: boolean) => node(body, stop, turn, run, cum[lane.length - 1], lane.length - 1);
   // Behind it (the way it came), then where it stands.
   for (let i = 0; i < lane.length - 1; i++) {
     const b = bodyOf(lane, i);
-    if (b) node(b.map((e) => e.p), false, false, 0, cum[i], i);
+    if (b) node(b, false, false, 0, cum[i], i);
   }
   const at = pos.length;
   push(bodyOf(lane, lane.length - 1, true)!, s.at, false);
@@ -354,7 +379,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
             succ[before].push(onMain);
             break;
           }
-          const id = node(body.map((e) => e.p), false, false, seg[i], altCum[f], -1);
+          const id = node(body, false, false, seg[i], altCum[f], -1);
           succ.push([]);
           prev.push(before);
           order.push(i + 0.5);
@@ -383,7 +408,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     let dRun = 0;
     let before = at;
     const dPush = (body: Elem[], stop: boolean, turn: boolean, order0: number) => {
-      const id = node(body.map((e) => e.p), stop, turn, dRun, cum[lane.length - 1], -1);
+      const id = node(body, stop, turn, dRun, cum[lane.length - 1], -1);
       extra.push([before, id]);
       prevD.push(seg[before] === dRun ? before : -1);
       orderD.push(order0);
@@ -441,7 +466,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     }
     if (off.size === 0 || pos.length === detourFrom || !isStop.slice(detourFrom).some((x) => x)) {
       // (No other way to its stop: none.)
-      pos.length = rest.length = plain.length = seg.length = dist.length = isStop.length = turned.length = laneAt.length = detourFrom;
+      pos.length = rest.length = plain.length = seg.length = dist.length = isStop.length = turned.length = laneAt.length = tailCover.length = tailEn.length = frontEn.length = frontLen.length = detourFrom;
       extra.length = 0;
     } else {
       for (let k = 0; k < pos.length - detourFrom; k++) {
@@ -452,6 +477,38 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
       for (const [a, b] of extra) succ[a].push(b);
     }
   }
+  // Close-up nodes (part pieces, §R's table): for each main node m, its front onto piece q only part way, the rest of it
+  // as at m − 1, up close behind a train whose tail is on the far end of q going the same way. Reached only by
+  // following (the search's `forward`), on to m once q is clear.
+  const half: number[] = pos.map(() => 0);
+  const closeOf: number[] = pos.map(() => -1);
+  if (!fixed)
+    for (let m = at + 1; m < main && pos.length < MAX_POSITIONS; m++) {
+      if (seg[m] !== seg[m - 1] || turned[m]) continue;
+      const q = pos[m][pos[m].length - 1];
+      if (pos[m - 1].includes(q) || swOf(layout, q)) continue;
+      const ps = [...pos[m - 1], q];
+      if (!ps.every((p) => !swOf(layout, p))) continue;
+      const c = pos.length;
+      pos.push(ps);
+      plain.push(true);
+      rest.push(true);
+      seg.push(seg[m]);
+      dist.push(dist[m - 1]);
+      isStop.push(false);
+      turned.push(false);
+      laneAt.push(-1);
+      tailCover.push(tailCover[m - 1]);
+      tailEn.push(tailEn[m - 1]);
+      frontEn.push(frontEn[m]);
+      frontLen.push(frontLen[m]);
+      succ.push([m]);
+      prev.push(m - 1);
+      order.push(m - 0.5);
+      half.push(1);
+      closeOf.push(-1);
+      closeOf[m] = c;
+    }
   const n = pos.length;
   const restA = Uint8Array.from(rest, (b) => (b ? 1 : 0));
   const wait = new Uint8Array(n);
@@ -471,6 +528,13 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     dist: Float64Array.from(dist),
     order: Float64Array.from(order),
     main,
+    half: Uint8Array.from(half),
+    closeOf: Int32Array.from(closeOf),
+    tailCover: Float64Array.from(tailCover),
+    tailEn: Int32Array.from(tailEn),
+    frontEn: Int32Array.from(frontEn),
+    frontLen: Float64Array.from(frontLen),
+    maxPiece: pos.reduce((m, ps) => ps.reduce((a, p) => (p > a ? p : a), m), 0),
     detour: Uint8Array.from({ length: n }, (_, i) => (i >= detourFrom && extra.length > 0 ? 1 : 0)),
     at,
     goal,
@@ -658,7 +722,8 @@ function branchesOf(t: DTrain, i: number): Branch[] {
       let before = i;
       path.forEach((nd, j) => {
         off[j] = flat.length;
-        const had = t.pos[before];
+        // (Out of a close-up, its front piece is shared till then: still to be had.)
+        const had = t.half[before] ? t.pos[before].subarray(0, t.pos[before].length - 1) : t.pos[before];
         for (const p of t.pos[nd]) if (!had.includes(p)) flat.push(p);
         before = nd;
       });
@@ -693,6 +758,43 @@ function futureOf(t: DTrain): Map<number, number> {
     futureCache.set(t.pos, m);
   }
   return m;
+}
+
+/**
+ * Why `trains[k]`'s next move is blocked, in a word (a diagnostic for the shadow's report): what stands on the first
+ * piece it can't have, and whether it could close up behind it (part pieces).
+ */
+export function whyBlocked(trains: readonly DTrain[], k: number): string {
+  const t = trains[k];
+  const on = new Map<number, number>();
+  trains.forEach((o, j) => {
+    if (j !== k) for (const p of o.pos[o.at]) on.set(p, j);
+  });
+  for (const b of branchesOf(t, t.at)) {
+    if (b.detour) continue;
+    for (let j = 0; j < b.nodes.length; j++)
+      for (let x = b.off[j]; x < b.off[j + 1]; x++) {
+        const q = b.flat[x];
+        const who = on.get(q);
+        if (who === undefined) continue;
+        const a = trains[who];
+        const m = b.nodes[j];
+        const where = a.pos[a.at][0] === q ? "its tail" : a.pos[a.at][a.pos[a.at].length - 1] === q ? "its front" : "its middle";
+        if (where !== "its tail") return `on ${where}`;
+        const c = t.closeOf[m];
+        if (c < 0) return m >= t.main ? "tail, off its main way" : "tail, no close-up there (points or a turn)";
+        if (a.tailEn[a.at] !== t.frontEn[c]) return "tail, coming the other way";
+        if (a.tailCover[a.at] + 20 >= t.frontLen[c]) return "tail, no room on the piece";
+        return "tail, room (another piece taken)";
+      }
+  }
+  const bs = branchesOf(t, t.at);
+  if (bs.length === 0) return `none met: no branch (succ ${t.succ[t.at].length}, at ${t.at}/${t.pos.length}, main ${t.main}, goal ${t.goal})`;
+  const b = bs[0];
+  const last = b.nodes[b.nodes.length - 1];
+  let rests = 0;
+  for (const x of b.nodes) rests += t.rest[x];
+  return `none met: ${bs.length} branches, first ${b.nodes.length} nodes, ends ${b.wait ? "at a wait" : "the way's end"} (node ${last}, rest ${t.rest[last]}), ${rests} rests`;
 }
 
 /** An open-addressed table of states (each `n` node indices and a back-up mask): value and best move per state. */
@@ -749,6 +851,16 @@ class States {
   }
 }
 
+/** Buffers kept between searches (a decision allocates little): piece owners (zeroed), moves a depth by size. */
+const buffers: Int32Array[] = [];
+function buffer(k: number, size: number): Int32Array {
+  let b = buffers[k];
+  if (!b || b.length < size) buffers[k] = b = new Int32Array(Math.max(size, 1024));
+  else b.fill(0, 0, size);
+  return b;
+}
+const fwdPool: Int32Array[][] = [];
+
 /** The last search's states without back-ups (for measuring). */
 export const statsLast = { plainStates: 0 };
 
@@ -776,8 +888,8 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   // (k + 1), kept as the walk goes.)
   let maxP = 0;
   for (const t of trains) for (const p of t.pos[t.at]) if (p > maxP) maxP = p;
-  for (const t of ts) for (const ps of t.pos) for (const p of ps) if (p > maxP) maxP = p;
-  const owner = new Int32Array(maxP + 1);
+  for (const t of ts) if (t.maxPiece > maxP) maxP = t.maxPiece;
+  const owner = buffer(0, maxP + 1);
   const isMember = new Uint8Array(trains.length);
   for (const i of members) isMember[i] = 1;
   trains.forEach((t, i) => {
@@ -786,8 +898,25 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   const goalOf = ts.map((t) => (t.fixed ? Infinity : t.goal));
   const of = ts.filter((t) => !t.fixed).length;
   const cur = Int32Array.from(ts.map((t) => t.at));
+  // (A piece two trains share, the one up close behind the other's tail (a close-up node, or standing so): the second
+  // owner. Still trains' tails, for closing up behind them: what of its tail piece each covers, and which way it runs.)
+  const owner2 = buffer(1, maxP + 1);
+  const stillTail = new Map<number, { cover: number; en: number }>();
+  trains.forEach((t, i) => {
+    if (!isMember[i]) stillTail.set(t.pos[t.at][0], { cover: t.tailCover[t.at], en: t.tailEn[t.at] });
+  });
   const place = (k: number, i: number, on: boolean) => {
-    for (const p of ts[k].pos[i]) if (owner[p] >= 0) owner[p] = on ? k + 1 : owner[p] === k + 1 ? 0 : owner[p];
+    const own = k + 1;
+    for (const p of ts[k].pos[i]) {
+      if (on) {
+        if (owner[p] === 0) owner[p] = own;
+        else if (owner[p] !== own) owner2[p] = own;
+      } else if (owner2[p] === own) owner2[p] = 0;
+      else if (owner[p] === own) {
+        owner[p] = owner2[p];
+        owner2[p] = 0;
+      }
+    }
   };
   for (let k = 0; k < n; k++) place(k, cur[k], true);
   const count = () => {
@@ -800,14 +929,43 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   let capped = false;
   let done = false;
   const freeNode = (k: number, i: number) => {
-    for (const p of ts[k].pos[i]) if (owner[p] !== 0 && owner[p] !== k + 1) return false;
+    for (const p of ts[k].pos[i]) if ((owner[p] !== 0 && owner[p] !== k + 1) || (owner2[p] !== 0 && owner2[p] !== k + 1)) return false;
+    return true;
+  };
+  /** The gap (mm) kept up close behind a standing train's tail (the sim's `STOP_GAP`, and some). */
+  const CLOSE_GAP = 20;
+  /** Can member k close up into its node m's front piece behind the train whose tail is there? */
+  const closesUp = (k: number, m: number): boolean => {
+    const t = ts[k];
+    const c = t.closeOf[m];
+    if (c < 0) return false;
+    const q = t.pos[c][t.pos[c].length - 1];
+    if (owner2[q] !== 0) return false;
+    const ow = owner[q];
+    let cover = -1;
+    let en = -2;
+    if (ow > 0 && ow !== k + 1) {
+      const a = ts[ow - 1];
+      const x = cur[ow - 1];
+      if (a.pos[x][0] !== q || a.half[x]) return false;
+      cover = a.tailCover[x];
+      en = a.tailEn[x];
+    } else if (ow === -1) {
+      const st = stillTail.get(q);
+      if (!st) return false;
+      cover = st.cover;
+      en = st.en;
+    } else return false;
+    if (en !== t.frontEn[c] || cover + CLOSE_GAP >= t.frontLen[c]) return false;
+    // (The rest of it where it was a node back: its own, or free.)
+    for (const p of t.pos[c]) if (p !== q && ((owner[p] !== 0 && owner[p] !== k + 1) || (owner2[p] !== 0 && owner2[p] !== k + 1))) return false;
     return true;
   };
   // (Each member's forward moves in a state, a depth's worth: per member a count and up to `PER` nodes. A child's are
   // its parent's, worked out again only for the train that moved and those whose ways it was or is now on.)
   const PER = 6;
   const W = 1 + PER;
-  const fwds: Int32Array[] = [];
+  const fwds = fwdPool[n] ?? (fwdPool[n] = []);
   const fwdAt = (d: number) => fwds[d] ?? (fwds[d] = new Int32Array(n * W));
   const brs: (Branch[] | undefined)[][] = ts.map((t) => new Array(t.pos.length));
   /** Detours searched (a phase: only when no order without keeps them all going). */
@@ -829,7 +987,8 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
         let blocked = false;
         for (let q = b.off[j]; q < b.off[j + 1]; q++) {
           const ow = owner[b.flat[q]];
-          if (ow !== 0 && ow !== own) {
+          const ow2 = owner2[b.flat[q]];
+          if ((ow !== 0 && ow !== own) || (ow2 !== 0 && ow2 !== own)) {
             blocked = true;
             break;
           }
@@ -837,7 +996,9 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
         if (blocked) break;
         if (t.rest[b.nodes[j]]) lastRest = b.nodes[j];
       }
-      const to = j === b.nodes.length && b.wait ? b.nodes[j - 1] : lastRest;
+      // (Blocked by a train's tail on its next piece, going its way: up close behind it, part way onto that piece.)
+      const close = j < b.nodes.length && closesUp(k, b.nodes[j]) ? t.closeOf[b.nodes[j]] : -1;
+      const to = j === b.nodes.length && b.wait ? b.nodes[j - 1] : close >= 0 ? close : lastRest;
       if (to < 0 || out[o] >= PER) continue;
       let dup = false;
       for (let x = 0; x < out[o]; x++) if (out[o + 1 + x] === to) dup = true;
@@ -963,7 +1124,8 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
     let stop = false;
     // (A move no other member will ever need the track of (where it stands, where it runs, where it stops): taken alone,
     // it loses nothing (it neither frees nor takes what another needs, and stays free whatever they do).)
-    const lone = backUps ? -1 : independent(mine);
+    // (Not at the root: there every member's first move is weighed, for the decision.)
+    const lone = backUps || depth === 0 ? -1 : independent(mine);
     if (lone >= 0) stop = tryMove(depth, mask, backUps, lone, mine[lone * W + 1], 0);
     else
       for (let oi = 0; oi < order.length && !stop; oi++) {
