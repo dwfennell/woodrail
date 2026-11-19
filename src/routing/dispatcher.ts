@@ -22,12 +22,16 @@
  */
 import { CAR_SPECS, flipCursor, stopDistance, type Cursor, type Sim, type Train } from "../sim";
 import { ACCELERATION } from "../sim/brakes";
-import { getPieceDef, pathLength, type Layout } from "../track";
+import { connectorRef, getPieceDef, pathExitConnector, pathLength, type Layout } from "../track";
 import { STAND_SHORT } from "../economy/sections";
 import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
+/** A granted train standing short of its hold's end this long (s) gives the rest back. */
+const GIVE_BACK_S = 5;
+/** A waiting train counts once more in the search's goal for each this long (s) it has stood (fair turns). */
+const WEIGH_S = 20;
 /** A train asking, not decided this long (ticks), is decided again though nothing changed (2 s). */
 const RETRY_TICKS = 240;
 /** A train asks for its next move this far (mm) before it would have to brake for its hold's end. */
@@ -62,6 +66,8 @@ interface Hold {
   waitsOn: number;
   /** When it was last decided (tick). */
   decided: number;
+  /** Standing short of its hold's end since (tick; −1: not). */
+  short: number;
 }
 
 const capAt: Cursor = { pieceId: -1, pathIndex: 0, reversed: false, s: 0 };
@@ -79,6 +85,8 @@ export class Dispatcher {
   /** Keep `notes` and `offNotes` (debugging a run: they cost a few strings a decision). */
   debug = false;
   offWay = 0;
+  /** Holds given back (granted, but held short by something else). */
+  givenBack = 0;
   readonly offNotes: string[] = [];
   /** Per train: grants, holds. */
   readonly perTrain = new Map<number, [number, number]>();
@@ -116,6 +124,17 @@ export class Dispatcher {
         if (h) h.stood = -1;
         continue;
       }
+      // (Granted but standing short of its hold's end (held by something else: a red signal's block, points): after
+      // `GIVE_BACK_S` it gives the rest of its hold back, and asks again from where it stands.)
+      if (h && t.speed === 0 && h.end !== h.t.at) {
+        if (h.short < 0) h.short = sim.ticks;
+        else if (sim.ticks - h.short >= GIVE_BACK_S * 120) {
+          this.setHold(h, h.t.at, []);
+          this.givenBack++;
+          h.short = -1;
+          changed = true;
+        }
+      } else if (h) h.short = -1;
       // (Asks: standing at its hold's end, or coming within braking distance of it.)
       const gap = h ? this.gapTo(t, h) : 0;
       if (!h || gap <= stopDistance(t.speed) + ASK_LOOK) {
@@ -131,6 +150,7 @@ export class Dispatcher {
       }
     // (No event: but a train asking that hasn't been decided for `RETRY_TICKS` asks again (a detour's or a fair turn's
     // time may have come; nothing else changes while every train stands).)
+    this.refreshGate();
     if (asking.length === 0) return;
     if (!changed && !asking.some((e) => sim.ticks - (this.holds.get(e)?.decided ?? -Infinity) >= RETRY_TICKS)) return;
     // The event: each asking train decided, longest waiter first.
@@ -171,7 +191,7 @@ export class Dispatcher {
         const same = this.nodeLike(t, h);
         this.setHold(h, same ?? t.at, same !== null ? this.pathTo(t, same) : []);
       } else {
-        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity };
+        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
         this.holds.set(s.key, nh);
         this.setHold(nh, t.at, []);
       }
@@ -271,7 +291,13 @@ export class Dispatcher {
     });
     for (const p of placed[k].pos[ts[k].at]) taken.delete(p);
     const order = members.map((_, i) => i).sort((a, b) => (a === 0 ? -1 : b === 0 ? 1 : (this.holds.get(placed[members[a]].key)?.stood ?? Infinity) - (this.holds.get(placed[members[b]].key)?.stood ?? Infinity)));
-    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken });
+    // (Fair turns: a train counts for more the longer it has stood waiting, so an order that strands a long waiter loses.)
+    const now = this.host.sim.ticks;
+    const weights = members.map((i) => {
+      const st = this.holds.get(placed[i].key)?.stood ?? -1;
+      return st < 0 ? 1 : 1 + Math.floor((now - st) / (WEIGH_S * 120));
+    });
+    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, weights });
     let ways = placed;
     let to = -1;
     if (r.first[0] >= 0 && r.first[0] >= r.plain) to = r.firstTo[0];
@@ -279,7 +305,7 @@ export class Dispatcher {
       // (Stuck: with detours.)
       const dt = withDetours(this.host.layout, snaps, placed, members);
       if (dt) {
-        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, detours: true });
+        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, detours: true, weights });
         if (rd.detourValue > r.plain && rd.firstD[0] >= rd.detourValue && rd.firstToD[0] >= 0) {
           ways = dt;
           r = rd;
@@ -291,7 +317,7 @@ export class Dispatcher {
     // (Fair turns: passed over `FAIR_TURNS` times in a row with its move free, it goes, at the cost of one delivery at most.)
     if (to < 0 && r.first[0] >= 0) {
       h.passed++;
-      if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - 1 && r.first[0] > 0) to = r.firstTo[0];
+      if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - Math.min(...weights) && r.first[0] > 0) to = r.firstTo[0];
     }
     this.decisions++;
     this.decisionMs.push(performance.now() - t0);
@@ -304,7 +330,7 @@ export class Dispatcher {
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
-      if (this.debug && this.notes.length < 60)
+      if (this.debug && this.notes.length < 400 && (this.host.sim.ticks / 120) % 30 < 1)
         this.notes.push(`${(this.host.sim.ticks / 120).toFixed(0)}s train ${engine} held ${r.first[0] < 0 ? "blocked" : "order"}: at ${ts[k].at} end ${h.end} first ${r.first[0]} plain ${r.plain}/${r.of} members ${members.length} wait-ahead ${branchesSummary(placed[k])} taken-by ${takenBy(placed, k, this.holds)}`);
       return;
     }
@@ -380,14 +406,26 @@ export class Dispatcher {
   }
 
   private refreshGate(): void {
+    const { layout, sim } = this.host;
     const next = new Map<number, number>();
-    for (const h of this.holds.values()) {
-      for (const i of [h.end, h.t.at]) {
-        const ref = h.t.frontRef[i];
-        if (ref >= 0 && this.host.layout.signalAt(ref)) next.set(ref, h.trainId);
-        if (h.end !== h.t.at) break;
+    if (layout.signalCount > 0)
+      for (const h of this.holds.values()) {
+        const ref = h.t.frontRef[h.end];
+        if (ref >= 0 && layout.signalAt(ref)) next.set(ref, h.trainId);
+        // (Standing, held where it stands (not granted on): the signal it faces there shows red too.)
+        if (h.end !== h.t.at) continue;
+        const train = sim.getTrain(h.trainId);
+        if (!train || train.speed !== 0) continue;
+        const net = this.host.drive(train);
+        if (net === 0) continue;
+        const b = net > 0 ? train.bogies[0] : train.bogies[train.bogies.length - 1];
+        const piece = layout.getPiece(b.pieceId);
+        if (!piece) continue;
+        const exit = pathExitConnector(getPieceDef(piece.type, piece.flipped), b.pathIndex, net > 0 ? b.reversed : !b.reversed);
+        if (exit < 0) continue;
+        const at = connectorRef(b.pieceId, exit);
+        if (layout.signalAt(at)) next.set(at, h.trainId);
       }
-    }
     let same = next.size === this.gate.size;
     if (same) for (const [k, v] of next) if (this.gate.get(k) !== v) same = false;
     if (!same) {
@@ -395,6 +433,7 @@ export class Dispatcher {
       this.gateVer++;
     }
   }
+
 }
 
 /** Debug: where a train's next waiting points are, from where it stands. */

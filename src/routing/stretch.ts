@@ -708,6 +708,11 @@ export interface SearchOptions {
   detours?: boolean;
   /** Pieces no member may have (granted to trains on their way over them: the dispatcher's holds in transit). */
   taken?: ReadonlySet<number>;
+  /**
+   * Per member (by index in `members`): what its delivering counts for (default 1 each; at most 32). The dispatcher
+   * weighs long waiters more (fair turns): then `value`, `of`, `plain` and `first` are in these units.
+   */
+  weights?: readonly number[];
   /** Members tried first (fair turns: longest waiter first); default their order. */
   order?: number[];
 }
@@ -927,7 +932,11 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   });
   if (opts.taken) for (const p of opts.taken) if (p <= maxP) owner[p] = -1;
   const goalOf = ts.map((t) => (t.fixed ? Infinity : t.goal));
-  const of = ts.filter((t) => !t.fixed).length;
+  const wt = ts.map((_, k) => Math.max(1, Math.min(32, Math.round(opts.weights?.[k] ?? 1))));
+  let of = 0;
+  ts.forEach((t, k) => {
+    if (!t.fixed) of += wt[k];
+  });
   const cur = Int32Array.from(ts.map((t) => t.at));
   // (A piece two trains share, the one up close behind the other's tail (a close-up node, or standing so): the second
   // owner. Still trains' tails, for closing up behind them: what of its tail piece each covers, and which way it runs.)
@@ -952,7 +961,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   for (let k = 0; k < n; k++) place(k, cur[k], true);
   const count = () => {
     let c = 0;
-    for (let k = 0; k < n; k++) if (ts[k].order[cur[k]] >= goalOf[k]) c++;
+    for (let k = 0; k < n; k++) if (ts[k].order[cur[k]] >= goalOf[k]) c += wt[k];
     return c;
   };
   const table = statesFor(n, cap + 64);

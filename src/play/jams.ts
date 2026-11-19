@@ -32,6 +32,8 @@ export interface JamsRun {
   longestStand: number;
   /** The first invariant broken, as "name: what" (null: none). */
   firstBreak: string | null;
+  /** Stops come to, by engine. */
+  byEngine: Record<number, number>;
   /** Each jam: when (s), the train cleared, its line, and the stall's kind. */
   log: { at: number; engine: number; line: number; kind: string }[];
   seconds: number;
@@ -106,5 +108,5 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}): J
   for (const n of r.arrivals.values()) arrivals += n;
   let longest = 0;
   for (const s of r.longestStand.values()) longest = Math.max(longest, s);
-  return { jams: log.length, arrivals, longestStand: longest, firstBreak: r.first ? `${r.first.invariant}: ${r.first.what}` : null, log, seconds };
+  return { jams: log.length, arrivals, byEngine: Object.fromEntries(r.arrivals), longestStand: longest, firstBreak: r.first ? `${r.first.invariant}: ${r.first.what}` : null, log, seconds };
 }
