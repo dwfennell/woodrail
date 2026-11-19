@@ -45,10 +45,11 @@ export const BOOKED = 3;
 /** The most trains one search takes (the stretch's nearest). */
 export const MAX_TRAINS = 8;
 /**
- * The dispatcher's state cap per decision (§5's `DISPATCH_STATES`): 1,000, not the spec's 2,000, to keep a decision
- * that runs to it within §5's 1 ms in Node (about 0.9 µs a state, warm; `npm run dispatch:report`).
+ * The dispatcher's state cap per decision (§5's `DISPATCH_STATES`): 500, not the spec's 2,000, to keep a decision that
+ * runs to it within §5's 1 ms in Node (0.9–1.4 µs a state warm on the reference maps, more on 8-train stretches;
+ * `npm run dispatch:report`).
  */
-export const DISPATCH_STATES = 1000;
+export const DISPATCH_STATES = 500;
 /** The judge's state cap (a jam judged to the end: test and report only). */
 export const JUDGE_STATES = 1_000_000;
 /** Pieces of the way it came kept behind a train's tail (for a back-up). */
