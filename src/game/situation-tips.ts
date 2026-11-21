@@ -198,8 +198,8 @@ function markStretch(layout: Layout, at: number, marked: ReadonlySet<number>, sl
   return { pieces, length };
 }
 
-/** How long a line's train must have stood waiting (game s) for its short blocks to be said (as the follow hint's). */
-const WAIT_S = 20;
+/** How long a line's train must have stood waiting (game s) for its short blocks to be said (a bunched follower waits about 20). */
+const WAIT_S = 15;
 /** When each train began its wait, as the detector last saw it (its looks are a few game seconds apart). */
 const waitingSince = new WeakMap<Train, number>();
 
