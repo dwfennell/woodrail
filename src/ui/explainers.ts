@@ -190,6 +190,41 @@ const ROUTE_STOP = svg(
   ].join(""),
 );
 
+const LOOP_PASS = svg(
+  [
+    // A passing loop on a single line: one train waits on one road while the other goes by on the other.
+    trackPath("M8 58 H52 C80 58 82 36 110 36 H150 C178 36 180 58 208 58 H252"),
+    trackPath("M52 58 C80 58 82 78 110 78 H150 C178 78 180 58 208 58"),
+    train(150, 36, RED, 2),
+    train(112, 78, BLUE, 2, true),
+    arrow(196, 22, 1),
+    label(132, 98 - 14, "waits here"),
+  ].join(""),
+);
+
+const LOOP_SHORT = svg(
+  [
+    // A loop shorter than the train: its tail is left over the points, and nothing gets by.
+    trackPath("M8 52 H82 C100 52 102 32 120 32 H140 C158 32 160 52 178 52 H252"),
+    trackPath("M82 52 C100 52 102 72 120 72 H140 C158 72 160 52 178 52"),
+    train(176, 72, BLUE, 4, false),
+    `<circle cx="86" cy="52" r="10" fill="none" stroke="${RED}" stroke-width="2.4"/>`,
+    label(86, 18, "tail on the points"),
+    label(218, 84, "too short", "middle"),
+  ].join(""),
+);
+
+const LOOP_WHERE = svg(
+  [
+    // A long single line between two stops, the loop halfway.
+    `<rect x="10" y="26" width="34" height="14" rx="3" fill="#c98f58"/><rect x="216" y="26" width="34" height="14" rx="3" fill="#c98f58"/>`,
+    trackPath("M8 58 H100 C114 58 116 44 130 44 H150 C164 44 166 58 180 58 H252"),
+    trackPath("M100 58 C114 58 116 72 130 72 H150 C164 72 166 58 180 58"),
+    label(140, 18, "halfway"),
+    arrow(140, 30, 1),
+  ].join(""),
+);
+
 // ---- the explainers --------------------------------------------------------------------------------------------
 
 export const EXPLAINERS: Readonly<Record<ExplainerId, Explainer>> = {
@@ -250,6 +285,32 @@ export const EXPLAINERS: Readonly<Record<ExplainerId, Explainer>> = {
       },
     ],
     seeAlso: ["signals"],
+  },
+  loops: {
+    id: "loops",
+    title: "Passing loops",
+    intro: "Two roads side by side on a single line, where trains can pass.",
+    sections: [
+      {
+        heading: "Trains meet, and pass",
+        text: "On one track, two trains coming at each other stop nose to nose. A passing loop gives each its own road: one waits there while the other goes by.",
+        picture: LOOP_PASS,
+        alt: "A passing loop: a blue train waits on one road while a red train goes by on the other.",
+      },
+      {
+        heading: "Long enough for the train",
+        text: "Each road of a loop must fit your longest train, clear of the points at both ends. In a loop shorter than the train its tail stays on the points, and nothing gets by.",
+        picture: LOOP_SHORT,
+        alt: "A train in a loop too short for it, its tail over the points.",
+      },
+      {
+        heading: "Where to put one",
+        text: "Halfway along a long single line, or where two lines share track. More trains on a line want more loops: a train each between them.",
+        picture: LOOP_WHERE,
+        alt: "A long single line between two stops with a passing loop halfway.",
+      },
+    ],
+    seeAlso: ["signals", "routes"],
   },
 };
 

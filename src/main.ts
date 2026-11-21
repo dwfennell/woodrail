@@ -1615,6 +1615,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // This game's situation tips; an older session without them carries the device's "told once" for the follow tip.
     situations = new SituationTracker(s?.situations ?? null);
     if (s && !s.situations && oldFollowTold()) situations.markDone("jam-follow");
+    if (s && !s.situations && oldToldOnce("woodrail.loopTip")) situations.markDone("jam-loop");
     // A v12 Game save's offers: drawn again as cards on its own map.
     if (m === "game" && fromSave && redrawOldOffers(progress, game.world, Math.random)) saveProgress(progress.toJSON());
     if (s) {
@@ -1625,6 +1626,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     goalsPanel.newsChanged();
   }
   /** The device-wide "told once" of the follow toast before situation tips (`woodrail.followTip`). */
+  /** A device-wide "told once" flag from before situation tips. */
+  function oldToldOnce(key: string): boolean {
+    try {
+      return localStorage.getItem(key) === "1";
+    } catch {
+      return false;
+    }
+  }
   function oldFollowTold(): boolean {
     try {
       return localStorage.getItem("woodrail.followTip") === "1";
@@ -7651,7 +7660,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const liftsHeard = new Map<number, { x: number; z: number }>();
   const fullToast = (_lineId: number, room: number, trains: number, more: number) => hud.toast(fullLineToast(room, trains, more), false, 6000);
   const stuckTip = (_engines: readonly number[], why: Stuck) => {
-    if (why.kind === "in-way" && !loopTipShown) showLoopTip();
+    // (Game mode: the situation tip says it, with a passing loops sheet and Show where. Sandbox: this toast, once.)
+    if (why.kind === "in-way" && !loopTipShown && mode !== "game") showLoopTip();
   };
   function showLoopTip(): void {
     loopTipShown = true;

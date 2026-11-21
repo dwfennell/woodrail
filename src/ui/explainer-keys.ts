@@ -7,7 +7,7 @@ import { trayKey, type TrayItem } from "./tray-catalogue";
  */
 
 /** The explainers there are, with their titles (for the Learn more link's label). */
-export const EXPLAINER_TITLES = { signals: "Signals", routes: "Routes" } as const;
+export const EXPLAINER_TITLES = { signals: "Signals", routes: "Routes", loops: "Passing loops" } as const;
 
 export type ExplainerId = keyof typeof EXPLAINER_TITLES;
 

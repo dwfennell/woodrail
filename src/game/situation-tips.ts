@@ -290,8 +290,127 @@ export const SHORT_BLOCKS: Detector = {
   },
 };
 
+/** The front piece of the train with this car, or −1. */
+function frontPiece(w: World, carId: number): number {
+  const t = w.sim.findCar(carId)?.train;
+  return t?.bogies[0]?.pieceId ?? -1;
+}
+
+/** Each lever-on engine with a line, and what the stall classifier says of it (null: not stuck). */
+function* stuckEngines(w: World) {
+  for (const t of w.sim.trains()) {
+    const engine = t.cars.find((c) => c.kind === "engine");
+    if (!engine || engine.lever === 0) continue;
+    const why = w.economy.stalls.stuckOf(engine.id);
+    yield { t, engine, why, lineId: w.economy.lineIdOf.get(engine.id) };
+  }
+}
+
+/** A line's name, or "a" train's words for one on none. */
+const lineWords = (w: World, lineId: number | undefined): string => {
+  const line = lineId === undefined ? undefined : w.economy.lines.get(lineId);
+  return line ? `the ${line.name}` : "two lines";
+};
+
+/**
+ * No passing place (detector #4): trains nose to nose on single track where a passing loop is the fix (the stall
+ * classifier's `in-way` with `loop`, `too-many`, or `signals` head on with `loop`), or a train kept waiting on a long single
+ * track lines share (sections' `single-track`, `STARVED_S`). Keyed on the classifier: its stalls hold `STUCK_S` first.
+ */
+export const JAM_LOOP: Detector = {
+  id: "jam-loop",
+  every: 3,
+  hold: 6,
+  linger: 60,
+  look(w, ctx) {
+    for (const { engine, why, lineId } of stuckEngines(w)) {
+      if (!why) continue;
+      // (Starved on a long single track lines share: the classifier's `in-way`, sections naming the stretch.)
+      const single = why.kind === "in-way" ? w.economy.sections.singleTrack(engine.id) : null;
+      const headOn = (why.kind === "in-way" && (why.loop || !!single)) || (why.kind === "signals" && !!why.headOn?.loop);
+      // (A line over room because a parked train or a pinned loop takes a place: moving it, or unpinning, is the fix.)
+      const full = why.kind === "too-many" ? w.economy.sections.fullness(engine.id) : null;
+      const tooMany = why.kind === "too-many" && !(full && (full.spare || full.parked || full.pinned));
+      if (!headOn && !tooMany) continue;
+      const by = "by" in why ? why.by : -1;
+      const pieces = [frontPiece(w, engine.id), ...(by >= 0 ? [frontPiece(w, by)] : []), ...(single?.pieces ?? [])].filter((p) => p >= 0);
+      // (No switches yet: learning them comes first, as the old head-on toast said.)
+      const canLoop = !ctx.learned || ctx.learned.has("switches");
+      const fix = canLoop ? "A passing loop in the middle lets them pass." : "Learn Switches, so they can pass on a loop.";
+      return {
+        id: "jam-loop",
+        key: `${tooMany ? "many" : "meet"}:${lineId ?? engine.id}`,
+        title: tooMany ? "More trains than passing places" : "Trains can't pass",
+        short: tooMany ? "Too many trains" : "Trains can't pass",
+        text: tooMany
+          ? `${lineWords(w, lineId).replace(/^t/, "T")} has more trains than passing loops. Add a passing loop, or take a train off.`
+          : `Trains of ${lineWords(w, lineId)} meet on single track and stop nose to nose. ${fix}`,
+        toast: tooMany ? "A line has more trains than passing places" : "Trains are stuck nose to nose",
+        more: "loops",
+        fixed: "✓ They pass now",
+        pieces,
+        engine: engine.id,
+      };
+    }
+    return null;
+  },
+};
+
+/** Too many trains for the signals (detector #2): a ring of waits through signals, not head on. */
+export const JAM_SIGNALS: Detector = {
+  id: "jam-signals",
+  every: 3,
+  hold: 6,
+  linger: 60,
+  look(w) {
+    for (const { engine, why, lineId } of stuckEngines(w)) {
+      if (why?.kind !== "signals" || why.headOn) continue;
+      return {
+        id: "jam-signals",
+        key: `signals:${lineId ?? engine.id}`,
+        title: "Trains stuck at signals",
+        short: "Stuck at signals",
+        text: "There are more trains than gaps between signals, so each waits for the next. Add a signal, or take a train off.",
+        toast: "Trains are stuck at signals",
+        more: "signals",
+        fixed: "✓ They're moving again",
+        pieces: [frontPiece(w, engine.id), frontPiece(w, why.by)].filter((p) => p >= 0),
+        engine: engine.id,
+      };
+    }
+    return null;
+  },
+};
+
+/** A signal inside a loop (detector #3, issue #31): a train stands at it with its tail over the loop's points. */
+export const JAM_LOOP_SIGNAL: Detector = {
+  id: "jam-loop-signal",
+  every: 3,
+  hold: 6,
+  linger: 60,
+  look(w) {
+    for (const { engine, why } of stuckEngines(w)) {
+      if (why?.kind !== "loop-signal" || !w.layout.getSignal(why.mark)) continue;
+      return {
+        id: "jam-loop-signal",
+        key: `loop-signal:${why.mark}`,
+        title: "A signal is in the way",
+        short: "Signal in the way",
+        text: "A train waits at a signal inside the passing loop, its tail over the points, so nothing gets in. Move the signal to the loop's end.",
+        toast: "A signal inside a loop is holding trains up",
+        more: "signals",
+        fixed: "✓ The loop is clear now",
+        markId: why.mark,
+        pieces: [frontPiece(w, why.by)].filter((p) => p >= 0),
+        engine: engine.id,
+      };
+    }
+    return null;
+  },
+};
+
 /** The detectors, first first: the one shown is the first found (and held) of them. */
-export const DETECTORS: readonly Detector[] = [SHORT_BLOCKS, JAM_FOLLOW];
+export const DETECTORS: readonly Detector[] = [SHORT_BLOCKS, JAM_LOOP_SIGNAL, JAM_SIGNALS, JAM_LOOP, JAM_FOLLOW];
 
 /** When the tips may speak at all. */
 export interface SituationGate {

@@ -87,6 +87,7 @@ export const SUITES = {
   "feature-tips": { script: "e2e:feature-tips", minutes: 6 },
   "situation-help": { script: "e2e:situation-help", minutes: 8 },
   "situation-blocks": { script: "e2e:situation-blocks", minutes: 8 },
+  "situation-loops": { script: "e2e:situation-loops", minutes: 8 },
   "routes-ux": { script: "e2e:routes-ux", minutes: 6 },
   "route-insert": { script: "e2e:route-insert", minutes: 4 },
   "train-off-line": { script: "e2e:train-off-line", minutes: 4 },
@@ -245,7 +246,7 @@ export const RULES = [
   ["src/ui/**", [...SMOKE, TOUCH_UI, "click:touch-tray"]],
   [["src/ui/hud.ts", "src/ui/tray-catalogue.ts"], ["names", "locked", "focus-ring", "research", "tray", "sandbox-chains", "touch:tabs-reach"]],
   ["src/ui/prefs.ts", ["sandbox-chains"]],
-  [["src/ui/explainers.ts", "src/ui/explainer-sheet.ts", "src/ui/hud.ts", "src/style.css"], ["learn-more"]],
+  [["src/ui/explainers.ts", "src/ui/explainer-sheet.ts", "src/ui/hud.ts", "src/style.css"], ["learn-more", "situation-loops"]],
   [["src/ui/blueprint-board.ts", "src/ui/cost-tag.ts", "src/ui/wiki-link.ts"], ["research", "locked"]],
   ["src/ui/feedback-sheet.ts", ["touch:feedback", "click:feedback"]],
   [["src/ui/controls-tutorial.ts", "src/ui/title.ts"], ["tutorial"]],
@@ -304,7 +305,7 @@ export const RULES = [
   // Feature tips: the 💡 row under the goals, its Show me, and the Learned toast that says it.
   ["src/game/feature-tips.ts", ["feature-tips"]],
   // Situation help: a 💡 tip for a jam on the map (the tracker, its detectors), its row, Show where and ☰ Tips.
-  [["src/game/situation-tips.ts", "src/ui/prefs.ts"], ["situation-help", "situation-blocks"]],
+  [["src/game/situation-tips.ts", "src/ui/prefs.ts"], ["situation-help", "situation-blocks", "situation-loops"]],
   ["src/game/landscaping.ts", ["landscaping"]],
   ["src/game/station-upgrade.ts", ["station-upgrade", "station-touches"]],
   ["src/game/departures.ts", ["station-touches"]],
