@@ -16,7 +16,7 @@ import { putAway } from "../game/put-away";
 import { editLine, joinLine } from "../game/lines";
 import { replayBugMap } from "./bugmap";
 import { next } from "../routing/graph";
-import { getPieceDef } from "../track";
+import { getPieceDef, pathLength } from "../track";
 
 /** A train stuck this long (s) is a jam, and is cleared. */
 export const JAM_S = 30;
@@ -70,6 +70,9 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}): J
         const q = pending[k];
         if (now < q.at) continue;
         for (const s of [100, 300, 50, 500]) {
+          // (On the piece: a spot past its far end left the train's front on a cursor off it.)
+          const pc = world.layout.getPiece(q.piece);
+          if (!pc || s >= pathLength(getPieceDef(pc.type, pc.flipped).paths[0].geom)) continue;
           const placed = sim.addTrain(q.kinds, { pieceId: q.piece, pathIndex: 0, reversed: false, s });
           if (placed.kind !== "placed") continue;
           // (Not onto a piece another train is on (the sim places it over points another is crossing): off again, the
