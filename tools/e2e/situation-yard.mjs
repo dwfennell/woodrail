@@ -288,45 +288,59 @@ check("3. Show where: the train in view", fx > 0 && fx < 390 && fy > 0 && fy < 8
 await shot("3-show-where");
 
 // ---- 4. The fix, by taps: a wagon off -----------------------------------------------------------------------------------
+/**
+ * A card's button tapped till what it does holds (`done` in the page, with `arg`), the card opened again first when it
+ * isn't: under a loaded box a tap can land as the card comes in and miss. Returns whether it held.
+ */
+const tapTill = async (carId, card, sel, done, arg, tries = 3) => {
+  for (let k = 0; k < tries; k++) {
+    const open = await p.evaluate((c) => (c === "engine" ? window.woodrail.hud.engineCardOpen : window.woodrail.hud.carCardOpen), card);
+    if (!open && !(await tapCar(carId, card))) continue;
+    await p.waitForTimeout(400);
+    await tapSel(sel);
+    if (await until(done, arg, 15000)) return true;
+  }
+  return false;
+};
+const card = (c) => `.${c}-card:not([hidden])`;
 check("4. a tap on the engine: its card", await tapCar(setup.engine, "engine"));
-await until(() => !!document.querySelector(".engine-card:not([hidden]) .chip.go"), null, 10000);
-const stopTitle = await p.evaluate(() => document.querySelector(".engine-card:not([hidden]) .chip.go")?.getAttribute("aria-label") ?? "");
-await tapSel(".engine-card:not([hidden]) .chip.go");
-const stood = await until((e) => { const t = window.woodrail.sim.findCar(e).train; return t.cars.find((c) => c.id === e).lever === 0 && Math.abs(t.speed) < 1; }, setup.engine, 120000);
-check("4. its card's Stop: the train stands", stood, stopTitle);
-await tapSel(".engine-card:not([hidden]) .close");
+const stood = await tapTill(setup.engine, "engine", `${card("engine")} .chip.go`, (e) => window.woodrail.sim.findCar(e).train.cars.find((c) => c.id === e).lever === 0, setup.engine);
+const still = stood && (await until((e) => Math.abs(window.woodrail.sim.findCar(e).train.speed) < 1, setup.engine, 120000));
+check("4. its card's Stop: the train stands", still);
+await tapSel(`${card("engine")} .close`);
 const before = (await trainsNow()).find((t) => t.cars.includes(setup.engine));
 const last = before.cars[0] === setup.engine ? before.cars[before.cars.length - 1] : before.cars[0];
 check("4. a tap on its last wagon: the wagon's card", await tapCar(last, "car"));
-await tapSel(".car-card:not([hidden]) .decouple");
-const parted = await until((e) => [...window.woodrail.sim.trains()].length === 2 && window.woodrail.sim.findCar(e).train.cars.length === 3, setup.engine, 15000);
+const parted = await tapTill(last, "car", `${card("car")} .decouple`, ([e, c]) => window.woodrail.sim.findCar(c)?.train.cars.length === 1 && window.woodrail.sim.findCar(e).train.cars.length === 3, [setup.engine, last]);
 check("4. Decouple: the wagon left on its own, the train an engine and two", parted, JSON.stringify(await trainsNow()));
-await tapSel(".car-card:not([hidden]) .close");
-// (Tapped again if a tap missed: under a loaded box a card can be a frame late.)
-let carCard = false;
 let gone = false;
-for (let k = 0; k < 2 && !gone; k++) {
-  carCard = (await tapCar(last, "car")) || carCard;
-  await p.evaluate(() => [...document.querySelectorAll(".car-card:not([hidden]) .card-row button")].find((x) => x.textContent.trim() === "Remove")?.setAttribute("data-e2e", "remove"));
-  await tapSel('.car-card:not([hidden]) [data-e2e="remove"]');
-  gone = await until((c) => !window.woodrail.sim.findCar(c), last, 15000);
+// (Only the wagon alone: its card's Remove puts its whole train back in the box.)
+if (parted) {
+  await tapSel(`${card("car")} .close`);
+  await p.evaluate(() => (window.__markRemove = () => [...document.querySelectorAll(".car-card:not([hidden]) .card-row button")].find((x) => x.textContent.trim() === "Remove")?.setAttribute("data-e2e", "remove")));
+  for (let k = 0; k < 3 && !gone; k++) {
+    if (!(await p.evaluate(() => window.woodrail.hud.carCardOpen)) && !(await tapCar(last, "car"))) continue;
+    await p.waitForTimeout(400);
+    await p.evaluate(() => window.__markRemove());
+    await tapSel(`${card("car")} [data-e2e="remove"]`);
+    gone = await until((c) => !window.woodrail.sim.findCar(c), last, 15000);
+  }
 }
-check("4. the wagon tapped again: its card", carCard);
-check("4. its Remove: put back in the box", gone, JSON.stringify(await trainsNow()));
+check("4. the wagon's Remove: put back in the box, the train kept", gone && (await p.evaluate((e) => !!window.woodrail.sim.findCar(e), setup.engine)), JSON.stringify(await trainsNow()));
 await shot("4-off");
-check("4. the engine tapped: its card", await tapCar(setup.engine, "engine"));
-await tapSel(".engine-card:not([hidden]) .chip.go");
-const going = await until((e) => window.woodrail.sim.findCar(e).train.cars.find((c) => c.id === e).lever !== 0, setup.engine, 15000);
-check("4. Go: it runs its line again", going);
-await tapSel(".engine-card:not([hidden]) .close");
+await tapSel(`${card("car")} .close`);
+const going = gone && (await tapTill(setup.engine, "engine", `${card("engine")} .chip.go`, (e) => window.woodrail.sim.findCar(e).train.cars.find((c) => c.id === e).lever !== 0, setup.engine));
+check("4. Go, on its card: it runs its line again", going);
+await tapSel(`${card("engine")} .close`);
 
 // ---- 5. The payoff ----------------------------------------------------------------------------------------------------
 const loads0 = await p.evaluate(() => window.__loads());
 const n0 = await p.evaluate(() => window.__visits.length);
-const fixed = await until(() => window.__said.some((t) => /It fits the yard now/.test(t)), null, 300000);
+// (The fix not made: nothing to wait for; failed above, said here quickly.)
+const fixed = going && (await until(() => window.__said.some((t) => /It fits the yard now/.test(t)), null, 120000));
 check("5. the tip goes with \"✓ It fits the yard now\"", fixed, JSON.stringify((await said()).slice(-4)));
 await shot("5-fixed");
-await until((n) => window.__visits.length >= n + 2, n0, 600000);
+if (going) await until((n) => window.__visits.length >= n + 2, n0, 240000);
 const after = await p.evaluate((n) => ({ loads: window.__loads(), visits: window.__visits.slice(n) }), n0);
 check("5. worked at the sawmill clear of the points, logs still delivered", after.visits.length >= 2 && after.visits.every((v) => !v.onPoints) && after.loads > loads0, JSON.stringify({ loads0, ...after }));
 const done = await p.evaluate(() => ({ done: window.woodrail.situations().isDone("too-long"), row: !!document.querySelector(".situation-tip") }));
