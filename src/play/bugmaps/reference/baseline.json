@@ -8,8 +8,8 @@
   },
   "complex-2.txt": {
     "jams": 18,
-    "arrivals": 476,
-    "longestStand": 63,
+    "arrivals": 473,
+    "longestStand": 50,
     "firstBreak": null,
     "seconds": 1800
   },
@@ -35,9 +35,9 @@
     "seconds": 1800
   },
   "rowan-2.txt": {
-    "jams": 30,
-    "arrivals": 506,
-    "longestStand": 191,
+    "jams": 31,
+    "arrivals": 500,
+    "longestStand": 183,
     "firstBreak": "greenHeld: train 109 stood 5 s at signal -81, which shows clear (piece 329)",
     "seconds": 1800
   },
@@ -49,8 +49,8 @@
     "seconds": 1800
   },
   "wren.txt": {
-    "jams": 15,
-    "arrivals": 344,
+    "jams": 17,
+    "arrivals": 328,
     "longestStand": 155,
     "firstBreak": null,
     "seconds": 1800

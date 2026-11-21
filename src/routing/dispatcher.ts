@@ -105,6 +105,8 @@ export class Dispatcher {
   /** The signal at each held train's hold's end (joint ref → train id), for `gateAt`. */
   private gate = new Map<number, number>();
   private gateVer = 0;
+  /** The sim's trains (ids) at the last look: one new since (put down by hand, or made by a coupling) cuts back any hold over it. */
+  private seen = new Set<number>();
 
   constructor(private readonly host: DispatcherHost) {}
 
@@ -151,6 +153,7 @@ export class Dispatcher {
         asking.push(engine.id);
       } else if (h) h.stood = -1;
     }
+    if (this.cutForNew()) changed = true;
     for (const e of [...this.holdsBy.keys()])
       if (!live.has(e)) {
         this.holdsBy.delete(e);
@@ -169,6 +172,30 @@ export class Dispatcher {
     asking.sort((a, b) => (this.holdsBy.get(a)?.stood ?? Infinity) - (this.holdsBy.get(b)?.stood ?? Infinity) || a - b);
     for (const e of asking) this.decide(ts, snaps, e);
     this.refreshGate();
+  }
+
+  /** A train new on the track (put down by hand where another was granted the way): each hold over a piece it's on cut
+   * back to the node before (the held train brakes for it, as for any hold's end). True if one was. */
+  private cutForNew(): boolean {
+    const now = new Set<number>();
+    let fresh: Set<number> | null = null;
+    for (const t of this.host.sim.trains()) {
+      now.add(t.id);
+      if (this.seen.has(t.id)) continue;
+      fresh ??= new Set();
+      for (const b of t.bogies) fresh.add(b.pieceId);
+    }
+    this.seen = now;
+    if (!fresh) return false;
+    let cut = false;
+    for (const h of this.holdsBy.values()) {
+      if (fresh.size === 0 || !now.has(h.trainId)) continue;
+      const k = h.path.findIndex((i, n) => n > 0 && h.t.pos[i].some((x) => fresh!.has(x)));
+      if (k < 0) continue;
+      this.setHold(h, h.path[k - 1], h.path.slice(0, k));
+      cut = true;
+    }
+    return cut;
   }
 
   /** Each train's booked way, moved along from the last, or built afresh; its hold kept (or started where it stands). */
@@ -280,12 +307,11 @@ export class Dispatcher {
     h.aim = -1;
     const mainPieces = new Set<number>();
     for (let i = t.at; i < t.main; i++) for (const x of t.pos[i]) mainPieces.add(x);
+    // (The furthest such piece on the way granted, not points: aimed at, the router sets every points short of it the
+    // granted way; one at points was dropped as the train came onto them, and they were set the booked way.)
     for (const i of p) {
       const fp = t.pos[i][t.pos[i].length - 1];
-      if (i >= t.main && !mainPieces.has(fp)) {
-        h.aim = fp;
-        break;
-      }
+      if (i >= t.main && !mainPieces.has(fp) && waysFrom(this.host.layout, fp, t.frontEn[i]).length < 2) h.aim = fp;
     }
   }
 
