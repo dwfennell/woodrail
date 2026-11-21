@@ -4,7 +4,7 @@
 //
 // Setup (named shortcuts, none of them what's tested): as e2e:situation-help's (a flat map by its code; Switches,
 // Routes and Signals learned; the tutorial's goals done and the clock past a game's first minutes; the line laid by
-// the editor, a passing loop at each end of a stretch bent round to fit, two timber trains bunched on one line), and
+// the editor, a passing loop at each end of a stretch bent round to fit, three timber trains bunched on one line), and
 // two signals put down by the editor one straight apart on the stretch (216 mm: a timber train is 268 mm). Then, on the
 // game's own clock (the test clock, 8×):
 //   1. A train waits there: the tip comes by itself (its toast once, "nowhere to wait between these signals").
@@ -183,7 +183,8 @@ const setup = await p.evaluate(async () => {
   const depot = (id, role) => w.economy.depotAtPiece(id) ?? w.economy.addDepot(role, id);
   const A = depot(at(a), "forest").id;
   const B = depot(at(bb), "sawmill").id;
-  const engines = [at(mid[1]), at(l1.main[0])].map((pieceId) => {
+  // (Three trains: with the close signals a follower edges on, and two alone wait only a few seconds at a time.)
+  const engines = [at(mid[1]), at(l1.main[0]), at(bend[5])].map((pieceId) => {
     const r = w.sim.addTrain(["engine", "timber", "timber"], { pieceId, pathIndex: 0, s: 100, reversed: false });
     if (r.kind !== "placed") throw new Error("no room for a train");
     const e = w.sim.getTrain(r.trainId).cars[0].id;
@@ -192,6 +193,7 @@ const setup = await p.evaluate(async () => {
   });
   const red = startLine(w.economy, engines[0], [{ depotId: A, action: "auto" }, { depotId: B, action: "auto" }]);
   joinLine(w.economy, engines[1], red.id);
+  joinLine(w.economy, engines[2], red.id);
   // Two signals one straight apart on the stretch, just past the first loop where a follower waits, by the editor (shortcut: the tip is what's tested, not laying them).
   const close = [w.editor().addSignal(connectorRef(at(m1[0]), 1)), w.editor().addSignal(connectorRef(at(m1[1]), 1))];
   // (Both bound for the sawmill, the follower behind the leader, as the follow hint's own test starts them: a line's
@@ -224,7 +226,7 @@ const setup = await p.evaluate(async () => {
   w.invalidate();
   return { A, B, engines, line: red.id, name: red.name, pieces: placed.length, close };
 });
-check("setup: the long line laid, two trains on one line, two signals one straight apart", !setup.error && setup.pieces > 20 && setup.close.every((id) => id >= 0), JSON.stringify(setup));
+check("setup: the long line laid, three trains on one line, two signals one straight apart", !setup.error && setup.pieces > 20 && setup.close.every((id) => id >= 0), JSON.stringify(setup));
 await p.evaluate(() => {
   window.woodrail.paused = false;
   window.woodrail.hud.setPaused(false);
