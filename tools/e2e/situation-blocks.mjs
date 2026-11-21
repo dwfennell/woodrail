@@ -227,6 +227,15 @@ const setup = await p.evaluate(async () => {
   return { A, B, engines, line: red.id, name: red.name, pieces: placed.length, close };
 });
 check("setup: the long line laid, three trains on one line, two signals one straight apart", !setup.error && setup.pieces > 20 && setup.close.every((id) => id >= 0), JSON.stringify(setup));
+// (Every toast's words as it shows, so one up and gone between two looks is still seen.)
+await p.evaluate(() => {
+  window.__toasts = [];
+  const seen = () => {
+    const t = document.querySelector(".toast.show")?.textContent ?? "";
+    if (t && window.__toasts.at(-1) !== t) window.__toasts.push(t);
+  };
+  new MutationObserver(seen).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class"] });
+});
 await p.evaluate(() => {
   window.woodrail.paused = false;
   window.woodrail.hud.setPaused(false);
@@ -242,10 +251,10 @@ const diag = () =>
   });
 let toasted = false;
 for (let k = 0; k < 40 && !toasted; k++) {
-  toasted = await until(() => /nowhere to wait between these signals/.test(document.querySelector(".toast.show")?.textContent ?? ""), null, 15000);
+  toasted = await until(() => window.__toasts.some((t) => /nowhere to wait between these signals/.test(t)), null, 15000);
   if (!toasted) console.log("  waiting:", JSON.stringify(await diag()));
 }
-check("1. a train waits by the close signals: a toast says so", toasted, await toastText());
+check("1. a train waits by the close signals: a toast says so", toasted, JSON.stringify(await p.evaluate(() => window.__toasts.filter((t) => /signals/.test(t)))));
 await shot("1-toast");
 
 // ---- 2. The row -------------------------------------------------------------------------------------------------------
@@ -307,7 +316,7 @@ const short = await p.evaluate(async () => {
   return shortBlocks(w.layout, longest).length;
 });
 check("5. no block too short for the line's trains is left", short === 0, `${short} short`);
-const fixed = await until(() => /They have room to wait now/.test(document.querySelector(".toast.show")?.textContent ?? ""), null, 900000);
+const fixed = await until(() => window.__toasts.some((t) => /They have room to wait now/.test(t)), null, 900000);
 check("5. the tip goes with \"✓ They have room to wait now\"", fixed, await toastText());
 await shot("5-fixed");
 const loads1 = await p.evaluate(() => window.__logsIn());
