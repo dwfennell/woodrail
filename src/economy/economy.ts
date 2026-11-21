@@ -16,6 +16,7 @@ import { Breakdown } from "./breakdown";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
 import { Dispatcher } from "../routing/dispatcher";
+import { BLOCK_RULE } from "../routing/stretch";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone } from "../routing/via";
 import { RoadVehicles } from "../roads/vehicles";
 import { driveOf, trainLength } from "../sim/train-cars";
@@ -2804,11 +2805,19 @@ export class Economy {
         granted: (engine) => this.sections.steerSoon.add(engine),
       });
       this.dispatcher = d;
+      // (A move past a plain signal still needs its whole block free: without it, trains ran deep into single track and
+      // met head on further than a decision looks (eight maps: 22-30 jams against main's 6-7).)
+      BLOCK_RULE.on = true;
       this.gateBefore = sim.signalGate;
       sim.signalGate = { at: (ref) => d.gateAt(ref), version: () => d.gateVersion() };
+      // (The signals are its holds (routing redesign §3.6).)
+      // (What its signals show (routing redesign §3.6). Who goes on past them is still the gate's and the blocks': the
+      // owner deciding that too (`clearFor`) ran trains deep into single track, 22-30 jams against 0-3 on three maps.)
+      sim.signalOwner = { clearFor: () => null, aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() };
     } else {
       this.dispatcher = null;
       sim.signalGate = this.gateBefore;
+      sim.signalOwner = null;
     }
   }
   private gateBefore: Sim["signalGate"] = null;
