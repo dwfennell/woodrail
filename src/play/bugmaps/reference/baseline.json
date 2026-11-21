@@ -64,7 +64,7 @@
   },
   "own-01-single-loops.txt": {
     "jams": 3,
-    "arrivals": 49,
+    "arrivals": 68,
     "longestStand": 72,
     "firstBreak": null,
     "seconds": 1800
@@ -84,50 +84,50 @@
     "seconds": 1800
   },
   "own-04-wye.txt": {
-    "jams": 25,
-    "arrivals": 57,
-    "longestStand": 87,
+    "jams": 1,
+    "arrivals": 101,
+    "longestStand": 54,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-05-double-track.txt": {
-    "jams": 33,
-    "arrivals": 45,
-    "longestStand": 239,
+    "jams": 2,
+    "arrivals": 76,
+    "longestStand": 1793,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-06-double-close.txt": {
-    "jams": 29,
-    "arrivals": 54,
-    "longestStand": 239,
+    "jams": 2,
+    "arrivals": 84,
+    "longestStand": 1795,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-07-ring-opposite.txt": {
-    "jams": 9,
-    "arrivals": 163,
+    "jams": 10,
+    "arrivals": 168,
     "longestStand": 155,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-08-branch.txt": {
-    "jams": 7,
-    "arrivals": 98,
+    "jams": 3,
+    "arrivals": 100,
     "longestStand": 60,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-09-hill.txt": {
-    "jams": 35,
-    "arrivals": 122,
-    "longestStand": 127,
-    "firstBreak": "greenHeld: train 48 stood 5 s at signal -37, which shows clear (piece 85)",
+    "jams": 33,
+    "arrivals": 120,
+    "longestStand": 114,
+    "firstBreak": null,
     "seconds": 1800
   },
   "own-10-depots.txt": {
-    "jams": 4,
-    "arrivals": 95,
+    "jams": 3,
+    "arrivals": 98,
     "longestStand": 89,
     "firstBreak": null,
     "seconds": 1800
