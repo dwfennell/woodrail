@@ -4,6 +4,7 @@ import { CAR_SPECS, type Train } from "../sim";
 import { trainLength } from "../sim/train-cars";
 import { connectorRef, getPieceDef, indexOfRef, offersChoice, pathLength, pieceOfRef, type Layout } from "../track";
 import { next } from "../routing/graph";
+import { TRACKS_TECH } from "./depot-tracks";
 import { trainState } from "./engine-status";
 import type { World } from "./world";
 
@@ -52,6 +53,8 @@ export interface SituationContext {
   nameOf(depotId: number): string;
   /** The game's clock (s), for a detector that times a wait itself. */
   now?: number;
+  /** When (game s) this engine's card was last open, if it has been: what its card says needs no tip. */
+  cardAt?(engine: number): number | undefined;
 }
 
 export interface Detector {
@@ -418,8 +421,143 @@ export const JAM_LOOP_SIGNAL: Detector = {
   },
 };
 
+/** A card looked at this recently (game s) already says what's wrong: no tip for that train. */
+export const CARD_SEEN_S = 60;
+/** Each routed engine's line and next stop (a depot), with its line's name. */
+function* routedEngines(w: World) {
+  for (const [engine, lineId] of w.economy.lineIdOf) {
+    const r = w.economy.routeOf(engine);
+    const line = w.economy.lines.get(lineId);
+    if (!r || !line || r.stops.length === 0) continue;
+    yield { engine, line, next: r.stops[r.next % r.stops.length].depotId };
+  }
+}
+
+/**
+ * Can't reach a stop (detector #6): a routed train that skips a stop for a line end too short for it to turn in
+ * (`Economy.shortSkipOf`), or whose stop is beyond a train of its own line it has no room for (`Sections.unreachable`).
+ * Its card says so already: only for a train whose card hasn't been open in the last minute.
+ */
+export const UNREACHABLE: Detector = {
+  id: "unreachable",
+  every: 5,
+  hold: 30,
+  linger: 30,
+  look(w, ctx) {
+    const now = ctx.now ?? 0;
+    for (const { engine, line, next } of routedEngines(w)) {
+      const seen = ctx.cardAt?.(engine);
+      if (seen !== undefined && now - seen < CARD_SEEN_S) continue;
+      const short = w.economy.shortSkipOf(engine);
+      if (short) {
+        const end = short.at >= 0 ? w.economy.depot(short.at) : undefined;
+        return {
+          id: "unreachable",
+          key: `short:${line.id}:${short.depotId}`,
+          title: `The ${line.name} skips ${ctx.nameOf(short.depotId)}`,
+          short: "A stop skipped",
+          text: `${end ? `The line end at ${ctx.nameOf(short.at)}` : "A line end on the way"} is too short for its train to turn and take the other road. Lengthen it, or take a car off.`,
+          toast: `The ${line.name} can't reach ${ctx.nameOf(short.depotId)}`,
+          more: "routes",
+          fixed: `✓ It reaches ${ctx.nameOf(short.depotId)} now`,
+          pieces: [end?.pieceId ?? -1, frontPiece(w, engine)].filter((p) => p >= 0),
+          engine,
+        };
+      }
+      if (w.economy.sections.unreachable(engine)) {
+        const at = w.economy.depot(next);
+        return {
+          id: "unreachable",
+          key: `full:${line.id}:${next}`,
+          title: `The ${line.name} can't get into ${ctx.nameOf(next)}`,
+          short: "A stop out of reach",
+          text: `Another ${line.name} train stands at ${ctx.nameOf(next)}, and there's no room to wait clear of it. Take a train off the line, or add a passing loop.`,
+          toast: `The ${line.name} can't get into ${ctx.nameOf(next)}`,
+          more: "routes",
+          fixed: `✓ It gets into ${ctx.nameOf(next)} now`,
+          pieces: [at?.pieceId ?? -1, frontPiece(w, engine)].filter((p) => p >= 0),
+          engine,
+        };
+      }
+    }
+    return null;
+  },
+};
+
+/** Twice in this long (game s) with its tail on the points: too long for the yard. */
+export const TOO_LONG_S = 300;
+/**
+ * Each engine's visits with its train's tail on the points (game s), whether it stands so now, and where: by engine car
+ * id, per economy (a train turned at a line end is a new Train, its engine the same car).
+ */
+const onPointsSeen = new WeakMap<object, Map<number, { at: number[]; now: boolean; depot: number; len: number; rev: number }>>();
+
+/**
+ * Too long for the yard (detector #9): a train on a line worked with its tail on the points (`standsOnPoints`: no
+ * spot at the depot clears them) twice in five minutes, holding up the trains behind. Its visits counted by this
+ * detector's own looks (every 2 s; a crane's work takes longer).
+ */
+export const TOO_LONG: Detector = {
+  id: "too-long",
+  every: 2,
+  hold: 0,
+  linger: 0,
+  look(w, ctx) {
+    const now = ctx.now ?? 0;
+    let found: Situation | null = null;
+    let seenOf = onPointsSeen.get(w.economy);
+    if (!seenOf) onPointsSeen.set(w.economy, (seenOf = new Map()));
+    for (const t of w.sim.trains()) {
+      const engine = t.cars.find((c) => c.kind === "engine");
+      if (!engine) continue;
+      const depot = w.economy.standsOnPoints(t.id);
+      let seen = seenOf.get(engine.id);
+      if (!seen) {
+        if (!depot) continue;
+        seen = { at: [], now: false, depot: -1, len: trainLength(t), rev: w.layout.revision };
+        seenOf.set(engine.id, seen);
+      }
+      // (A car taken off, or the track changed (a longer yard, a second track): the visits before it are forgotten, so
+      // the player's fix clears it at once.)
+      const len = trainLength(t);
+      if (len < seen.len || w.layout.revision !== seen.rev) seen.at.length = 0;
+      seen.len = len;
+      seen.rev = w.layout.revision;
+      if (depot && !seen.now) seen.at.push(now);
+      if (depot) seen.depot = depot.id;
+      seen.now = !!depot;
+      while (seen.at.length > 0 && now - seen.at[0] > TOO_LONG_S) seen.at.shift();
+      // (Gone by: forgotten, so the map holds only engines seen on points lately.)
+      if (seen.at.length === 0 && !seen.now) {
+        seenOf.delete(engine.id);
+        continue;
+      }
+      if (found || seen.at.length < 2) continue;
+      const lineId = w.economy.lineIdOf.get(engine.id);
+      const line = lineId === undefined ? undefined : w.economy.lines.get(lineId);
+      // (Not for a train on no line: the player drives it, and stops it where they like.)
+      if (!line) continue;
+      const at = w.economy.depot(seen.depot) ?? null;
+      const name = at ? ctx.nameOf(at.id) : "the yard";
+      const canTrack = !ctx.learned || ctx.learned.has(TRACKS_TECH);
+      found = {
+        id: "too-long",
+        key: `long:${engine.id}`,
+        title: `Too long for ${at ? `${name}'s` : "the"} yard`,
+        short: "Too long for the yard",
+        text: `A ${line.name} train sits with its tail on the points while it's worked at ${name}, holding up the trains behind. Take a car off${canTrack ? ", or add a second track" : ""}.`,
+        toast: `A ${line.name} train is too long for ${name}`,
+        fixed: "✓ It fits the yard now",
+        pieces: [at?.pieceId ?? -1, frontPiece(w, engine.id)].filter((p) => p >= 0),
+        engine: engine.id,
+      };
+    }
+    return found;
+  },
+};
+
 /** The detectors, first first: the one shown is the first found (and held) of them. */
-export const DETECTORS: readonly Detector[] = [SHORT_BLOCKS, JAM_LOOP_SIGNAL, JAM_SIGNALS, JAM_LOOP, JAM_FOLLOW];
+export const DETECTORS: readonly Detector[] = [SHORT_BLOCKS, JAM_LOOP_SIGNAL, JAM_SIGNALS, JAM_LOOP, JAM_FOLLOW, UNREACHABLE, TOO_LONG];
 
 /** When the tips may speak at all. */
 export interface SituationGate {

@@ -107,6 +107,7 @@
     "e2e:situation-blocks": "node scripts/e2e/lib/run.mjs tools/e2e/situation-blocks.mjs",
     "e2e:situation-loops": "node scripts/e2e/lib/run.mjs tools/e2e/situation-loops.mjs",
     "e2e:situation-paused": "node scripts/e2e/lib/run.mjs tools/e2e/situation-paused.mjs",
+    "e2e:situation-yard": "node scripts/e2e/lib/run.mjs tools/e2e/situation-yard.mjs",
     "e2e:routes-ux": "node scripts/e2e/lib/run.mjs tools/e2e/routes-ux.mjs",
     "e2e:route-insert": "node scripts/e2e/lib/run.mjs tools/e2e/route-insert.mjs",
     "e2e:train-off-line": "node scripts/e2e/lib/run.mjs tools/e2e/train-off-line.mjs",
