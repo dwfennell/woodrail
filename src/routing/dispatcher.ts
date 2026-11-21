@@ -178,7 +178,10 @@ export class Dispatcher {
       const sig = `${s.stops?.join(",") ?? "-"}.${s.next}.${s.at ? 1 : 0}.${s.lever ? 1 : 0}`;
       const h = this.holdsBy.get(s.key);
       if (h && h.sig === sig) {
-        const moved = relocate(h.t, bodyOf(layout, s));
+        // (Along its granted way first: a detour and its booked way can stand alike where they part.)
+        const body = bodyOf(layout, s);
+        const onPath = h.path.find((n) => h.t.pos[n].length === body.length && body.every((p, q) => h.t.pos[n][q] === p));
+        const moved = onPath !== undefined ? (onPath === h.t.at ? h.t : { ...h.t, at: onPath }) : relocate(h.t, body);
         if (moved) {
           h.t = moved;
           const k = h.path.indexOf(moved.at);
