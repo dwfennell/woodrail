@@ -25,6 +25,7 @@
     "replay": "node scripts/replay.mjs",
     "shadow:report": "node scripts/shadow-report.mjs",
     "jams": "node scripts/jams.mjs",
+    "own-maps": "OWN_MAPS=1 vitest run src/play/own-maps/own-maps.test.ts",
     "dispatch:report": "node scripts/dispatch-report.mjs",
     "feedback": "node scripts/fetch-feedback.mjs",
     "activity": "op run --env-file scripts/activity.env -- node scripts/activity.mjs",
