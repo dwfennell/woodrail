@@ -210,6 +210,9 @@ export const RULES = [
   ["src/assets/woodrail-icons.woff2", [...SMOKE, "locked"]],
   // Bug maps replayed headless (src/play/bugmaps.test.ts): no page.
   ["src/play/bugmaps/**", []],
+  // Our own reference maps' builder (src/play/own-maps) and the jams bar's runner: headless, no page.
+  ["src/play/own-maps/**", []],
+  ["scripts/jams.mjs", []],
 
   // Rendering.
   // (What's drawn, and what a tap picks: the smoke set, and the groups that pick pieces and trains off the map.)
