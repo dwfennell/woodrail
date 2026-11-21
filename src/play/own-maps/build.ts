@@ -289,6 +289,12 @@ export class Build {
     for (const at of [s, s - 40, s + 40, 30, 150]) {
       const r = this.w.sim.addTrain(cars, { pieceId, pathIndex: 0, reversed, s: at });
       if (r.kind !== "placed") continue;
+      // (Put down clear of other trains, as a player does: no piece shared with one, points above all.)
+      const mine = new Set(this.w.sim.getTrain(r.trainId)!.bogies.map((x) => x.pieceId));
+      if ([...this.w.sim.trains()].some((o) => o.id !== r.trainId && o.bogies.some((x) => mine.has(x.pieceId)))) {
+        this.w.sim.removeTrain(r.trainId);
+        continue;
+      }
       const engine = this.w.sim.getTrain(r.trainId)!.cars.find((c) => c.kind === "engine")!;
       this.w.sim.setLever(engine.id, 1);
       if (name) this.w.sim.setName(engine.id, name);

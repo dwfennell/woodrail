@@ -127,8 +127,8 @@ function terminus(): Build {
   b.join(b.train(cars(3), m1.ids[1], false, 100, "Logs two"), logs);
   const g = b.train(cars(4, "hopper"), l1.main[1], false, 100, "Grain one");
   const grain = b.line(g, [P2, MILL]);
-  b.join(b.train(cars(2, "hopper"), p2.ids[0], false, 60, "Grain two"), grain);
-  const q = b.train(cars(3, "hopper"), p3.ids[1], false, 100, "Stone");
+  b.join(b.train(cars(2, "hopper"), m3.ids[0], false, 100, "Grain two"), grain);
+  const q = b.train(cars(3, "hopper"), p3.ids[2], false, 100, "Stone");
   b.line(q, [P3, SAW]);
   return b;
 }
