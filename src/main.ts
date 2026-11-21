@@ -598,6 +598,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showPlace: (id) => showPlace(id),
       toggleChainHints: () => setChainHints(!chainHintsOn),
       toggleTips: () => setTipsOn(!tipsOn),
+      toggleDispatcher: () => setDispatcherOn(!game.economy.dispatcher),
       tabOpened: (id) => {
         // Sandbox's Industries tab: the industries' models (Game mode's set) come in the first time it opens.
         if (id !== "industries" || mode !== "sandbox") return;
@@ -2352,6 +2353,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!tipsOn) goalsPanel.setTip(null);
     else if (s) goalsPanel.setTip({ id: s.id, title: s.title, text: s.text, situation: { short: s.short, more: s.more } }, performance.now() < situationLoudUntil);
     else goalsPanel.setTip(t ? { id: t.id, title: t.title, text: t.text } : null);
+  }
+
+  /**
+   * ☰ Train dispatcher (beta) on or off, for this game (saved with it). Safe mid-game: on, its holds start where each
+   * train stands (a running train asks at once); off, sections take each train on from where it stands.
+   */
+  function setDispatcherOn(on: boolean): void {
+    game.economy.useDispatcher(on);
+    hud.setDispatcher(on);
+    hud.toast(on ? "Train dispatcher on: it plans who goes first" : "Train dispatcher off", false, 3000);
+    scheduleSave();
   }
 
   /** ☰ Tips on or off (this device). Back on, the kinds hidden with Got it in this game may show again. */
@@ -7256,6 +7268,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction.depotChain = chainsShown() ? showDepotChain : null;
     hud.setChainHints(chainHintsOn);
     hud.setTips(tipsOn);
+    hud.setDispatcher(!!game.economy.dispatcher);
     hideChainHints();
     if (mode === "sandbox" && game.economy.allDepots().some((d) => INDUSTRY_ROLE[game.layout.getPiece(d.pieceId)?.type ?? "straight-216"] && d.role !== "forest" && d.role !== "sawmill")) ensureGameModels();
     // (A town's card: its ledger in Game mode, its goods in Sandbox.)

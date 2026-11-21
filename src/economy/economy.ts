@@ -2816,6 +2816,7 @@ export class Economy {
       sim.signalOwner = { clearFor: () => null, aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() };
     } else {
       this.dispatcher = null;
+      BLOCK_RULE.on = false;
       sim.signalGate = this.gateBefore;
       sim.signalOwner = null;
     }

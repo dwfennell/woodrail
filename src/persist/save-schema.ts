@@ -91,6 +91,8 @@ export const saveSchema = z.object({
    * one lever setting every corner alike (`cornersFromOneLever`).
    */
   wyeLevers: z.literal(3).optional(),
+  /** ☰ Train dispatcher (beta) on for this game (routing/dispatcher.ts): missing, off. */
+  dispatcher: z.literal(true).optional(),
   trains: z.array(trainSchema),
   /** The sim's next car and train ids (v14; optional: older saves start afresh). */
   ids: z.object({ car: z.number().int().positive(), train: z.number().int().positive() }).optional(),

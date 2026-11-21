@@ -49,6 +49,7 @@ export const SUITES = {
   "not-loading": { script: "e2e:not-loading", minutes: 3 },
   "load-in-place": { script: "e2e:load-in-place", minutes: 4 },
   "engine-names": { script: "e2e:engine-names", minutes: 2 },
+  dispatcher: { script: "e2e:dispatcher", minutes: 10 },
   "new-game": { script: "e2e:new-game", minutes: 8 },
   saves: { script: "e2e:saves", minutes: 6 },
   civic: { script: "e2e:civic", minutes: 5 },
@@ -144,6 +145,8 @@ const TOWNS = ["town-drag", "moved-house", "town-shape", "school", "growth", "st
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
 export const RULES = [
+  // (☰ Train dispatcher (beta): the dispatcher, its switch and its save.)
+  [["src/routing/dispatcher.ts", "src/routing/stretch.ts", "tools/e2e/dispatcher.mjs"], ["dispatcher"]],
   // The rack and the lookout halt: the pieces, the sim's rule, the engine, the stop, the card, the tray.
   [
     ["src/sim/sim.ts", "src/sim/cars.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/game/engines.ts", "src/game/engine-status.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts", "src/ui/piece-info.ts", "src/landscape/hill-shape.ts"],

@@ -187,6 +187,7 @@ export function serializeWorld(world: World): SaveData {
     ...(layout.signalCount > 0 ? { signals: [...layout.signals()].map((m) => [pieceOfRef(m.at), indexOfRef(m.at), m.style, m.mode === "green" ? "green" : m.held] as [number, number, SignalStyle, boolean | "green"]) } : {}),
     ...(defaults ? { switchDefaults: defaults } : {}),
     wyeLevers: 3,
+    ...(world.economy.dispatcher ? { dispatcher: true as const } : {}),
     trains,
     ids: sim.idCounters(),
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...(d.flyers > 0 ? { flyers: d.flyers } : {}), ...storeOf(d), ...keepsOf(d), ...landedOf(world, d.id), ...(d.powerAsk > 0 ? { power: d.powerAsk } : {}), ...vanYardOf(world, d.id), ...tracksSaved(world, d.id) })),
@@ -527,6 +528,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   }
   for (const l of save.lines ?? []) if (l.toldFull && economy.lines.has(l.id)) economy.sections.markToldFull(l.id);
   economy.sections.restored();
+  // (☰ Train dispatcher (beta), on for this game: its holds start where each train stands.)
+  if (save.dispatcher) economy.useDispatcher(true);
   // The yards' orders, and what the shipyards have built.
   for (const y of save.yards ?? []) {
     const role = economy.depot(y.depot)?.role;
