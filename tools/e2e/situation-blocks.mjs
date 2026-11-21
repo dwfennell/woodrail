@@ -195,7 +195,8 @@ const setup = await p.evaluate(async () => {
   joinLine(w.economy, engines[1], red.id);
   joinLine(w.economy, engines[2], red.id);
   // Two signals one straight apart on the stretch, just past the first loop where a follower waits, by the editor (shortcut: the tip is what's tested, not laying them).
-  const close = [w.editor().addSignal(connectorRef(at(m1[0]), 1)), w.editor().addSignal(connectorRef(at(m1[1]), 1))];
+  // (The first two straights past the loop: room for a train, 432 mm. The second one straight on: 216 mm, short.)
+  const close = [w.editor().addSignal(connectorRef(at(m1[1]), 1)), w.editor().addSignal(connectorRef(at(m1[2]), 1))];
   // (Both bound for the sawmill, the follower behind the leader, as the follow hint's own test starts them: a line's
   // trains bunched, going the same way. Left to settle, two trains on a line with a loop at each end take turns and
   // pass at the loops.)
