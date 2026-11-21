@@ -1203,7 +1203,13 @@ suite.add(
           return { els: [...document.querySelectorAll(".toast")].map((x) => `${x.className}: ${x.textContent}`), queue: (h.toastQueue ?? []).map((q) => q.message), showing: h.toastShowing?.message ?? null, waitsForCard: h.toastWaitsForCard, help: !h.help?.hidden, coach: !!h.coach?.shown };
         });
     const j1 = await onJoint(at);
-    if (toast) await tapAt(...toast);
+    // (A frame and a moment first, as a player's tap comes: tapped the instant the toast showed, the tap's click could
+    // reach the click shield before its press did, and be taken for the signal drag's (a press on the map: dropped).)
+    if (toast) {
+      await frames();
+      await p.waitForTimeout(500);
+      await tapAt(...toast);
+    }
     // (Till it has turned, 10 s at most: the click counted by `tapped` can be an earlier one delivered late, a frame
     // being seconds on a slow machine, and the toast's own click handled a frame on.)
     let j2 = await onJoint(at);
