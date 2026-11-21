@@ -88,6 +88,7 @@ export const SUITES = {
   "situation-help": { script: "e2e:situation-help", minutes: 8 },
   "situation-blocks": { script: "e2e:situation-blocks", minutes: 8 },
   "situation-loops": { script: "e2e:situation-loops", minutes: 8 },
+  "situation-yard": { script: "e2e:situation-yard", minutes: 8 },
   "routes-ux": { script: "e2e:routes-ux", minutes: 6 },
   "route-insert": { script: "e2e:route-insert", minutes: 4 },
   "train-off-line": { script: "e2e:train-off-line", minutes: 4 },
@@ -305,7 +306,7 @@ export const RULES = [
   // Feature tips: the 💡 row under the goals, its Show me, and the Learned toast that says it.
   ["src/game/feature-tips.ts", ["feature-tips"]],
   // Situation help: a 💡 tip for a jam on the map (the tracker, its detectors), its row, Show where and ☰ Tips.
-  [["src/game/situation-tips.ts", "src/ui/prefs.ts"], ["situation-help", "situation-blocks", "situation-loops"]],
+  [["src/game/situation-tips.ts", "src/ui/prefs.ts"], ["situation-help", "situation-blocks", "situation-loops", "situation-yard"]],
   ["src/game/landscaping.ts", ["landscaping"]],
   ["src/game/station-upgrade.ts", ["station-upgrade", "station-touches"]],
   ["src/game/departures.ts", ["station-touches"]],

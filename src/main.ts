@@ -2344,12 +2344,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * The tips, with the goals (never per frame): one used goes; the first left that's useful shows under the goals. A
    * tip with no blueprint (Leave now, a ring line's Reverse) is toasted the first time it shows.
    */
+  /** When (game s) each engine's card was last open: a card already says what a tip would. */
+  const cardSeenAt = new Map<number, number>();
   function checkTips(announce: boolean): void {
+    if (interaction.openEngineCarId !== -1) cardSeenAt.set(interaction.openEngineCarId, game.simSeconds);
+    // (The card of the train a situation tip is about, or of one of its cars, open: the player is looking at it.)
+    const about = situations.current()?.engine;
+    if (about !== undefined) {
+      const open = interaction.openEngineCarId !== -1 ? interaction.openEngineCarId : interaction.openCarCardId;
+      const t = open !== -1 ? game.sim.findCar(open)?.train : undefined;
+      if (t && t === game.sim.findCar(about)?.train) situations.looked(game.simSeconds);
+    }
     const { first, changed } = tips.update(game.world, tipContext());
     if (changed) saveTips(tips.toJSON());
     // Situation tips (a jam on the map now): never in the tutorial, nor with ☰ Tips off; one at a time, before a
     // feature tip. Looked for on the game's clock (nothing while paused), from the goals' check, never per frame.
-    const sit = mode === "game" ? situations.update(game.world, { learned: progress.learned, nameOf: (id) => routeStops(game.world).find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id), now: game.simSeconds }, { now: game.simSeconds, quiet: !tipsOn || goals.inTutorial() }) : null;
+    const sit = mode === "game" ? situations.update(game.world, { learned: progress.learned, nameOf: (id) => routeStops(game.world).find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id), now: game.simSeconds, cardAt: (e) => cardSeenAt.get(e) }, { now: game.simSeconds, quiet: !tipsOn || goals.inTutorial() }) : null;
     if (sit?.fixed && announce) hud.toast(sit.fixed.fixed, true, 3200);
     if (sit?.first && announce) {
       situationLoudUntil = performance.now() + 8000;
