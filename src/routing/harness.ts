@@ -18,6 +18,8 @@ import { connectorRef, type Layout, type SignalMode, type SignalStyle } from "..
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
+import { Dispatcher } from "./dispatcher";
+import { BLOCK_RULE } from "./stretch";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone, type ViaProgress } from "./via";
 import { INVARIANTS, Invariants, type Invariant, type InvariantWorld } from "../sim/invariants";
 import { driveOf } from "../sim/train-cars";
@@ -157,7 +159,13 @@ const drive = driveOf;
 
 /** A running scenario: the world, the stand-ins for the economy, and the invariants' state. */
 export class HarnessRun implements InvariantWorld {
+  /**
+   * The dispatcher (routing/dispatcher.ts, dispatcher spec §8 step 2) in place of sections' holds, wired as
+   * `Economy.useDispatcher` wires it: off by default; `ROUTING_DISPATCHER=1` (the fuzz both ways) or set by a test.
+   */
+  static dispatch = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.ROUTING_DISPATCHER === "1";
   sim: Sim;
+  dispatcher: Dispatcher | null = null;
   sections!: Sections;
   router!: Router;
   stalls!: Stalls;
@@ -304,8 +312,24 @@ export class HarnessRun implements InvariantWorld {
       keep: (engine) => this.router.ways.of(this.lineOf.get(engine) ?? engine),
     });
     this.sections.shared = !this.ownLines;
-    // (Sections' cap, and the router's: short of points it waits for, §3.3.)
-    sim.speedCap = (train) => Math.min(this.sections.cap(train), this.router.speedCap(train));
+    // (The dispatcher, where it's on (as the economy's: busy only turning back, the harness has no depots to dwell at).)
+    const d = HarnessRun.dispatch
+      ? new Dispatcher({
+          layout,
+          sim,
+          route: (e) => {
+            const r = this.routes.get(e);
+            return r && r.stops.length > 0 ? { stops: r.stops, next: r.next, at: r.at } : null;
+          },
+          busy: (train) => train.turnback >= 0,
+          drive,
+          granted: (engine) => this.sections.steerSoon.add(engine),
+        })
+      : null;
+    this.dispatcher = d;
+    BLOCK_RULE.on = !!d;
+    // (Sections' cap (the dispatcher's for a train it holds), and the router's: short of points it waits for, §3.3.)
+    sim.speedCap = (train) => Math.min(d?.holds(train) ? d.cap(train) : this.sections.cap(train), this.router.speedCap(train));
     sim.waitsAt = (train) => this.router.waitsAt(train);
     sim.standsWithin = (train) => this.sections.standsWithin(train);
     sim.turnsNose = (train) => this.sections.turnsNose(train);
@@ -319,8 +343,8 @@ export class HarnessRun implements InvariantWorld {
       lapRule: (engine) => this.sections.lapRule(engine),
       owner: (engine) => this.owner(engine),
       drive,
-      granted: (engine) => this.sections.steerHint(engine),
-      awaitingGrant: (engine) => this.sections.awaitingGrant(engine),
+      granted: (engine) => (d ? d.steerHint(engine) : this.sections.steerHint(engine)),
+      awaitingGrant: (engine) => (d ? d.awaiting(engine) : this.sections.awaitingGrant(engine)),
       soon: this.sections.steerSoon,
     });
     this.router.timing = true;
@@ -329,10 +353,11 @@ export class HarnessRun implements InvariantWorld {
     sim.pathLocks = { locks: (t, points, choice) => router.pathLocks(t, points, choice), way: (t, id, entry) => router.pathWay(t, id, entry), version: () => router.locksVersion };
     // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
     const sections = this.sections;
-    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
+    sim.signalGate = d ? { at: (ref) => d.gateAt(ref), version: () => d.gateVersion() } : { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
+    sim.signalOwner = d ? { clearFor: () => null, aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() } : null;
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
-      routeWait: (engine) => this.router.waitingOn(engine),
+      routeWait: (engine) => d?.waitingOn(engine) ?? this.router.waitingOn(engine),
       routed: (engine) => this.routes.has(engine),
       goal: (engine) => this.target(engine),
       otherRoad: (id, by) => {
@@ -344,6 +369,11 @@ export class HarnessRun implements InvariantWorld {
 
   routed(engine: number): boolean {
     return this.routes.has(engine);
+  }
+
+  /** The way a routed train was granted (the dispatcher's, where it's on), for `wrongRoad`. */
+  steerHint(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined {
+    return this.dispatcher ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine);
   }
 
   drive(train: Train): number {
@@ -564,6 +594,7 @@ export class HarnessRun implements InvariantWorld {
     const t0 = performance.now();
     this.router.tick();
     this.routerMs += performance.now() - t0;
+    this.dispatcher?.tick();
     this.stalls.tick();
     this.tick++;
     this.check();

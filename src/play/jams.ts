@@ -15,6 +15,8 @@ import type { World } from "../game/world";
 import { putAway } from "../game/put-away";
 import { editLine, joinLine } from "../game/lines";
 import { replayBugMap } from "./bugmap";
+import { next } from "../routing/graph";
+import { getPieceDef } from "../track";
 
 /** A train stuck this long (s) is a jam, and is cleared. */
 export const JAM_S = 30;
@@ -72,8 +74,18 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}): J
           if (placed.kind !== "placed") continue;
           // (Not onto a piece another train is on (the sim places it over points another is crossing): off again, the
           // next spot tried, as a player would put it down clear.)
+          // (Nor just ahead of a moving train's front: a piece it's on the point of running onto.)
           const mine = new Set(sim.getTrain(placed.trainId)!.bogies.map((b) => b.pieceId));
-          if ([...sim.trains()].some((o) => o.id !== placed.trainId && o.bogies.some((b) => mine.has(b.pieceId)))) {
+          const ahead = (o: { speed: number; bogies: { pieceId: number }[] }) => {
+            if (o.speed === 0) return false;
+            const f = (o.speed > 0 ? o.bogies[0] : o.bogies[o.bogies.length - 1]).pieceId;
+            const piece = world.layout.getPiece(f);
+            if (!piece) return false;
+            const n = getPieceDef(piece.type, piece.flipped).connectors.length;
+            for (let c = 0; c < n; c++) if (mine.has(next(world.layout, f, c)?.pieceId ?? -1)) return true;
+            return false;
+          };
+          if ([...sim.trains()].some((o) => o.id !== placed.trainId && (o.bogies.some((b) => mine.has(b.pieceId)) || ahead(o)))) {
             putAway(sim, economy, sim.getTrain(placed.trainId)!.cars[0].id);
             continue;
           }
