@@ -91,6 +91,11 @@ export interface StallsHost {
   routeWait(engine: number): { engine: number } | null;
   /** Is this engine run by a route (else, its lever on, it's hand-run: it goes anywhere)? Absent: nobody gives way. */
   routed?(engine: number): boolean;
+  /**
+   * Are this engine's waits the dispatcher's (it holds the train: routing/dispatcher.ts)? Then sections' are none of it
+   * (left as they stood, stale), and `routeWait` says whom it waits for. Absent: never.
+   */
+  dispatched?(engine: number): boolean;
   /** The piece a routed engine heads for next (its stop, or the via point it's aimed at); −1: none on the map. */
   goal?(engine: number): number;
   /**
@@ -320,7 +325,9 @@ export class Stalls {
     const fresh: number[] = [];
     for (const [e, why] of found) {
       const s = this.since.get(e);
-      if (!s || s.why.kind !== why.kind) this.since.set(e, { tick: now, why });
+      // (A dispatched train's stand goes on through a change of kind: held by the dispatcher, then by the red signal its
+      // grant meets, and back, every few seconds, it was never said stuck at all (dandelion, 1644 s).)
+      if (!s || (s.why.kind !== why.kind && !this.host.dispatched?.(e))) this.since.set(e, { tick: now, why });
       else s.why = why;
       if (now - this.since.get(e)!.tick < STUCK_S * 120) continue;
       stuck.set(e, why);
@@ -417,7 +424,7 @@ export class Stalls {
     const { sim } = this;
     for (const car of t.cars) {
       if (car.kind !== "engine") continue;
-      const w = this.sections.waitOf(car.id);
+      const w = this.host.dispatched?.(car.id) ? null : this.sections.waitOf(car.id);
       if (w && "engine" in w && w.engine >= 0) {
         const by = sim.findCar(w.engine)?.train;
         if (by) return by.id;

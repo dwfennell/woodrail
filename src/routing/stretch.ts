@@ -567,6 +567,21 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
   const restA = Uint8Array.from(rest, (b) => (b ? 1 : 0));
   const wait = new Uint8Array(n);
   for (let i = at; i < n; i++) wait[i] = restA[i] && (isStop[i] || turned[i] || atSignal[i] || succ[i].length === 0 || succ[i].some((x) => !restA[x])) ? 1 : 0;
+  // (With the block rule on: no waiting inside a path signal's block (one with points or a crossing in it), but at the
+  // train's own stop, a turn or the end of its way. The sim lets a train past a path signal only with its way to the
+  // next signal free; a grant ending inside the block was never let through, and the train it waited on waited on it:
+  // rowan-3's -67, a block of 19 pieces.)
+  if (BLOCK_RULE.on && layout.signalCount > 0) {
+    const inPath = new Uint8Array(n);
+    const pathSig = (ref: number) => ref >= 0 && !!layout.signalAt(ref) && plainBlock(layout, ref) === null;
+    for (let i = at + 1; i < n; i++) {
+      const p = prev[i];
+      if (p < 0 || p >= n) continue;
+      const crossed = frontRef[p] >= 0 && frontRef[p] !== frontRef[i];
+      inPath[i] = crossed && layout.signalAt(frontRef[p]) ? (pathSig(frontRef[p]) ? 1 : 0) : inPath[p];
+      if (inPath[i] && wait[i] && !isStop[i] && !turned[i] && succ[i].length > 0) wait[i] = 0;
+    }
+  }
   const goal = fixed || arrivals.length === 0 ? -1 : arrivals[Math.min(horizon, arrivals.length) - 1];
   return {
     key: s.key,

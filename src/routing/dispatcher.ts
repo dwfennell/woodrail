@@ -209,7 +209,9 @@ export class Dispatcher {
         const body = bodyOf(layout, s);
         const onPath = h.path.find((n) => h.t.pos[n].length === body.length && body.every((p, q) => h.t.pos[n][q] === p));
         const moved = onPath !== undefined ? (onPath === h.t.at ? h.t : { ...h.t, at: onPath }) : relocate(h.t, body);
-        if (moved) {
+        // (Moved along to the end of its way as last built, with nowhere on (it ran its way out, its route the same): its
+        // way built afresh. Kept, it was never granted anything again: rowan-1's Pepper, "held up" by nobody, 60 s.)
+        if (moved && moved.succ[moved.at].length > 0) {
           h.t = moved;
           const k = h.path.indexOf(moved.at);
           if (k > 0) {
@@ -241,6 +243,11 @@ export class Dispatcher {
         for (let k = 0; k + 1 < oldPath.length; k++) if (oldT.frontRef[oldPath[k]] >= 0) refs.add(oldT.frontRef[oldPath[k]]);
         let end = t.at;
         for (let i = t.at; i + 1 < t.main && t.succ[i].includes(i + 1) && refs.has(t.frontRef[i]); i++) end = i + 1;
+        // (Back to the last waiting point on it, if there's one: the new way's waits aren't the old one's (no longer its
+        // stop; inside a path signal's block), and a hold ending between them left it standing where it may not wait.)
+        let w = end;
+        while (w > t.at && !t.wait[w]) w--;
+        if (w > t.at) end = w;
         this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
         const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };

@@ -752,6 +752,10 @@ export class Economy {
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.dispatcher?.waitingOn(engine) ?? this.router.waitingOn(engine),
+      dispatched: (engine) => {
+        const t = this.dispatcher ? this.sim.findCar(engine)?.train : undefined;
+        return !!t && this.dispatcher!.holds(t);
+      },
       // (A train with no stops goes anywhere: it gives way first.)
       routed: (engine) => (this.routes.get(engine)?.stops.length ?? 0) > 0,
       goal: (engine) => this.goalOf(engine, 0),
