@@ -142,6 +142,7 @@ import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upg
 import { propsInRect } from "./props/placement";
 import { hintSeen, loadChainHints, loadMuted, loadTipsOn, markHintSeen, saveChainHints, saveMuted, saveTipsOn } from "./ui/prefs";
 import { SituationTracker, type Situation } from "./game/situation-tips";
+import { PAUSED, PausedTip } from "./game/paused-tip";
 import { postAt } from "./game/signal-place";
 import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game/chains";
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
@@ -1616,6 +1617,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // This game's situation tips; an older session without them carries the device's "told once" for the follow tip.
     situations = new SituationTracker(s?.situations ?? null);
     if (s && !s.situations && oldFollowTold()) situations.markDone("jam-follow");
+    if (s && !s.situations && oldToldOnce("woodrail.loopTip")) situations.markDone("jam-loop");
     // A v12 Game save's offers: drawn again as cards on its own map.
     if (m === "game" && fromSave && redrawOldOffers(progress, game.world, Math.random)) saveProgress(progress.toJSON());
     if (s) {
@@ -1626,6 +1628,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     goalsPanel.newsChanged();
   }
   /** The device-wide "told once" of the follow toast before situation tips (`woodrail.followTip`). */
+  /** A device-wide "told once" flag from before situation tips. */
+  function oldToldOnce(key: string): boolean {
+    try {
+      return localStorage.getItem(key) === "1";
+    } catch {
+      return false;
+    }
+  }
   function oldFollowTold(): boolean {
     try {
       return localStorage.getItem("woodrail.followTip") === "1";
@@ -2052,6 +2062,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let tipsOn = loadTipsOn();
   /** Till when (performance.now) the chip says the situation tip, its toast up. */
   let situationLoudUntil = 0;
+  /** "The game is paused" (on the wall clock: the tracker's stands still while paused), once a session. */
+  const pausedTip = new PausedTip();
   // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
   // Refusals aren't logged: they stay plain `hud.toast`s.
   // On game time: "2 min ago" means two minutes of play (it stands still while paused).
@@ -2074,7 +2086,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showGrand: (id) => showGrandSite(id),
       showGrandIn: (id, townId) => showGrandIn(id, townId),
       tipDone: (id) => {
-        if (situations.current()?.id === id) {
+        if (pausedTip.current()?.id === id) pausedTip.dismiss();
+        else if (situations.current()?.id === id) {
           // (Kept with the game's session, saved with the next save or on leaving.)
           situations.dismiss(id, game.simSeconds);
         } else {
@@ -2341,14 +2354,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (changed) saveTips(tips.toJSON());
     // Situation tips (a jam on the map now): never in the tutorial, nor with ☰ Tips off; one at a time, before a
     // feature tip. Looked for on the game's clock (nothing while paused), from the goals' check, never per frame.
-    const sit = mode === "game" ? situations.update(game.world, { learned: progress.learned, nameOf: (id) => routeStops(game.world).find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id) }, { now: game.simSeconds, quiet: !tipsOn || goals.inTutorial() }) : null;
+    const sit = mode === "game" ? situations.update(game.world, { learned: progress.learned, nameOf: (id) => routeStops(game.world).find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id), now: game.simSeconds }, { now: game.simSeconds, quiet: !tipsOn || goals.inTutorial() }) : null;
     if (sit?.fixed && announce) hud.toast(sit.fixed.fixed, true, 3200);
     if (sit?.first && announce) {
       situationLoudUntil = performance.now() + 8000;
       hud.toast(`💡 ${sit.first.toast} · Show where ›`, false, 8000, () => showSituation());
     }
+    // Paused and wondering why nothing moves: on the wall clock (paused, the game's stands still), before the rest.
+    const paused =
+      mode === "game"
+        ? pausedTip.update({ now: performance.now() / 1000, paused: game.paused, card: interaction.openEngineCarId, track: game.layout.piecesVersion, quiet: !tipsOn || goals.inTutorial() })
+        : null;
+    if (paused?.first) {
+      situationLoudUntil = performance.now() + 8000;
+      hud.toast(`💡 ${PAUSED.toast} · Show where ›`, false, 8000, () => showSituation());
+    }
     if (first && announce && tipsOn) hud.toast(`💡 ${first.text}`, false, 6000, () => showTip());
-    const s = situations.current();
+    const s = pausedTip.current() ?? situations.current();
     const t = tips.current();
     if (!tipsOn) goalsPanel.setTip(null);
     else if (s) goalsPanel.setTip({ id: s.id, title: s.title, text: s.text, situation: { short: s.short, more: s.more } }, performance.now() < situationLoudUntil);
@@ -2381,10 +2403,38 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * the ghost signal and its block's tint there, "Put a signal here" over it, and the Signal ringed on its shelf.
    */
   function showSituation(): void {
+    // Paused: the ▶ on the bar pulsed (the camera stays where it is).
+    if (pausedTip.current()) {
+      situationLoudUntil = 0;
+      hud.pulsePause();
+      return;
+    }
     const s: Situation | null = situations.current();
     if (!s) return;
     situations.looked(game.simSeconds);
     situationLoudUntil = 0;
+    const trainAt = () => {
+      const b = s.engine === undefined ? undefined : game.sim.findCar(s.engine)?.train.bogies[0];
+      return b ? game.layout.getPiece(b.pieceId)?.pose : undefined;
+    };
+    // A block or loop too short for the line's trains: framed with the train waiting, and the signal's card open (its
+    // block tinted, "Too short for a train to wait here").
+    if (s.pieces && s.pieces.length > 0) {
+      const pts: Vector3[] = [];
+      for (const id of s.pieces) {
+        const q = game.layout.getPiece(id)?.pose;
+        if (q) pts.push(new Vector3(q.x, 0, q.z));
+      }
+      const t = trainAt();
+      if (t) pts.push(new Vector3(t.x, 0, t.z));
+      if (pts.length > 0) {
+        const f = frameAlong(pts.map((p) => ({ x: p.x, z: p.z })), game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+        frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length, f.theta ?? undefined);
+      }
+      if (s.markId !== undefined) interaction.selectMark(s.markId);
+      game.invalidate();
+      return;
+    }
     if (s.signalAt === undefined) return;
     const post = postAt(game.layout, s.signalAt);
     if (!post) return;
@@ -7079,7 +7129,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** The tip's Show me: where to use it (an industry's card, a hill by the line, the tray's shelf, the research board). */
   function showTip(): void {
-    if (situations.current()) {
+    if (pausedTip.current() || situations.current()) {
       showSituation();
       return;
     }
@@ -7642,7 +7692,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const liftsHeard = new Map<number, { x: number; z: number }>();
   const fullToast = (_lineId: number, room: number, trains: number, more: number) => hud.toast(fullLineToast(room, trains, more), false, 6000);
   const stuckTip = (_engines: readonly number[], why: Stuck) => {
-    if (why.kind === "in-way" && !loopTipShown) showLoopTip();
+    // (Game mode: the situation tip says it, with a passing loops sheet and Show where. Sandbox: this toast, once.)
+    if (why.kind === "in-way" && !loopTipShown && mode !== "game") showLoopTip();
   };
   function showLoopTip(): void {
     loopTipShown = true;

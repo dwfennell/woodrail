@@ -1,4 +1,10 @@
 import type { ExplainerId } from "../ui/explainer-keys";
+import { ROAD_MARGIN, topologyOf } from "../economy/sections";
+import { CAR_SPECS, type Train } from "../sim";
+import { trainLength } from "../sim/train-cars";
+import { connectorRef, getPieceDef, indexOfRef, offersChoice, pathLength, pieceOfRef, type Layout } from "../track";
+import { next } from "../routing/graph";
+import { trainState } from "./engine-status";
 import type { World } from "./world";
 
 /**
@@ -32,6 +38,10 @@ export interface Situation {
   /** Where Show where goes: a signal spot (a joint end) and the train it's for. */
   readonly signalAt?: number;
   readonly engine?: number;
+  /** A placed signal whose card Show where opens (its block tinted, "Too short for a train to wait here"). */
+  readonly markId?: number;
+  /** Track pieces Show where frames (a short block, a short loop). */
+  readonly pieces?: readonly number[];
 }
 
 /** What a detector may ask beyond the world. */
@@ -40,6 +50,8 @@ export interface SituationContext {
   learned: ReadonlySet<string> | null;
   /** A depot's name as a stop says it ("the sawmill", "Elder"). */
   nameOf(depotId: number): string;
+  /** The game's clock (s), for a detector that times a wait itself. */
+  now?: number;
 }
 
 export interface Detector {
@@ -74,6 +86,8 @@ export const JAM_FOLLOW: Detector = {
     const lineId = w.economy.lineIdOf.get(f.engine);
     const line = lineId === undefined ? undefined : w.economy.lines.get(lineId);
     if (!line) return null;
+    // (Signals too close together near it: another signal isn't the fix, spacing them is: that tip, `SHORT_BLOCKS`.)
+    if (shortNear(w, lineId!, f.engine)) return null;
     const route = w.economy.routeOf(f.engine);
     const next = route && route.stops.length > 0 ? route.stops[route.next % route.stops.length].depotId : -1;
     const to = next >= 0 ? ctx.nameOf(next) : "";
@@ -92,8 +106,320 @@ export const JAM_FOLLOW: Detector = {
   },
 };
 
+/**
+ * A signal's block, or a passing loop's road, too short for a train to wait in clear of the points: no waiting point
+ * for it. `markId`: the signal (−1 for a loop); `pieces`: its track; `length`: the block's, or the loop's shorter road.
+ */
+export interface ShortBlock {
+  readonly kind: "signal" | "loop";
+  readonly markId: number;
+  readonly pieces: readonly number[];
+  readonly length: number;
+}
+
+/** The shortest loop looked at: an engine alone fits in it (shorter isn't a passing loop at all). */
+const LOOP_MIN = CAR_SPECS.engine.length;
+
+const shortCache = new WeakMap<Layout, Map<string, ShortBlock[]>>();
+
+/**
+ * The layout's signal blocks and passing loops too short for trains `length` mm long, by sections' own topology (as
+ * the signal card's "Too short for a train to wait here" sees it): a placed signal whose waiting point is shorter than
+ * the train and its margin, and a loop sections find for an engine but not for this train. Cached per track and
+ * signals revision and length (the topology is cached the same way), so a check is a lookup.
+ */
+export function shortBlocks(layout: Layout, length: number): ShortBlock[] {
+  const need = length + ROAD_MARGIN;
+  const key = `${layout.revision}|${layout.signalsVersion}|${Math.ceil(need / 16)}`;
+  let byKey = shortCache.get(layout);
+  if (!byKey) shortCache.set(layout, (byKey = new Map()));
+  const hit = byKey.get(key);
+  if (hit) return hit;
+  const out: ShortBlock[] = [];
+  const topo = topologyOf(layout, length);
+  const seen = new Set<string>();
+  const marked = new Set<number>();
+  for (const m of layout.signals()) {
+    marked.add(m.at);
+    const o = layout.joinedConnector(m.at);
+    if (o !== -1) marked.add(o);
+  }
+  for (const m of layout.signals()) {
+    // Its waiting point, as sections made it; or, for one sections made none of (shorter than an engine, or over
+    // another signal's track: "a block boundary only"), its stretch back to the last signal or points.
+    const slot = topo.slots.find((x) => x.kind === "signal" && !!x.ways?.some((w) => w.mark === m.at));
+    const stretch = slot ? { pieces: [...slot.pieces], length: slot.length } : markStretch(layout, m.at, marked, topo.slotOf);
+    if (!stretch || stretch.length >= need) continue;
+    const k = [...stretch.pieces].sort((a, b) => a - b).join(",");
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ kind: "signal", markId: m.id, pieces: stretch.pieces, length: stretch.length });
+  }
+  // (A loop is one only if both roads fit the train: one found for an engine alone, and not for this train, is short.)
+  const small = topologyOf(layout, LOOP_MIN);
+  const fits = new Set(topo.loops.map((l) => `${l.a}:${l.b}`));
+  for (const l of small.loops) {
+    if (fits.has(`${l.a}:${l.b}`)) continue;
+    const roads = l.roads.map((r) => small.slots[r]);
+    out.push({ kind: "loop", markId: -1, pieces: roads.flatMap((r) => [...r.pieces]), length: Math.min(...roads.map((r) => r.length)) });
+  }
+  if (byKey.size > 8) byKey.clear();
+  byKey.set(key, out);
+  return out;
+}
+
+/**
+ * The plain track a signal at joint end `at` guards trains into, back from it to the next signal or points (as
+ * sections' `signalSlots` walks it): its pieces and length, or null if it runs to a line's end (a buffer, track that
+ * stops: a line end's, no question of waiting between signals).
+ */
+function markStretch(layout: Layout, at: number, marked: ReadonlySet<number>, slotOf: ReadonlyMap<number, number>): { pieces: number[]; length: number } | null {
+  const pieces: number[] = [];
+  let length = 0;
+  let id = pieceOfRef(at);
+  let exit = indexOfRef(at);
+  for (let k = 0; k < 200; k++) {
+    const p = layout.getPiece(id);
+    if (!p) return null;
+    const def = getPieceDef(p.type, p.flipped);
+    if (slotOf.has(id) || pieces.includes(id) || offersChoice(def)) return pieces.length > 0 ? { pieces, length } : null;
+    const path = def.paths.find((x) => x.to === exit || (x.from === exit && x.to !== null));
+    if (!path || path.to === null) return null;
+    const entry = path.to === exit ? path.from : path.to;
+    pieces.push(id);
+    length += pathLength(path.geom);
+    const back = connectorRef(id, entry);
+    if (marked.has(back)) return { pieces, length };
+    const n = next(layout, id, entry);
+    if (!n) return null;
+    id = n.pieceId;
+    exit = n.entry;
+  }
+  return { pieces, length };
+}
+
+/**
+ * How long a line's train must have stood waiting (game s) for its short blocks to be said. Short: by close signals a
+ * follower edges on a block at a time, a few seconds each, and the block is too short whatever the wait (the wait only
+ * says it matters now).
+ */
+const WAIT_S = 10;
+/** When each train began its wait, as the detector last saw it (its looks are a few game seconds apart). */
+const waitingSince = new WeakMap<Train, number>();
+
+/** The line's longest train (mm). */
+function longestOn(w: World, lineId: number): number {
+  let longest = 0;
+  for (const t of w.sim.trains()) {
+    const engine = t.cars.find((c) => c.kind === "engine");
+    if (engine && w.economy.lineIdOf.get(engine.id) === lineId) longest = Math.max(longest, trainLength(t));
+  }
+  return longest;
+}
+
+/** The short block (signal or loop) nearest this train's front, within `NEAR_MM`, for its line's longest train; or null. */
+function shortNear(w: World, lineId: number, engineId: number): ShortBlock | null {
+  const t = w.sim.findCar(engineId)?.train;
+  const front = t?.bogies[0] && w.layout.getPiece(t.bogies[0].pieceId)?.pose;
+  if (!front) return null;
+  const blocks = shortBlocks(w.layout, longestOn(w, lineId));
+  let best: ShortBlock | null = null;
+  let bestD = NEAR_MM;
+  for (const b of blocks)
+    for (const id of b.pieces) {
+      const q = w.layout.getPiece(id)?.pose;
+      if (!q) continue;
+      const d = Math.hypot(q.x - front.x, q.z - front.z);
+      if (d < bestD) [best, bestD] = [b, d];
+    }
+  return best;
+}
+
+/** A train's state a waiting one: kept by sections, the router or a signal, or said stuck (but not by the player's hand). */
+const WAITING = new Set(["red-signal", "line-wait", "line-wait-for", "needs-loop", "full-wait", "points-wait", "stuck", "held-up"]);
+/** How near a waiting train (mm) a short block must be to be its trouble. */
+const NEAR_MM = 4000;
+
+/** Signals too close together (detector #4a): a line's train waiting, with a block or loop too short for its trains near it. */
+export const SHORT_BLOCKS: Detector = {
+  id: "short-blocks",
+  // (Its own wait timing, `WAIT_S`, as the follow hint's: then said at once, and kept a while between the waits.)
+  every: 2,
+  hold: 0,
+  linger: 120,
+  look(w, ctx) {
+    if (ctx.learned && !ctx.learned.has("routes") && !ctx.learned.has("switches")) return null;
+    const now = ctx.now ?? 0;
+    const e = w.economy;
+    let found: Situation | null = null;
+    for (const t of w.sim.trains()) {
+      const engine = t.cars.find((c) => c.kind === "engine");
+      const lineId = engine ? e.lineIdOf.get(engine.id) : undefined;
+      const line = lineId === undefined ? undefined : e.lines.get(lineId);
+      if (!engine || !line) continue;
+      const st = trainState(w.sim, e, t, engine.lever);
+      const waiting = WAITING.has(st.kind) && !(st.kind === "red-signal" && st.holding) && !(st.kind === "stuck" && st.why === "parked");
+      if (!waiting) {
+        waitingSince.delete(t);
+        continue;
+      }
+      const since = waitingSince.get(t) ?? now;
+      waitingSince.set(t, since);
+      if (found || now - since < WAIT_S) continue;
+      const best = shortNear(w, lineId!, engine.id);
+      if (!best) continue;
+      const mm = Math.round(longestOn(w, lineId!));
+      const loop = best.kind === "loop";
+      found = {
+        id: "short-blocks",
+        key: `${best.kind}:${best.markId}:${best.pieces[0]}`,
+        title: loop ? "A passing loop too short" : "Signals too close together",
+        short: loop ? "Loop too short" : "Signals too close",
+        text: loop
+          ? `This passing loop is shorter than the ${line.name}'s trains (${mm} mm). Lengthen it so a train fits.`
+          : `This stretch between signals is shorter than the ${line.name}'s trains (${mm} mm), so they can't wait there. Space signals at least a train apart.`,
+        toast: loop ? `${line.name} trains don't fit the passing loop` : `${line.name} trains have nowhere to wait between these signals`,
+        more: "signals",
+        fixed: "✓ They have room to wait now",
+        markId: best.markId >= 0 ? best.markId : undefined,
+        pieces: best.pieces,
+        engine: engine.id,
+      };
+    }
+    return found;
+  },
+};
+
+/** The front piece of the train with this car, or −1. */
+function frontPiece(w: World, carId: number): number {
+  const t = w.sim.findCar(carId)?.train;
+  return t?.bogies[0]?.pieceId ?? -1;
+}
+
+/** Each lever-on engine with a line, and what the stall classifier says of it (null: not stuck). */
+function* stuckEngines(w: World) {
+  for (const t of w.sim.trains()) {
+    const engine = t.cars.find((c) => c.kind === "engine");
+    if (!engine || engine.lever === 0) continue;
+    const why = w.economy.stalls.stuckOf(engine.id);
+    yield { t, engine, why, lineId: w.economy.lineIdOf.get(engine.id) };
+  }
+}
+
+/** A line's name, or "a" train's words for one on none. */
+const lineWords = (w: World, lineId: number | undefined): string => {
+  const line = lineId === undefined ? undefined : w.economy.lines.get(lineId);
+  return line ? `the ${line.name}` : "two lines";
+};
+
+/** Who meets: "Trains of the Red line", or of two lines "The Red and Blue lines' trains". */
+function meetWords(w: World, lineId: number | undefined, by: number): string {
+  const other = by >= 0 ? w.economy.lineIdOf.get(by) : undefined;
+  const a = lineId === undefined ? undefined : w.economy.lines.get(lineId);
+  const b = other === undefined ? undefined : w.economy.lines.get(other);
+  if (a && b && a.id !== b.id) return `The ${a.name.replace(/ line$/, "")} and ${b.name.replace(/ line$/, "")} lines' trains`;
+  return a ? `Trains of the ${a.name}` : "Two trains";
+}
+
+/**
+ * No passing place (detector #4): trains nose to nose on single track where a passing loop is the fix (the stall
+ * classifier's `in-way` with `loop`, `too-many`, or `signals` head on with `loop`), or a train kept waiting on a long single
+ * track lines share (sections' `single-track`, `STARVED_S`). Keyed on the classifier: its stalls hold `STUCK_S` first.
+ */
+export const JAM_LOOP: Detector = {
+  id: "jam-loop",
+  every: 3,
+  hold: 6,
+  linger: 60,
+  look(w, ctx) {
+    for (const { engine, why, lineId } of stuckEngines(w)) {
+      if (!why) continue;
+      // (Starved on a long single track lines share: the classifier's `in-way`, sections naming the stretch.)
+      const single = why.kind === "in-way" ? w.economy.sections.singleTrack(engine.id) : null;
+      const headOn = (why.kind === "in-way" && (why.loop || !!single)) || (why.kind === "signals" && !!why.headOn?.loop);
+      // (A line over room because a parked train or a pinned loop takes a place: moving it, or unpinning, is the fix.)
+      const full = why.kind === "too-many" ? w.economy.sections.fullness(engine.id) : null;
+      const tooMany = why.kind === "too-many" && !(full && (full.spare || full.parked || full.pinned));
+      if (!headOn && !tooMany) continue;
+      const by = "by" in why ? why.by : -1;
+      const pieces = [frontPiece(w, engine.id), ...(by >= 0 ? [frontPiece(w, by)] : []), ...(single?.pieces ?? [])].filter((p) => p >= 0);
+      // (No switches yet: learning them comes first, as the old head-on toast said.)
+      const canLoop = !ctx.learned || ctx.learned.has("switches");
+      const fix = canLoop ? "A passing loop in the middle lets them pass." : "Learn Switches, so they can pass on a loop.";
+      return {
+        id: "jam-loop",
+        key: `${tooMany ? "many" : "meet"}:${lineId ?? engine.id}`,
+        title: tooMany ? "More trains than passing places" : "Trains can't pass",
+        short: tooMany ? "Too many trains" : "Trains can't pass",
+        text: tooMany
+          ? `${lineWords(w, lineId).replace(/^t/, "T")} has more trains than passing loops. Add a passing loop, or take a train off.`
+          : `${meetWords(w, lineId, by)} meet on single track and stop nose to nose. ${fix}`,
+        toast: tooMany ? "A line has more trains than passing places" : "Trains are stuck nose to nose",
+        more: "loops",
+        fixed: "✓ They pass now",
+        pieces,
+        engine: engine.id,
+      };
+    }
+    return null;
+  },
+};
+
+/** Too many trains for the signals (detector #2): a ring of waits through signals, not head on. */
+export const JAM_SIGNALS: Detector = {
+  id: "jam-signals",
+  every: 3,
+  hold: 6,
+  linger: 60,
+  look(w) {
+    for (const { engine, why, lineId } of stuckEngines(w)) {
+      if (why?.kind !== "signals" || why.headOn) continue;
+      return {
+        id: "jam-signals",
+        key: `signals:${lineId ?? engine.id}`,
+        title: "Trains stuck at signals",
+        short: "Stuck at signals",
+        text: "There are more trains than gaps between signals, so each waits for the next. Add a signal, or take a train off.",
+        toast: "Trains are stuck at signals",
+        more: "signals",
+        fixed: "✓ They're moving again",
+        pieces: [frontPiece(w, engine.id), frontPiece(w, why.by)].filter((p) => p >= 0),
+        engine: engine.id,
+      };
+    }
+    return null;
+  },
+};
+
+/** A signal inside a loop (detector #3, issue #31): a train stands at it with its tail over the loop's points. */
+export const JAM_LOOP_SIGNAL: Detector = {
+  id: "jam-loop-signal",
+  every: 3,
+  hold: 6,
+  linger: 60,
+  look(w) {
+    for (const { engine, why } of stuckEngines(w)) {
+      if (why?.kind !== "loop-signal" || !w.layout.getSignal(why.mark)) continue;
+      return {
+        id: "jam-loop-signal",
+        key: `loop-signal:${why.mark}`,
+        title: "A signal is in the way",
+        short: "Signal in the way",
+        text: "A train waits at a signal inside the passing loop, its tail over the points, so nothing gets in. Move the signal to the loop's end.",
+        toast: "A signal inside a loop is holding trains up",
+        more: "signals",
+        fixed: "✓ The loop is clear now",
+        markId: why.mark,
+        pieces: [frontPiece(w, why.by)].filter((p) => p >= 0),
+        engine: engine.id,
+      };
+    }
+    return null;
+  },
+};
+
 /** The detectors, first first: the one shown is the first found (and held) of them. */
-export const DETECTORS: readonly Detector[] = [JAM_FOLLOW];
+export const DETECTORS: readonly Detector[] = [SHORT_BLOCKS, JAM_LOOP_SIGNAL, JAM_SIGNALS, JAM_LOOP, JAM_FOLLOW];
 
 /** When the tips may speak at all. */
 export interface SituationGate {
