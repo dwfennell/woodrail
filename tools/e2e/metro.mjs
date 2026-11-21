@@ -420,6 +420,8 @@ const grow = await p.evaluate(async ({ z, pair }) => {
   // A square over the line (its middle on it) that isn't a house, a station or an entrance: may a house go there?
   const entrances = pair.map((s) => g.cellAtWorld(kioskAt(s.pose).x, kioskAt(s.pose).z));
   let over = null;
+  // (Why each square over the line was refused, if none is free: said when the check fails.)
+  const whys = {};
   for (let x = pair[0].pose.x; x <= pair[1].pose.x + 216; x += 18) {
     const i = g.cellAtWorld(x, z);
     if (i === -1 || entrances.includes(i)) continue;
@@ -428,8 +430,31 @@ const grow = await p.evaluate(async ({ z, pair }) => {
       over = i;
       break;
     }
+    whys[i] = why;
   }
-  return { over, entrance: ed.checkLot([entrances[0]], false) };
+  // (A town in rows fills the row over the line: every square there has a house. One of them is picked up, as the
+  // player can, `releaseBuilding`: its square is a green then. May a house go back on it, over the line?)
+  let freed = null;
+  if (over === null) {
+    const { releaseBuilding } = await import("/src/props/towns.ts");
+    // (From the middle of the line out: its ends are the ramps down, where no house may go.)
+    const taken = Object.keys(whys).map(Number);
+    const mid = taken[Math.floor(taken.length / 2)];
+    for (const i of taken.sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid))) {
+      if (whys[i] !== "taken" || g.feature[i] !== 2) continue;
+      const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.id === g.owner[i]));
+      const b = town?.buildings.find((x) => x.id === g.owner[i]);
+      if (!b || b.cells.length !== 1 || b.landmark) continue;
+      const prop = [...w.props.all()].find((q) => q.building === b.id);
+      releaseBuilding(w.landscape, b.id);
+      if (prop) w.props.remove(prop.id);
+      freed = i;
+      if (ed.checkLot([i], false) === null) over = i;
+      else whys[i] = ed.checkLot([i], false);
+      break;
+    }
+  }
+  return { over, freed, entrance: ed.checkLot([entrances[0]], false), whys };
 }, setup);
 check("a house may go on a square over the line, two levels down", grow.over !== null, JSON.stringify(grow));
 check("…but not on a metro stop's entrance", grow.entrance !== null, JSON.stringify(grow));

@@ -148,6 +148,8 @@ const TOWNS = ["town-drag", "moved-house", "town-shape", "school", "growth", "st
 
 /** [glob or globs, what it affects]. Order doesn't matter: every rule a path matches counts. */
 export const RULES = [
+  // Towns in rows (spec 2026-11-14-town-rows-design.md): the row models, their colours, how a town is dressed in them.
+  [["src/props/rows.ts", "src/catalogue/assets/rows.ts", "tools/blender/bldg_rows.py", "public/models/rows.glb"], ["town-shape", "town-drag"]],
   // The rack and the lookout halt: the pieces, the sim's rule, the engine, the stop, the card, the tray.
   [
     ["src/sim/sim.ts", "src/sim/cars.ts", "src/track/pieces.ts", "src/track/kits.ts", "src/game/engines.ts", "src/game/engine-status.ts", "src/game/passengers.ts", "src/game/world.ts", "src/game/things.ts", "src/game/blueprints.ts", "src/economy/economy.ts", "src/render/track-geometry.ts", "src/render/train-models.ts", "src/ui/tray-catalogue.ts", "src/ui/piece-info.ts", "src/landscape/hill-shape.ts"],

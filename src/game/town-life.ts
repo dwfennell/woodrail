@@ -6,6 +6,7 @@ import { LandEditor } from "../landscape/edit";
 import type { Town } from "../landscape";
 import { propsInRect } from "../props/placement";
 import { joinedByRoad } from "../roads/graph";
+import { ROW_CIVIC } from "../props/rows";
 import { addTownProps, fitScale, PLACE_MIN_FIT, setTownStoreys } from "../props/towns";
 import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
@@ -350,12 +351,14 @@ export class TownLife {
   openFree(place: Place): Town[] {
     if (!place.opensFree) return [];
     const opened: Town[] = [];
+    const looks = new Set<string>([place.opensFree, ...Object.values(ROW_CIVIC[place.opensFree] ?? {})]);
     const dressed = new Map<number, string>();
     for (const p of this.game.props.all()) if (p.building !== undefined) dressed.set(p.building, p.asset);
     for (const town of this.game.landscape.towns) {
       if (place.onePerMap && opened.length > 0) break;
       if ((this.levels.get(town.id) ?? 0) < place.level || townPlaces(town).has(place.id)) continue;
-      const b = town.buildings.find((x) => !x.landmark && dressed.get(x.id) === place.opensFree);
+      // (Dressed as the place's model: in rows, as any of the models that one becomes by its lot.)
+      const b = town.buildings.find((x) => !x.landmark && looks.has(dressed.get(x.id) ?? ""));
       if (!b) continue;
       b.landmark = place.id;
       opened.push(town);

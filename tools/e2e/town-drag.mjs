@@ -40,6 +40,8 @@ const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), 
  * A finger put down at a, held still a moment, then drawn to b in small steps and lifted (each event stamped with
  * when it happens). Returns what the interaction was doing on the way.
  */
+/** The town building the last finger drag took hold of (−1: none). */
+let held = -1;
 const fingerDrag = async ([x0, y0], [x1, y1], target) => {
   const at = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   // (On touch, a drag on something not selected pans: the finger rests on it first, past the hold, to take hold.)
@@ -53,6 +55,7 @@ const fingerDrag = async ([x0, y0], [x1, y1], target) => {
   for (let k = 1; k <= steps; k++) {
     await at("touchMove", x0 + ((x1 - x0) * k) / steps, y0 + ((y1 - y0) * k) / steps, t1 + k * 0.03);
     if (k === steps / 2) mid = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+    if (k === steps / 2) held = await p.evaluate(() => window.woodrail.interaction.mode.town?.building ?? -1);
     await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
   }
   // Aimed by eye, as a player does: the square under the hand read back and the finger nudged onto the target.
@@ -120,6 +123,8 @@ const town = (house) =>
   }, house);
 
 // 1. A new game, Larkfield grown to a town (its houses up a storey or two).
+// (Towns are in rows: the drags are on a town of row houses.)
+const ROWS = true;
 await p.goto(PAGE);
 await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
 await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
@@ -174,6 +179,9 @@ check("a stacked house and a free lot of its town to move it to", plan.house !==
 await frame(plan.from);
 await shot("1-before");
 const before = await town(plan.house);
+/** The town's other houses as props: which model, which colour (a row's neighbours aren't touched when one moves). */
+const others = (house) => p.evaluate((house) => [...window.woodrail.world.props.all()].filter((q) => q.building !== undefined && q.building !== house).map((q) => `${q.id}:${q.asset}:${q.variant ?? 0}:${q.storeys ?? 0}`).sort(), house);
+const othersBefore = await others(-1);
 // The finger on the house (its middle, a little up its walls), drawn to the lot. (A town's house is held half a
 // finger-lift above the finger: the finger goes that much below the lot.)
 const houseAt = await p.evaluate(({ x, y, z }) => {
@@ -183,12 +191,36 @@ const houseAt = await p.evaluate(({ x, y, z }) => {
   return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
 }, plan.prop);
 const lotAt = await onScreen(plan.to);
+/** Every building's first square and its prop's storeys, by id. */
+const standing = () => p.evaluate(() => Object.fromEntries(window.woodrail.world.landscape.towns[0].buildings.map((b) => [b.id, { cell: b.cells[0], storeys: [...window.woodrail.world.props.all()].find((q) => q.building === b.id)?.storeys ?? 0 }])));
+const stood = await standing();
 const houseMid = await fingerDrag(houseAt, [lotAt[0], lotAt[1] + 28], plan.to);
+// (In rows the houses join, and a taller one in front can be the one under the finger: the house that was taken hold
+// of is the one followed from here.)
+if (ROWS && held !== -1 && held !== plan.house) {
+  console.log(`(rows: the finger took hold of house ${held}, beside house ${plan.house}: following it)`);
+  plan.house = held;
+  plan.from = stood[held].cell;
+  plan.storeys = stood[held].storeys;
+}
 const moved = await town(plan.house);
 check("a finger drags the house (drag-prop)", houseMid === "drag-prop", houseMid);
 check("the house moved onto another lot of its town", moved.cells && moved.cells[0] !== plan.from, JSON.stringify({ was: plan.from, now: moved.cells, aimed: plan.to }));
 check("…keeping its storeys", moved.storeys === plan.storeys, `${plan.storeys} → ${moved.storeys}`);
 check("…and every house still faces a street", moved.facing);
+if (ROWS) {
+  const row = await p.evaluate((house) => {
+    const w = window.woodrail;
+    const q = [...w.world.props.all()].find((x) => x.building === house);
+    const g = w.world.landscape.grid;
+    const b = w.world.landscape.towns[0].buildings.find((x) => x.id === house);
+    return { prop: q.id, asset: q.asset, onLot: Math.hypot(q.x - g.centreX(g.colOf(b.cells[0])), q.z - g.centreZ(g.rowOf(b.cells[0]))) };
+  }, plan.house);
+  check("rows: the house is a row, and its tile went with it onto the lot's middle", row.asset.startsWith("row-") && row.onLot < 1, JSON.stringify(row));
+  const now = new Set(await others(plan.house));
+  const was = othersBefore.filter((x) => !x.startsWith(`${row.prop}:`));
+  check("rows: the houses beside it kept their models and colours", was.every((x) => now.has(x)), was.filter((x) => !now.has(x)).join(" "));
+}
 await shot("2-house-moved");
 
 // 3. A street to move: one of Larkfield's street pieces onto a town green beside another of its streets.

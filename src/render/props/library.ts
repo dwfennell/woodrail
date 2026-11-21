@@ -1,4 +1,5 @@
 import { Box3, BufferAttribute, Color, Group, Matrix4, Mesh, Quaternion, SRGBColorSpace, Vector3, type BufferGeometry, type Material, type Object3D } from "three";
+import { isRow, rowFootprint, rowPaint } from "../../props/rows";
 import { Kit } from "../../catalogue/kit";
 import { loadAsset } from "../../catalogue/registry";
 import type { Footprint } from "../../props/placement";
@@ -9,7 +10,7 @@ import { motionOf, type MotionParts } from "../kit-motions";
 import type { Materials } from "../materials";
 import { catalogueModel, loadModelSet, modelOf } from "../blender-models";
 import { scaleOf } from "../../catalogue/scale";
-import { stackOf } from "../../props/storeys";
+import { mostStoreys, stackOf } from "../../props/storeys";
 import { CLOCK_ASSETS, HAND_NAMES, type ClockHand, type ClockHands } from "../clock-hands";
 
 /**
@@ -126,16 +127,20 @@ export class PropLibrary {
       // A town house grown taller (`asset^n`): its storey blocks under it (see `stackedModel`).
       const [assetId, up] = stacked.split(STOREYS);
       const storeys = Number(up ?? 0);
-      p = Promise.all([loadAsset(assetId), storeys > 0 ? loadModelSet("floors", true) : undefined]).then(([asset, floors]) => {
+      // (A row's storey blocks are in its own set, and its paint is its variant's colours, not a turn of the wheel.)
+      const row = isRow(assetId);
+      p = Promise.all([loadAsset(assetId), storeys > 0 ? loadModelSet(row ? "rows" : "floors", true) : undefined]).then(([asset, floors]) => {
         let model: PropModel | null = null;
         if (kit && asset) model = this.loadKit(kitType!, asset.name, placedForKit(asset.build(this.kitFor(0, asset.detail)), kitPlace(kit)));
         else if (asset) {
-          const build = () => (floors ? stackedModel(floors, assetId, storeys, this.kitFor(variant)) : asset.build(this.kitFor(variant, asset.detail)));
+          const build = () => (floors ? stackedModel(floors, assetId, storeys, this.kitFor(variant, undefined, row)) : asset.build(this.kitFor(variant, asset.detail, row)));
           const built = build();
           model = { name: asset.name, ...bake(built, this.mats) };
           // (A plain model can be baked again, the same, if its geometry's been let go: see `release`.)
           if (!CLOCK_ASSETS.has(assetId)) this.rebakes.set(key, () => bake(build(), this.mats).parts);
-          if (!floors) this.footprints.set(assetId, model.footprint);
+          // (A row drawn stacked from the start, a house that became a shop, has no plain model loaded: its stack
+          // stands on the same tile.)
+          if (!floors || (row && !this.footprints.has(assetId))) this.footprints.set(assetId, row ? rowFootprint(assetId) : model.footprint);
           // A clock: also baked bare of its hands (what's drawn, its hands by `ClockView`), and its hands on their own.
           const hands = CLOCK_ASSETS.has(assetId) ? clockHandsOf(built, this.mats) : null;
           if (hands) {
@@ -212,11 +217,11 @@ export class PropLibrary {
     return this.models.has(key) ? null : undefined;
   }
 
-  private kitFor(variant: number, detail = PROP_DETAIL): Kit {
-    const key = `${variant}@${detail}`;
+  private kitFor(variant: number, detail = PROP_DETAIL, row = false): Kit {
+    const key = `${variant}@${detail}${row ? "@row" : ""}`;
     let kit = this.kits.get(key);
     // Fewer segments than the catalogue viewer's: props are small on screen, and many (but see `Asset.detail`).
-    if (!kit) this.kits.set(key, (kit = new Kit(this.mats, detail, variant === 0 ? undefined : (c) => shiftHue(c, variant))));
+    if (!kit) this.kits.set(key, (kit = new Kit(this.mats, detail, row ? rowPaint(variant) : variant === 0 ? undefined : (c) => shiftHue(c, variant))));
     return kit;
   }
 }
@@ -265,6 +270,8 @@ function placedForKit(model: Object3D, at: { t: number; l: number; turn: number;
 
 /** A model's key in the library: its asset, its storeys more (a town house grown taller), and its colour variant. */
 export function modelKey(asset: string, variant?: number, storeys?: number): string {
+  // (A row, towns in rows: never more storeys than it can have, whatever its prop gained as another model.)
+  if (storeys && isRow(asset)) storeys = Math.min(storeys, mostStoreys(asset));
   const up = storeys ? `${asset}${STOREYS}${storeys}` : asset;
   return variant ? `${up}#${variant}` : up;
 }

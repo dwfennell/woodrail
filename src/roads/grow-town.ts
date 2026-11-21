@@ -1,5 +1,5 @@
 import { hashInts } from "../landscape/edges";
-import { CELL, FEAT_BUILDING, FEAT_STATION, SURF_ROAD, type LandscapeGrid } from "../landscape/grid";
+import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_GRASS, SURF_ROAD, type LandscapeGrid } from "../landscape/grid";
 import { edgesOf, pieceForEdges, type Edge } from "./pieces";
 
 /**
@@ -46,12 +46,20 @@ export interface GrowOptions {
   toward?: readonly { x: number; z: number }[];
   /** The first this many buildings take two squares where there's any such lot (for big buildings: landmarks). */
   wide?: number;
+  /**
+   * Towns in rows (spec 2026-11-14-town-rows-design.md): rows fill before the town spreads. A new building joins a
+   * row (beside a building on its side of its street), else faces one across the street, else starts the next row
+   * along (across an opening) or one by Station Road; a street is laid only when there's no such lot. And a row is three lots, then an opening (`GAP_EVERY_ROWS`).
+   */
+  rows?: boolean;
 }
 
 /** How far a town may grow from its centre, in squares. */
 export const TOWN_REACH = 6.5;
 /** A street is held back every this many squares along it, where a side street can leave later. */
 const GAP_EVERY = 3;
+/** In rows (`GrowOptions.rows`): every fourth, so a row is three lots. */
+const GAP_EVERY_ROWS = 4;
 /** The town opens a street behind its station (if it didn't start with one) at this many buildings. */
 const FAR_SIDE_AT = 14;
 /** Ribbons out toward other towns start at this many buildings. */
@@ -165,6 +173,9 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
   const records = new Map<number, { id: number; kind: "house" | "shop"; floors: 1 | 2; front?: Edge; landmark?: string }>();
   for (const b of town.buildings) records.set(b.cells[0], { id: b.id, kind: b.kind, floors: b.floors, front: b.front, landmark: b.landmark });
   let count = town.buildings.length;
+  // Which way the building on each built square faces (every square of it; none: an old save's, toward the centre).
+  const frontAt = new Map<number, Edge | undefined>();
+  for (const b of town.buildings) for (const c of b.cells) frontAt.set(c, b.front);
 
   // Station Road (in front of the platform), and behind the station for a town that starts on both sides.
   const front = [-1, 0, 1].map((a) => at(a, 2));
@@ -192,13 +203,16 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
   };
   const d = (i: number) => dist.get(i) ?? Infinity;
 
-  const gapAt = seed % GAP_EVERY;
+  const gapEvery = options.rows ? GAP_EVERY_ROWS : GAP_EVERY;
+  // (In rows the openings are two squares each side of the station's middle and every fourth from there, so Station
+  // Road's own three lots are a whole row.)
+  const gapAt = options.rows ? 2 : seed % gapEvery;
   /** Held back while there's other room: straight on from a street's end, and a gap every few squares along a street. */
   const reserved = (i: number, s: number, e: number) => {
     if (isStreet(step(s, (e + 2) & 3))) return true;
     const { a, b } = frame(i);
     const along = Math.abs(EDGES[e][0] * ac + EDGES[e][1] * ar) === 1 ? b : a;
-    return (((along + gapAt) % GAP_EVERY) + GAP_EVERY) % GAP_EVERY === 0;
+    return (((along + gapAt) % gapEvery) + gapEvery) % gapEvery === 0;
   };
   type Lot = { i: number; s: number; e: Edge; dist: number; reserved: boolean };
   const lots = (): Lot[] => {
@@ -224,6 +238,20 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
     return -0.35 * l.dist - 0.35 * away(l.i) + 0.9 * builtBeside(l.i) + opposite + 0.5 * noise(11, l.i);
   };
 
+  // In rows: a lot that joins a row (a building beside it along its street, facing the same street side), one that
+  // faces a building across its street, one by Station Road; the nearest the station first.
+  const facesSame = (j: number, e: number) => is(j, BUILT) && (frontAt.get(j) === undefined || frontAt.get(j) === e);
+  const joins = (l: Lot) => [(l.e + 1) & 3, (l.e + 3) & 3].some((p) => facesSame(step(l.i, p), l.e));
+  /** The next row along: across a row's opening from a building. */
+  const carriesOn = (l: Lot) =>
+    [(l.e + 1) & 3, (l.e + 3) & 3].some((p) => {
+      const j = step(l.i, p);
+      return is(j, FREE) && isStreet(step(j, l.e)) && reserved(j, step(j, l.e), (l.e + 2) & 3) && facesSame(step(j, p), l.e);
+    });
+  const faces = (l: Lot) => is(step(l.s, l.e), BUILT);
+  const nearer = (x: Lot, y: Lot) => x.dist - y.dist || away(x.i) - away(y.i) || noise(11, x.i) - noise(11, y.i) || x.i - y.i;
+  const firstOf = (tiers: Lot[][]): Lot[] => tiers.find((t) => t.length > 0) ?? [];
+
   const toward = (options.toward ?? []).filter((p) => Math.hypot(p.x - town.centre.x, p.z - town.centre.z) > CELL);
   const pullTo = (from: number, to: number) => {
     let pull = 0;
@@ -233,7 +261,15 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
     }
     return pull;
   };
-  type Extension = { s: number; t: number; e: number; branch: boolean; score: number };
+  /** Has this street square a free lot beside it that isn't held back? */
+  const hasOpenLot = (j: number) => {
+    for (let e = 0; e < 4; e++) {
+      const i = nb[j * 4 + e];
+      if (is(i, FREE) && !reserved(i, j, e)) return true;
+    }
+    return false;
+  };
+  type Extension = { s: number; t: number; e: number; branch: boolean; score: number; runsOn: boolean };
   const extensions = (): Extension[] => {
     const out: Extension[] = [];
     for (const [s, st] of state) {
@@ -245,7 +281,9 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
         const sides = [(e + 1) & 3, (e + 3) & 3];
         if (sides.some((p) => isStreet(step(t, p)) || isStreet(step(t, p, 2)))) continue;
         const straight = isStreet(step(s, (e + 2) & 3));
-        if (!straight && builtBeside(s) === 0) continue; // a side street leaves a stretch with houses
+        // (In rows a side street leaves through a row's opening, where nothing is built beside the street.)
+        const throughOpening = options.rows === true && !straight && reserved(t, s, e);
+        if (!straight && builtBeside(s) === 0 && !throughOpening) continue; // a side street leaves a stretch with houses
         if (!straight) {
           // ...a plain stretch, not beside a corner or another junction.
           let plain = true;
@@ -265,7 +303,8 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
         }
         let empty = 0;
         for (let k = 0, j = s; k < 3 && isStreet(j); k++, j = step(j, (e + 2) & 3)) {
-          if (builtBeside(j) > 0) break;
+          // (In rows: a stretch with only openings beside it has nothing left to build on, so it doesn't hold a street back.)
+          if (builtBeside(j) > 0 || (options.rows && !hasOpenLot(j))) break;
           empty++;
         }
         const pull = count >= RIBBONS_AT ? pullTo(s, t) : 0;
@@ -274,17 +313,22 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
         for (let j = s; isStreet(j) && run < 8; j = step(j, (e + 2) & 3)) run++;
         const corner = !straight && streetsBeside(s) === 1;
         // A side street runs out a block's depth, then turns or runs on; plain ribbons only toward a road out.
-        const shape = straight ? (run < 3 ? 1 : pull > 0 ? 0.6 : 0.3 - 0.3 * (run - 3)) : corner ? 0.9 : 0.6;
+        // (In rows a street runs on first, three rows of three long, before side streets leave it.)
+        const long = options.rows ? 11 : 3;
+        const shape = straight ? (run < long ? (options.rows ? 1.8 : 1) : pull > 0 ? 0.6 : 0.3 - 0.3 * (run - long)) : corner ? 0.9 : 0.6;
         const fs = frame(s);
         const ft = frame(t);
         const out_ = Math.abs(ft.b) > Math.abs(fs.b) ? 0.6 : 0;
         const join = isStreet(step(t, e)) ? 1.4 : 0;
         const alongside = sides.some((p) => isStreet(step(t, p, 3))) ? 0.6 : 0;
         const score = -0.45 * away(t) + shape + out_ + 0.9 * pull + join + alongside + 0.6 * noise(12, t);
-        out.push({ s, t, e, branch: !straight, score });
+        out.push({ s, t, e, branch: !straight, score, runsOn: straight && run < long });
       }
     }
-    return out.sort((x, y) => y.score - x.score || x.t - y.t);
+    out.sort((x, y) => y.score - x.score || x.t - y.t);
+    // In rows, side streets wait while a street can still run on.
+    const first = options.rows ? out.filter((x) => x.runsOn) : [];
+    return first.length > 0 ? first : out;
   };
 
   /** The square beside a lot along its street that could join it (free, facing the same street), or −1. */
@@ -317,7 +361,31 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
       for (const [i, s] of state) if (s === BUILT && records.get(i)?.front !== undefined) edge = Math.max(edge, d(step(i, records.get(i)!.front!)));
       const near = all.filter((l) => l.dist <= edge + 1 && !l.reserved);
       const ext = tries < 5 ? extensions() : [];
-      if (near.length >= 2 || (all.length > 0 && ext.length === 0)) {
+      if (options.rows) {
+        const open = all.filter((l) => !l.reserved);
+        let tier = firstOf([open.filter(joins), open.filter(faces)]);
+        if (tier.length === 0) {
+          // A row that could go on if its street did: the street runs on a square (past an opening too) before
+          // another row is started somewhere else.
+          const on = ext.find((x) => x.runsOn && (builtBeside(x.s) > 0 || builtBeside(step(x.s, (x.e + 2) & 3)) > 0));
+          if (on) {
+            streets.push(...lay([on.t]));
+            continue;
+          }
+          tier = firstOf([open.filter(carriesOn), open.filter((l) => l.dist <= 1)]);
+        }
+        if (tier.length === 0 && ext.length > 0) {
+          streets.push(...lay([ext[0].t]));
+          continue;
+        }
+        let pool = tier.length > 0 ? tier : open.length > 0 ? open : all;
+        if (pool.length === 0) break;
+        if (wide > 0) {
+          const pairs = (ls: Lot[]) => ls.filter((l) => partner(l) !== -1);
+          pool = [pairs(pool), pairs(open), pairs(all)].find((ls) => ls.length > 0) ?? pool;
+        }
+        built = pool.reduce((x, y) => (nearer(y, x) < 0 ? y : x));
+      } else if (near.length >= 2 || (all.length > 0 && ext.length === 0)) {
         const open = all.filter((l) => !l.reserved);
         let pool = near.length >= 2 ? near : open.length > 0 ? open : all;
         if (wide > 0) {
@@ -331,12 +399,14 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
     }
     if (!built) break;
     state.set(built.i, BUILT);
+    frontAt.set(built.i, built.e);
     const cells = [built.i];
     // Sometimes (or when asked for) two squares side by side along the street, both facing it.
     if (wide > 0 || noise(15, built.i) < PAIRED) {
       const j = partner(built);
       if (j !== -1) {
         state.set(j, BUILT);
+        frontAt.set(j, built.e);
         cells.push(j);
       }
     }
@@ -369,4 +439,28 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
     steps.push({ cells, front: built.e, corner, streets, changes });
   }
   return steps;
+}
+
+/**
+ * Towns in rows: the openings in a town's rows that no side street has taken, to be drawn as small paved places (so a
+ * street has no holes): a bare square of grass beside a street, a building on the square each side of it along that
+ * street, both facing it. Pure; the same every time.
+ */
+export function rowOpenings(grid: LandscapeGrid, town: GrowingTown): number[] {
+  const frontAt = new Map<number, Edge | undefined>();
+  for (const b of town.buildings) for (const c of b.cells) frontAt.set(c, b.front);
+  const at = (i: number, e: number) => grid.index(grid.colOf(i) + EDGES[e][0], grid.rowOf(i) + EDGES[e][1]);
+  const out = new Set<number>();
+  for (const [c, f] of frontAt) {
+    if (f === undefined) continue;
+    for (const p of [(f + 1) & 3, (f + 3) & 3]) {
+      const i = at(c, p);
+      if (i === -1 || frontAt.has(i) || grid.surface[i] !== SURF_GRASS || grid.feature[i] !== FEAT_NONE || grid.road[i] !== 0 || grid.height[i] !== grid.height[c]) continue;
+      const street = at(i, f);
+      if (street === -1 || grid.surface[street] !== SURF_ROAD) continue;
+      const far = at(i, p);
+      if (far !== -1 && frontAt.has(far) && frontAt.get(far) === f) out.add(i);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
 }
