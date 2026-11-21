@@ -165,6 +165,7 @@ export class Dispatcher {
     // The event: each asking train decided, longest waiter first.
     const snaps = snapsOf(layout, sim, this.host.route);
     const ts = this.trainsOf(snaps);
+    this.oneWay = oneWayOf(ts);
     asking.sort((a, b) => (this.holdsBy.get(a)?.stood ?? Infinity) - (this.holdsBy.get(b)?.stood ?? Infinity) || a - b);
     for (const e of asking) this.decide(ts, snaps, e);
     this.refreshGate();
@@ -312,7 +313,7 @@ export class Dispatcher {
       const st = this.holdsBy.get(placed[i].key)?.stood ?? -1;
       return st < 0 ? 1 : 1 + Math.floor((now - st) / (WEIGH_S * 120));
     });
-    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, weights });
+    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, weights, oneWay: this.oneWay });
     let ways = placed;
     let to = -1;
     if (r.first[0] >= 0 && r.first[0] >= r.plain) to = r.firstTo[0];
@@ -320,7 +321,7 @@ export class Dispatcher {
       // (Stuck: with detours.)
       const dt = withDetours(this.host.layout, snaps, placed, members);
       if (dt) {
-        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, detours: true, weights });
+        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, detours: true, weights, oneWay: this.oneWay });
         if (rd.detourValue > r.plain && rd.firstD[0] >= rd.detourValue && rd.firstToD[0] >= 0) {
           ways = dt;
           r = rd;
@@ -482,6 +483,8 @@ export class Dispatcher {
     return this.holdVer;
   }
   private holdVer = 0;
+  /** The one-way pieces as of the last look (routing redesign §3.3 rule 3). */
+  private oneWay: Uint8Array | undefined;
 
   private byTrainId(trainId: number): Hold | undefined {
     for (const h of this.holdsBy.values()) if (h.trainId === trainId) return h;
@@ -558,4 +561,30 @@ function takenBy(ts: DTrain[], k: number, holds: Map<number, Hold>): string {
     if (h && h.t.pos === o.pos) for (const n of h.path) for (const p of o.pos[n]) if (mine.has(p)) out.push(`${o.key} holds ${p} (node ${n}, at ${o.at}, h.t.at ${h.t.at}, end ${h.end}, path ${h.path.join(",")})`);
   });
   return [...new Set(out)].slice(0, 4).join("; ") || "nobody";
+}
+
+/**
+ * One-way pieces (routing redesign §3.3 rule 3): those every routed train's booked way runs over the same way (by the
+ * end it comes onto them by), none of them under a train the dispatcher doesn't steer (hand-run, parked: who knows
+ * which way it goes next).
+ */
+function oneWayOf(ts: readonly DTrain[]): Uint8Array {
+  let max = 0;
+  for (const t of ts) if (t.maxPiece > max) max = t.maxPiece;
+  const seen = new Int32Array(max + 1).fill(-1);
+  const two = new Uint8Array(max + 1);
+  const mark = (p: number, en: number) => {
+    if (seen[p] === -1) seen[p] = en;
+    else if (seen[p] !== en) two[p] = 1;
+  };
+  for (const t of ts) {
+    if (t.fixed) {
+      for (const p of t.pos[t.at]) two[p] = 1;
+      continue;
+    }
+    for (let i = t.at; i < t.main; i++) mark(t.pos[i][t.pos[i].length - 1], t.frontEn[i]);
+  }
+  const out = new Uint8Array(max + 1);
+  for (let p = 0; p <= max; p++) out[p] = seen[p] !== -1 && !two[p] ? 1 : 0;
+  return out;
 }

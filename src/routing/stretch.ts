@@ -742,6 +742,11 @@ export interface SearchOptions {
    * weighs long waiters more (fair turns): then `value`, `of`, `plain` and `first` are in these units.
    */
   weights?: readonly number[];
+  /**
+   * One-way pieces (routing redesign §3.3 rule 3: every train's way runs it the same way), by piece id: there any rest
+   * clear of points is a waiting point too (close following, a joint at a time). Absent: none.
+   */
+  oneWay?: Uint8Array;
   /** Members tried first (fair turns: longest waiter first); default their order. */
   order?: number[];
 }
@@ -1040,6 +1045,11 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   const fwds = fwdPool[n] ?? (fwdPool[n] = []);
   const fwdAt = (d: number) => fwds[d] ?? (fwds[d] = new Int32Array(n * W));
   const brs: (Branch[] | undefined)[][] = ts.map((t) => new Array(t.pos.length));
+  const oneWay = opts.oneWay && opts.oneWay.length > maxP ? opts.oneWay : opts.oneWay ? (() => {
+    const o = new Uint8Array(maxP + 1);
+    o.set(opts.oneWay!.subarray(0, Math.min(opts.oneWay!.length, maxP + 1)));
+    return o;
+  })() : null;
   /** Detours searched (a phase: only when no order without keeps them all going). */
   let detours = false;
   const forward = (k: number, out: Int32Array) => {
@@ -1066,10 +1076,16 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
           }
         }
         if (blocked) break;
-        if (t.rest[b.nodes[j]]) lastRest = b.nodes[j];
+        const nd = b.nodes[j];
+        if (t.rest[nd]) {
+          lastRest = nd;
+          // (On one-way track, any rest is a waiting point: the move ends at the first.)
+          if (oneWay && !t.wait[nd] && t.plain[nd] && oneWay[t.pos[nd][t.pos[nd].length - 1]] && t.pos[nd].every((p) => oneWay[p])) break;
+        }
       }
       // (Blocked by a train's tail on its next piece, going its way: up close behind it, part way onto that piece.)
-      const close = j < b.nodes.length && closesUp(k, b.nodes[j]) ? t.closeOf[b.nodes[j]] : -1;
+      const stoppedOneWay = j < b.nodes.length && lastRest === b.nodes[j];
+      const close = !stoppedOneWay && j < b.nodes.length && closesUp(k, b.nodes[j]) ? t.closeOf[b.nodes[j]] : -1;
       const to = j === b.nodes.length && b.wait ? b.nodes[j - 1] : close >= 0 ? close : lastRest;
       if (to < 0 || out[o] >= PER) continue;
       let dup = false;
