@@ -221,6 +221,12 @@ function swOf(layout: Layout, p: number): boolean {
   return v;
 }
 
+/**
+ * The block rule (a move past a plain signal needs its whole block free): on where the sim's blocks decide the signals
+ * (today's), off where the dispatcher owns them (`Sim.signalOwner`: a signal is its hold).
+ */
+export const BLOCK_RULE = { on: false };
+
 /** A plain block's pieces beyond the signal at `ref` (cached per layout and its signals' version); null: a path signal's. */
 const blockCache = new WeakMap<Layout, { ver: string; m: Map<number, Int32Array | null> }>();
 function plainBlock(layout: Layout, ref: number): Int32Array | null {
@@ -583,7 +589,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     frontEn: Int32Array.from(frontEn),
     frontLen: Float64Array.from(frontLen),
     frontRef: Int32Array.from(frontRef),
-    blockAfter: frontRef.map((ref) => (ref >= 0 && layout.signalAt(ref) ? plainBlock(layout, ref) : null)),
+    blockAfter: frontRef.map((ref) => (BLOCK_RULE.on && ref >= 0 && layout.signalAt(ref) ? plainBlock(layout, ref) : null)),
     turned: Uint8Array.from(turned, (b) => (b ? 1 : 0)),
     maxPiece: pos.reduce((m, ps) => ps.reduce((a, p) => (p > a ? p : a), m), 0),
     detour: Uint8Array.from({ length: n }, (_, i) => (i >= detourFrom && extra.length > 0 ? 1 : 0)),
@@ -736,6 +742,11 @@ export interface SearchOptions {
    * weighs long waiters more (fair turns): then `value`, `of`, `plain` and `first` are in these units.
    */
   weights?: readonly number[];
+  /**
+   * One-way pieces (routing redesign §3.3 rule 3: every train's way runs it the same way), by piece id: there any rest
+   * clear of points is a waiting point too (close following, a joint at a time). Absent: none.
+   */
+  oneWay?: Uint8Array;
   /** Members tried first (fair turns: longest waiter first); default their order. */
   order?: number[];
 }
@@ -1034,6 +1045,11 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   const fwds = fwdPool[n] ?? (fwdPool[n] = []);
   const fwdAt = (d: number) => fwds[d] ?? (fwds[d] = new Int32Array(n * W));
   const brs: (Branch[] | undefined)[][] = ts.map((t) => new Array(t.pos.length));
+  const oneWay = opts.oneWay && opts.oneWay.length > maxP ? opts.oneWay : opts.oneWay ? (() => {
+    const o = new Uint8Array(maxP + 1);
+    o.set(opts.oneWay!.subarray(0, Math.min(opts.oneWay!.length, maxP + 1)));
+    return o;
+  })() : null;
   /** Detours searched (a phase: only when no order without keeps them all going). */
   let detours = false;
   const forward = (k: number, out: Int32Array) => {
@@ -1060,10 +1076,16 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
           }
         }
         if (blocked) break;
-        if (t.rest[b.nodes[j]]) lastRest = b.nodes[j];
+        const nd = b.nodes[j];
+        if (t.rest[nd]) {
+          lastRest = nd;
+          // (On one-way track, any rest is a waiting point: the move ends at the first.)
+          if (oneWay && !t.wait[nd] && t.plain[nd] && oneWay[t.pos[nd][t.pos[nd].length - 1]] && t.pos[nd].every((p) => oneWay[p])) break;
+        }
       }
       // (Blocked by a train's tail on its next piece, going its way: up close behind it, part way onto that piece.)
-      const close = j < b.nodes.length && closesUp(k, b.nodes[j]) ? t.closeOf[b.nodes[j]] : -1;
+      const stoppedOneWay = j < b.nodes.length && lastRest === b.nodes[j];
+      const close = !stoppedOneWay && j < b.nodes.length && closesUp(k, b.nodes[j]) ? t.closeOf[b.nodes[j]] : -1;
       const to = j === b.nodes.length && b.wait ? b.nodes[j - 1] : close >= 0 ? close : lastRest;
       if (to < 0 || out[o] >= PER) continue;
       let dup = false;

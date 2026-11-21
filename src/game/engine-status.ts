@@ -195,6 +195,12 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const by = car.kind === "engine" ? economy.sections.lettingBy(car.id) : -1;
     if (by >= 0) return { kind: "aside", line: lineNameOf(sim, economy, by), by };
   }
+  // Held by the dispatcher for another train (dispatcher spec §8 step 2, with it on): who it waits for.
+  if (train.speed < 1 && economy.dispatcher)
+    for (const car of train.cars) {
+      const d = car.kind === "engine" ? economy.dispatcher.waitingOn(car.id) : null;
+      if (d) return { kind: "line-wait-for", by: d.engine, to: nextStopOf(economy, car.id), holder: "dispatcher" };
+    }
   // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
   if (train.speed < 1)
     for (const car of train.cars) {

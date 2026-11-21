@@ -165,6 +165,7 @@ export class Dispatcher {
     // The event: each asking train decided, longest waiter first.
     const snaps = snapsOf(layout, sim, this.host.route);
     const ts = this.trainsOf(snaps);
+    this.oneWay = oneWayOf(ts);
     asking.sort((a, b) => (this.holdsBy.get(a)?.stood ?? Infinity) - (this.holdsBy.get(b)?.stood ?? Infinity) || a - b);
     for (const e of asking) this.decide(ts, snaps, e);
     this.refreshGate();
@@ -177,11 +178,17 @@ export class Dispatcher {
       const sig = `${s.stops?.join(",") ?? "-"}.${s.next}.${s.at ? 1 : 0}.${s.lever ? 1 : 0}`;
       const h = this.holdsBy.get(s.key);
       if (h && h.sig === sig) {
-        const moved = relocate(h.t, bodyOf(layout, s));
+        // (Along its granted way first: a detour and its booked way can stand alike where they part.)
+        const body = bodyOf(layout, s);
+        const onPath = h.path.find((n) => h.t.pos[n].length === body.length && body.every((p, q) => h.t.pos[n][q] === p));
+        const moved = onPath !== undefined ? (onPath === h.t.at ? h.t : { ...h.t, at: onPath }) : relocate(h.t, body);
         if (moved) {
           h.t = moved;
           const k = h.path.indexOf(moved.at);
-          if (k > 0) h.path = h.path.slice(k);
+          if (k > 0) {
+            h.path = h.path.slice(k);
+            this.holdVer++;
+          }
           else if (k < 0 && moved.at !== h.end) {
             // (Off its granted way: hold it where it is.)
             this.setHold(h, moved.at, []);
@@ -232,6 +239,7 @@ export class Dispatcher {
 
   /** Set a hold to end at node `end` along `path` (from where the train stands): the run left beyond each front piece. */
   private setHold(h: Hold, end: number, path: number[]): void {
+    this.holdVer++;
     const t = h.t;
     // (Never past a turn: the run to the line end before it; the sim turns it there.)
     let stop = end;
@@ -308,7 +316,7 @@ export class Dispatcher {
       const st = this.holdsBy.get(placed[i].key)?.stood ?? -1;
       return st < 0 ? 1 : 1 + Math.floor((now - st) / (WEIGH_S * 120));
     });
-    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, weights });
+    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, weights, oneWay: this.oneWay });
     let ways = placed;
     let to = -1;
     if (r.first[0] >= 0 && r.first[0] >= r.plain) to = r.firstTo[0];
@@ -316,7 +324,7 @@ export class Dispatcher {
       // (Stuck: with detours.)
       const dt = withDetours(this.host.layout, snaps, placed, members);
       if (dt) {
-        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, detours: true, weights });
+        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, detours: true, weights, oneWay: this.oneWay });
         if (rd.detourValue > r.plain && rd.firstD[0] >= rd.detourValue && rd.firstToD[0] >= 0) {
           ways = dt;
           r = rd;
@@ -450,6 +458,42 @@ export class Dispatcher {
     return h && h.waitsOn >= 0 && h.stood >= 0 ? { engine: h.waitsOn } : null;
   }
 
+  /**
+   * The signals, owned (routing redesign §3.6, `Sim.signalOwner`): green for a train it holds iff its hold runs on past
+   * that joint; null for a train it doesn't hold (the block decides, as before).
+   */
+  clearFor(ref: number, trainId: number): boolean | null {
+    const h = this.byTrainId(trainId);
+    if (!h) return null;
+    const t = h.t;
+    for (let k = 0; k < h.path.length - 1; k++) if (t.frontRef[h.path[k]] === ref) return true;
+    return false;
+  }
+
+  /** What a signal shows: green with a hold running past it, red with one ending at it; null: no hold there (as before). */
+  aspect(ref: number): boolean | null {
+    let red = false;
+    for (const h of this.holdsBy.values()) {
+      const t = h.t;
+      for (let k = 0; k < h.path.length - 1; k++) if (t.frontRef[h.path[k]] === ref) return true;
+      if (t.frontRef[h.end] === ref) red = true;
+    }
+    return red ? false : null;
+  }
+
+  /** Goes up whenever a hold changes (the sim works its signals out again then). */
+  ownerVersion(): number {
+    return this.holdVer;
+  }
+  private holdVer = 0;
+  /** The one-way pieces as of the last look (routing redesign §3.3 rule 3). */
+  private oneWay: Uint8Array | undefined;
+
+  private byTrainId(trainId: number): Hold | undefined {
+    for (const h of this.holdsBy.values()) if (h.trainId === trainId) return h;
+    return undefined;
+  }
+
   /** The train held at the signal at this joint (its hold ends there), or −1: signals read the holds (§R 3.6). */
   gateAt(ref: number): number {
     return this.gate.get(ref) ?? -1;
@@ -520,4 +564,30 @@ function takenBy(ts: DTrain[], k: number, holds: Map<number, Hold>): string {
     if (h && h.t.pos === o.pos) for (const n of h.path) for (const p of o.pos[n]) if (mine.has(p)) out.push(`${o.key} holds ${p} (node ${n}, at ${o.at}, h.t.at ${h.t.at}, end ${h.end}, path ${h.path.join(",")})`);
   });
   return [...new Set(out)].slice(0, 4).join("; ") || "nobody";
+}
+
+/**
+ * One-way pieces (routing redesign §3.3 rule 3): those every routed train's booked way runs over the same way (by the
+ * end it comes onto them by), none of them under a train the dispatcher doesn't steer (hand-run, parked: who knows
+ * which way it goes next).
+ */
+function oneWayOf(ts: readonly DTrain[]): Uint8Array {
+  let max = 0;
+  for (const t of ts) if (t.maxPiece > max) max = t.maxPiece;
+  const seen = new Int32Array(max + 1).fill(-1);
+  const two = new Uint8Array(max + 1);
+  const mark = (p: number, en: number) => {
+    if (seen[p] === -1) seen[p] = en;
+    else if (seen[p] !== en) two[p] = 1;
+  };
+  for (const t of ts) {
+    if (t.fixed) {
+      for (const p of t.pos[t.at]) two[p] = 1;
+      continue;
+    }
+    for (let i = t.at; i < t.main; i++) mark(t.pos[i][t.pos[i].length - 1], t.frontEn[i]);
+  }
+  const out = new Uint8Array(max + 1);
+  for (let p = 0; p <= max; p++) out[p] = seen[p] !== -1 && !two[p] ? 1 : 0;
+  return out;
 }

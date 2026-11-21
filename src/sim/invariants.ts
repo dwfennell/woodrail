@@ -565,6 +565,9 @@ export class Invariants {
       // (A path signal's block may hold two trains on ways that don't meet: `blockOne` is for plain blocks. One set Always
       // green lets a second in on purpose: they keep their distance by `followCap`, which `underTrain` checks.)
       if (g.junction || g.forced) continue;
+      // (Signals owned by reservations (routing redesign §3.6): a train the owner holds may share a block, never a piece
+      // (`oneOwner` checks that); `blockOne` is for the block rule's trains.)
+      if (sim.signalOwner && sim.signalOwner.clearFor(connectorRef(was.pieceId, exit), id) !== null) continue;
       let inBlock = this.entered.get(g.key);
       if (!inBlock) this.entered.set(g.key, (inBlock = new Set()));
       if (inBlock.size > 0 && !late) this.break("blockOne", `${nameOf(id)} came into signal ${g.key}'s block with ${[...inBlock].map(nameOf).join(",")} in it`, n?.engine, g.pieceId);
