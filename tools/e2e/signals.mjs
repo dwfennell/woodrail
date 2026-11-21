@@ -1204,8 +1204,13 @@ suite.add(
         });
     const j1 = await onJoint(at);
     if (toast) await tapAt(...toast);
-    await p.waitForTimeout(300);
-    const j2 = await onJoint(at);
+    // (Till it has turned, 10 s at most: the click counted by `tapped` can be an earlier one delivered late, a frame
+    // being seconds on a slow machine, and the toast's own click handled a frame on.)
+    let j2 = await onJoint(at);
+    for (let n = 0; toast && n < 40 && j2.here !== -1; n++) {
+      await p.waitForTimeout(250);
+      j2 = await onJoint(at);
+    }
     check("one-way: let go: one signal on the joint, facing on, none the other way", j1.here !== -1 && j1.other === -1 && j1.count === 1, JSON.stringify(j1));
     const said = await p.evaluate(() => window.__said.splice(0));
     check("one-way: …its toast offers to turn it round", said.includes("One-way signal placed. Tap here to turn it round"), JSON.stringify(said));
