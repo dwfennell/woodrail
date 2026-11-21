@@ -227,13 +227,21 @@ export class Dispatcher {
       if (!s.stops || !s.lever) return t;
       const trainId = sim.findCar(s.key)?.train.id ?? -1;
       if (h) {
-        // (Rebuilt (its route moved on, or it left its way): its hold kept if the new way has the same place, else where it stands.)
+        const oldT = h.t;
+        const oldPath = h.path;
         h.t = t;
         h.sig = sig;
         h.trainId = trainId;
-        // (Rebuilt (its route moved on, it turned, it left its way): held where it stands, asking afresh. Carrying the old
-        // hold's end over could hand it track it was never granted (a turned train's old end lies the other way).)
-        this.setHold(h, t.at, []);
+        // (Rebuilt (its route moved on, it turned, it left its way): its old grant kept as far as the new way runs over
+        // the same joints the same way (a train running on as its route moves on doesn't stand dead mid-way, past a
+        // signal's stop point); never further: carried whole, an old end could hand it track it was never granted (a
+        // turned train's old end lies the other way, and none of its joints match).)
+        const refs = new Set<number>();
+        // (The joints it was granted past: each node's but the last's, its hold's end.)
+        for (let k = 0; k + 1 < oldPath.length; k++) if (oldT.frontRef[oldPath[k]] >= 0) refs.add(oldT.frontRef[oldPath[k]]);
+        let end = t.at;
+        for (let i = t.at; i + 1 < t.main && t.succ[i].includes(i + 1) && refs.has(t.frontRef[i]); i++) end = i + 1;
+        this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
         const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
         this.holdsBy.set(s.key, nh);
