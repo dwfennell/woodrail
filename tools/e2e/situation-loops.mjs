@@ -232,7 +232,7 @@ const row = await p.evaluate(() => {
   const r = document.querySelector(".situation-tip");
   return { title: r?.querySelector("b")?.textContent, text: r?.querySelector("p")?.textContent, more: r?.querySelector(".tip-more")?.textContent };
 });
-check("2. the row: Trains can't pass, the fix a passing loop", /Trains can't pass/.test(row.title ?? "") && /A passing loop in the middle lets them pass/.test(row.text ?? ""), JSON.stringify(row));
+check("2. the row: Trains can't pass, both lines named, the fix a passing loop", /Trains can't pass/.test(row.title ?? "") && /(Red and Blue|Blue and Red) lines' trains/.test(row.text ?? "") && /A passing loop in the middle lets them pass/.test(row.text ?? ""), JSON.stringify(row));
 check("2. …Learn more about passing loops", /passing loops/.test(row.more ?? ""), row.more);
 await shot("2-row");
 await tapSel(".situation-tip .tip-more");

@@ -312,6 +312,15 @@ const lineWords = (w: World, lineId: number | undefined): string => {
   return line ? `the ${line.name}` : "two lines";
 };
 
+/** Who meets: "Trains of the Red line", or of two lines "The Red and Blue lines' trains". */
+function meetWords(w: World, lineId: number | undefined, by: number): string {
+  const other = by >= 0 ? w.economy.lineIdOf.get(by) : undefined;
+  const a = lineId === undefined ? undefined : w.economy.lines.get(lineId);
+  const b = other === undefined ? undefined : w.economy.lines.get(other);
+  if (a && b && a.id !== b.id) return `The ${a.name.replace(/ line$/, "")} and ${b.name.replace(/ line$/, "")} lines' trains`;
+  return a ? `Trains of the ${a.name}` : "Two trains";
+}
+
 /**
  * No passing place (detector #4): trains nose to nose on single track where a passing loop is the fix (the stall
  * classifier's `in-way` with `loop`, `too-many`, or `signals` head on with `loop`), or a train kept waiting on a long single
@@ -344,7 +353,7 @@ export const JAM_LOOP: Detector = {
         short: tooMany ? "Too many trains" : "Trains can't pass",
         text: tooMany
           ? `${lineWords(w, lineId).replace(/^t/, "T")} has more trains than passing loops. Add a passing loop, or take a train off.`
-          : `Trains of ${lineWords(w, lineId)} meet on single track and stop nose to nose. ${fix}`,
+          : `${meetWords(w, lineId, by)} meet on single track and stop nose to nose. ${fix}`,
         toast: tooMany ? "A line has more trains than passing places" : "Trains are stuck nose to nose",
         more: "loops",
         fixed: "✓ They pass now",

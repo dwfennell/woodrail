@@ -60,6 +60,7 @@ describe("situation tips: trains can't pass", { timeout: 120_000 }, () => {
     const sit = JAM_LOOP.look(world(), { learned: new Set(["switches", "routes"]), nameOf: () => "" });
     expect(sit?.title).toBe("Trains can't pass");
     expect(sit?.text).toMatch(/nose to nose\. A passing loop in the middle lets them pass/);
+    expect(sit?.text).toMatch(/^The (Red and Blue|Blue and Red) lines' trains meet/);
     expect(sit?.more).toBe("loops");
     expect(sit?.pieces?.length).toBeGreaterThan(1);
     // Before Switches: learning them first.
