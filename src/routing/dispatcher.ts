@@ -181,7 +181,10 @@ export class Dispatcher {
         if (moved) {
           h.t = moved;
           const k = h.path.indexOf(moved.at);
-          if (k > 0) h.path = h.path.slice(k);
+          if (k > 0) {
+            h.path = h.path.slice(k);
+            this.holdVer++;
+          }
           else if (k < 0 && moved.at !== h.end) {
             // (Off its granted way: hold it where it is.)
             this.setHold(h, moved.at, []);
@@ -232,6 +235,7 @@ export class Dispatcher {
 
   /** Set a hold to end at node `end` along `path` (from where the train stands): the run left beyond each front piece. */
   private setHold(h: Hold, end: number, path: number[]): void {
+    this.holdVer++;
     const t = h.t;
     // (Never past a turn: the run to the line end before it; the sim turns it there.)
     let stop = end;
@@ -448,6 +452,40 @@ export class Dispatcher {
   waitingOn(engine: number): { engine: number } | null {
     const h = this.holdsBy.get(engine);
     return h && h.waitsOn >= 0 && h.stood >= 0 ? { engine: h.waitsOn } : null;
+  }
+
+  /**
+   * The signals, owned (routing redesign §3.6, `Sim.signalOwner`): green for a train it holds iff its hold runs on past
+   * that joint; null for a train it doesn't hold (the block decides, as before).
+   */
+  clearFor(ref: number, trainId: number): boolean | null {
+    const h = this.byTrainId(trainId);
+    if (!h) return null;
+    const t = h.t;
+    for (let k = 0; k < h.path.length - 1; k++) if (t.frontRef[h.path[k]] === ref) return true;
+    return false;
+  }
+
+  /** What a signal shows: green with a hold running past it, red with one ending at it; null: no hold there (as before). */
+  aspect(ref: number): boolean | null {
+    let red = false;
+    for (const h of this.holdsBy.values()) {
+      const t = h.t;
+      for (let k = 0; k < h.path.length - 1; k++) if (t.frontRef[h.path[k]] === ref) return true;
+      if (t.frontRef[h.end] === ref) red = true;
+    }
+    return red ? false : null;
+  }
+
+  /** Goes up whenever a hold changes (the sim works its signals out again then). */
+  ownerVersion(): number {
+    return this.holdVer;
+  }
+  private holdVer = 0;
+
+  private byTrainId(trainId: number): Hold | undefined {
+    for (const h of this.holdsBy.values()) if (h.trainId === trainId) return h;
+    return undefined;
   }
 
   /** The train held at the signal at this joint (its hold ends there), or −1: signals read the holds (§R 3.6). */

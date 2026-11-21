@@ -360,6 +360,14 @@ export class Sim {
    */
   signalGate: { at(ref: number): number; version(): number; callOn?(ref: number, trainId: number): boolean } | null = null;
   /**
+   * The reservations own the signals (routing redesign §3.6; the dispatcher, with it on): `clearFor` a train it holds
+   * (green iff its hold runs on past that joint; null: a train it doesn't hold, which reads the block as before), and
+   * `aspect` what a signal shows (null: as before). Null: as before.
+   */
+  signalOwner: { clearFor(ref: number, trainId: number): boolean | null; aspect(ref: number): boolean | null; version(): number } | null = null;
+  /** Each plain signal's aspect by its block alone (what trains the owner doesn't hold read). */
+  private readonly blockClear = new Map<number, boolean>();
+  /**
    * Call-ons (the user's yes, 2026-11-14): a signal passed at red by a line-mate let into the line end behind the train
    * standing there, to turn behind it (`signalGate.callOn`): by `${signal key}:${train id}`, the tick. For the invariants
    * (`calledOn`).
@@ -1982,6 +1990,9 @@ export class Sim {
     // (A waiting point's gate holds the train it was set for, as `redFor` reads it: a path signal's, only that train (one
     // further back in the slot gates it for itself, not the one at the front with its move granted); a plain signal
     // shows red to all while gated.)
+    // (The owner's say for a train it holds: free iff its hold runs on past.)
+    const owns = this.signalOwner && g.exit >= 0 ? this.signalOwner.clearFor(ref, train.id) : null;
+    if (owns !== null) return { free: owns && !this.isHeld(g) };
     const gated = this.gatedFor(g);
     if (gated === train.id || (!g.junction && gated !== -1)) return { free: false };
     if (!g.junction) return { free: !this.isHeld(g) && (this.blockBy.get(g.key) ?? -1) === -1 };
@@ -2105,6 +2116,7 @@ export class Sim {
     }
     stamp = (Math.imul(stamp, 0x01000193) ^ (this.pathLocks ? this.pathLocks.version() : 0)) | 0;
     stamp = (Math.imul(stamp, 0x01000193) ^ (this.signalGate ? this.signalGate.version() : 0)) | 0;
+    stamp = (Math.imul(stamp, 0x01000193) ^ (this.signalOwner ? this.signalOwner.version() : 0)) | 0;
     // (Signals placed, moved or turned, and track laid or taken up, change blocks: worked out again then too, though no
     // train moved. Before, a signal put down beside a standing train showed clear, the default, till a train moved.)
     stamp = (Math.imul(stamp, 0x01000193) ^ this.layout.signalsVersion) | 0;
@@ -2132,6 +2144,9 @@ export class Sim {
         const by = this.isHeld(g) ? -1 : this.blockOccupant(g, -1);
         this.blockBy.set(g.key, by);
         this.pathRest.set(g.key, !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1);
+        // (The owner's say, where it has one: green with a hold running past, red with one ending at it.)
+        const owned = this.signalOwner && g.exit >= 0 && !this.isHeld(g) ? this.signalOwner.aspect(connectorRef(g.pieceId, g.exit)) : null;
+        if (owned !== null) this.pathRest.set(g.key, owned);
         if (!this.junctionSeen.has(g.key) && this.aspects.get(g.key) !== this.pathRest.get(g.key)) {
           this.aspects.set(g.key, this.pathRest.get(g.key)!);
           this.signalsVersion++;
@@ -2140,7 +2155,10 @@ export class Sim {
       }
       const by = this.isHeld(g) || this.isForced(g) ? -1 : this.blockOccupant(g, -1);
       this.blockBy.set(g.key, by);
-      const clear = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;
+      const byBlock = !this.isHeld(g) && by === -1 && this.gatedFor(g) === -1;
+      this.blockClear.set(g.key, byBlock);
+      const owned = this.signalOwner && g.exit >= 0 && !this.isHeld(g) ? this.signalOwner.aspect(connectorRef(g.pieceId, g.exit)) : null;
+      const clear = owned ?? byBlock;
       if (this.aspects.get(g.key) !== clear) {
         this.aspects.set(g.key, clear);
         this.signalsVersion++;
@@ -2314,12 +2332,20 @@ export class Sim {
       this.callOns.set(`${g.key}:${train.id}`, this.ticks);
       return null;
     }
+    // (The owner's: a train it holds goes on past iff its hold runs past (held by hand: red all the same).)
+    const owns = this.signalOwner && g.exit >= 0 ? this.signalOwner.clearFor(connectorRef(g.pieceId, g.exit), train.id) : null;
+    if (owns !== null) {
+      const go = owns && !this.isHeld(g);
+      if (g.junction) this.comingTo(g.key, go, dist);
+      // (Red for want of a hold, not for whoever is in the block: the owner says who it waits for.)
+      return go ? null : { by: -1 };
+    }
     // (A waiting point's train with no move past it granted: red for it, whatever the block (sections' wait names who).)
     if (g.junction && this.gatedFor(g) === train.id) {
       this.comingTo(g.key, false, dist);
       return { by: -1 };
     }
-    if (!g.junction) return this.aspects.get(g.key) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
+    if (!g.junction) return (this.blockClear.get(g.key) ?? this.aspects.get(g.key)) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
     const r = this.pathFor(train, g, true, Math.max(0, dist));
     this.comingTo(g.key, r.clear, dist);
     return r.clear ? null : { by: r.by };

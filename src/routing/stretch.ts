@@ -221,6 +221,12 @@ function swOf(layout: Layout, p: number): boolean {
   return v;
 }
 
+/**
+ * The block rule (a move past a plain signal needs its whole block free): on where the sim's blocks decide the signals
+ * (today's), off where the dispatcher owns them (`Sim.signalOwner`: a signal is its hold).
+ */
+export const BLOCK_RULE = { on: false };
+
 /** A plain block's pieces beyond the signal at `ref` (cached per layout and its signals' version); null: a path signal's. */
 const blockCache = new WeakMap<Layout, { ver: string; m: Map<number, Int32Array | null> }>();
 function plainBlock(layout: Layout, ref: number): Int32Array | null {
@@ -583,7 +589,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     frontEn: Int32Array.from(frontEn),
     frontLen: Float64Array.from(frontLen),
     frontRef: Int32Array.from(frontRef),
-    blockAfter: frontRef.map((ref) => (ref >= 0 && layout.signalAt(ref) ? plainBlock(layout, ref) : null)),
+    blockAfter: frontRef.map((ref) => (BLOCK_RULE.on && ref >= 0 && layout.signalAt(ref) ? plainBlock(layout, ref) : null)),
     turned: Uint8Array.from(turned, (b) => (b ? 1 : 0)),
     maxPiece: pos.reduce((m, ps) => ps.reduce((a, p) => (p > a ? p : a), m), 0),
     detour: Uint8Array.from({ length: n }, (_, i) => (i >= detourFrom && extra.length > 0 ? 1 : 0)),
