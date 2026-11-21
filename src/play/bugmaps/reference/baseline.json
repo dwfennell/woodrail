@@ -54,5 +54,12 @@
     "longestStand": 155,
     "firstBreak": null,
     "seconds": 1800
+  },
+  "user-2026-11-21.txt": {
+    "jams": 19,
+    "arrivals": 272,
+    "longestStand": 155,
+    "firstBreak": null,
+    "seconds": 1800
   }
 }

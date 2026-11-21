@@ -2,7 +2,7 @@
 /**
  * The dispatcher in shadow (dispatcher spec §8 step 1, docs/superpowers/specs/2026-11-18-dispatcher.md): where its
  * grant/hold model (src/routing/dispatch-stretch-shadow.ts, the per-stretch search in src/routing/stretch.ts) would
- * decide differently from today's rules, by kind, over the eight reference maps (bench/dispatch.bench.ts, plain Node,
+ * decide differently from today's rules, by kind, over the reference maps (bench/dispatch.bench.ts, plain Node,
  * each jam also judged by the per-stretch judge) and the fuzz's seeds (src/routing/dispatch-report.test.ts), sharded
  * over the cores. Also each decision's cost (p50, p98, max ms). Test and script only: nothing in the game runs it.
  *
@@ -104,7 +104,7 @@ for (const kind of ["map", "fuzz"]) {
     agreeHold += r.agreeHold;
   }
   totals[kind] = { runs: rs.length, counts, heldBy, verdicts, decisions, events, capped, agreeGo, agreeHold, ms: { p50: pct(ms, 0.5), p98: pct(ms, 0.98), max: pct(ms, 1) } };
-  console.log(`\n${kind === "map" ? "the eight reference maps" : `the fuzz (${fuzzParts})`}: ${rs.length} runs, ${events} events, ${decisions} decisions (${capped} capped)`);
+  console.log(`\n${kind === "map" ? "the reference maps" : `the fuzz (${fuzzParts})`}: ${rs.length} runs, ${events} events, ${decisions} decisions (${capped} capped)`);
   for (const [k, v] of Object.entries(counts)) console.log(`  ${pad(k, 24)}${v}`);
   console.log(`  agreed: went when granted ${agreeGo}, held where it stood ${agreeHold}`);
   if (Object.keys(heldBy).length) console.log(`  grant-held by what held it today: ${Object.entries(heldBy).map(([k, v]) => `${k} ${v}`).join(", ")}`);
