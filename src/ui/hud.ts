@@ -1840,6 +1840,16 @@ export class Hud {
     this.pauseBtn.classList.toggle("active", paused);
   }
 
+  /** The paused tip's Show where: the ▶ on the bar pulsed a few times (CSS only, no frames drawn). */
+  pulsePause(): void {
+    const b = this.pauseBtn;
+    b.classList.remove("tip-pulse");
+    // (Read back so the class put on again restarts the pulse.)
+    void b.offsetWidth;
+    b.classList.add("tip-pulse");
+    b.addEventListener("animationend", () => b.classList.remove("tip-pulse"), { once: true });
+  }
+
   /** The fullscreen button's icon and words follow the page (the button, Esc, the browser's own controls). */
   private setFullscreen(on: boolean): void {
     this.fullBtn.innerHTML = uiIcon(on ? "exit-fullscreen" : "fullscreen");

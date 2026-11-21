@@ -142,6 +142,7 @@ import { planUpgrade, STATION_UPGRADES, UPGRADE_NAMES, UPGRADE_UNDO_REFUSED, upg
 import { propsInRect } from "./props/placement";
 import { hintSeen, loadChainHints, loadMuted, loadTipsOn, markHintSeen, saveChainHints, saveMuted, saveTipsOn } from "./ui/prefs";
 import { SituationTracker, type Situation } from "./game/situation-tips";
+import { PAUSED, PausedTip } from "./game/paused-tip";
 import { postAt } from "./game/signal-place";
 import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game/chains";
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
@@ -2060,6 +2061,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let tipsOn = loadTipsOn();
   /** Till when (performance.now) the chip says the situation tip, its toast up. */
   let situationLoudUntil = 0;
+  /** "The game is paused" (on the wall clock: the tracker's stands still while paused), once a session. */
+  const pausedTip = new PausedTip();
   // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
   // Refusals aren't logged: they stay plain `hud.toast`s.
   // On game time: "2 min ago" means two minutes of play (it stands still while paused).
@@ -2082,7 +2085,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showGrand: (id) => showGrandSite(id),
       showGrandIn: (id, townId) => showGrandIn(id, townId),
       tipDone: (id) => {
-        if (situations.current()?.id === id) {
+        if (pausedTip.current()?.id === id) pausedTip.dismiss();
+        else if (situations.current()?.id === id) {
           // (Kept with the game's session, saved with the next save or on leaving.)
           situations.dismiss(id, game.simSeconds);
         } else {
@@ -2355,8 +2359,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       situationLoudUntil = performance.now() + 8000;
       hud.toast(`💡 ${sit.first.toast} · Show where ›`, false, 8000, () => showSituation());
     }
+    // Paused and wondering why nothing moves: on the wall clock (paused, the game's stands still), before the rest.
+    const paused =
+      mode === "game"
+        ? pausedTip.update({ now: performance.now() / 1000, paused: game.paused, card: interaction.openEngineCarId, track: game.layout.piecesVersion, quiet: !tipsOn || goals.inTutorial() })
+        : null;
+    if (paused?.first) {
+      situationLoudUntil = performance.now() + 8000;
+      hud.toast(`💡 ${PAUSED.toast} · Show where ›`, false, 8000, () => showSituation());
+    }
     if (first && announce && tipsOn) hud.toast(`💡 ${first.text}`, false, 6000, () => showTip());
-    const s = situations.current();
+    const s = pausedTip.current() ?? situations.current();
     const t = tips.current();
     if (!tipsOn) goalsPanel.setTip(null);
     else if (s) goalsPanel.setTip({ id: s.id, title: s.title, text: s.text, situation: { short: s.short, more: s.more } }, performance.now() < situationLoudUntil);
@@ -2378,6 +2391,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * the ghost signal and its block's tint there, "Put a signal here" over it, and the Signal ringed on its shelf.
    */
   function showSituation(): void {
+    // Paused: the ▶ on the bar pulsed (the camera stays where it is).
+    if (pausedTip.current()) {
+      situationLoudUntil = 0;
+      hud.pulsePause();
+      return;
+    }
     const s: Situation | null = situations.current();
     if (!s) return;
     situations.looked(game.simSeconds);
@@ -7098,7 +7117,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** The tip's Show me: where to use it (an industry's card, a hill by the line, the tray's shelf, the research board). */
   function showTip(): void {
-    if (situations.current()) {
+    if (pausedTip.current() || situations.current()) {
       showSituation();
       return;
     }
