@@ -246,6 +246,8 @@ describe("signals: sections' waiting points (step 3)", { timeout: 120_000 }, () 
     expect(found!.lead).not.toBe(found!.engine);
     // The detector on that wait (an economy's view of it, stubbed: one line, the waiting train bound for B).
     const w = {
+      sim: run.sim,
+      layout: run.layout,
       economy: {
         sections: run.sections,
         stalls: { stuckOf: () => null },

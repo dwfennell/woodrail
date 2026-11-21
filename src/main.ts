@@ -2340,7 +2340,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (changed) saveTips(tips.toJSON());
     // Situation tips (a jam on the map now): never in the tutorial, nor with ☰ Tips off; one at a time, before a
     // feature tip. Looked for on the game's clock (nothing while paused), from the goals' check, never per frame.
-    const sit = mode === "game" ? situations.update(game.world, { learned: progress.learned, nameOf: (id) => routeStops(game.world).find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id) }, { now: game.simSeconds, quiet: !tipsOn || goals.inTutorial() }) : null;
+    const sit = mode === "game" ? situations.update(game.world, { learned: progress.learned, nameOf: (id) => routeStops(game.world).find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id), now: game.simSeconds }, { now: game.simSeconds, quiet: !tipsOn || goals.inTutorial() }) : null;
     if (sit?.fixed && announce) hud.toast(sit.fixed.fixed, true, 3200);
     if (sit?.first && announce) {
       situationLoudUntil = performance.now() + 8000;
@@ -2373,6 +2373,28 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!s) return;
     situations.looked(game.simSeconds);
     situationLoudUntil = 0;
+    const trainAt = () => {
+      const b = s.engine === undefined ? undefined : game.sim.findCar(s.engine)?.train.bogies[0];
+      return b ? game.layout.getPiece(b.pieceId)?.pose : undefined;
+    };
+    // A block or loop too short for the line's trains: framed with the train waiting, and the signal's card open (its
+    // block tinted, "Too short for a train to wait here").
+    if (s.pieces && s.pieces.length > 0) {
+      const pts: Vector3[] = [];
+      for (const id of s.pieces) {
+        const q = game.layout.getPiece(id)?.pose;
+        if (q) pts.push(new Vector3(q.x, 0, q.z));
+      }
+      const t = trainAt();
+      if (t) pts.push(new Vector3(t.x, 0, t.z));
+      if (pts.length > 0) {
+        const f = frameAlong(pts.map((p) => ({ x: p.x, z: p.z })), game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+        frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length, f.theta ?? undefined);
+      }
+      if (s.markId !== undefined) interaction.selectMark(s.markId);
+      game.invalidate();
+      return;
+    }
     if (s.signalAt === undefined) return;
     const post = postAt(game.layout, s.signalAt);
     if (!post) return;
