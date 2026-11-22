@@ -99,6 +99,10 @@ export class Dispatcher {
   detours = 0;
   /** Back-ups started. */
   backUps = 0;
+  /** Times a held train's body was found off its booked way, its route unchanged (a road its way didn't have, or a
+   * turn), and where (its front piece then). */
+  leftWay = 0;
+  readonly leftAt = new Map<number, number>();
   /** Holds by why: its move's way taken ("blocked"), or another goes first ("order"). */
   heldBlocked = 0;
   heldOrder = 0;
@@ -242,6 +246,12 @@ export class Dispatcher {
         const moved = onPath !== undefined ? (onPath === h.t.at ? h.t : { ...h.t, at: onPath }) : relocate(h.t, body);
         // (Moved along to the end of its way as last built, with nowhere on (it ran its way out, its route the same): its
         // way built afresh. Kept, it was never granted anything again: rowan-1's Pepper, "held up" by nobody, 60 s.)
+        // (Off its booked way, its route the same: it ran a road its way didn't have (`leftWay`), or turned.)
+        if (!moved) {
+          this.leftWay++;
+          const fp = body[body.length - 1];
+          this.leftAt.set(fp, (this.leftAt.get(fp) ?? 0) + 1);
+        }
         if (moved && moved.succ[moved.at].length > 0) {
           h.t = moved;
           const k = h.path.indexOf(moved.at);
