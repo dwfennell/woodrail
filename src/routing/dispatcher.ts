@@ -62,6 +62,8 @@ export interface DispatcherHost {
    * the count of grants overruled (`overruled`: dispatcher spec §13.5 step 1).
    */
   overruled?(train: Train): string | null;
+  /** The train (its engine) the router's points wait for this one names, or −1 (none). */
+  pointsWaitBy?(engine: number): number;
 }
 
 interface Hold {
@@ -162,6 +164,19 @@ export class Dispatcher {
           // the layout's.)
           if (why === "signal") for (const id of this.gate.values()) if (id === t.id) why = "own-gate";
           this.overruled.set(why, (this.overruled.get(why) ?? 0) + LOOK_TICKS / 120);
+        }
+        // (Held short by the router at points it couldn't have (another train took them first): the grant back at once,
+        // waiting on that one. Its signal then shows red for it, as for any hold (user-2026-11-21: held at a green one).)
+        if (OWNER.on && this.host.pointsWaitBy) {
+          const by = this.host.pointsWaitBy(engine.id);
+          if (by >= 0 && by !== engine.id) {
+            this.setHold(h, h.t.at, []);
+            h.waitsOn = by;
+            this.givenBack++;
+            h.short = -1;
+            changed = true;
+            continue;
+          }
         }
         if (h.short < 0) h.short = sim.ticks;
         else if (sim.ticks - h.short >= GIVE_BACK_S * 120) {
