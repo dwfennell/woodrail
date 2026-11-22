@@ -15,7 +15,7 @@ import { Stalls } from "./stalls";
 import { Breakdown } from "./breakdown";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
-import { Dispatcher } from "../routing/dispatcher";
+import { Dispatcher, OWNER } from "../routing/dispatcher";
 import { BLOCK_RULE } from "../routing/stretch";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone } from "../routing/via";
 import { RoadVehicles } from "../roads/vehicles";
@@ -740,6 +740,7 @@ export class Economy {
       drive: (train) => this.drive(train),
       granted: (engine) => (this.dispatcher ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine)),
       awaitingGrant: (engine) => (this.dispatcher ? this.dispatcher.awaiting(engine) : this.sections.awaitingGrant(engine)),
+      grantedWay: (engine) => (this.dispatcher && OWNER.on ? this.dispatcher.grantedWay(engine) : null),
       soon: this.sections.steerSoon,
       fullAt: (engine) => this.fullAt(engine),
     });
@@ -2818,7 +2819,8 @@ export class Economy {
       // (The signals are its holds (routing redesign §3.6).)
       // (What its signals show (routing redesign §3.6). Who goes on past them is still the gate's and the blocks': the
       // owner deciding that too (`clearFor`) ran trains deep into single track, 22-30 jams against 0-3 on three maps.)
-      sim.signalOwner = { clearFor: () => null, aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() };
+      // (§13.5 step 2: the path signals too, for the trains it holds: green iff its hold runs past.)
+      sim.signalOwner = { clearFor: (ref, id) => (OWNER.on ? d.clearFor(ref, id) : null), aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() };
     } else {
       this.dispatcher = null;
       BLOCK_RULE.on = false;

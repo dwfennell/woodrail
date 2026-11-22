@@ -113,6 +113,12 @@ export interface RouterHost {
    * train sets points on its line, so trains of one line never contend for them.
    */
   awaitingGrant(engine: number): boolean;
+  /**
+   * The pieces of the way the dispatcher has granted a train it holds (dispatcher spec §13.5 step 2: one owner of the
+   * track); null: it doesn't hold it (dispatcher off, hand-run, parked). Its walk asks for no points beyond them, and
+   * the "a train is coming" rule stands down there (the dispatcher has judged that).
+   */
+  grantedWay?(engine: number): { pieces: ReadonlySet<number>; exits: ReadonlyMap<number, number> } | null;
   /** Engines sections just granted a move (asked for at once, and cleared here). */
   readonly soon: Set<number>;
   /**
@@ -551,6 +557,20 @@ export class Router {
       const target = grant?.aim ?? goal;
       this.engineOfWalk = engine;
       const want = this.walk(layout, train, net > 0, target, grant?.follow, h, this.host.owner?.(engine) ?? engine, grant ? -1 : (this.host.then?.(engine) ?? -1));
+      // (Held by the dispatcher: points on its granted way only. Beyond, they're the next grant's, not locked now against
+      // trains the dispatcher may send over them first.)
+      const way = this.host.grantedWay?.(engine) ?? null;
+      if (way) {
+        const k = want.findIndex((w) => !way.pieces.has(w.pieceId));
+        if (k >= 0) want.length = k;
+        // (Each set as the grant has it: the dispatcher's road (a loop's other road, a detour), not the plan's own.)
+        for (const w of want) {
+          const ex = way.exits.get(w.pieceId);
+          if (ex === undefined) continue;
+          const o = waysFrom(layout, w.pieceId, w.entry).find((x) => x.exit === ex);
+          if (o) w.state = o.option;
+        }
+      }
       // (Pinned points against its way end the walk: it asks for those before them, and waits at them.)
       const pin = want.length > 0 && want[want.length - 1].pinned ? want.pop()! : null;
       // (Every track of its next stop taken: it asks for the points before the stop's ladder, and waits short of it.)
@@ -666,7 +686,7 @@ export class Router {
       // (Points are never a place to wait (the user's rule): a routed train sections don't hold (on track they don't
       // manage: no slot on it, ring1 with loops too short for its trains) isn't sent onto points with a train coming at
       // them on the single track beyond, the way it would take. It waits short of them, as a hand-run one does (`askHand`).)
-      if (!mine && !this.host.granted(engine) && isPoints(layout, w.pieceId)) {
+      if (!mine && !this.host.granted(engine) && !this.host.grantedWay?.(engine) && isPoints(layout, w.pieceId)) {
         const out = waysFrom(layout, w.pieceId, w.entry).find((x) => x.option === w.state);
         const coming = out ? this.comingAt(w, trainId, out.exit) : -1;
         if (coming !== -1) {

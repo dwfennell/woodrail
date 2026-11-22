@@ -27,6 +27,9 @@ import { next, waysFrom } from "./graph";
 import { STAND_SHORT } from "../economy/sections";
 import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
+/** §13.5 step 2, the dispatcher owning the points on its grants: on, unless OWNER=0 (for comparing runs). */
+export const OWNER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).OWNER !== "0" };
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -151,7 +154,10 @@ export class Dispatcher {
       if (h && t.speed === 0 && h.end !== h.t.at) {
         // (Overruled, counted: once a look, its share of the time.)
         if (this.host.overruled) {
-          const why = this.host.overruled(t) ?? "other";
+          let why = this.host.overruled(t) ?? "other";
+          // (At a signal the dispatcher itself shows red for it (standing short, `GATE_SHORT_S`): its own gate, not
+          // the layout's.)
+          if (why === "signal") for (const id of this.gate.values()) if (id === t.id) why = "own-gate";
           this.overruled.set(why, (this.overruled.get(why) ?? 0) + LOOK_TICKS / 120);
         }
         if (h.short < 0) h.short = sim.ticks;
@@ -493,6 +499,23 @@ export class Dispatcher {
   /** The router's steer for a train granted a loop road or detour: aim at a piece on it till it's passed. */
   steerHint(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined {
     const h = this.holdsBy.get(engine);
+    // (Owning the points (§13.5 step 2): every grant over points steers, by the exits it grants, aimed at its end.)
+    if (OWNER.on && h && h.points.length > 0 && h.end !== h.t.at) {
+      const end = h.t.pos[h.end];
+      const layout = this.host.layout;
+      const byPiece = new Map(h.points.map((q) => [q.p, q]));
+      // (Its aim on a loop's other road or a detour till it's on it, as below; else its hold's end.)
+      const train = h.aim >= 0 ? this.host.sim.getTrain(h.trainId) : undefined;
+      if (train && train.bogies.some((b) => b.pieceId === h.aim)) h.aim = -1;
+      return {
+        aim: h.aim >= 0 ? h.aim : end[end.length - 1],
+        follow: (pieceId, path) => {
+          const q = byPiece.get(pieceId);
+          if (!q) return true;
+          return waysFrom(layout, pieceId, q.en).find((w) => w.path === path)?.exit === q.ex;
+        },
+      };
+    }
     if (!h || h.aim < 0) return undefined;
     // (On it: from there it's steered as booked again.)
     const train = this.host.sim.getTrain(h.trainId);
@@ -502,6 +525,27 @@ export class Dispatcher {
     }
     return { follow: () => true, aim: h.aim };
   }
+
+  /**
+   * The pieces of the way granted to a train it holds (from where it stands to its hold's end), for the router: it
+   * asks for no points beyond them (§13.5 step 2). Null: not held. Cached by the holds' version.
+   */
+  grantedWay(engine: number): { pieces: ReadonlySet<number>; exits: ReadonlyMap<number, number> } | null {
+    const h = this.holdsBy.get(engine);
+    if (!h) return null;
+    const c = this.wayCache.get(engine);
+    if (c && c.ver === this.holdVer) return c.way;
+    const pieces = new Set<number>();
+    for (const i of h.path) for (const p of h.t.pos[i]) pieces.add(p);
+    for (const p of h.t.pos[h.t.at]) pieces.add(p);
+    // (How each points on it must lie: out by the exit its way takes.)
+    const exits = new Map<number, number>();
+    for (const q of h.points) exits.set(q.p, q.ex);
+    const way = { pieces, exits };
+    this.wayCache.set(engine, { ver: this.holdVer, way });
+    return way;
+  }
+  private readonly wayCache = new Map<number, { ver: number; way: { pieces: Set<number>; exits: Map<number, number> } }>();
 
   /** Held where it stands (no move granted on): the router steers it nothing yet (its `awaitingGrant`). */
   awaiting(engine: number): boolean {
