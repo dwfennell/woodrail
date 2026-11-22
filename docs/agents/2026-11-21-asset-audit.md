@@ -12,7 +12,7 @@ The broader finish pass maps bare beech and routed wood on Kit parts in millimet
 
 All 479 catalogue models and the 221 models in the seven source libraries were rebuilt in the renderer. Painted parts use the same satin finish on individual models and in the batches used on the board. Substantial wooden cylinders have eased rims. Registered track connector portraits and all 65 published game pictures were refreshed as well.
 
-The catalogue's **Changed only** filter now contains 222 entries with specific shape or construction revisions. This includes the eleven remaining concept wagons, concept track boards, station slabs and mechanism decks with recessed running channels, shoulder-profile road tyres, turned scenery stands, building windows and doors, and the people and animals that use the revised collar or hoof profiles. Source-library and registered-kit entries can refer to the same models. Entries with a shared finish update alone keep a single Current portrait.
+The catalogue's **Changed only** filter now contains 223 entries with specific shape or construction revisions. This includes the eleven remaining concept wagons, concept track boards, station slabs and mechanism decks with recessed running channels, shoulder-profile road tyres, turned scenery stands, building windows and doors, and the people and animals that use the revised collar or hoof profiles. Source-library and registered-kit entries can refer to the same models. Entries with a shared finish update alone keep a single Current portrait.
 
 The dairy, bakery and juicer also have new yard equipment. Select their entries under **Published pictures** to compare the actual yard views. The standalone catalogue buildings and their full industry yards are separate subjects.
 
