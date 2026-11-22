@@ -57,7 +57,7 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
-import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, legStop, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
 import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui/line-sheet";
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
@@ -5113,7 +5113,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function freeFor(id: number, most = 3): number[] {
     const line = game.economy.lines.get(id);
     if (!line) return [];
-    const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1).filter((p) => p !== -1);
+    // (Any track of a depot of several: a second track on another line is reached from that line.)
+    const pieces = line.stops.flatMap((st) => {
+      const d = game.economy.liveDepot(st.depotId);
+      return d ? game.economy.reachableTracks(d) : [];
+    });
     return freeTrains((e) => {
       const front = trainFront(e);
       return !!front && pieces.some((p) => legFromCursor(game.layout, front, p) !== null);
@@ -5349,7 +5353,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return true;
     }
     const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1);
-    const legs = viaLegs(game.layout, line.stops.flatMap((st, k) => (pieces[k] === -1 ? [] : [{ piece: pieces[k], via: st.via }])), undefined, game.economy.router.ways.of(line.id));
+    const legs = viaLegs(game.layout, line.stops.flatMap((st, k) => (pieces[k] === -1 ? [] : [legStop(game.economy, game.economy.depot(st.depotId)!, st.via)])), undefined, game.economy.router.ways.of(line.id));
     const ribbons: RibbonSpec[] = legs.flatMap((leg) => (leg ? [{ runs: leg, colour: line.colour }] : []));
     const discs = new Map<number, DiscSpec>();
     line.stops.forEach((st, k) => {
@@ -6607,7 +6611,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const aim = game.economy.aimOf(carId);
       const toNext = aim === -1 ? null : legFromCursor(game.layout, front, aim, undefined, keep);
       // (The legs on from the next stop follow the way the train comes into it: it runs on round a loop past it.)
-      const legs = viaLegs(game.layout, line.stops.map((st, k) => ({ piece: pieces[k], via: st.via })), { k: next, done: r.at ? Infinity : viaDone(r, next), leg: toNext }, keep);
+      // (A depot of several tracks: the way into it to whichever of them it reaches, on from the one it came to.)
+      const legStops = line.stops.map((st, k) => {
+        const d = game.economy.depot(st.depotId);
+        return d && pieces[k] !== -1 ? legStop(game.economy, d, st.via) : { piece: pieces[k], via: st.via };
+      });
+      const legs = viaLegs(game.layout, legStops, { k: next, done: r.at ? Infinity : viaDone(r, next), leg: toNext }, keep);
       // The way changed under a track edit (the stops and the stop it's heading for as they were, the legs not, and
       // every leg still has a way: one with none says "Can't reach" instead): the ribbon flashes once and the card says
       // so a few seconds (audit F14: a train went somewhere new, no one said why).
@@ -6869,9 +6878,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!d) return;
     const piece = d.pieceId;
     const spot = pieceSpot(piece);
+    const tracks = game.economy.reachableTracks(d);
     const engine = freeTrains((e) => {
       const front = trainFront(e);
-      return !!front && legFromCursor(game.layout, front, piece) !== null;
+      return !!front && tracks.some((p) => legFromCursor(game.layout, front, p) !== null);
     }, spot ? [spot] : [])[0];
     // (No free train can reach it: a line of its own, starting here, to put a train on later.)
     if (engine === undefined) {
@@ -7000,8 +7010,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     for (const l of lines) {
       // (By its via points, and the ways its trains keep.)
       const stops = l.stops.flatMap((st) => {
-        const piece = game.economy.depot(st.depotId)?.pieceId ?? -1;
-        return piece === -1 ? [] : [{ piece, via: st.via }];
+        const d = game.economy.depot(st.depotId);
+        return d ? [legStop(game.economy, d, st.via)] : [];
       });
       for (const leg of viaLegs(game.layout, stops, undefined, game.economy.router.ways.of(l.id))) if (leg) ribbons.push({ runs: leg, colour: l.colour });
     }
