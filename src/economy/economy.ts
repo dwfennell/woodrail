@@ -740,6 +740,7 @@ export class Economy {
       drive: (train) => this.drive(train),
       granted: (engine) => (this.dispatcher ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine)),
       awaitingGrant: (engine) => (this.dispatcher ? this.dispatcher.awaiting(engine) : this.sections.awaitingGrant(engine)),
+      standsHeld: (engine, by) => !!this.dispatcher && this.dispatcher.awaiting(engine) && this.dispatcher.waitingOn(engine)?.engine === by,
       soon: this.sections.steerSoon,
       fullAt: (engine) => this.fullAt(engine),
     });

@@ -345,6 +345,7 @@ export class HarnessRun implements InvariantWorld {
       drive,
       granted: (engine) => (d ? d.steerHint(engine) : this.sections.steerHint(engine)),
       awaitingGrant: (engine) => (d ? d.awaiting(engine) : this.sections.awaitingGrant(engine)),
+      standsHeld: (engine, by) => !!d && d.awaiting(engine) && d.waitingOn(engine)?.engine === by,
       soon: this.sections.steerSoon,
     });
     this.router.timing = true;

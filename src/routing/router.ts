@@ -113,6 +113,8 @@ export interface RouterHost {
    * train sets points on its line, so trains of one line never contend for them.
    */
   awaitingGrant(engine: number): boolean;
+  /** Held where it stands by the dispatcher, waiting on `by`: not coming at the points `by` would go onto. */
+  standsHeld?(engine: number, by: number): boolean;
   /** Engines sections just granted a move (asked for at once, and cleared here). */
   readonly soon: Set<number>;
   /**
@@ -637,8 +639,12 @@ export class Router {
    * it holds nothing new, and lets go any it held beyond where it now stops: the points it must wait short of (the first
    * it doesn't hold), and who it waits for (an engine: a holder, or the train on the points), are returned.
    */
+  /** The routed engine whose ask is being worked out (`comingAt`'s `standsHeld`); −1 for a hand-run one. */
+  private askingEngine = -1;
+
   private ask(engine: number, h: Holding, want: readonly Want[]): { stop: Want; by: number } | null {
     const { layout, sim } = this.host;
+    this.askingEngine = engine;
     let stop: Want | null = null;
     let by = -2;
     const trainId = sim.findCar(engine)?.train.id ?? -1;
@@ -958,6 +964,7 @@ export class Router {
    * held beyond, and the points and who holds them are returned (it waits short of them).
    */
   private askHand(engine: number, h: Holding, want: readonly Want[], moving: boolean): { stop: Want; by: number } | null {
+    this.askingEngine = -1;
     const trainId = this.host.sim.findCar(engine)?.train.id ?? -1;
     for (let i = 0; i < want.length; i++) {
       const w = want[i];
@@ -1033,6 +1040,9 @@ export class Router {
       const t = trainOn(sim, (p) => p === n.pieceId, { except: trainId, onRails: true });
       // (Only another hand-run train: a routed one's moves are sections' to grant, and they keep a hand-run train coming
       // onto its line short of the points (`Sections.comesInto`); this one gives way to it as before.)
+      // (Held where it stands by the dispatcher, waiting on the train asking: not coming. Counted as coming, the two
+      // waited on each other for good: own-05's Up one and Up two at points 15, dandelion's Conker and Robin at 426.)
+      if (t && this.host.standsHeld?.(engineOf(t), this.askingEngine)) return -1;
       if (t) return this.headsAt(t, w.pieceId, ways[0]?.exit ?? -1, !any) && (any || !t.cars.some((c) => this.host.routed.has(c.id))) ? engineOf(t) : -1;
       const on = waysFrom(layout, n.pieceId, n.entry, () => true);
       if (on.length !== 1 || isPoints(layout, n.pieceId) || on[0].exit < 0) return -1;
