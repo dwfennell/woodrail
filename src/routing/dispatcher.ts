@@ -414,6 +414,29 @@ export class Dispatcher {
       h.passed++;
       if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - Math.min(...weights) && r.first[0] > 0) to = r.firstTo[0];
     }
+    // (Points on the move the router has locked for another train, or another train is on: not granted; it waits on that
+    // one (dandelion: granted over points 301 held by Rowan, held short by the router at a green signal).)
+    let lockedBy = -1;
+    if (to >= 0 && OWNER.on && this.host.sim.pathLocks) {
+      const w = ways[k];
+      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const path = this.pathTo(tt, to);
+      const pts: number[] = [];
+      for (let q = 1; q < path.length; q++) {
+        const i = path[q];
+        const fp = tt.pos[i][tt.pos[i].length - 1];
+        if (fp !== tt.pos[path[q - 1]][tt.pos[path[q - 1]].length - 1] && waysFrom(this.host.layout, fp, tt.frontEn[i]).length > 1) pts.push(fp);
+      }
+      const train = this.host.sim.findCar(engine)?.train;
+      if (train && pts.length > 0) {
+        const by = this.host.sim.pathLocks.locks(train, pts, pts.map(() => false));
+        if (by >= 0 && by !== engine) {
+          lockedBy = by;
+          to = -1;
+        }
+      }
+    }
+    let noseBy = -1;
     // (Never to stand nose to nose: a move ending with its front against another lever-on train's front on the next piece
     // isn't granted (the sim keeps a gap there and holds it short: netActed; and two noses together is a head-on with
     // no way past). The router's "a train is coming" rule kept them apart before it stood down for held trains.)
@@ -432,6 +455,7 @@ export class Dispatcher {
           const onx = oref >= 0 ? next(this.host.layout, pieceOfRef(oref), indexOfRef(oref)) : null;
           if (onx && onx.pieceId === fp) {
             to = -1;
+            noseBy = key;
             this.noseRefused++;
             break;
           }
@@ -461,7 +485,7 @@ export class Dispatcher {
     pt[to < 0 ? 1 : 0]++;
     // (Who it waits for: the train in its move's way, or (its turn not yet) the one the best order lets go first.)
     const firstOther = r.order.find((m) => m.k !== 0);
-    h.waitsOn = to >= 0 ? -1 : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    h.waitsOn = to >= 0 ? -1 : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
