@@ -704,7 +704,9 @@ const waysCache = new WeakMap<Int32Array[], Map<number, { way: Set<number>; next
 function cached(t: DTrain) {
   let m = waysCache.get(t.pos);
   if (!m) waysCache.set(t.pos, (m = new Map()));
-  let c = m.get(t.at);
+  // (By its goal too: the dispatcher may judge with goals a stop further on.)
+  const key = t.at * 65536 + (t.goal + 1);
+  let c = m.get(key);
   if (!c) {
     const way = new Set<number>();
     const nxt = new Set<number>();
@@ -712,7 +714,7 @@ function cached(t: DTrain) {
       wayTo(t, (i) => t.order[i] >= t.goal, way);
       wayTo(t, (i) => t.wait[i] === 1, nxt);
     } else for (const p of t.pos[t.at]) way.add(p), nxt.add(p);
-    m.set(t.at, (c = { way, next: nxt }));
+    m.set(key, (c = { way, next: nxt }));
   }
   return c;
 }
@@ -1415,4 +1417,11 @@ export function headOnFrom(t: DTrain, i: number, o: DTrain, j: number): boolean 
     x = s[0];
   }
   return false;
+}
+
+/** `t`'s goal a stop further on than its own (its booked way runs `BOOKED` stops ahead), or its own if there's none. */
+export function furtherGoal(t: DTrain): number {
+  if (t.fixed || t.goal < 0) return t.goal;
+  const ahead = t.arrivals.filter((a) => t.order[a] > t.order[t.goal]);
+  return ahead.length > 0 ? ahead[0] : t.goal;
 }

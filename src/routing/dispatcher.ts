@@ -25,7 +25,7 @@ import { ACCELERATION } from "../sim/brakes";
 import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, indexOfRef, pointsWayFrom, type Layout } from "../track";
 import { next, waysFrom } from "./graph";
 import { STAND_SHORT } from "../economy/sections";
-import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
+import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, furtherGoal, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
@@ -337,9 +337,13 @@ export class Dispatcher {
     h.decided = this.host.sim.ticks;
     const t0 = performance.now();
     // (Each held train where its hold ends: it'll get there. The track up to there is its own: taken.)
+    // (H2: each judged to its second stop ahead, not its next: a move that lets another reach its next stop only to
+    // meet this one again past it isn't a delivery.)
+    const h2 = (globalThis as any).process?.env?.H2ALL === "1";
     const placed = ts.map((t) => {
       const o = this.holdsBy.get(t.key);
-      return o && o.t.pos === t.pos && o.end !== t.at ? { ...t, at: o.end } : t;
+      const p = o && o.t.pos === t.pos && o.end !== t.at ? { ...t, at: o.end } : t;
+      return h2 && !p.fixed && p.goal >= 0 ? { ...p, goal: furtherGoal(p) } : p;
     });
     const members = stretchOf(placed, k);
     // (Every other held train's track up to its hold's end, member or not: it's on its way over it.)

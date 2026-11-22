@@ -20,6 +20,13 @@ const MAPS = Object.fromEntries(
 const ONLY = ENV.JAMS_MAPS ? new Set(ENV.JAMS_MAPS.split(",")) : null;
 const SECONDS = Number(ENV.JAMS_SECONDS ?? 1800);
 
+/** Decision times (ms): p50, p98, max. */
+const msOf = (xs: readonly number[]) => {
+  const s = [...xs].sort((a, b) => a - b);
+  const at = (q: number) => (s.length === 0 ? 0 : Number(s[Math.min(s.length - 1, Math.floor(q * s.length))].toFixed(3)));
+  return { n: s.length, p50: at(0.5), p98: at(0.98), max: s.length ? Number(s[s.length - 1].toFixed(3)) : 0 };
+};
+
 describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared as a player would", () => {
   // (JAMS_SEEDS: each map run that many times, seeds 1…n (`startsOf`: a seeded run's trains set going a few seconds
   // apart), a line each.)
@@ -119,7 +126,7 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
         };
       }
       const r = runJams(world, SECONDS, hooks, seed);
-      const line = { map: file, seed, jams: r.jams, arrivals: r.arrivals, byEngine: Object.fromEntries(Object.entries(r.byEngine).map(([e, n]) => [world.sim.nameOf(Number(e)) || e, n])), longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}), ...(world.economy.dispatcher ? { dispatcher: { decisions: world.economy.dispatcher.decisions, grants: world.economy.dispatcher.grants, detours: world.economy.dispatcher.detours, heldBlocked: world.economy.dispatcher.heldBlocked, heldOrder: world.economy.dispatcher.heldOrder, notes: world.economy.dispatcher.notes, perTrain: Object.fromEntries(world.economy.dispatcher.perTrain), offWay: world.economy.dispatcher.offWay, givenBack: world.economy.dispatcher.givenBack, offNotes: world.economy.dispatcher.offNotes } } : {}) };
+      const line = { map: file, seed, jams: r.jams, arrivals: r.arrivals, byEngine: Object.fromEntries(Object.entries(r.byEngine).map(([e, n]) => [world.sim.nameOf(Number(e)) || e, n])), longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}), ...(world.economy.dispatcher ? { dispatcher: { decisions: world.economy.dispatcher.decisions, grants: world.economy.dispatcher.grants, detours: world.economy.dispatcher.detours, heldBlocked: world.economy.dispatcher.heldBlocked, ms: msOf(world.economy.dispatcher.decisionMs), heldOrder: world.economy.dispatcher.heldOrder, notes: world.economy.dispatcher.notes, perTrain: Object.fromEntries(world.economy.dispatcher.perTrain), offWay: world.economy.dispatcher.offWay, givenBack: world.economy.dispatcher.givenBack, offNotes: world.economy.dispatcher.offNotes } } : {}) };
       (globalThis as { process?: { stdout: { write(s: string): void } } }).process?.stdout.write(`\nJAMS ${JSON.stringify(line)}\n`);
     }, 3_600_000);
   }
