@@ -366,6 +366,8 @@ suite.add("model-train", async () => {
   /** Click a tray tab by its label (a real click: tabs and shelves open on a pointer press). */
   const tab = async (label) => {
     await p.evaluate((label) => [...document.querySelectorAll(".tray .tabs .tab")].find((b) => b.textContent.trim() === label).click(), label);
+    // (A models tab says "Unpacking…" till its catalogue is in: its shelves are waited for, not looked for at once.)
+    await p.waitForFunction(() => !document.querySelector(".scroller .tray-loading"), null, { timeout: 30000, polling: 100 }).catch(() => {});
     await frames(p);
   };
   /** The first tray item whose key starts so, opening a shelf for it if need be. */
