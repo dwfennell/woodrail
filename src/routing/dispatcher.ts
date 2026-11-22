@@ -361,7 +361,12 @@ export class Dispatcher {
       const st = this.holdsBy.get(placed[i].key)?.stood ?? -1;
       return st < 0 ? 1 : 1 + Math.floor((now - st) / (WEIGH_S * 120));
     });
-    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, weights, oneWay: this.oneWay, headOnGoal: (globalThis as any).process?.env?.HOG !== "0" });
+    // (Head-on past a goal scored as not delivering only where the booked ways are the whole story: no points on any
+    // member's way that lead off it (the router's choice there, a road the search doesn't see). HOG=0: never; HOG=all:
+    // everywhere.)
+    const hog = (globalThis as any).process?.env?.HOG ?? "exact";
+    const headOnGoal = hog === "all" || (hog === "exact" && members.every((m) => exactWay(this.host.layout, placed[m])));
+    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, weights, oneWay: this.oneWay, headOnGoal });
     let ways = placed;
     let to = -1;
     if (r.first[0] >= 0 && r.first[0] >= r.plain) to = r.firstTo[0];
@@ -369,7 +374,7 @@ export class Dispatcher {
       // (Stuck: with detours.)
       const dt = withDetours(this.host.layout, snaps, placed, members);
       if (dt) {
-        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, detours: true, weights, oneWay: this.oneWay, headOnGoal: (globalThis as any).process?.env?.HOG !== "0" });
+        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, detours: true, weights, oneWay: this.oneWay, headOnGoal });
         if (rd.detourValue > r.plain && rd.firstD[0] >= rd.detourValue && rd.firstToD[0] >= 0) {
           ways = dt;
           r = rd;
@@ -635,4 +640,21 @@ function oneWayOf(ts: readonly DTrain[]): Uint8Array {
   const out = new Uint8Array(max + 1);
   for (let p = 0; p <= max; p++) out[p] = seen[p] !== -1 && !two[p] ? 1 : 0;
   return out;
+}
+
+/**
+ * Is a train's booked way the whole story from where it stands to its next stop after its goal: no facing points on it
+ * with a way out that its way doesn't keep (a loop's other road kept is fine)? Where there's one, the router may take
+ * that road when it comes to it, and the search doesn't see it.
+ */
+function exactWay(layout: Layout, t: DTrain): boolean {
+  if (t.fixed || t.goal < 0) return true;
+  const ahead = t.arrivals.filter((a) => t.order[a] > t.order[t.goal]);
+  const until = ahead.length > 0 ? ahead[0] : t.main - 1;
+  for (let i = t.at; i >= 0 && i <= until; i++) {
+    const fp = t.pos[i][t.pos[i].length - 1];
+    if (i > t.at && t.pos[i - 1][t.pos[i - 1].length - 1] === fp) continue;
+    if (waysFrom(layout, fp, t.frontEn[i], () => true).length > 1 && t.succ[i].length < 2 && (i === 0 || t.succ[i - 1].length < 2)) return false;
+  }
+  return true;
 }
