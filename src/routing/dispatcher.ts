@@ -39,6 +39,9 @@ export const SINGLE = { on: ((globalThis as { process?: { env: Record<string, st
 /** The most pieces a single line runs (a longer run, or a ring of plain track with no points: not booked). */
 const SINGLE_MAX = 400;
 
+/** `headOnAhead`'s ways, per booked way (its `pos`, shared by the copies `relocate` makes) and node. */
+const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>();
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -796,8 +799,14 @@ export class Dispatcher {
    */
   private headOnAhead(engine: number, ts: readonly DTrain[], placed: readonly DTrain[], t: DTrain, to: number): number {
     const wayOf = (x: DTrain, from: number): Map<number, number> => {
-      // (Piece → the end its front comes onto it by, along its main way from `from`, to its next stop after or a turn.)
+      // (Piece → the end its front comes onto it by, along its main way from `from`, to its next stop after or a turn.
+      // Cached per booked way and node: a train's way is asked of in many decisions while it stands.)
+      let byAt = aheadCache.get(x.pos);
+      if (!byAt) aheadCache.set(x.pos, (byAt = new Map()));
+      const hit = byAt.get(from);
+      if (hit) return hit;
       const out = new Map<number, number>();
+      byAt.set(from, out);
       const stops = x.arrivals.filter((a) => x.order[a] > x.order[from]);
       const until = stops.length > 0 ? stops[0] : x.main - 1;
       for (let i = from, n = 0; i >= 0 && n < 200; n++) {
