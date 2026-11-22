@@ -31,8 +31,13 @@ import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, R
 /** §13.5 step 2, the dispatcher owning the points on its grants: on, unless OWNER=0 (for comparing runs). */
 export const OWNER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).OWNER !== "0" };
 
-/** The head-on-ahead check (§13.5 step 3, an experiment): off unless HEAD_AHEAD=1 (it holds both ends of a single line: first jams far sooner). */
-export const HEAD_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HEAD_AHEAD === "1" };
+/** The head-on-ahead check (§13.5 step 3): on, unless HEAD_AHEAD=0. */
+export const HEAD_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HEAD_AHEAD !== "0" };
+
+/** Single lines booked whole (§13.5 step 3, the spec's §2.2a one at a time): on, unless SINGLE=0. */
+export const SINGLE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SINGLE !== "0" };
+/** The most pieces a single line runs (a longer run, or a ring of plain track with no points: not booked). */
+const SINGLE_MAX = 400;
 
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
@@ -92,6 +97,8 @@ interface Hold {
   decided: number;
   /** Standing short of its hold's end since (tick; −1: not). */
   short: number;
+  /** The train it waits for to clear a single line it's not granted onto (−1: none), for its card. */
+  singleWait?: number;
 }
 
 const capAt: Cursor = { pieceId: -1, pathIndex: 0, reversed: false, s: 0 };
@@ -438,6 +445,16 @@ export class Dispatcher {
       h.passed++;
       if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - Math.min(...weights) && r.first[0] > 0) to = r.firstTo[0];
     }
+    // (One at a time on a single line (§2.2a): a move onto a stretch of plain track between points that another train
+    // is on, or is granted onto, heading for its other end, isn't granted; it waits where it is (its last place clear of
+    // points before the line), and the longest waiter goes first (asks are decided longest waiter first).)
+    let singleBy = -1;
+    if (to >= 0 && OWNER.on && SINGLE.on) {
+      const w = ways[k];
+      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      singleBy = this.singleLineBy(engine, tt, this.pathTo(tt, to));
+      if (singleBy >= 0) to = -1;
+    }
     // (Points on the move the router has locked for another train, or another train is on: not granted; it waits on that
     // one (dandelion: granted over points 301 held by Rowan, held short by the router at a green signal).)
     let lockedBy = -1;
@@ -461,43 +478,13 @@ export class Dispatcher {
         }
       }
     }
-    // (Head-on ahead: from where the move ends, its way on (single road) runs, with no place to wait, to where another
-    // train's hold ends facing back along it (its own way on comes over this one there). Not granted: they'd meet on that
-    // single track with no way past (dandelion: Dandelion and Conker at either end of piece 426).)
+    // (Head-on ahead (§2.2a one at a time): a move that newly runs onto another train's way, the other way, while that
+    // train stands on this one's way on, isn't granted: they'd meet with no way past (dandelion: Dandelion granted up to
+    // the points at 426 with Conker standing on its way beyond them, coming the other way). Not for a train on the other's
+    // way already: there, refusing it helps nobody (they've met), and the two would hold each other for good.)
     let headBy = -1;
-    if (to >= 0 && OWNER.on && HEAD_AHEAD.on) {
-      const w = ways[k];
-      const mine = new Set(w.pos[to]);
-      const reach = new Set<number>();
-      // (To where its way branches (a loop: a place to pass), not to a place to wait: waiting on single track lets nobody
-      // by.)
-      for (let i = to, n = 0; i >= 0 && n < 120; n++) {
-        for (const p of w.pos[i]) reach.add(p);
-        if (i !== to && w.turned[i]) break;
-        const sc = w.succ[i];
-        if (sc.length !== 1) break;
-        i = sc[0];
-      }
-      for (const p of w.pos[to]) reach.delete(p);
-      if (reach.size > 0)
-        for (let m = 0; m < placed.length && headBy < 0; m++) {
-          const o = placed[m];
-          if (m === k || o.fixed) continue;
-          if (!o.pos[o.at].some((p) => reach.has(p))) continue;
-          // (Its way on, to its next wait, back over where this one would stand.)
-          for (let i = o.at, n = 0; i >= 0 && n < 120; n++) {
-            if (i !== o.at && o.pos[i].some((p) => mine.has(p))) {
-              headBy = o.key;
-              break;
-            }
-            if (i !== o.at && o.turned[i]) break;
-            const sc = o.succ[i];
-            if (sc.length !== 1) break;
-            i = sc[0];
-          }
-        }
-      if (headBy >= 0) to = -1;
-    }
+    if (to >= 0 && OWNER.on && HEAD_AHEAD.on) headBy = this.headOnAhead(engine, ts, placed, ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at }, to);
+    if (headBy >= 0) to = -1;
     let noseBy = -1;
     // (Never to stand nose to nose: a move ending with its front against another lever-on train's front on the next piece
     // isn't granted (the sim keeps a gap there and holds it short: netActed; and two noses together is a head-on with
@@ -542,12 +529,13 @@ export class Dispatcher {
     }
     this.decisions++;
     this.decisionMs.push(performance.now() - t0);
+    h.singleWait = singleBy >= 0 ? singleBy : headBy;
     const pt = this.perTrain.get(engine) ?? [0, 0];
     this.perTrain.set(engine, pt);
     pt[to < 0 ? 1 : 0]++;
     // (Who it waits for: the train in its move's way, or (its turn not yet) the one the best order lets go first.)
     const firstOther = r.order.find((m) => m.k !== 0);
-    h.waitsOn = to >= 0 ? -1 : headBy >= 0 ? headBy : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    h.waitsOn = to >= 0 ? -1 : singleBy >= 0 ? singleBy : headBy >= 0 ? headBy : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
@@ -690,6 +678,173 @@ export class Dispatcher {
     return way;
   }
   private readonly wayCache = new Map<number, { ver: number; way: { pieces: Set<number>; exits: Map<number, number> } }>();
+
+  /**
+   * The single lines (§2.2a): each piece of plain track (no points, a crossing or a deck: one road through it) and the
+   * stretch of such pieces it's in, joined end to end; per layout revision.
+   */
+  private singleOf(): Map<number, number> {
+    const layout = this.host.layout;
+    if (this.singles && this.singlesRev === layout.revision) return this.singles;
+    const seg = new Map<number, number>();
+    let id = 0;
+    const plain = (p: number) => {
+      const piece = layout.getPiece(p);
+      if (!piece) return false;
+      const def = getPieceDef(piece.type, piece.flipped);
+      return def.paths.length === 1 && def.connectors.length === 2 && !isPoints(layout, p);
+    };
+    for (const p of layout.pieceIds()) {
+      if (seg.has(p) || !plain(p)) continue;
+      const todo = [p];
+      const run: number[] = [];
+      seg.set(p, id);
+      while (todo.length > 0 && run.length <= SINGLE_MAX) {
+        const q = todo.pop()!;
+        run.push(q);
+        for (let c = 0; c < 2; c++) {
+          const n = next(layout, q, c);
+          if (n && !seg.has(n.pieceId) && plain(n.pieceId)) {
+            seg.set(n.pieceId, id);
+            todo.push(n.pieceId);
+          }
+        }
+      }
+      if (run.length > SINGLE_MAX) for (const q of run) seg.set(q, -1);
+      id++;
+    }
+    this.singles = seg;
+    this.singlesRev = layout.revision;
+    return seg;
+  }
+  private singles: Map<number, number> | null = null;
+  private singlesRev = -1;
+
+  /** The end a run along a single line from piece `p` out by connector `ex` comes to: the last piece's exit (a ref); −1: a ring. */
+  private singleEnd(seg: Map<number, number>, p: number, ex: number): number {
+    const s = seg.get(p);
+    let cur = p;
+    let out = ex;
+    for (let n = 0; n < SINGLE_MAX + 2; n++) {
+      const nx = next(this.host.layout, cur, out);
+      if (!nx || seg.get(nx.pieceId) !== s) return connectorRef(cur, out);
+      cur = nx.pieceId;
+      out = nx.entry === 0 ? 1 : 0;
+    }
+    return -1;
+  }
+
+  /**
+   * Another train on a single line this move runs onto, or granted onto it, heading for its other end (−1: none). Its
+   * engine. A train standing on it with no way on but towards this one counts as heading that way.
+   */
+  private singleLineBy(engine: number, t: DTrain, path: readonly number[]): number {
+    const seg = this.singleOf();
+    const layout = this.host.layout;
+    const { sim } = this.host;
+    // (The lines its move runs onto, and the end of each it heads for.)
+    const mine = new Map<number, number>();
+    for (let q = 1; q < path.length; q++) {
+      const i = path[q];
+      const fp = t.pos[i][t.pos[i].length - 1];
+      const s = seg.get(fp);
+      if (s === undefined || s < 0 || mine.has(s)) continue;
+      const ex = t.frontRef[i] >= 0 && pieceOfRef(t.frontRef[i]) === fp ? indexOfRef(t.frontRef[i]) : t.frontEn[i] === 0 ? 1 : 0;
+      const end = this.singleEnd(seg, fp, ex);
+      if (end >= 0) mine.set(s, end);
+    }
+    if (mine.size === 0) return -1;
+    const self = sim.findCar(engine)?.train;
+    for (const o of sim.trains()) {
+      if (o === self || o.derailed) continue;
+      const oe = o.cars.find((c) => c.kind === "engine");
+      const key = (oe ?? o.cars[0]).id;
+      // (On the line: heading for the end its front runs to (its way, or as it faces standing).)
+      const net = this.host.drive(o);
+      // (Its axles from its leading end back: the first on such a line says which end it heads for.)
+      const n = o.bogies.length;
+      for (let j = 0; j < n; j++) {
+        const b = net >= 0 ? o.bogies[j] : o.bogies[n - 1 - j];
+        const s = seg.get(b.pieceId);
+        if (s === undefined || !mine.has(s)) continue;
+        const bp = layout.getPiece(b.pieceId);
+        if (!bp) break;
+        const ex = pathExitConnector(getPieceDef(bp.type, bp.flipped), b.pathIndex, net >= 0 ? b.reversed : !b.reversed);
+        const end = ex >= 0 ? this.singleEnd(seg, b.pieceId, ex) : -1;
+        if (end !== mine.get(s)) return key;
+        break;
+      }
+      // (Granted onto it, heading the other way.)
+      const h = this.holdsBy.get(key);
+      if (!h) continue;
+      for (let q = 1; q < h.path.length; q++) {
+        const i = h.path[q];
+        const fp = h.t.pos[i][h.t.pos[i].length - 1];
+        const s = seg.get(fp);
+        if (s === undefined || !mine.has(s)) continue;
+        const ex = h.t.frontRef[i] >= 0 && pieceOfRef(h.t.frontRef[i]) === fp ? indexOfRef(h.t.frontRef[i]) : h.t.frontEn[i] === 0 ? 1 : 0;
+        if (this.singleEnd(seg, fp, ex) !== mine.get(s)) return key;
+        break;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * `headBy` above: the train (its engine) this move would run head-on into, or −1. `t` from where it stands, moving to
+   * node `to`. Each other train by its booked way from where it stands (`ts`), to its next stop or a turn.
+   */
+  private headOnAhead(engine: number, ts: readonly DTrain[], placed: readonly DTrain[], t: DTrain, to: number): number {
+    const wayOf = (x: DTrain, from: number): Map<number, number> => {
+      // (Piece → the end its front comes onto it by, along its main way from `from`, to its next stop after or a turn.)
+      const out = new Map<number, number>();
+      const stops = x.arrivals.filter((a) => x.order[a] > x.order[from]);
+      const until = stops.length > 0 ? stops[0] : x.main - 1;
+      for (let i = from, n = 0; i >= 0 && n < 200; n++) {
+        const fp = x.pos[i][x.pos[i].length - 1];
+        if (!out.has(fp)) out.set(fp, x.frontEn[i]);
+        if (i === until || (i !== from && x.turned[i])) break;
+        i = x.succ[i][0] ?? -1;
+      }
+      return out;
+    };
+    const myAhead = wayOf(t, to);
+    const here = new Set(t.pos[t.at]);
+    const path = this.pathTo(t, to);
+    const fresh = new Map<number, number>();
+    for (const i of path) {
+      const fp = t.pos[i][t.pos[i].length - 1];
+      if (!here.has(fp) && !fresh.has(fp)) fresh.set(fp, t.frontEn[i]);
+    }
+    if (fresh.size === 0) return -1;
+    for (let m = 0; m < ts.length; m++) {
+      const o = ts[m];
+      if (o.key === engine || o.fixed) continue;
+      const oWay = wayOf(o, o.at);
+      // (This one already on its way: not refused here.)
+      if ([...here].some((p) => oWay.has(p))) continue;
+      // (Onto its way, the other way over a piece: its front onto it by another end than ours.)
+      let against = false;
+      for (const [p, en] of fresh) {
+        const oen = oWay.get(p);
+        if (oen !== undefined && oen !== en) {
+          against = true;
+          break;
+        }
+      }
+      if (!against) continue;
+      // (And it stands on our way on, or its hold runs onto it.)
+      const stand = placed[m].pos[placed[m].at];
+      if (o.pos[o.at].some((p) => myAhead.has(p)) || stand.some((p) => myAhead.has(p))) return o.key;
+    }
+    return -1;
+  }
+
+  /** The train a held train waits for to clear a single line (its card), or −1. */
+  singleLineWait(engine: number): number {
+    const h = this.holdsBy.get(engine);
+    return h && h.end === h.t.at ? (h.singleWait ?? -1) : -1;
+  }
 
   /** The piece of the stop a routed train heads for (the one after, while it's at one), else `fallback`. */
   private stopAhead(engine: number, fallback: number): number {
