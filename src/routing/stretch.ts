@@ -130,6 +130,19 @@ export function bodyOf(layout: Layout, s: Snap): number[] {
   return s.elems.slice(j + 1).map((e) => e.p);
 }
 
+/**
+ * A train's snap turned end for end, as the sim flips a train its levers set the other way: its body only (the way it
+ * came is now ahead of it), its front its old tail; booked to `target` (a back-up's end: dispatcher §2.1 step 5).
+ */
+export function reversedSnap(layout: Layout, s: Snap, target: number): Snap {
+  let sum = 0;
+  let j = s.elems.length - 1;
+  for (; j >= 0 && sum < s.length; j--) sum += lenOf(layout, s.elems[j]);
+  const body = s.elems.slice(j + 1);
+  const elems = body.reverse().map((e) => ({ ...e, en: e.ex, ex: e.en }));
+  return { ...s, elems, stops: [target], next: 0, at: false, lever: true };
+}
+
 /** `t` moved on along its booked way to stand as `body` (its pieces): a copy standing there, or null (not on its way). */
 export function relocate(t: DTrain, body: readonly number[]): DTrain | null {
   const same = (i: number) => t.pos[i].length === body.length && body.every((p, k) => t.pos[i][k] === p);

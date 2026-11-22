@@ -34,8 +34,9 @@ export type TrainState =
   /** Waiting in a passing loop or at a line end for a train of its line on the single track ahead (sections); `line`
    * "": for a train not on its line. */
   | { kind: "line-wait"; line: string; parked?: boolean; other?: boolean; by?: number }
-  /** Stepped aside into a spare siding or platform to let `by` (another train, its line `line`) by (the user's A1). */
-  | { kind: "aside"; line: string; by: number }
+  /** Stepped aside into a spare siding or platform to let `by` (another train, its line `line`) by (the user's A1);
+   * `backing`: backing up to let it by (the dispatcher's back-up, dispatcher spec §2.1 step 5). */
+  | { kind: "aside"; line: string; by: number; backing?: boolean }
   /**
    * Held: its line has more trains than passing loops (lay `more` more for `trains` trains). `spare`: a train not on
    * the line stands on each road of one of its loops; only moving it helps.
@@ -195,6 +196,12 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const by = car.kind === "engine" ? economy.sections.lettingBy(car.id) : -1;
     if (by >= 0) return { kind: "aside", line: lineNameOf(sim, economy, by), by };
   }
+  // Backing up to let another train by (the dispatcher, with it on).
+  if (economy.dispatcher)
+    for (const car of train.cars) {
+      const by = car.kind === "engine" ? economy.dispatcher.backingFor(car.id) : -1;
+      if (by >= 0) return { kind: "aside", line: lineNameOf(sim, economy, by), by, backing: true };
+    }
   // Held by the dispatcher for another train (dispatcher spec §8 step 2, with it on): who it waits for.
   if (train.speed < 1 && economy.dispatcher)
     for (const car of train.cars) {
@@ -636,6 +643,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "aside":
+      if (s.backing) return `Backing up to let ${who && who.car >= 0 ? blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place) : "another train"} by`;
       return s.line ? `Letting the ${s.line} train by` : who && who.car >= 0 ? `Letting ${blockerName(who.how === "stopped" ? { ...who, how: "running" } : who, place)} by` : "Letting another train by";
     case "line-wait":
       if (s.line) return `Waiting for the ${s.line} train`;
