@@ -3382,6 +3382,7 @@ export class Economy {
     this.kitStops.tick();
     if (this.routes.size > 0) this.advanceRoutes();
     if (this.routes.size > 0) this.skipShort();
+    if (this.routes.size > 0) this.turnAtLineEnds();
     // (Trains taken off their line, stopping once clear of points.)
     if (this.stopsClear.size > 0) for (const engine of [...this.stopsClear.keys()]) this.stopIfClear(engine);
     // Switches ahead of routed trains (routing/router.ts; nothing with none).
@@ -3784,6 +3785,49 @@ export class Economy {
       this.shortLooked.set(engine, `${r.next}:${this.layout.revision}:${t.lastTurn?.tick ?? -1}:${Math.sign(net)}`);
     }
   }
+  /**
+   * A routed train standing at its stop, its work there done, whose next stop it can't reach going on but can turned
+   * round (its line's end on through track: a workshop or station with track beyond it that never leads back), turns
+   * round there, as at a buffer (the user's rule: trains turn at line ends). Else it stood there for good with the
+   * dispatcher on, or ran round the loops beyond for good with it off (the user's two-train map, 2026-11-22). Looked at
+   * once a visit (its next stop, the track, its last turn, which way it's driven): a plan search or two then.
+   */
+  private turnAtLineEnds(): void {
+    for (const [engine, r] of this.routes) {
+      if (!r.at || r.stops.length < 2) {
+        this.turnLooked.delete(engine);
+        continue;
+      }
+      const t = this.sim.findCar(engine)?.train;
+      if (!t || t.derailed || t.turnback >= 0) continue;
+      const net = this.drive(t);
+      if (net === 0) continue;
+      const key = `${r.next}:${this.layout.revision}:${t.lastTurn?.tick ?? -1}:${Math.sign(net)}`;
+      const was = this.turnLooked.get(engine);
+      if (was === undefined || (was !== key && was !== `${key}:turn`)) {
+        this.turnLooked.set(engine, key);
+        const stop = r.stops[r.next % r.stops.length];
+        let j = r.next % r.stops.length;
+        for (let k = 1; k < r.stops.length; k++) {
+          j = (r.next + k) % r.stops.length;
+          if (r.stops[j].depotId !== stop.depotId) break;
+        }
+        const d = this.liveDepot(r.stops[j].depotId);
+        if (!d || r.stops[j].depotId === stop.depotId) continue;
+        const ahead = this.frontOn(t, net);
+        if (ahead && (ahead.pieceId === d.pieceId || plan(this.layout, ahead, d.pieceId, ROUTE_COSTS))) continue;
+        const behind = this.frontOn(t, -net);
+        if (!behind || (behind.pieceId !== d.pieceId && !plan(this.layout, behind, d.pieceId, ROUTE_COSTS))) continue;
+        this.turnLooked.set(engine, `${key}:turn`);
+      } else if (was !== `${key}:turn`) continue;
+      // (Standing, its work here done: turned round now.)
+      if (t.speed >= 1 || this.depotCap(t) === 0 || this.kitStops.cap(t) === 0) continue;
+      if (this.sim.turnNow(t.id, true)) {
+        this.turnLooked.set(engine, `${key}:turned`);
+      }
+    }
+  }
+  private readonly turnLooked = new Map<number, string>();
   private readonly shortLooked = new Map<number, string>();
   private readonly shortSkips = new Map<number, { depotId: number; next: number; at: number; stood?: true }>();
 

@@ -26,7 +26,8 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
     it(file, async () => {
       const { world } = await loadBugMap(text);
       // (JAMS_DISPATCHER: the dispatcher acting (§8 step 2), in place of sections' holds.)
-      if (ENV.JAMS_DISPATCHER) world.economy.useDispatcher(true);
+      // (Else off, though the map's save had it on (a user's beta game): the bar's main run is the dispatcher off.)
+      world.economy.useDispatcher(!!ENV.JAMS_DISPATCHER);
       if (ENV.JAMS_DISPATCHER && ENV.JAMS_DEBUG) world.economy.dispatcher!.debug = true;
       const t0 = performance.now();
       // (JAMS_SHADOW: the dispatcher's first report (routing/dispatch-shadow.ts): each jam judged now and as it stood

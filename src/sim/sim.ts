@@ -660,13 +660,15 @@ export class Sim {
   /**
    * Turn a standing train round now, as it would be at the end of its wait at the end of the line (`turnAround`): its
    * pending turnback is dropped. Returns the turned train (its id and its cars' kept), or null (nothing done) if
-   * it's moving, derailed, riding a deck, or there's no room to set it down turned round.
+   * it's moving, derailed, riding a deck, or there's no room to set it down turned round. `lineEnd`: the caller knows
+   * it's at the end of its line though the track runs on (a routed train at its line's end stop: economy
+   * `turnAtLineEnds`).
    */
-  turnNow(trainId: number): Train | null {
+  turnNow(trainId: number, lineEnd = false): Train | null {
     const t = this.byId.get(trainId);
     if (!t || t.derailed || t.speed >= 1 || t.bogies.length === 0) return null;
     if (this.rides.size > 0 && this.riding(t)) return null;
-    const atLineEnd = this.onTurn !== null && this.endAhead(t, LINE_END_NEAR) !== null;
+    const atLineEnd = this.onTurn !== null && (lineEnd || this.endAhead(t, LINE_END_NEAR) !== null);
     const turned = this.turnAround(t);
     if (!turned) return null;
     turned.lastTurn = t.lastTurn;
