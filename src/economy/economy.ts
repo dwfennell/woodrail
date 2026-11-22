@@ -3820,11 +3820,10 @@ export class Economy {
         if (!behind || (behind.pieceId !== d.pieceId && !plan(this.layout, behind, d.pieceId, ROUTE_COSTS))) continue;
         this.turnLooked.set(engine, `${key}:turn`);
       } else if (was !== `${key}:turn`) continue;
-      // (Standing, its work here done: turned round now.)
+      // (Standing, its work here done: it turns back, as at a buffer, and its card says the line ends here.)
       if (t.speed >= 1 || this.depotCap(t) === 0 || this.kitStops.cap(t) === 0) continue;
-      if (this.sim.turnNow(t.id, true)) {
-        this.turnLooked.set(engine, `${key}:turned`);
-      }
+      const here = this.liveDepot(r.stops[r.next % r.stops.length].depotId);
+      if (here && this.sim.turnBackHere(t.id, here.pieceId)) this.turnLooked.set(engine, `${key}:turned`);
     }
   }
   private readonly turnLooked = new Map<number, string>();

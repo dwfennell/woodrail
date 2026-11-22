@@ -71,7 +71,8 @@ export interface Scenario {
 }
 
 /** Turn-backs by cause (`Train.lastTurn`). */
-export type Turns = { buffer: number; "open-end": number };
+/** Turns back by cause; `stop` (its line ending at a stop on through track) only once there has been one. */
+export type Turns = { buffer: number; "open-end": number; stop?: number };
 
 export interface Report {
   name: string;
@@ -652,7 +653,8 @@ export class HarnessRun implements InvariantWorld {
       if (t.derailed) return;
       if (t.lastTurn && t.lastTurn.tick !== this.lastTurn[k]) {
         this.lastTurn[k] = t.lastTurn.tick;
-        this.report.turns[k][t.lastTurn.cause]++;
+        const turns = this.report.turns[k];
+        turns[t.lastTurn.cause] = (turns[t.lastTurn.cause] ?? 0) + 1;
       }
       if (this.watch.size > 0 && t.bogies.some((b) => this.watch.has(b.pieceId))) this.report.onWatched++;
       const net = drive(t);

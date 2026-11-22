@@ -158,7 +158,8 @@ export function trainKey(train: Train): number {
  * Why a train last turned back: a buffer, or track that just stops (an open end). Trains turn round only at the end of
  * the track (routing spec §16 Q3): one in another's way waits for it, however long (see `heldBy`).
  */
-export type TurnCause = "buffer" | "open-end";
+/** Why it turned back: a buffer, track that just stops, or its line ending at a stop on through track (`turnBackHere`). */
+export type TurnCause = "buffer" | "open-end" | "stop";
 
 /**
  * A train turned round, as told to `Sim.onTurn` (tests and dev checks: the `midTurn` invariant). `how`: at the end of
@@ -658,17 +659,31 @@ export class Sim {
   }
 
   /**
+   * Turn a standing routed train back where it stands, its line ending at the stop it's at though the track runs on
+   * (economy `turnAtLineEnds`): it waits `TURNBACK_TICKS`, as at a buffer, then turns round (a line-end turn). False
+   * (nothing done) if it's moving, derailed, riding a deck, or turning back already. `pieceId`: the stop's piece (for
+   * its card: where the line ends).
+   */
+  turnBackHere(trainId: number, pieceId: number): boolean {
+    const t = this.byId.get(trainId);
+    if (!t || t.derailed || t.speed >= 1 || t.turnback >= 0 || t.bogies.length === 0) return false;
+    if (this.rides.size > 0 && this.riding(t)) return false;
+    t.speed = 0;
+    t.turnback = TURNBACK_TICKS;
+    t.lastTurn = { cause: "stop", pieceId, tick: this.ticks };
+    return true;
+  }
+
+  /**
    * Turn a standing train round now, as it would be at the end of its wait at the end of the line (`turnAround`): its
    * pending turnback is dropped. Returns the turned train (its id and its cars' kept), or null (nothing done) if
-   * it's moving, derailed, riding a deck, or there's no room to set it down turned round. `lineEnd`: the caller knows
-   * it's at the end of its line though the track runs on (a routed train at its line's end stop: economy
-   * `turnAtLineEnds`).
+   * it's moving, derailed, riding a deck, or there's no room to set it down turned round.
    */
-  turnNow(trainId: number, lineEnd = false): Train | null {
+  turnNow(trainId: number): Train | null {
     const t = this.byId.get(trainId);
     if (!t || t.derailed || t.speed >= 1 || t.bogies.length === 0) return null;
     if (this.rides.size > 0 && this.riding(t)) return null;
-    const atLineEnd = this.onTurn !== null && (lineEnd || this.endAhead(t, LINE_END_NEAR) !== null);
+    const atLineEnd = this.onTurn !== null && this.endAhead(t, LINE_END_NEAR) !== null;
     const turned = this.turnAround(t);
     if (!turned) return null;
     turned.lastTurn = t.lastTurn;

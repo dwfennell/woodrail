@@ -10,6 +10,8 @@ import { describe, expect, it } from "vitest";
 import { loadBugMap } from "../play/bugmap";
 import { economyChecks } from "../game/dev-checks";
 import { SIM_HZ } from "../sim";
+import { engineStatus } from "../game/engine-status";
+import { depotName } from "../game/world";
 import twoTrain from "../play/bugmaps/reference/user-2026-11-22-two-train.txt?raw";
 
 const CONKER = 36;
@@ -23,6 +25,11 @@ describe("a routed train turns round at its line's end on through track", () => 
       const e = world.economy;
       e.useDispatcher(on);
       const checks = economyChecks(e, { every: 1 });
+      const nameOf = (id: number) => {
+        const d = e.depot(id);
+        return d ? depotName(world, d) : "";
+      };
+      const said = new Set<string>();
       let was = false;
       const visits: number[] = [];
       for (let i = 0; i < 300 * SIM_HZ; i++) {
@@ -32,6 +39,8 @@ describe("a routed train turns round at its line's end on through track", () => 
         const now = !!r?.at;
         if (now && !was && r) visits.push(e.depot(r.stops[r.next % r.stops.length].depotId)?.pieceId ?? -1);
         was = now;
+        const t = world.sim.findCar(CONKER)?.train;
+        if (t && t.turnback >= 0) said.add(engineStatus(world.sim, e, CONKER, nameOf));
       }
       checks.off();
       const broke = Object.entries(checks.broke).filter(([, b]) => b.count > 0).map(([k, b]) => `${k}: ${b.first[0]}`);
@@ -39,6 +48,9 @@ describe("a routed train turns round at its line's end on through track", () => 
       // (The sawmill reached from the workshop, and the workshop again: turned round there, each time.)
       expect(visits.filter((p) => p === SAWMILL).length).toBeGreaterThanOrEqual(2);
       expect(visits.filter((p) => p === WORKSHOP).length).toBeGreaterThanOrEqual(2);
+      // (Its card, while it turns back: where the line ends.)
+      const workshop = e.depotAtPiece(WORKSHOP)!;
+      expect([...said]).toContain(`Turning back: the line ends at ${nameOf(workshop.id)}`);
     }, 120_000);
   }
 });
