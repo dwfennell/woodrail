@@ -9,6 +9,10 @@
  *   npm run jams -- --check              (fails on a map worse than its baseline: more jams, fewer stops, or a break)
  *   npm run jams -- --update             (writes this run as the baseline)
  *   npm run jams -- --maps wren.txt,complex-1.txt --seconds 600 --shards 4
+ *   npm run jams -- --seeds 3 [--out a.json] [--against b.json]
+ *                                        (each map run with seeds 1…3 (src/play/jams.ts `startsOf`: its trains set going a
+ *                                        few seconds apart; seed 1 is the map as saved): mean, min and max per map;
+ *                                        `--out` writes them, `--against` a run written so compares its means)
  */
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -23,13 +27,15 @@ const DIR = "src/play/bugmaps/reference";
 const BASE = `${DIR}/baseline.json`;
 const SECONDS = Number(opt("seconds", 1800));
 const maps = (opt("maps", "") || readdirSync(DIR).filter((f) => f.endsWith(".txt")).sort().join(",")).split(",");
-const SHARDS = Math.max(1, Math.min(maps.length, Number(opt("shards", Math.max(1, cpus().length)))));
+const SEEDS = Math.max(1, Number(opt("seeds", 1)));
+const runsAll = maps.flatMap((m) => Array.from({ length: SEEDS }, (_, i) => `${m}@${i + 1}`));
+const SHARDS = Math.max(1, Math.min(runsAll.length, Number(opt("shards", Math.max(1, cpus().length)))));
 const t0 = Date.now();
-console.log(`jams: ${maps.length} maps × ${SECONDS} s in ${SHARDS} shards`);
+console.log(`jams: ${maps.length} maps${SEEDS > 1 ? ` × ${SEEDS} seeds` : ""} × ${SECONDS} s in ${SHARDS} shards`);
 
 function run(list) {
   return new Promise((resolve) => {
-    const env = { ...process.env, JAMS: "1", JAMS_MAPS: list.join(","), JAMS_SECONDS: String(SECONDS), ...(args.includes("--shadow") ? { JAMS_SHADOW: "1" } : {}) };
+    const env = { ...process.env, JAMS: "1", ...(SEEDS > 1 ? { JAMS_RUNS: list.join(",") } : { JAMS_MAPS: list.map((x) => x.split("@")[0]).join(",") }), JAMS_SECONDS: String(SECONDS), ...(args.includes("--shadow") ? { JAMS_SHADOW: "1" } : {}) };
     const child = spawn("npx", ["vitest", "run", "--silent=false", "src/play/jams.test.ts"], { env, stdio: ["ignore", "pipe", "pipe"] });
     let log = "";
     child.stdout.on("data", (d) => (log += d));
@@ -42,8 +48,39 @@ function run(list) {
   });
 }
 
-const shards = Array.from({ length: SHARDS }, (_, k) => maps.filter((_, i) => i % SHARDS === k));
-const rows = (await Promise.all(shards.map(run))).flat().sort((a, b) => a.map.localeCompare(b.map));
+const shards = Array.from({ length: SHARDS }, (_, k) => runsAll.filter((_, i) => i % SHARDS === k));
+const all = (await Promise.all(shards.map(run))).flat().sort((a, b) => a.map.localeCompare(b.map) || (a.seed ?? 1) - (b.seed ?? 1));
+if (SEEDS > 1) {
+  // (Seeds: per map, mean (min–max) of stops and jams, and how many seeds broke an invariant (the first's, said).)
+  const by = new Map();
+  for (const r of all) by.set(r.map, [...(by.get(r.map) ?? []), r]);
+  const against = (() => {
+    const f = opt("against", "");
+    return f ? JSON.parse(readFileSync(f, "utf8")) : null;
+  })();
+  const pad = (s, n) => String(s).padEnd(n);
+  const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  console.log(`${pad("map", 30)}${pad("stops mean (min–max)", 26)}${against ? pad("vs", 14) : ""}${pad("jams mean", 11)}${pad("breaks", 8)}first break`);
+  const out = {};
+  let lower = 0;
+  for (const [map, rs] of [...by].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const st = rs.map((r) => r.arrivals);
+    const m = { stops: mean(st), min: Math.min(...st), max: Math.max(...st), jams: mean(rs.map((r) => r.jams)), breaks: rs.filter((r) => r.firstBreak).length, firstBreak: rs.find((r) => r.firstBreak)?.firstBreak ?? null, seeds: rs.length, seconds: SECONDS };
+    out[map] = m;
+    const a = against?.[map];
+    const d = a ? m.stops - a.stops : 0;
+    const flag = a && (d < 0 || m.breaks > a.breaks) ? "   LOWER" : "";
+    if (flag) lower++;
+    console.log(`${pad(map, 30)}${pad(`${m.stops.toFixed(0)} (${m.min}–${m.max})`, 26)}${a ? pad(`${a.stops.toFixed(0)} ${d >= 0 ? "+" : ""}${d.toFixed(0)}`, 14) : ""}${pad(m.jams.toFixed(1), 11)}${pad(`${m.breaks}/${rs.length}`, 8)}${m.firstBreak ?? "-"}${flag}`);
+  }
+  console.log(`(${((Date.now() - t0) / 60000).toFixed(1)} min${against ? `; ${lower} map(s) lower on the mean, or more seeds broken, than ${opt("against", "")}` : ""})`);
+  if (opt("out", "")) {
+    writeFileSync(opt("out", ""), JSON.stringify(out, null, 1) + "\n");
+    console.log(`wrote ${opt("out", "")}`);
+  }
+  process.exit(all.length === runsAll.length ? 0 : 1);
+}
+const rows = all;
 const base = (() => {
   try {
     return JSON.parse(readFileSync(BASE, "utf8"));

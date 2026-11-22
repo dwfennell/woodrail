@@ -21,9 +21,17 @@ const ONLY = ENV.JAMS_MAPS ? new Set(ENV.JAMS_MAPS.split(",")) : null;
 const SECONDS = Number(ENV.JAMS_SECONDS ?? 1800);
 
 describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared as a player would", () => {
-  for (const [file, text] of Object.entries(MAPS)) {
-    if (ONLY && !ONLY.has(file)) continue;
-    it(file, async () => {
+  // (JAMS_SEEDS: each map run that many times, seeds 1…n (`startsOf`: a seeded run's trains set going a few seconds
+  // apart), a line each.)
+  // (JAMS_RUNS: "map@seed,…", the runs themselves (scripts/jams.mjs shards them so).)
+  const SEEDS = Math.max(1, Number(ENV.JAMS_SEEDS ?? 1));
+  const runs: [string, number][] = ENV.JAMS_RUNS
+    ? ENV.JAMS_RUNS.split(",").map((x) => [x.slice(0, x.lastIndexOf("@")), Number(x.slice(x.lastIndexOf("@") + 1))])
+    : Object.keys(MAPS).flatMap((f) => Array.from({ length: SEEDS }, (_, i) => [f, i + 1] as [string, number]));
+  for (const [file, seed] of runs) {
+    const text = MAPS[file];
+    if (text === undefined || (ONLY && !ONLY.has(file))) continue;
+    it(SEEDS > 1 || ENV.JAMS_RUNS ? `${file} seed ${seed}` : file, async () => {
       const { world } = await loadBugMap(text);
       // (JAMS_DISPATCHER: the dispatcher acting (§8 step 2), in place of sections' holds.)
       // (Else off, though the map's save had it on (a user's beta game): the bar's main run is the dispatcher off.)
@@ -110,8 +118,8 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
           dispatch!.tick();
         };
       }
-      const r = runJams(world, SECONDS, hooks);
-      const line = { map: file, jams: r.jams, arrivals: r.arrivals, byEngine: Object.fromEntries(Object.entries(r.byEngine).map(([e, n]) => [world.sim.nameOf(Number(e)) || e, n])), longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}), ...(world.economy.dispatcher ? { dispatcher: { decisions: world.economy.dispatcher.decisions, grants: world.economy.dispatcher.grants, detours: world.economy.dispatcher.detours, heldBlocked: world.economy.dispatcher.heldBlocked, heldOrder: world.economy.dispatcher.heldOrder, notes: world.economy.dispatcher.notes, perTrain: Object.fromEntries(world.economy.dispatcher.perTrain), offWay: world.economy.dispatcher.offWay, givenBack: world.economy.dispatcher.givenBack, offNotes: world.economy.dispatcher.offNotes } } : {}) };
+      const r = runJams(world, SECONDS, hooks, seed);
+      const line = { map: file, seed, jams: r.jams, arrivals: r.arrivals, byEngine: Object.fromEntries(Object.entries(r.byEngine).map(([e, n]) => [world.sim.nameOf(Number(e)) || e, n])), longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}), ...(world.economy.dispatcher ? { dispatcher: { decisions: world.economy.dispatcher.decisions, grants: world.economy.dispatcher.grants, detours: world.economy.dispatcher.detours, heldBlocked: world.economy.dispatcher.heldBlocked, heldOrder: world.economy.dispatcher.heldOrder, notes: world.economy.dispatcher.notes, perTrain: Object.fromEntries(world.economy.dispatcher.perTrain), offWay: world.economy.dispatcher.offWay, givenBack: world.economy.dispatcher.givenBack, offNotes: world.economy.dispatcher.offNotes } } : {}) };
       (globalThis as { process?: { stdout: { write(s: string): void } } }).process?.stdout.write(`\nJAMS ${JSON.stringify(line)}\n`);
     }, 3_600_000);
   }

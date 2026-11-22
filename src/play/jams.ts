@@ -50,20 +50,66 @@ export interface JamsHooks {
   jam?(now: number, engine: number, since: number): void;
 }
 
-/** Run `world` for `seconds` with the player's clearing (`JAM_S`, `BACK_S`). */
-export function runJams(world: World, seconds: number, hooks: JamsHooks = {}): JamsRun {
+/** The most a seeded run holds a train back at the start (s): `startsOf`. */
+export const STAGGER_S = 10;
+
+/**
+ * A seeded run's start (seed 1: none, the map as saved): each routed train set going a few seconds late, as a player
+ * sets them going one by one, 0 to `STAGGER_S` − 1 s, by the seed and the train. The bar's dice: the sim itself draws
+ * none, so it's what makes seeds' runs differ (`npm run jams -- --seeds 3`).
+ */
+export function startsOf(engines: readonly number[], seed: number): Map<number, number> {
+  const out = new Map<number, number>();
+  if (seed <= 1) return out;
+  for (const e of engines) {
+    let h = (Math.imul(seed, 0x9e3779b1) ^ Math.imul(e + 1, 0x85ebca6b)) >>> 0;
+    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
+    h = (h ^ (h >>> 13)) >>> 0;
+    out.set(e, h % STAGGER_S);
+  }
+  return out;
+}
+
+/** Run `world` for `seconds` with the player's clearing (`JAM_S`, `BACK_S`); `seed` staggers its start (`startsOf`). */
+export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, seed = 1): JamsRun {
   const { sim, economy } = world;
+  // (Seeded: its routed trains' levers off, each on again at its start.)
+  const starts = startsOf([...economy.lineIdOf.keys()], seed);
+  const levers = new Map<number, -1 | 0 | 1>();
+  for (const [e, at] of starts) {
+    if (at <= 0) continue;
+    const t = sim.findCar(e)?.train;
+    if (!t) continue;
+    for (const c of t.cars)
+      if (c.kind === "engine" && c.lever !== 0) {
+        levers.set(c.id, c.lever);
+        sim.setLever(c.id, 0);
+      }
+  }
   const pending: { at: number; kinds: CarKind[]; piece: number; lineId: number; stops: RouteStopDef[] }[] = [];
   const stuckSince = new Map<number, number>();
   const lastStuck = new Map<number, number>();
   const log: JamsRun["log"] = [];
   const r = replayBugMap(world, {
+    seed,
     seconds,
     stopAtFirst: false,
     onTick: () => {
       hooks.tick?.();
       if (sim.ticks % 120) return;
       const now = Math.round(sim.ticks / 120);
+      if (levers.size > 0)
+        for (const [e, at] of starts) {
+          if (at !== now) continue;
+          const t = sim.findCar(e)?.train;
+          for (const c of t?.cars ?? []) {
+            const l = levers.get(c.id);
+            if (l !== undefined) {
+              sim.setLever(c.id, l);
+              levers.delete(c.id);
+            }
+          }
+        }
       hooks.second?.(now);
       // (Put back, where there's room: at its line's first stop, on its line, set going.)
       for (let k = pending.length - 1; k >= 0; k--) {
