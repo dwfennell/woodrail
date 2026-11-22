@@ -8,7 +8,7 @@ import type { PieceDef } from "../track";
  * anything wanted before it's in. Tests load it in their setup (`src/test-setup.ts`).
  */
 export interface Carver {
-  buildPieceGeometry(def: PieceDef, levels?: number, floors?: readonly number[] | null): BufferGeometry;
+  buildPieceGeometry(def: PieceDef, levels?: number, floors?: readonly number[] | null, swappedEnds?: number): BufferGeometry;
 }
 
 let carver: Carver | null = null;

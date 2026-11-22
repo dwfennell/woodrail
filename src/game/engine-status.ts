@@ -599,6 +599,11 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
     case "turning-back":
       // (Running back, it's no longer where the track ends: "back there".)
       if (s.cause === "open-end") return s.done ? "Turned back: the track ends back there" : "Turning back: the track ends here";
+      // (Its line ends at this stop, though the track runs on: the way to its next stop is back the way it came.)
+      if (s.cause === "stop") {
+        const d = economy.depotAtPiece(s.pieceId);
+        return d ? `Turning back: the line ends at ${nameOf(d.id)}` : "Turning back at the end of the line";
+      }
       // (A train on no line among a managed line's trains (one taken off it, say): that line's end is none of its, so
       // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
       return !economy.lineIdOf.has(engineCarId) && economy.sections.managing(engineCarId) ? "Turning back: the track ends here" : "Turning back at the end of the line";

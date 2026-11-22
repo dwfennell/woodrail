@@ -1626,6 +1626,25 @@ export class DepotView {
     }
     // The goods chains' own buildings and crops, drawn from code (no catalogue model is one), beside their dressing.
     const chain = this.chainYard(site.depot.role, place, b);
+    // Fixed yard equipment stands beyond the loading pallets with either the model or its stand-in.
+    if (site.depot.role === "dairy") {
+      const churn = [[0, 0], [5.8, 0], [6.2, 2], [6.2, 12], [3.8, 15], [3.8, 17], [4.5, 17.5], [4.5, 19], [0, 19]];
+      for (const t of [126, 141]) {
+        b.add(mats.nickel, place(new LatheGeometry(churn.map(([r, y]) => new Vector2(r, y)), 16), t, 54, PAD_H));
+        b.add(mats.lacquer("#31587d"), place(new CylinderGeometry(6.4, 6.4, 2.6, 16), t, 54, PAD_H + 8));
+      }
+    } else if (site.depot.role === "bakery") {
+      const brick = mats.lacquer("#a8583e");
+      b.add(brick, place(new RoundedBoxGeometry(15, 42, 14, 1, 1), 186, 100, PAD_H + 21));
+      b.add(brick, place(new RoundedBoxGeometry(18, 4, 17, 1, 0.7), 186, 100, PAD_H + 42));
+      b.add(mats.coal, place(new BoxGeometry(10, 0.6, 9), 186, 100, PAD_H + 44));
+    } else if (site.depot.role === "juicer") {
+      b.add(mats.lacquer("#9c583a"), place(new CylinderGeometry(8, 7, 11, 16), 119, 52, PAD_H + 6));
+      for (const t of [109, 129]) b.add(mats.naturalWood, place(new BoxGeometry(3, 23, 4), t, 52, PAD_H + 12));
+      b.add(mats.naturalWood, place(new BoxGeometry(24, 4, 6), 119, 52, PAD_H + 23));
+      b.add(mats.magnet, place(new CylinderGeometry(1.8, 1.8, 18, 12), 119, 52, PAD_H + 21));
+      b.add(mats.lacquer("#a44333"), place(new BoxGeometry(14, 2.8, 3), 119, 52, PAD_H + 30));
+    }
     const dressing = CATALOGUE_DRESSING[site.depot.role];
     if (dressing) {
       // The catalogue's models once they're all loaded (one of them missing: the stand-ins, drawn whole).
@@ -1955,8 +1974,7 @@ export class DepotView {
     const [wall, roof] = role === "dairy" ? ["#f6f3ec", "#c8442f"] : ["#efd9a7", "#7a4a2a"];
     b.add(mats.lacquer(wall), place(new RoundedBoxGeometry(56, 30, 36, 2, 3), 158, 88, PAD_H + 15));
     b.add(mats.lacquer(roof), place(new RoundedBoxGeometry(62, 5, 42, 1, 2), 158, 88, PAD_H + 32));
-    if (role === "bakery") b.add(mats.lacquer("#9a4f3a"), place(new CylinderGeometry(3.5, 4, 18, 10), 174, 100, PAD_H + 40));
-    else for (const t of [110, 128]) b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(22, 12, 10, 2, 3), t, 92, PAD_H + 8));
+    if (role === "dairy") for (const t of [110, 128]) b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(22, 12, 10, 2, 3), t, 92, PAD_H + 8));
   }
 
   private buildCrane(pose: SitePose, c: CraneSpec): CraneParts {

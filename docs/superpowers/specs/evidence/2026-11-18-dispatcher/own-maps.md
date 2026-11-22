@@ -29,7 +29,7 @@ Longest: the longest a lever-on train stood not busy (s).
 | 08 main line with a branch and a shuttle | 4 / 3 | 7 · 98 · 60 · – | **24 · 51** · 111 · – |
 | 09 user's pattern: ramps, bridges over a line, short loops, signals every joint | 5 / 4 | 35 · 122 · 127 · greenHeld | 19 · **102 · 536** · – |
 | 10 forest → sawmill → workshop, two 2-track yards | 4 / 2 | 4 · 95 · 89 · – | **21 · 30 · 1024 · oneOwner** |
-| 11 one-way ring, overtaking loop, two-way branch | 4 / 2 | 11 · 191 · 155 · – | 3 · **5 · 1740 · deadlock** |
+| 11 one-way ring, overtaking loop, two-way branch | 4 / 2 | 10 · 214 · 219 · – | **28 · 108** · 175 · – (on 8d3bdc8, see below) |
 | 12 big mix: ring, bridge branch to a terminus, branch under it to a 2-track mill | 9 / 5 | 33 · 59 · 298 · greenHeld | 7 · **11 · 1799 · deadlock** |
 
 Main's greenHeld breaks (03, 09, 12) are the same kind the user's complex-3 and rowan-2 pin. Main's numbers repeat
@@ -58,8 +58,15 @@ exactly run to run.
    fewer stops and a train standing 9 min: closest to break-even of the hard maps.
 10. **Depot yards.** Two-track yards under one crane, joined by Splits. Easy for main (4 jams). Under the dispatcher,
     two trains end up on the same points (oneOwner on piece 92, one of the yard's Splits) and stops drop by two thirds.
-11. **One-way signals.** A one-way ring, a loop to overtake on and a two-way branch. Main is good (191 stops, the
-    most of any map). The dispatcher deadlocks almost at once (5 stops).
+11. **One-way signals.** A one-way ring, a loop to overtake on and a two-way branch. Main is good (214 stops, the
+    most of any map). The dispatcher jams almost 3× as often, with half the stops.
+
+    *Fixed 2026-11-22* (found by the dispatcher session): one train, Round two, was put down facing against the
+    ring's one-way signals, so it could never come round and met Round three head on whatever ran the trains. The
+    builder now turns round a train put down facing a way one-way signals bar (`Build.againstAhead`, checked for
+    every train of every map in own-maps.test.ts; Round two was the only one). The numbers above are the fixed
+    map's: main 10 · 214 · 219 (three runs, identical; was 11 · 191 · 155), the dispatcher on main at 8d3bdc8
+    28 · 108 · 175 (was 3 · 5 · 1740 and a deadlock, on the broken map and the dispatcher of 19cf3f8).
 12. **Big mix.** Nine trains, five lines, every feature above. Main 33 jams and 59 stops. The dispatcher deadlocks
     (11 stops).
 
@@ -67,15 +74,16 @@ exactly run to run.
 
 Worse on 11 of 12 by the bar's rule (more jams, fewer stops, or a break). On 02 it's within one stop.
 
-- **It holds rather than jams (04, 05, 06, 11, 12; 03 and 10 in part).** Its own counters over a 300 s run:
-  `heldBlocked` is 1,867 of 1,933 decisions on 03, 501/696 on 04, 840/948 on 05, 1,827/1,850 on 11 and 9,376/9,510
-  on 12. Trains held at their grant never count as stuck, so the jam count *falls* while stops collapse. **The jams
+- **It holds rather than jams (04, 05, 06, 12; 03 and 10 in part; 11 before its fix).** Its own counters over a 300 s run:
+  `heldBlocked` is 1,867 of 1,933 decisions on 03, 501/696 on 04, 840/948 on 05, 1,827/1,850 on 11 (the map as it was,
+  with a train facing against its one-way signals: see 11 above) and 9,376/9,510 on 12. Trains held at their grant never count as stuck, so the jam count *falls* while stops collapse. **The jams
   count alone would read these maps as better.** Stops and longest stand are what catch it.
 - **04, 05, 06 (head-on meetings with a passing place or crossover between them):** many grants handed back
   (`givenBack` 173 on 04, 90 on 05). It looks like it grants a way, finds it blocked by the other train's, gives it
   back, and both end up waiting for each other.
-- **11:** one-way signals. Only 23 grants in 1,850 decisions; it seems to treat the one-way ring's blocks as unenterable. A guess:
-  one-way signals aren't in its model of which way a block may be run.
+- **11:** my earlier guess (one-way signals not in its model) was wrong: the deadlock was the map's own fault, a train
+  put down facing against the ring's one-way signals (fixed, see 11 above). On the fixed map it runs, with more jams
+  than main.
 - **10:** it let two trains onto one of the yard's Splits (oneOwner). The depot's second track and its Split are a
   topology it may not book as points.
 - **01, 07, 08 (single lines, loops shorter or shared):** it keeps moving but jams 2–6× as often as main. I can't

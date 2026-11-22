@@ -535,7 +535,7 @@ export class LandscapeView {
       const g = new Group();
       g.add(buildFeltTiles(grids, [[SURF_RIVER, SURF_SEA]], this.mats.riverFelt, () => 1.6, this.feltTiles.river));
       // The sand runs on under the water (sea and rivers), so no grass shows between the beach's rounded edge and the
-      // water's. (Under a river inland it has the river's own outline: hidden.)
+      // water's. A narrow lip shows the cut edge of its backing along the bank.
       g.add(buildFeltTiles(grids, [[SURF_SAND, SURF_SEA, SURF_RIVER]], this.mats.sandFelt, () => 0.8, this.feltTiles.sand));
       return g;
     }

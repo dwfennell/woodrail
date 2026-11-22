@@ -158,7 +158,8 @@ export function trainKey(train: Train): number {
  * Why a train last turned back: a buffer, or track that just stops (an open end). Trains turn round only at the end of
  * the track (routing spec §16 Q3): one in another's way waits for it, however long (see `heldBy`).
  */
-export type TurnCause = "buffer" | "open-end";
+/** Why it turned back: a buffer, track that just stops, or its line ending at a stop on through track (`turnBackHere`). */
+export type TurnCause = "buffer" | "open-end" | "stop";
 
 /**
  * A train turned round, as told to `Sim.onTurn` (tests and dev checks: the `midTurn` invariant). `how`: at the end of
@@ -654,6 +655,22 @@ export class Sim {
     found.train.leverTick = this.ticks;
     // Whoever set the lever has decided where the train goes: a pending turnback no longer applies.
     found.train.turnback = -1;
+    return true;
+  }
+
+  /**
+   * Turn a standing routed train back where it stands, its line ending at the stop it's at though the track runs on
+   * (economy `turnAtLineEnds`): it waits `TURNBACK_TICKS`, as at a buffer, then turns round (a line-end turn). False
+   * (nothing done) if it's moving, derailed, riding a deck, or turning back already. `pieceId`: the stop's piece (for
+   * its card: where the line ends).
+   */
+  turnBackHere(trainId: number, pieceId: number): boolean {
+    const t = this.byId.get(trainId);
+    if (!t || t.derailed || t.speed >= 1 || t.turnback >= 0 || t.bogies.length === 0) return false;
+    if (this.rides.size > 0 && this.riding(t)) return false;
+    t.speed = 0;
+    t.turnback = TURNBACK_TICKS;
+    t.lastTurn = { cause: "stop", pieceId, tick: this.ticks };
     return true;
   }
 

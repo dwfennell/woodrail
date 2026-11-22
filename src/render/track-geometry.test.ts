@@ -70,6 +70,17 @@ describe("buildPieceGeometry", () => {
     }
   });
 
+  it("the straight ramp support meets the deck along its eased climb", () => {
+    const def = getPieceDef("ramp", false);
+    const mesh = new Mesh(buildPieceGeometry(def), new MeshBasicMaterial());
+    const sample = createSample();
+    for (const fraction of [0.25, 0.75, 0.85]) {
+      samplePath(def.paths[0].geom, fraction * RAMP_LENGTH, sample);
+      const ray = new Raycaster(new Vector3(sample.x, sample.y - 1, -100), new Vector3(0, 0, 1));
+      expect(ray.intersectObject(mesh).length, `support at ${fraction}`).toBeGreaterThan(0);
+    }
+  });
+
   it("a curved ramp stands on its own support as the straight one does, following the curve (user: it floated)", () => {
     for (const type of ["ramp-curve", "ramp-curve-small", "ramp-curve-wide"] as const) {
       for (const levels of [0, 1]) {
@@ -114,33 +125,54 @@ describe("buildPieceGeometry", () => {
     expect(topHeightAt(m, 70, -13)).toBeCloseTo(TRACK_THICKNESS - GROOVE_DEPTH, 1);
   });
 
-  it("carves a keyhole at every end, peg or hole: which end of a joint holds the peg is the layout's to say", () => {
-    const m = meshOf("straight-144");
-    for (const x of [14, 144 - 14]) {
-      const inHole = topHeightAt(m, x, 0);
-      expect(inHole === null || inHole < 1, `x ${x}`).toBe(true);
+  it("only the receiving end is cut, including when the layout swaps the ends", () => {
+    const def = getPieceDef("straight-144", false);
+    for (const swapped of [0, 3]) {
+      const m = new Mesh(buildPieceGeometry(def, 0, null, swapped), new MeshBasicMaterial());
+      expect(topHeightAt(m, swapped ? 144 - 14 : 14, 0)).toBeNull();
+      expect(topHeightAt(m, swapped ? 14 : 144 - 14, 0)).toBeCloseTo(TRACK_THICKNESS, 4);
     }
-    expect(new Box3().setFromObject(m).max.x).toBeCloseTo(144, 0);
   });
 
-  it("a lone piece has its pegs on: the peg end's hole plugged just below the surface, a lower peg reaching out", () => {
+  it("a lone piece has solid wood behind the projecting tongue", () => {
     const def = getPieceDef("straight-144", false);
     const m = new Mesh(withPegs(buildPieceGeometry(def), def), new MeshBasicMaterial());
-    const inSocket = topHeightAt(m, 14, 0);
-    expect(inSocket === null || inSocket < 1).toBe(true);
-    const plug = topHeightAt(m, 144 - 14, 0)!;
-    expect(plug).toBeLessThan(TRACK_THICKNESS);
-    expect(plug).toBeGreaterThan(TRACK_THICKNESS - 1);
+    expect(topHeightAt(m, 14, 0)).toBeNull();
+    expect(topHeightAt(m, 144 - 14, 0)).toBeCloseTo(TRACK_THICKNESS, 4);
     expect(topHeightAt(m, 144 + 14, 0)).toBeCloseTo(PEG_HEIGHT, 1);
   });
 
-  it("a peg, in its end's frame: the plug back into the piece, the peg out past the end face, centred across", () => {
-    const box = new Box3().setFromObject(new Mesh(buildPegGeometry(), new MeshBasicMaterial()));
-    expect(box.min.x).toBeLessThan(-20);
+  it("a joint has a shallow seam across the board while its wheel groove floor stays level", () => {
+    const m = meshOf("straight-144");
+    expect(topHeightAt(m, 0.25, 7)).toBeCloseTo(TRACK_THICKNESS - 0.6, 1);
+    expect(topHeightAt(m, 0.25, 13)).toBeCloseTo(TRACK_THICKNESS - GROOVE_DEPTH, 1);
+  });
+
+  it("only the receiving end has a recess on straight and curved pieces, including flipped ramps and bridges", () => {
+    for (const type of ["ramp", "ramp-curve-small", "ramp-curve", "ramp-curve-wide", "bridge", "bridge-curve", "curve-large", "straight-144", "viaduct"] as const) {
+      for (const flipped of [false, true]) {
+        const def = getPieceDef(type, flipped);
+        const path = def.paths[0];
+        const mesh = new Mesh(buildPieceGeometry(def, type.includes("bridge") || type === "viaduct" ? 1 : 0), new MeshBasicMaterial());
+        for (const [i, end] of def.connectors.entries()) {
+          const sample = samplePath(path.geom, i === path.from ? 14 : pathLength(path.geom) - 14, createSample());
+          const height = topHeightAt(mesh, sample.x, sample.z) ?? -Infinity;
+          if (end.kind === "peg") expect(height, `${type} flipped=${flipped} solid end ${i}`).toBeCloseTo(sample.y + TRACK_THICKNESS, 0);
+          else expect(height, `${type} flipped=${flipped} socket ${i}`).toBeLessThan(sample.y + TRACK_THICKNESS - 3);
+        }
+      }
+    }
+  }, 30_000);
+
+  it("the shared tongue extends only outward, flush at its neck and lower at its head", () => {
+    const m = new Mesh(buildPegGeometry(), new MeshBasicMaterial());
+    const box = new Box3().setFromObject(m);
+    expect(box.min.x).toBeCloseTo(0, 4);
     expect(box.max.x).toBeGreaterThan(15);
     expect(box.min.z).toBeCloseTo(-box.max.z, 1);
     expect(box.min.y).toBeCloseTo(0, 1);
-    expect(box.max.y).toBeLessThan(TRACK_THICKNESS);
+    expect(box.max.y).toBeCloseTo(TRACK_THICKNESS, 1);
+    expect(topHeightAt(m, 14, 0)).toBeCloseTo(PEG_HEIGHT, 1);
   });
 
   it("switch carries grooves for both routes", () => {

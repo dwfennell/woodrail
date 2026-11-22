@@ -19,6 +19,7 @@ import { rng } from "../../lib/rng";
 import { FEAT_TREE, forEachInPlot, PLOT_DEPTH, PLOT_WIDTH, treeSeed, type Landscape } from "../../landscape";
 import { byTile, setCullBox } from "./tiles";
 import type { Materials } from "../materials";
+import { mapBoardGrain } from "../wood-grain";
 import { nonIndexed } from "../non-indexed";
 
 export const MAX_LEAN = 0.05;
@@ -111,7 +112,7 @@ interface KindLook {
 }
 
 const LOOKS: Record<TreeKind, KindLook> = {
-  fir: { base: true, trunk: "wood", crown: "fir", palette: TREE_GREENS },
+  fir: { base: true, trunk: "wood", crown: "fir", palette: ["#347e53", "#386e50", "#548957", "#417958", "#578957"] },
   ball: { base: true, trunk: "wood", crown: "ball", palette: TREE_GREENS },
   discs: { base: true, trunk: "wood", crown: "discs", palette: TREE_GREENS },
   birch: { base: true, trunk: "birch", crown: "birch", palette: ["#9fd36a", "#b3dc78", "#8cc95e", "#a6d46f", "#c0e07f"] },
@@ -128,8 +129,8 @@ const BIRCH_MARK = "#2b2622";
 /** A turned fir: three tiers, each with a rounded lip, like a lathe-made toy tree. Base at y = 0. */
 function firCrown(segments: number): BufferGeometry {
   const p = [
-    [0, 0], [19, 0], [21, 1.5], [20, 4], [12, 16], [16.5, 16.5], [17.5, 18.5], [16, 20.5],
-    [9, 32], [12.5, 32.5], [13.5, 34.5], [12, 36.5], [2, 52], [0.8, 54], [0, 54.5],
+    [0, 0], [17.5, 0], [21, 1.7], [20.5, 4.5], [10, 17], [15.5, 17], [17, 19], [16, 21.5],
+    [7, 33], [11, 33], [12.8, 35], [12, 37], [3, 51], [1.5, 52.5], [0, 52.8],
   ].map(([x, y]) => new Vector2(x, y));
   return new LatheGeometry(p, segments);
 }
@@ -207,30 +208,30 @@ function birchTrunk(lowDetail: boolean): BufferGeometry {
   return g;
 }
 
-/** A weeping willow: a broad dome, and fronds draped over its shoulders hanging down nearly to the ground. */
+/** A carved willow canopy. Broad flutes end in a scalloped skirt around the trunk. */
 function willowCrown(segments: number, lowDetail: boolean): BufferGeometry {
   const lift = BASE_H + TRUNK_H - 20;
-  const p = [
-    [0, 18], [6, 19], [14, 13], [15.3, 12], [15.6, 14], [15.8, 20], [15.5, 26], [14, 31], [11, 35], [6, 38], [0, 39],
-  ].map(([x, y]) => new Vector2(x, y + lift));
-  const parts: BufferGeometry[] = [new LatheGeometry(p, segments)];
-  const fronds = lowDetail ? 9 : 16;
-  const tip = new Vector3();
-  for (let i = 0; i < fronds; i++) {
-    const a = (i / fronds) * Math.PI * 2 + 0.2;
-    // Each frond is a strand from the dome's shoulder slanting out past its rim; alternate ones hang lower.
-    const top = new Vector3(12.8, 33.5, 0);
-    tip.set(18.4, i % 2 ? 7 : 2, 0);
-    const len = top.distanceTo(tip);
-    const f = new CylinderGeometry(0.5, 1.8, len, lowDetail ? 4 : 5, 1, false);
-    f.rotateZ(Math.atan2(tip.x - top.x, top.y - tip.y));
-    f.translate((top.x + tip.x) / 2, lift + (top.y + tip.y) / 2, 0);
-    f.rotateY(-a);
-    parts.push(f);
+  const flutes = lowDetail ? 6 : 9;
+  const profile = [
+    [0, 12], [12, 10], [17, 6], [18, 8], [17.5, 16], [16, 24],
+    [14, 31], [10, 36], [5, 38.5], [0, 39],
+  ];
+  const g = new LatheGeometry(profile.map(([r, h]) => new Vector2(r, h)), Math.max(segments, flutes * (lowDetail ? 3 : 4)));
+  const pos = g.getAttribute("position");
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i), h = pos.getY(i);
+    const weight = Math.max(0, 1 - h / 36) * Math.min(1, Math.hypot(x, z) / 10);
+    const lobe = Math.cos(flutes * Math.atan2(x, z));
+    const radiusScale = 1 + 0.12 * weight * lobe;
+    pos.setXYZ(i, x * radiusScale, lift + h - 4 * weight * lobe, z * radiusScale);
   }
-  const g = mergeGeometries(parts)!;
-  parts.forEach((q) => q.dispose());
-  return g;
+  // Weld the revolution seam before shading the flutes. Detailed paint gets its grain below.
+  g.deleteAttribute("normal");
+  g.deleteAttribute("uv");
+  const carved = mergeVertices(g);
+  g.dispose();
+  carved.computeVertexNormals();
+  return carved;
 }
 
 /** A low bush: a cluster of balls sitting on the ground, no trunk. */
@@ -363,14 +364,25 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   const nBases = lowDetail ? 0 : count((l) => l.base);
   let bases: InstancedMesh | null = null;
   if (nBases) {
-    const base = shape(`base:${round}`, () => new CylinderGeometry(13, 14.5, BASE_H, round).translate(0, BASE_H / 2, 0));
+    // A low turned foot with a small bevel and a raised socket around the dowel.
+    const base = shape("turned-foot", () => mapBoardGrain(new LatheGeometry([
+      new Vector2(14.5, 0), new Vector2(14.5, 2),
+      new Vector2(12.8, BASE_H), new Vector2(6.8, BASE_H),
+      new Vector2(5.7, BASE_H + 1.4), new Vector2(2.6, BASE_H + 1.4),
+    ], 12)));
     bases = make(base, woodMat, nBases);
     bases.castShadow = false; // flat discs: their shadow would hide under them anyway
   }
   let trunks: InstancedMesh | null = null;
   const nTrunks = count((l) => l.trunk === "wood");
   if (nTrunks) {
-    const trunk = shape("trunk", () => new CylinderGeometry(4, 5, TRUNK_H, 8, 1, true).translate(0, BASE_H + TRUNK_H / 2, 0));
+    const trunk = shape("trunk", () => {
+      const g = new CylinderGeometry(4, 5, TRUNK_H, 8, 1, true);
+      // Grain runs up the dowel. Keep its seam at the back of the cylinder.
+      const uv = g.getAttribute("uv");
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getY(i) * TRUNK_H, uv.getX(i) * Math.PI * 9);
+      return g.translate(0, BASE_H + TRUNK_H / 2, 0);
+    });
     trunks = make(trunk, woodMat, nTrunks);
   }
   let birchTrunks: InstancedMesh | null = null;
@@ -380,7 +392,13 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   const nApples = count((l) => !!l.apples);
   if (nApples) appleMesh = make(shape(`apples:${lowDetail}`, () => apples(lowDetail)), crownMat, nApples);
   const crowns = new Map<CrownId, InstancedMesh>();
-  for (const id of new Set(looks.map((l) => l.crown))) crowns.set(id, make(shape(`${id}:${round}:${lowDetail}`, () => crownGeometry(id, round, lowDetail)), crownMat, count((l) => l.crown === id)));
+  for (const id of new Set(looks.map((l) => l.crown))) {
+    const geometry = shape(`${id}:${round}:${lowDetail}`, () => {
+      const crown = crownGeometry(id, round, lowDetail);
+      return lowDetail || id === "rock" ? crown : mapBoardGrain(crown);
+    });
+    crowns.set(id, make(geometry, crownMat, count((l) => l.crown === id)));
+  }
 
   const c = new Color();
   const used = new Map<InstancedMesh, number>();

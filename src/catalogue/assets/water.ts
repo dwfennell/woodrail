@@ -149,10 +149,17 @@ function bargeLoad(k: Kit, load: BargeLoad): Object3D | null {
       }
       return g;
     }
-    case "stone":
+    case "stone": {
+      const blocks = new Group();
+      for (const [x, z, length, turn] of [[-22, -6, 17, 0.04], [-21, 6, 18, -0.05], [0, -6, 21, -0.03], [0, 6, 19, 0.06], [21, -5, 17, -0.06], [21, 6, 16, 0.03]]) {
+        blocks.add(k.box(k.paint(ROCK), length, 8, 10, 1.5, x, HOLD, z).rotateY(turn));
+      }
+      blocks.add(k.box(k.paint(ROCK), 23, 6, 11, 1.3, -6, HOLD + 8, 0).rotateY(0.08));
+      return blocks;
+    }
     case "ore": {
       const g = new Group();
-      const mat = k.paint(load === "ore" ? ORE : ROCK);
+      const mat = k.paint(ORE);
       const rocks: [number, number, number][] = [
         [-24, -7, 6],
         [-22, 7, 5],

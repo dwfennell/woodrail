@@ -77,11 +77,15 @@ def running_gear(L, inset, mid=False):
             hub = [(1.9, 0), (1.9, 1.0), (1.3, 1.9), (0.0, 2.2)]
             if s < 0:
                 hub = [(rr, -h) for rr, h in reversed(hub)]
-            lathe("metal", hub, (x, y + s * (hw - 0.6), AXLE_Z), "Y", 14)
+            lathe("nickel", hub, (x, y + s * (hw - 0.6), AXLE_Z), "Y", 14)
             i += 1
     for s in (-1, 1):
         box("wood", (8, 6, 4), (s * (L / 2 - 6), 0, DECK), r=0.8)
-        lathe("metal", [(0.0, -2), (4.4, -2), (5, -1.4), (5, 1.4), (4.4, 2), (0.0, 2)], (s * (L / 2 - 2), 0, DECK), "X", 24)
+        # Neck set into the beam, rolled rim, flat contact face halfway across the 2 mm coupling gap.
+        magnet = [(2.2, -4.5), (2.2, -2.7), (4.4, -2.7), (5, -2.1), (5, 0.25), (4.5, 1)]
+        if s < 0:
+            magnet = [(rr, -h) for rr, h in reversed(magnet)]
+        lathe("nickel", magnet, (s * L / 2, 0, DECK), "X", 28)
 
 
 def window_frame(color, x, y, z, w, h):
