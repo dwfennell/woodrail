@@ -1,4 +1,4 @@
-import { BackSide, Box3, Color, GreaterDepth, Group, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3, type Object3D } from "three";
+import { BackSide, Box3, Color, GreaterDepth, Group, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3, type BufferGeometry, type Object3D } from "three";
 import { CAR_BY_INDEX, type CarLook, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 import { OUTLINE_TONES } from "./track-view";
@@ -288,25 +288,31 @@ export class TrainView {
    * a hopper's coal get none: their rims would lie over the body beside them.
    */
   private makeShells(root: Object3D): Mesh[] {
-    const parts: { part: Mesh; size: Vector3; centre: Vector3; scale: Vector3 }[] = [];
-    root.traverse((o) => {
-      const part = o as Mesh;
-      if (!part.isMesh || NamePlates.isPlate(part)) return;
-      // A hopper's modelled coal is a load, not the car's shape (and its lumps' rims would only speckle it).
-      for (let p: Object3D | null = part; p && p !== root; p = p.parent) if (p.name.startsWith("coal")) return;
-      const g = part.geometry;
+    // (`at`: a part kept apart from the mesh it was merged into, its geometry and place in that mesh: a Blender car's
+    // lacquer colours, see `mergeBlenderCar`.)
+    const parts: { part: Mesh; geometry: BufferGeometry; at: Matrix4 | null; size: Vector3; centre: Vector3; scale: Vector3 }[] = [];
+    const add = (part: Mesh, g: BufferGeometry, at: Matrix4 | null, scale: Vector3) => {
       if (!g.boundingBox) g.computeBoundingBox();
       const box = g.boundingBox ?? new Box3();
+      parts.push({ part, geometry: g, at, size: box.getSize(new Vector3()), centre: box.getCenter(new Vector3()), scale });
+    };
+    root.traverse((o) => {
+      const part = o as Mesh;
+      if (!part.isMesh || NamePlates.isPlate(part) || part.userData.shadowProxy) return;
+      // A hopper's modelled coal is a load, not the car's shape (and its lumps' rims would only speckle it).
+      for (let p: Object3D | null = part; p && p !== root; p = p.parent) if (p.name.startsWith("coal")) return;
       // The part's own scale (up to the car), so its size is in mm and the rim is as wide on a stretched part.
       const scale = new Vector3(1, 1, 1);
       for (let p: Object3D | null = part; p && p !== root; p = p.parent) scale.multiply(p.scale);
-      parts.push({ part, size: box.getSize(new Vector3()), centre: box.getCenter(new Vector3()), scale });
+      const kept = part.userData.shellParts as { geometry: BufferGeometry; matrix: Matrix4 }[] | undefined;
+      if (kept) for (const k of kept) add(part, k.geometry, k.matrix, scale.clone().multiply(new Vector3().setFromMatrixScale(k.matrix)));
+      else add(part, part.geometry, null, scale);
     });
     const span = (q: (typeof parts)[number]) => Math.max(q.size.x * Math.abs(q.scale.x), q.size.y * Math.abs(q.scale.y), q.size.z * Math.abs(q.scale.z));
     const longest = Math.max(0, ...parts.map(span));
     return parts
       .filter((q) => span(q) >= SHELL_PART * longest)
-      .flatMap(({ part, size, centre, scale }) =>
+      .flatMap(({ part, geometry, at, size, centre, scale }) =>
         // The light rim, and the faint dark ring inside it (drawn after, over the rim's inside edge): each sized for
         // the rest of a selected train, and for the selected car (see `showShells`).
         [
@@ -315,12 +321,12 @@ export class TrainView {
         ].map(([by, byCar], i) => {
           const sized = (by: number) => {
             const grow = (n: number, s: number) => (n > 1e-6 ? (n + (2 * by) / Math.abs(s || 1)) / n : 1);
-            return new Matrix4()
+            return (at ? at.clone() : new Matrix4())
               .makeTranslation(centre.x, centre.y, centre.z)
               .multiply(new Matrix4().makeScale(grow(size.x, scale.x), grow(size.y, scale.y), grow(size.z, scale.z)))
               .multiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
           };
-          const shell = new Mesh(part.geometry, this.shellTrain);
+          const shell = new Mesh(geometry, this.shellTrain);
           shell.matrixAutoUpdate = false;
           shell.userData.trainMatrix = sized(by);
           shell.userData.carMatrix = sized(byCar);
@@ -343,7 +349,7 @@ export class TrainView {
     const parts: Mesh[] = [];
     root.traverse((o) => {
       const part = o as Mesh;
-      if (part.isMesh && !NamePlates.isPlate(part) && !part.userData.trainMatrix && !part.userData.ghost) parts.push(part);
+      if (part.isMesh && !NamePlates.isPlate(part) && !part.userData.trainMatrix && !part.userData.ghost && !part.userData.shadowProxy) parts.push(part);
     });
     return parts.map((part) => {
       const g = new Mesh(part.geometry, this.ghost);

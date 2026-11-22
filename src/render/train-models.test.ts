@@ -1,4 +1,5 @@
 import { Box3, Color, Group, MeshStandardMaterial, Vector3, type Mesh, type Object3D } from "three";
+import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
 import { describe, expect, it } from "vitest";
 import { CAR_SPECS, COUPLER_GAP } from "../sim";
 import { loadBlenderModels } from "./blender-models";
@@ -128,5 +129,75 @@ describe("the Kit-built cars", () => {
     // The rope and hook turn with the turret.
     const turret = model.root.getObjectByName(CRANE_TURRET)!;
     expect(turret.getObjectByName(CRANE_HOOK)).toBeTruthy();
+  });
+});
+
+describe("the Blender-built cars", () => {
+  /** The stand-ins, lacquer marked as paint (as the game's are), each the same every time it's read. */
+  function stableMaterials(): Materials {
+    const made = new Map<string, MeshStandardMaterial>();
+    const m = (key: string) => {
+      let x = made.get(key);
+      if (!x) made.set(key, (x = new MeshStandardMaterial({ vertexColors: key === "paint" })));
+      return x;
+    };
+    const lacquer = (c: string) => {
+      const x = m(`lacquer ${c}`);
+      x.color.set(c);
+      x.userData.paintColor = c;
+      return x;
+    };
+    return new Proxy({ lacquer } as unknown as Materials, { get: (t, k) => (k in t ? t[k as keyof Materials] : m(String(k))) });
+  }
+  const casting = (o: Object3D) => {
+    const out: Mesh[] = [];
+    o.traverse((x) => (x as Mesh).isMesh && (x as Mesh).castShadow && out.push(x as Mesh));
+    return out;
+  };
+
+  it("draw their body's lacquer colours as one paint mesh, in the same place, and cast one shadow stand-in", async () => {
+    await loadBlenderModels();
+    const mats = stableMaterials();
+    for (const look of ["electric", "classic", "express"] as const) {
+      const model = buildCarModel("engine", mats, 0, look);
+      const paint = model.root.getObjectByName("paint") as Mesh;
+      expect(paint.material, look).toBe(mats.paint);
+      // (Every lacquer colour of the body in it, none left apart but the wheels'.)
+      model.root.traverse((x) => {
+        const mesh = x as Mesh;
+        if (!mesh.isMesh || mesh === paint || !(mesh.material as MeshStandardMaterial).userData?.paintColor) return;
+        expect(model.wheels.some((w) => w === mesh || w.getObjectById(mesh.id)), `${look} ${mesh.name}`).toBe(true);
+      });
+      // Where the parts were: the car's own size, centred on its axles (not its quantized model's numbers).
+      paint.geometry.computeBoundingBox();
+      const box = paint.geometry.boundingBox!;
+      expect(box.max.x - box.min.x, look).toBeLessThan(CAR_SPECS.engine.length + 20);
+      expect(Math.abs(box.min.x + box.max.x) / 2, look).toBeLessThan(15);
+      // One stand-in casts the car's shadow, on the shadow-only layer; nothing else does.
+      const casters = casting(model.root);
+      expect(casters.map((c) => c.name), look).toEqual(["shadow"]);
+      expect(casters[0].layers.mask, look).toBe(1 << SHADOW_PROXY_LAYER);
+      // The selection's rims are still made a colour at a time.
+      expect((paint.userData.shellParts as unknown[]).length, look).toBeGreaterThan(2);
+      disposeObject(model.root);
+    }
+  });
+
+  it("share the merged geometry between cars of the same colours, and free it with the last", async () => {
+    await loadBlenderModels();
+    const mats = stableMaterials();
+    const a = buildCarModel("passenger", mats);
+    const b = buildCarModel("passenger", mats);
+    const painted = buildCarModel("passenger", mats, 0, "classic", false, { body: "#123456", trim: "#abcdef" });
+    const paintOf = (m: typeof a) => (m.root.getObjectByName("paint") as Mesh).geometry;
+    expect(paintOf(b)).toBe(paintOf(a));
+    expect(paintOf(painted)).not.toBe(paintOf(a));
+    let freed = 0;
+    paintOf(a).addEventListener("dispose", () => freed++);
+    disposeObject(a.root);
+    expect(freed).toBe(0);
+    disposeObject(b.root);
+    expect(freed).toBe(1);
+    disposeObject(painted.root);
   });
 });

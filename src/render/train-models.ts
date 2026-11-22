@@ -1,4 +1,4 @@
-import { Box3, BoxGeometry, Color, CylinderGeometry, Group, Matrix4, Mesh, MeshStandardMaterial, type BufferGeometry, type Material, type Object3D } from "three";
+import { Box3, BoxGeometry, Color, CylinderGeometry, Group, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, type BufferGeometry, type InterleavedBufferAttribute, type Material, type Object3D } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { CarKind, CarLook } from "../sim";
 import { TRACK_THICKNESS } from "../track";
@@ -14,7 +14,10 @@ import { buildCarCarrier, carCarrierBogies } from "../catalogue/assets/car-carri
 import { buildCircusCage, circusCageBogies } from "../catalogue/assets/circus-cage";
 import { buildObservationCar, observationBogies } from "../catalogue/assets/observation-car";
 import { blenderCar } from "./blender-models";
-import { compact } from "./compact";
+import { compact, weld } from "./compact";
+import { floatVertices } from "./compact-vertices";
+import { nonIndexed } from "./non-indexed";
+import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
 import { Batcher } from "./dressing/batcher";
 import type { Materials } from "./materials";
 import { GROOVE_DEPTH } from "./track-geometry";
@@ -212,9 +215,110 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   }
   // (A lined or rainbow livery: its stripe painted along the body's sides.)
   if (kind === "engine" && livery?.stripes?.length) addStripes(model.root, mats, LIVERY_SLOTS[look] ? [mats.lacquer(livery.body)] : [], livery.stripes);
-  model.root.traverse((o) => (o.userData.carKind = kind));
   if (kind === "hopper" && !loaded) hideModelledLoad(model.root);
+  mergeBlenderCar(model.root, mats, `${kind}:${look}:${variant === 1 ? 1 : 0}:${JSON.stringify(recolor)}:${JSON.stringify(slots ?? {})}`);
+  model.root.traverse((o) => (o.userData.carKind = kind));
   return model;
+}
+
+/** A Blender car's merged paint and its shadow stand-in, shared by every car of the same model and colours. */
+interface BlenderCarMerge {
+  paint: BufferGeometry | null;
+  shadow: BufferGeometry | null;
+  copies: number;
+}
+const blenderCars = new WeakMap<Materials, Map<string, BlenderCarMerge>>();
+/** The shadow stand-ins' material (drawn only in the shadow pass, as depth: its colour is never seen). */
+const shadowOnly = new MeshBasicMaterial();
+
+/**
+ * A Blender car's draw calls cut down, its look the same. The model has one mesh per material, and each lacquer colour
+ * is a material of its own (the restyle's cars wear four to six), so a car drew 11 to 15 meshes, and the shadow pass
+ * each again. Here its body's lacquer colours become one mesh in the vertex-coloured `paint` (the same satin as
+ * lacquer: one draw call for every colour, as `mergeKitCar` does a Kit car's), and the whole car, wheels and lamp
+ * too, casts its shadow as one stand-in on the shadow-only layer (a turning wheel's shadow is the same disc). Wheels,
+ * the lamp, a livery's stripes and a hopper's modelled coal keep their own meshes. Built once per `key` (model and
+ * colours) and shared, freed with the last copy (`disposeObject`). A shell (the selection's rim, `TrainView`) is
+ * still made per colour part: the merged mesh keeps them as `userData.shellParts`.
+ */
+/**
+ * A copy of a model's geometry in plain float arrays, to move: its vertex data is quantized integers (scaled by their
+ * node) and interleaved, which `floatVertices` leaves as it is.
+ */
+function plainFloats(g: BufferGeometry): BufferGeometry {
+  const out = g.clone();
+  for (const [name, a] of Object.entries(out.attributes)) if ((a as InterleavedBufferAttribute).isInterleavedBufferAttribute) out.setAttribute(name, (a as InterleavedBufferAttribute).clone());
+  return floatVertices(out);
+}
+
+function mergeBlenderCar(root: Group, mats: Materials, key: string): void {
+  root.updateMatrixWorld(true);
+  const toLocal = root.matrixWorld.clone().invert();
+  const local = (m: Mesh) => new Matrix4().multiplyMatrices(toLocal, m.matrixWorld);
+  const underCoal = (o: Object3D) => {
+    for (let p: Object3D | null = o; p && p !== root; p = p.parent) if (p.name.startsWith("coal")) return true;
+    return false;
+  };
+  const lacquered: Mesh[] = [];
+  const casters: Mesh[] = [];
+  root.traverse((o) => {
+    const m = o as Mesh;
+    if (!m.isMesh || m.name === "livery-stripe" || underCoal(m)) return;
+    casters.push(m);
+    let moving = false;
+    for (let p: Object3D | null = m; p && p !== root; p = p.parent) if (p.name.startsWith("wheel_") || p.name.startsWith("lamp")) moving = true;
+    if (!moving && !Array.isArray(m.material) && m.material.userData.paintColor) lacquered.push(m);
+  });
+  let byKey = blenderCars.get(mats);
+  if (!byKey) blenderCars.set(mats, (byKey = new Map()));
+  let entry = byKey.get(key);
+  if (!entry) {
+    let paint: BufferGeometry | null = null;
+    if (lacquered.length > 1) {
+      const b = new Batcher(mats.paint);
+      for (const m of lacquered) b.add(m.material as Material, plainFloats(m.geometry).applyMatrix4(local(m)));
+      const g = b.merged().get(mats.paint);
+      paint = g ? compact(g) : null;
+    }
+    const parts = casters.map((m) => {
+      const g = nonIndexed(plainFloats(m.geometry));
+      for (const name of Object.keys(g.attributes)) if (name !== "position") g.deleteAttribute(name);
+      return g.applyMatrix4(local(m));
+    });
+    const merged = parts.length ? mergeGeometries(parts) : null;
+    for (const g of parts) g.dispose();
+    byKey.set(key, (entry = { paint, shadow: merged ? weld(merged) : null, copies: 0 }));
+  }
+  const of = entry;
+  of.copies++;
+  releases.set(root, () => {
+    if (--of.copies > 0 || byKey.get(key) !== of) return;
+    byKey.delete(key);
+    of.paint?.dispose();
+    of.shadow?.dispose();
+  });
+  if (of.paint) {
+    const mesh = new Mesh(of.paint, mats.paint);
+    mesh.name = "paint";
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    mesh.userData.sharedGeometry = true;
+    mesh.userData.shellParts = lacquered.map((m) => ({ geometry: m.geometry, matrix: local(m) }));
+    for (const m of lacquered) m.removeFromParent();
+    root.add(mesh);
+  }
+  if (of.shadow) {
+    for (const m of casters) m.castShadow = false;
+    const shadow = new Mesh(of.shadow, shadowOnly);
+    shadow.name = "shadow";
+    shadow.castShadow = true;
+    shadow.receiveShadow = false;
+    shadow.layers.set(SHADOW_PROXY_LAYER);
+    shadow.userData.sharedGeometry = true;
+    shadow.userData.shadowProxy = true;
+    shadow.raycast = () => {};
+    root.add(shadow);
+  }
 }
 
 /**
