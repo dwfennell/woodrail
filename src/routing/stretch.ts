@@ -762,6 +762,12 @@ export interface SearchOptions {
    * clear of points is a waiting point too (close following, a joint at a time). Absent: none.
    */
   oneWay?: Uint8Array;
+  /**
+   * A train at its goal counts as delivering only if its way on past it isn't head-on into another member (`headOnFrom`):
+   * else an order that moves a deadlock a stop on (the other reaching its stop, to meet this one again past it) scores
+   * as one that ends it (dandelion: Conker backed up for Dandelion, who then stood nose to nose with it).
+   */
+  headOnGoal?: boolean;
   /** Members tried first (fair turns: longest waiter first); default their order. */
   order?: number[];
 }
@@ -1011,9 +1017,22 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
     }
   };
   for (let k = 0; k < n; k++) place(k, cur[k], true);
+  // (Head-on past its goal, by where the two stand: cached, the same pair of nodes often met again.)
+  const headOn = new Map<number, boolean>();
+  const stuckPast = (k: number): boolean => {
+    for (let o = 0; o < n; o++) {
+      if (o === k || ts[o].fixed) continue;
+      const key = ((cur[k] * 1024 + cur[o]) * 16 + k) * 16 + o;
+      let h = headOn.get(key);
+      if (h === undefined) headOn.set(key, (h = headOnFrom(ts[k], cur[k], ts[o], cur[o])));
+      if (h) return true;
+    }
+    return false;
+  };
+  const headOnGoal = !!opts.headOnGoal;
   const count = () => {
     let c = 0;
-    for (let k = 0; k < n; k++) if (ts[k].order[cur[k]] >= goalOf[k]) c += wt[k];
+    for (let k = 0; k < n; k++) if (ts[k].order[cur[k]] >= goalOf[k] && !(headOnGoal && stuckPast(k))) c += wt[k];
     return c;
   };
   const table = statesFor(n, cap + 64);
@@ -1354,4 +1373,46 @@ export function judgeStretch(layout: Layout, snaps: readonly Snap[], key: number
     backUp = { value: b.value, by: b.backUp >= 0 ? trains[members[b.backUp]].key : -1 };
   }
   return { trains: members.length, value: r.value, of: r.of, plain: r.plain, states: r.states, capped: r.capped, ms: performance.now() - t0, keys: members.map((i) => trains[i].key), ...(backUp ? { backUp } : {}) };
+}
+
+/**
+ * Head-on past `t`'s stand at node `i` (at its goal): its way on from there (to its next stop after, or a turn) runs
+ * over where `o` stands at node `j`, `o`'s own way (to its goal, or a turn) runs back over `t` there the other way, and
+ * neither has another road (a loop's) before they meet. Its booked ways only: roads off them (the router's choice at
+ * points) aren't seen.
+ */
+export function headOnFrom(t: DTrain, i: number, o: DTrain, j: number): boolean {
+  const stand = new Set(o.pos[j]);
+  const ahead = t.arrivals.filter((a) => t.order[a] > t.order[i]);
+  const until = ahead.length > 0 ? ahead[0] : t.main - 1;
+  let meets = false;
+  for (let x = i, guard = 0; x >= 0 && guard < 400; guard++) {
+    if (x !== i && t.pos[x].some((p) => stand.has(p))) {
+      meets = true;
+      break;
+    }
+    if (x === until || (x !== i && t.turned[x])) break;
+    const s = t.succ[x];
+    if (s.length !== 1) return false;
+    x = s[0];
+  }
+  if (!meets) return false;
+  const here = new Set(t.pos[i]);
+  const end = o.goal >= 0 ? o.goal : o.main - 1;
+  for (let x = j, guard = 0; x >= 0 && guard < 400; guard++) {
+    if (x !== j && o.pos[x].some((p) => here.has(p))) {
+      // (The other way over it: its front onto that piece by another end than t's was.)
+      const fp = o.pos[x][o.pos[x].length - 1];
+      for (let y = i; y >= 0; y = t.prev[y]) {
+        if (t.pos[y][t.pos[y].length - 1] === fp) return t.frontEn[y] !== o.frontEn[x];
+        if (!t.pos[y].includes(fp)) break;
+      }
+      return true;
+    }
+    if (x === end || (x !== j && o.turned[x])) break;
+    const s = o.succ[x];
+    if (s.length !== 1) return false;
+    x = s[0];
+  }
+  return false;
 }
