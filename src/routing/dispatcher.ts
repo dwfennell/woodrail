@@ -31,6 +31,9 @@ import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, R
 /** §13.5 step 2, the dispatcher owning the points on its grants: on, unless OWNER=0 (for comparing runs). */
 export const OWNER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).OWNER !== "0" };
 
+/** The head-on-ahead check (§13.5 step 3, an experiment): off unless HEAD_AHEAD=1 (it holds both ends of a single line: first jams far sooner). */
+export const HEAD_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HEAD_AHEAD === "1" };
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -163,6 +166,11 @@ export class Dispatcher {
           // (At a signal the dispatcher itself shows red for it (standing short, `GATE_SHORT_S`): its own gate, not
           // the layout's.)
           if (why === "signal") for (const id of this.gate.values()) if (id === t.id) why = "own-gate";
+          // (Nothing the layout's: its own cap. Short of points on its way that don't lie for it yet ("unset"), or not.)
+          if (why === "other") {
+            const g = this.gapTo(t, h);
+            why = this.host.busy(t, engine.id) ? "busy" : h.points.some((q) => !this.liesFor(q.p, q.en, q.ex)) ? "unset" : g <= 30 ? "at-end" : g === Infinity ? "off-way" : "own-cap";
+          }
           this.overruled.set(why, (this.overruled.get(why) ?? 0) + LOOK_TICKS / 120);
         }
         // (Held short by the router at points it couldn't have (another train took them first): the grant back at once,
@@ -453,6 +461,43 @@ export class Dispatcher {
         }
       }
     }
+    // (Head-on ahead: from where the move ends, its way on (single road) runs, with no place to wait, to where another
+    // train's hold ends facing back along it (its own way on comes over this one there). Not granted: they'd meet on that
+    // single track with no way past (dandelion: Dandelion and Conker at either end of piece 426).)
+    let headBy = -1;
+    if (to >= 0 && OWNER.on && HEAD_AHEAD.on) {
+      const w = ways[k];
+      const mine = new Set(w.pos[to]);
+      const reach = new Set<number>();
+      // (To where its way branches (a loop: a place to pass), not to a place to wait: waiting on single track lets nobody
+      // by.)
+      for (let i = to, n = 0; i >= 0 && n < 120; n++) {
+        for (const p of w.pos[i]) reach.add(p);
+        if (i !== to && w.turned[i]) break;
+        const sc = w.succ[i];
+        if (sc.length !== 1) break;
+        i = sc[0];
+      }
+      for (const p of w.pos[to]) reach.delete(p);
+      if (reach.size > 0)
+        for (let m = 0; m < placed.length && headBy < 0; m++) {
+          const o = placed[m];
+          if (m === k || o.fixed) continue;
+          if (!o.pos[o.at].some((p) => reach.has(p))) continue;
+          // (Its way on, to its next wait, back over where this one would stand.)
+          for (let i = o.at, n = 0; i >= 0 && n < 120; n++) {
+            if (i !== o.at && o.pos[i].some((p) => mine.has(p))) {
+              headBy = o.key;
+              break;
+            }
+            if (i !== o.at && o.turned[i]) break;
+            const sc = o.succ[i];
+            if (sc.length !== 1) break;
+            i = sc[0];
+          }
+        }
+      if (headBy >= 0) to = -1;
+    }
     let noseBy = -1;
     // (Never to stand nose to nose: a move ending with its front against another lever-on train's front on the next piece
     // isn't granted (the sim keeps a gap there and holds it short: netActed; and two noses together is a head-on with
@@ -502,7 +547,7 @@ export class Dispatcher {
     pt[to < 0 ? 1 : 0]++;
     // (Who it waits for: the train in its move's way, or (its turn not yet) the one the best order lets go first.)
     const firstOther = r.order.find((m) => m.k !== 0);
-    h.waitsOn = to >= 0 ? -1 : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    h.waitsOn = to >= 0 ? -1 : headBy >= 0 ? headBy : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
