@@ -117,7 +117,11 @@ const grow = async (planks, level) => {
 const offer = async (cards) => {
   await p.evaluate((cards) => window.woodrail.progress().offers.push({ from: "Elderwick", level: 2, cards }), cards);
   await p.evaluate(() => window.woodrail.invalidate());
-  await p.waitForTimeout(500);
+  // (Pushed straight into the progress, not by a town growing: the badge shows on the game's next once-a-second
+  // refresh, so it's waited for. A fixed 500 ms lost that race, the badge's tap missed and every later card was taken
+  // from the offer before.)
+  await p.waitForFunction(() => { const b = document.querySelector(".reward-badge"); return !!b && !b.hidden && b.getBoundingClientRect().width > 0; }, null, { timeout: 10000, polling: 100 }).catch(() => {});
+  await p.waitForTimeout(200);
 };
 
 /** Larkfield's houses' storeys (issue #17: a town grows upward as it grows): their sum, and the tallest. */
