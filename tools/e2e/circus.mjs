@@ -175,7 +175,7 @@ if (!setup.error) {
   let opened = null;
   for (let k = 0; k < 60 && !opened; k++) {
     await p.evaluate(() => window.__run(2));
-    opened = await p.waitForFunction(() => window.woodrail.progress().circus, null, { timeout: 1500 }).then((h) => h.jsonValue(), () => null);
+    opened = await p.waitForFunction(() => window.woodrail.progress().circus, null, { timeout: 1500, polling: 200 }).then((h) => h.jsonValue(), () => null);
   }
   check("3. the circus train comes to a town: a show opens there", !!opened, JSON.stringify(opened));
   const top = await p.evaluate(() => [...window.woodrail.world.props.all()].find((x) => x.asset === "scene-big-top") ?? null);
