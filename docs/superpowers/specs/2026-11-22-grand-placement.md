@@ -92,6 +92,8 @@ Start doesn't pay at once. It enters a placement mode (the drag machinery of ste
 5. No room anywhere by the city: Start says so at once, as before ("No room by Rookhurst …"), and nothing opens.
 
 Nothing is drawn while the player isn't touching it: the bar is written when it opens, the draft is an ordinary prop.
+Pictures: `docs/agents/shots/grand-siting.jpg` (Start: the draft, the bar, the trees clear of its fence),
+`grand-siting-dragged.jpg` (dragged to another spot).
 
 Tests: `save.test.ts`, "leave out a grand project's site still being placed"; e2e:grand step 2 by touch: Start, the
 draft unpaid and unsaved, the bar (44 px, the tray hidden), ⟳, Cancel (nothing paid, the tray back), Start again, a
