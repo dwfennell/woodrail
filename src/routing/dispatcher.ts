@@ -42,6 +42,9 @@ const SINGLE_MAX = 400;
 /** `headOnAhead`'s ways, per booked way (its `pos`, shared by the copies `relocate` makes) and node. */
 const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>();
 
+/** A stuck train searches for a detour at most this often (s). */
+const DETOUR_EVERY_S = 6;
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -100,6 +103,11 @@ interface Hold {
   decided: number;
   /** Standing short of its hold's end since (tick; −1: not). */
   short: number;
+  /** When it last searched for a detour (tick). */
+  detourAt?: number;
+  /** `pathRefs`, and the holds' version it was worked out at. */
+  refs?: number[];
+  refsVer?: number;
   /** The train it waits for to clear a single line it's not granted onto (−1: none), for its card. */
   singleWait?: number;
 }
@@ -163,6 +171,12 @@ export class Dispatcher {
         changed = true;
       }
       const h = this.holdsBy.get(engine.id);
+      // (Its train's id, kept current: it changes (a turn, a coupling), and signals ask by it (`clearFor`). Stale, a
+      // granted train's signal fell back to the sim's own rule: red for good on own-07.)
+      if (h && h.trainId !== t.id) {
+        h.trainId = t.id;
+        this.holdVer++;
+      }
       if (!r || engine.lever === 0 || busy) {
         if (h) h.stood = -1;
         continue;
@@ -185,6 +199,21 @@ export class Dispatcher {
         }
         // (Held short by the router at points it couldn't have (another train took them first): the grant back at once,
         // waiting on that one. Its signal then shows red for it, as for any hold (user-2026-11-21: held at a green one).)
+        // (Or by the sim's own guard nose to nose with another train (its grant ran up against that one's front): the
+        // same, waiting on that one (user-2026-11-21 seed 3: held at a green signal by a train facing it beyond).)
+        if (OWNER.on && sim.heldHow(t.id) === "nose") {
+          const byId = sim.heldBy(t.id);
+          const bt = byId === null ? undefined : sim.getTrain(byId);
+          const be = bt?.cars.find((c) => c.kind === "engine");
+          if (be && be.id !== engine.id) {
+            this.setHold(h, h.t.at, []);
+            h.waitsOn = be.id;
+            this.givenBack++;
+            h.short = -1;
+            changed = true;
+            continue;
+          }
+        }
         if (OWNER.on && this.host.pointsWaitBy) {
           const by = this.host.pointsWaitBy(engine.id);
           if (by >= 0 && by !== engine.id) {
@@ -430,7 +459,10 @@ export class Dispatcher {
     let ways = placed;
     let to = -1;
     if (r.first[0] >= 0 && r.first[0] >= r.plain) to = r.firstTo[0];
-    else if (r.plain < r.of && h.stood >= 0 && this.host.sim.ticks - h.stood >= REROUTE_AFTER_S * 120 && r.states < DISPATCH_STATES) {
+    // (At most every `DETOUR_EVERY_S` a train: a stuck one asks again every `RETRY_TICKS`, and the detour search is the
+    // costliest part of a decision (rowan-1's p98).)
+    else if (r.plain < r.of && h.stood >= 0 && this.host.sim.ticks - h.stood >= REROUTE_AFTER_S * 120 && r.states < DISPATCH_STATES && this.host.sim.ticks - (h.detourAt ?? -Infinity) >= DETOUR_EVERY_S * 120) {
+      h.detourAt = this.host.sim.ticks;
       // (Stuck: with detours.)
       const dt = withDetours(this.host.layout, snaps, placed, members);
       if (dt) {
@@ -497,8 +529,28 @@ export class Dispatcher {
       const ref = w.frontRef[to];
       const nx = ref >= 0 ? next(this.host.layout, pieceOfRef(ref), indexOfRef(ref)) : null;
       if (nx) {
-        // (Another's hold ending with its front on that piece, facing back across the same joint.)
         const fp = w.pos[to][w.pos[to].length - 1];
+        // (A train's leading end on that piece, heading back across the same joint (standing there, or coming).)
+        const layout = this.host.layout;
+        const self = this.host.sim.findCar(engine)?.train;
+        for (const o of this.host.sim.trains()) {
+          if (o === self || o.derailed || noseBy >= 0) continue;
+          const net = this.host.drive(o);
+          const ends = net > 0 ? [o.bogies[0]] : net < 0 ? [o.bogies[o.bogies.length - 1]] : [];
+          for (const b of ends) {
+            if (b.pieceId !== nx.pieceId) continue;
+            const bp = layout.getPiece(b.pieceId);
+            if (!bp) continue;
+            const ex = pathExitConnector(getPieceDef(bp.type, bp.flipped), b.pathIndex, net > 0 ? b.reversed : !b.reversed);
+            if (ex >= 0 && next(layout, b.pieceId, ex)?.pieceId === fp) {
+              const oe = o.cars.find((c) => c.kind === "engine");
+              to = -1;
+              noseBy = (oe ?? o.cars[0]).id;
+              this.noseRefused++;
+            }
+          }
+        }
+        // (Another's hold ending with its front on that piece, facing back across the same joint.)
         for (const [key, o] of this.holdsBy) {
           if (key === engine) continue;
           const oe = o.t.pos[o.end];
@@ -600,6 +652,13 @@ export class Dispatcher {
       // (Ahead of its front piece: its run to the hold's end from its near end is no more than the front piece's beyond.)
       if (q.from <= rem + 1 && q.p !== c.pieceId && !this.liesFor(q.p, q.en, q.ex)) gap = Math.min(gap, len - c.s + rem - q.from);
     }
+    // (Held where it stands (no move granted), another train on the piece just beyond its front: it stops now, not at
+    // its front piece's end against that one (own-01: turned at its line's end, it ran on nose to nose: netActed).)
+    if (h.end === h.t.at && OWNER.on) {
+      const ref = h.t.frontRef[h.end];
+      const nx = ref >= 0 ? next(layout, pieceOfRef(ref), indexOfRef(ref)) : null;
+      if (nx) for (const o of this.host.sim.trains()) if (o !== train && o.bogies.some((b) => b.pieceId === nx.pieceId)) return 0;
+    }
     return gap - CAR_SPECS[lead.kind].bogieInset - STAND_SHORT;
   }
 
@@ -630,7 +689,9 @@ export class Dispatcher {
   steerHint(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined {
     const h = this.holdsBy.get(engine);
     // (Owning the points (§13.5 step 2): every grant over points steers, by the exits it grants, aimed at its end.)
-    if (OWNER.on && h && h.points.length > 0 && h.end !== h.t.at) {
+    // (Kept while it stands at its hold's end too: a grant ending on its points is still how they lie for it, as the train
+    // runs onto them (rowan-1 seed 3: wrongRoad, judged by the plan once the hint had gone).)
+    if (OWNER.on && h && h.points.length > 0) {
       const end = h.t.pos[h.end];
       const layout = this.host.layout;
       const byPiece = new Map(h.points.map((q) => [q.p, q]));
@@ -645,9 +706,8 @@ export class Dispatcher {
         follow: (pieceId, path) => {
           const q = byPiece.get(pieceId);
           if (!q) return true;
-          // (Only a road out by another exit than granted is against it; a path it doesn't know from that end isn't.)
-          const w = waysFrom(layout, pieceId, q.en).find((x) => x.path === path);
-          return !w || w.exit === q.ex;
+          // (The road out by the exit granted, from the end it comes on by: on a slip, a path from another end isn't it.)
+          return waysFrom(layout, pieceId, q.en).find((x) => x.path === path)?.exit === q.ex;
         },
       };
     }
@@ -885,18 +945,44 @@ export class Dispatcher {
   clearFor(ref: number, trainId: number): boolean | null {
     const h = this.byTrainId(trainId);
     if (!h) return null;
-    const t = h.t;
-    for (let k = 0; k < h.path.length - 1; k++) if (t.frontRef[h.path[k]] === ref) return true;
+    const refs = this.pathRefs(h);
+    for (let k = 0; k < refs.length - 1; k++) if (refs[k] === ref) return true;
     return false;
+  }
+
+  /**
+   * The joint each node of a hold's path is left by, toward the next node on it: at a branch (a loop's other road, a
+   * detour) that's the road granted, not the node's own joint (which runs the booked way: own-07, a signal on the loop
+   * road's exit shown red for the train granted onto it). The last node's own joint. Cached by the holds' version.
+   */
+  private pathRefs(h: Hold): readonly number[] {
+    if (h.refsVer === this.holdVer && h.refs) return h.refs;
+    const t = h.t;
+    const layout = this.host.layout;
+    const out = h.path.map((i, k) => {
+      const own = t.frontRef[i];
+      const nx = h.path[k + 1];
+      if (nx === undefined || own < 0) return own;
+      const fp = t.pos[i][t.pos[i].length - 1];
+      const nf = t.pos[nx][t.pos[nx].length - 1];
+      if (nf === fp) return own;
+      const ownNext = next(layout, fp, indexOfRef(own));
+      if (ownNext?.pieceId === nf) return own;
+      for (const w of waysFrom(layout, fp, t.frontEn[i], () => false)) if (next(layout, fp, w.exit)?.pieceId === nf) return connectorRef(fp, w.exit);
+      return own;
+    });
+    h.refs = out;
+    h.refsVer = this.holdVer;
+    return out;
   }
 
   /** What a signal shows: green with a hold running past it, red with one ending at it; null: no hold there (as before). */
   aspect(ref: number): boolean | null {
     let red = false;
     for (const h of this.holdsBy.values()) {
-      const t = h.t;
-      for (let k = 0; k < h.path.length - 1; k++) if (t.frontRef[h.path[k]] === ref) return true;
-      if (t.frontRef[h.end] === ref) red = true;
+      const refs = this.pathRefs(h);
+      for (let k = 0; k < refs.length - 1; k++) if (refs[k] === ref) return true;
+      if (h.t.frontRef[h.end] === ref) red = true;
     }
     return red ? false : null;
   }

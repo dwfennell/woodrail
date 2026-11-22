@@ -2405,6 +2405,16 @@ export class Sim {
     return false;
   }
 
+  /**
+   * Is a train past a path signal's stop point passing it? Yes, but for one the owner holds short of it (its hold
+   * ends there: it stands past the stop point, held up close behind another): shown clear for it, it kept the signal
+   * green with it held (user-2026-11-21 seed 3: greenHeld).
+   */
+  private mayPass(train: Train, g: SignalAt): boolean {
+    if (!this.signalOwner || g.exit < 0) return true;
+    return this.signalOwner.clearFor(connectorRef(g.pieceId, g.exit), train.id) !== false;
+  }
+
   /** A train is passing this path signal (past its stop point, short of its joint): shown clear while it does. */
   private passing(key: number): void {
     this.comingTo(key, true, -Infinity);
@@ -2448,7 +2458,7 @@ export class Sim {
         const red = g && dist >= 0 ? this.redFor(train, g, dist) : null;
         if (red) return { key: g!.key, dist, by: red.by };
         // (A path signal it's passing, past its stop point: shown clear for it.)
-        if (g?.junction && dist < 0 && k === 0) this.passing(g.key);
+        if (g?.junction && dist < 0 && k === 0 && this.mayPass(train, g)) this.passing(g.key);
       }
       if (marks && def) {
         const exit = pathExitConnector(def, c.pathIndex, c.reversed);
@@ -2458,7 +2468,8 @@ export class Sim {
           const dist = walked + pathLength(def.paths[c.pathIndex].geom) - c.s - markStand;
           if (k === 0 && dist < (standing ? -STAND_SLOP : 0)) {
             passed = key;
-            if (this.signalByKey.get(key)!.junction) this.passing(key);
+            const pg = this.signalByKey.get(key)!;
+            if (pg.junction && this.mayPass(train, pg)) this.passing(key);
           } else {
             const red = this.redFor(train, this.signalByKey.get(key)!, dist);
             if (red) return { key, dist: Math.max(0, dist), by: red.by };
