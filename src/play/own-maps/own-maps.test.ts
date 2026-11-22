@@ -28,6 +28,9 @@ describe("our own reference maps", () => {
       }
       const routed = b.engines.filter((e) => b.w.economy.lineIdOf.has(e));
       expect(routed.length).toBe(b.engines.length);
+      // (Every train put down facing a way it may run: no one-way signal against it before the first points.)
+      const against = b.engines.filter((e) => b.againstAhead(e) !== -1).map((e) => b.w.sim.nameOf(e));
+      expect(against).toEqual([]);
       if (ENV.OWN_MAPS_SVG) await svg(m.file, b);
       if (ENV.OWN_MAPS) await b.save(`src/play/bugmaps/reference/${m.file}`);
     });

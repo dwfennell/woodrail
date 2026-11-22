@@ -18,7 +18,7 @@ import { PropStore } from "../../props/store";
 import { Sim } from "../../sim";
 import { checkPlacement } from "../../landscape";
 import type { CarKind } from "../../sim";
-import { appendPiece, connectorRef, fitAutoStraight, getPieceDef, Layout, pieceOfRef, type PieceTypeId } from "../../track";
+import { appendPiece, connectorRef, fitAutoStraight, getPieceDef, indexOfRef, Layout, pieceOfRef, type PieceTypeId } from "../../track";
 import { writeMapFile } from "../perf-map-file";
 import { layOn, rulesFor } from "../rules";
 
@@ -286,22 +286,66 @@ export class Build {
 
   /** A train out of the box onto `pieceId` (facing its path, or back), set going. Its engine's id. */
   train(cars: CarKind[], pieceId: number, reversed = false, s = 100, name?: string): number {
-    for (const at of [s, s - 40, s + 40, 30, 150]) {
-      const r = this.w.sim.addTrain(cars, { pieceId, pathIndex: 0, reversed, s: at });
-      if (r.kind !== "placed") continue;
-      // (Put down clear of other trains, as a player does: no piece shared with one, points above all.)
-      const mine = new Set(this.w.sim.getTrain(r.trainId)!.bogies.map((x) => x.pieceId));
-      if ([...this.w.sim.trains()].some((o) => o.id !== r.trainId && o.bogies.some((x) => mine.has(x.pieceId)))) {
-        this.w.sim.removeTrain(r.trainId);
-        continue;
+    // (Facing as asked, else turned round: never facing a way one-way signals bar, as a player puts it down the way it
+    // may go. See `againstAhead`.)
+    for (const rev of [reversed, !reversed])
+      for (const at of [s, s - 40, s + 40, 30, 150]) {
+        const r = this.w.sim.addTrain(cars, { pieceId, pathIndex: 0, reversed: rev, s: at });
+        if (r.kind !== "placed") continue;
+        // (Put down clear of other trains, as a player does: no piece shared with one, points above all.)
+        const mine = new Set(this.w.sim.getTrain(r.trainId)!.bogies.map((x) => x.pieceId));
+        if ([...this.w.sim.trains()].some((o) => o.id !== r.trainId && o.bogies.some((x) => mine.has(x.pieceId)))) {
+          this.w.sim.removeTrain(r.trainId);
+          continue;
+        }
+        const engine = this.w.sim.getTrain(r.trainId)!.cars.find((c) => c.kind === "engine")!;
+        if (this.againstAhead(engine.id) !== -1) {
+          this.w.sim.removeTrain(r.trainId);
+          break;
+        }
+        this.w.sim.setLever(engine.id, 1);
+        if (name) this.w.sim.setName(engine.id, name);
+        this.engines.push(engine.id);
+        return engine.id;
       }
-      const engine = this.w.sim.getTrain(r.trainId)!.cars.find((c) => c.kind === "engine")!;
-      this.w.sim.setLever(engine.id, 1);
-      if (name) this.w.sim.setName(engine.id, name);
-      this.engines.push(engine.id);
-      return engine.id;
-    }
     throw new Error(`no room for a train on piece ${pieceId}`);
+  }
+
+  /**
+   * Is train `engine`'s way ahead barred, walking from its front the way it faces: every way on (through points, each
+   * road) meets a one-way signal facing against it before a stop, a buffer or `reach` pieces? A lone signal guards
+   * trains leaving its own end's piece; met from the other side it bars the way (a one-way block). The joint end met
+   * first, or −1 if some way is open.
+   */
+  againstAhead(engine: number, reach = 60): number {
+    const L = this.w.layout;
+    const t = this.w.sim.findCar(engine)!.train;
+    const front = t.bogies[0];
+    const fp = L.getPiece(front.pieceId)!;
+    const path = getPieceDef(fp.type, fp.flipped).paths[front.pathIndex];
+    const exit = front.reversed ? path.from : path.to;
+    let first = -1;
+    // (Each way on from (piece, exit): open (true) or barred.)
+    const open = (piece: number, exit: number | null, left: number, seen: Set<number>): boolean => {
+      if (exit === null || left === 0) return true;
+      const out = connectorRef(piece, exit);
+      const into = L.joinedConnector(out);
+      if (into === -1) return true;
+      if (L.signalAt(into) && !L.signalAt(out)) {
+        if (first === -1) first = into;
+        return false;
+      }
+      if (seen.has(into)) return true;
+      seen.add(into);
+      const q = pieceOfRef(into);
+      const p = L.getPiece(q)!;
+      if (p.type.startsWith("depot")) return true;
+      const e = indexOfRef(into);
+      const ways = getPieceDef(p.type, p.flipped).paths.flatMap((x) => (x.from === e ? [x.to] : x.to === e ? [x.from] : []));
+      if (ways.length === 0) return true;
+      return ways.some((x) => open(q, x, left - 1, seen));
+    };
+    return open(front.pieceId, exit, reach, new Set()) ? -1 : first;
   }
 
   /** A new line of stops (depots on these pieces) run by `engine`; the line's id. */
