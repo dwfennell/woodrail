@@ -619,7 +619,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
  * pieces the other members stand on, where its booked way runs over them. A copy of `trains` (the others as they were),
  * or null if none has one.
  */
-const detourCache = new Map<string, DTrain>();
+const detourCaches = new WeakMap<Layout, Map<string, DTrain>>();
 
 export function withDetours(layout: Layout, snaps: readonly Snap[], trains: readonly DTrain[], members: readonly number[], horizon = HORIZON): DTrain[] | null {
   const out = trains.slice();
@@ -639,6 +639,9 @@ export function withDetours(layout: Layout, snaps: readonly Snap[], trains: read
     // (Cached by where it stands, its route and what it avoids: a jam that lasts plans its detours once.)
     const f = s.elems[s.elems.length - 1];
     const ck = `${s.key}.${f.p}.${f.en}.${s.next}.${s.at ? 1 : 0}.${horizon}.${[...avoid].sort((a, b) => a - b).join(",")}`;
+    // (Per layout: one shared across worlds (a test run's maps, its seeds) handed one world's way to another.)
+    let detourCache = detourCaches.get(layout);
+    if (!detourCache) detourCaches.set(layout, (detourCache = new Map()));
     let d = detourCache.get(ck);
     if (!d) {
       d = buildTrain(layout, s, horizon, avoid);
