@@ -20,7 +20,7 @@ track by its points, but a depot the player placed has no squares on the map: it
 the report's map the exhibition (at 90, −158) went onto the yard of the player's workshop (piece 439) beside
 Rookhurst's station, and the cathedral (at −858, −28) onto the yard of the player's school (piece 427) in Dimbleby.
 `siteSpot` now also keeps out of every placed depot's and kit's yard (`worldYards` in
-`depot-footprint.ts`) and off roads and lanes (`siteWhy`). Tests: `grand.test.ts`, "keeps clear of a workshop the
+`depot-footprint.ts`), off roads and lanes, and off farms' fields (`siteWhy`). Tests: `grand.test.ts`, "keeps clear of a workshop the
 player placed", "on the reported map …" (both maps), "never covers a road".
 
 That fixes the overlap. It still leaves the player no say: the site can land on the one clear field they meant for a
@@ -49,7 +49,7 @@ project already standing (the reporter's exhibition and cathedral) moves too: th
 - **Its whole footprint.** The ghost and outline show the whole site (`unionFootprint` of every stage), not just this
   stage's model, so a spot that fits the plot also fits the finished building.
 - **Its city's rule** (`siteMoveRule`, given to the drag by main as `Interaction.siteMove`): within `SITE_REACH` of its
-  city's middle (the site's own reach added, as `siteSpot` looks), off roads and lanes; and, as any held prop, out of
+  city's middle (the site's own reach added, as `siteSpot` looks), off roads, lanes and fields; and, as any held prop, out of
   yards (`propInYard`) and on clear, level ground (`checkProp`). Refused with a reason: "The Great Exhibition stays by
   Rookhurst", "That's the workshop's yard", "Not on a road: the Great Exhibition needs open ground".
 - **Not into the toy box.** A drop over the tray puts it back where it was, saying "Grand projects stay on the map:
@@ -95,5 +95,9 @@ needs that because it joins track; a site doesn't.
 
 ## Not in this
 
+- The map's own trees under a site. Trees step aside for track (`treesAside`), never for props, so a site (as any
+  prop) can stand over them: they show inside its fence (`docs/agents/shots/grand-site-moved.jpg`). This was so before
+  this spec too. A follow-up: trees step aside from a grand site's footprint as they do from track, or the site
+  search prefers a spot without them.
 - Moving a site to another city. It stays its city's.
 - Any change to Grand Central (its kit is already placed by the player from the tray).

@@ -1,6 +1,6 @@
 import type { CargoKind } from "../economy/cargo";
 import { addInto, type Bag, kindsOf, total } from "../economy/goods";
-import { SURF_LANE, SURF_ROAD, type Landscape, type Town } from "../landscape";
+import { FEAT_FIELD, SURF_LANE, SURF_ROAD, type Landscape, type Town } from "../landscape";
 import { checkProp, footprintSamples, TrackIndex, type Footprint } from "../props/placement";
 import { footprintInYards, worldYards, type PlacedYard } from "./depot-footprint";
 import type { PropPose } from "../props/store";
@@ -469,7 +469,8 @@ export const SITE_REACH = 900;
  * Where a project's site can stand by town `town` (its whole footprint `fp`, every stage's: `unionFootprint`): clear,
  * level land in rings round the town's station, nearest first, along or across the map, by the props' own rule
  * (`checkProp`), out of every placed depot's and kit's yard (`worldYards`: their squares aren't marked on the map, so
- * `checkProp` alone let a site onto a placed workshop's yard: report 2026-11-22) and off roads and lanes (`siteWhy`).
+ * `checkProp` alone let a site onto a placed workshop's yard: report 2026-11-22), off roads and lanes and off farms'
+ * fields (`siteWhy`).
  * Null if there's no room.
  */
 export function siteSpot(world: Pick<World, "landscape" | "layout" | "props" | "stations" | "depots">, town: Town, fp: Footprint, footprint: (asset: string) => Footprint | undefined): PropPose | null {
@@ -497,10 +498,10 @@ export function siteSpot(world: Pick<World, "landscape" | "layout" | "props" | "
 
 /**
  * What a site at `pose` would stand on beyond `checkProp`'s rule: a placed depot's or kit's yard (`yards`: `worldYards`),
- * or a road or lane; null if neither. (A prop dropped from the tray may stand by a lane; a project's site is a big
- * fenced plot, and never covers a road.)
+ * a road or lane, or a farm's field (its industry's ground); null if none. (A prop dropped from the tray may stand by a
+ * lane; a project's site is a big fenced plot, and never covers a road or a field.)
  */
-export function siteWhy(land: Landscape, yards: readonly PlacedYard[], fp: Footprint, pose: Pick<PropPose, "x" | "z" | "heading">): "yard" | "road" | null {
+export function siteWhy(land: Landscape, yards: readonly PlacedYard[], fp: Footprint, pose: Pick<PropPose, "x" | "z" | "heading">): "yard" | "road" | "field" | null {
   if (footprintInYards(yards, fp, pose)) return "yard";
   const grid = land.grid;
   const pts = footprintSamples(fp, pose);
@@ -509,6 +510,7 @@ export function siteWhy(land: Landscape, yards: readonly PlacedYard[], fp: Footp
     if (cell === -1) continue;
     const surf = grid.surface[cell];
     if (surf === SURF_ROAD || surf === SURF_LANE || grid.road[cell] !== 0) return "road";
+    if (grid.feature[cell] === FEAT_FIELD) return "field";
   }
   return null;
 }
@@ -526,7 +528,7 @@ export interface SiteMove {
 
 /**
  * The rule a site moved by the player keeps (spec 2026-11-22-grand-placement.md, step 1): near its city, as `siteSpot`
- * looks (`SITE_REACH` from its middle, the site's own reach added), and never on a road or lane (`siteWhy`). The
+ * looks (`SITE_REACH` from its middle, the site's own reach added), and never on a road, a lane or a field (`siteWhy`). The
  * yards are the drag's own check (`Interaction.propInYard`, cached), so not looked at here: this runs on every move.
  */
 export function siteMoveRule(land: Landscape, town: Town, g: Grand, fp: Footprint): SiteMove {
@@ -535,7 +537,9 @@ export function siteMoveRule(land: Landscape, town: Town, g: Grand, fp: Footprin
     fp,
     why: (pose) => {
       if (Math.hypot(pose.x - town.centre.x, pose.z - town.centre.z) > reach) return `The ${g.name} stays by ${town.name}`;
-      if (siteWhy(land, [], fp, pose) === "road") return `Not on a road: the ${g.name} needs open ground`;
+      const why = siteWhy(land, [], fp, pose);
+      if (why === "road") return `Not on a road: the ${g.name} needs open ground`;
+      if (why === "field") return `Not on a farm's field: the ${g.name} needs open ground`;
       return null;
     },
   };

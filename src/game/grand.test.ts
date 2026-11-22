@@ -17,7 +17,7 @@ import { growthOf, receivedBy, statusOf, TownLife, type TownLifeHost } from "./t
 import { townLevel, townStatus, wantsWith } from "./towns";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { deliverByTrain } from "./workshop-testing";
-import { SURF_ROAD, type Town } from "../landscape";
+import { FEAT_FIELD, FEAT_NONE, SURF_GRASS, SURF_ROAD, type Town } from "../landscape";
 import { worldYards, footprintInYards } from "./depot-footprint";
 import { loadBugMap } from "../play/bugmap";
 import EXHIBITION_MAP from "../play/bugmaps/reports/2026-11-22-grand-exhibition-overlap.txt?raw";
@@ -256,6 +256,21 @@ describe("starting a grand project", () => {
     expect(road).toBeGreaterThanOrEqual(0);
     const at = { x: g.centreX(g.colOf(road)), z: g.centreZ(g.rowOf(road)) };
     expect(siteWhy(w.landscape, [], { cx: 0, cz: 0, hw: 20, hd: 20 }, { x: at.x, z: at.z, heading: 0 })).toBe("road");
+  });
+
+  it("never covers a farm's field (its industry's ground)", () => {
+    const { w } = game();
+    const g = w.landscape.grid;
+    // (A square marked a field, as a farm's are: the setup writes the mark; the rule under test reads it.)
+    let open = -1;
+    g.forEachCell((i) => {
+      if (open < 0 && g.feature[i] === FEAT_NONE && g.surface[i] === SURF_GRASS && g.road[i] === 0) open = i;
+    });
+    const at = { x: g.centreX(g.colOf(open)), z: g.centreZ(g.rowOf(open)), heading: 0 };
+    const fp = { cx: 0, cz: 0, hw: 10, hd: 10 };
+    expect(siteWhy(w.landscape, [], fp, at)).toBeNull();
+    g.feature[open] = FEAT_FIELD;
+    expect(siteWhy(w.landscape, [], fp, at)).toBe("field");
   });
 
   it("with no room by the city, nothing is paid or put up", () => {
