@@ -24,6 +24,7 @@ import { CAR_SPECS, flipCursor, stopDistance, type Cursor, type Sim, type Train 
 import { ACCELERATION } from "../sim/brakes";
 import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, indexOfRef, pointsWayFrom, type Layout } from "../track";
 import { next, waysFrom } from "./graph";
+import { isPoints } from "./router";
 import { STAND_SHORT } from "../economy/sections";
 import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
@@ -425,7 +426,8 @@ export class Dispatcher {
       for (let q = 1; q < path.length; q++) {
         const i = path[q];
         const fp = tt.pos[i][tt.pos[i].length - 1];
-        if (fp !== tt.pos[path[q - 1]][tt.pos[path[q - 1]].length - 1] && waysFrom(this.host.layout, fp, tt.frontEn[i]).length > 1) pts.push(fp);
+        // (Facing or trailing: the router locks both (user-2026-11-21: granted over trailing points held for another).)
+        if (fp !== tt.pos[path[q - 1]][tt.pos[path[q - 1]].length - 1] && isPoints(this.host.layout, fp)) pts.push(fp);
       }
       const train = this.host.sim.findCar(engine)?.train;
       if (train && pts.length > 0) {
@@ -633,7 +635,11 @@ export class Dispatcher {
   private stopAhead(engine: number, fallback: number): number {
     const r = this.host.route(engine);
     if (!r || r.stops.length === 0) return fallback;
-    return r.stops[(r.at ? r.next + 1 : r.next) % r.stops.length];
+    let i = r.at ? r.next + 1 : r.next;
+    // (Its next stop under it already (come onto it, not yet "at" it): the one after; the router's walk ends at its aim.)
+    const under = this.host.sim.findCar(engine)?.train.bogies;
+    for (let n = 0; n < r.stops.length && under?.some((b) => b.pieceId === r.stops[i % r.stops.length]); n++) i++;
+    return r.stops[i % r.stops.length];
   }
 
   /** Held where it stands (no move granted on): the router steers it nothing yet (its `awaitingGrant`). */

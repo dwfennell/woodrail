@@ -76,7 +76,7 @@ interface Waiting {
 export type AvoidTest = (pieceId: number, pathIndex: number) => boolean;
 
 /** Is this piece points (a switch with a lever: not a signal, a deck or a lift; `track/points.ts`)? */
-function isPoints(layout: Layout, pieceId: number): boolean {
+export function isPoints(layout: Layout, pieceId: number): boolean {
   const p = layout.getPiece(pieceId);
   return !!p && leverPoints(getPieceDef(p.type, p.flipped));
 }
