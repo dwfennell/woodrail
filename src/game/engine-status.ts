@@ -75,7 +75,8 @@ export type TrainState =
    * "Waiting for Bramble (hopper train) to clear the line to the mill" (`trainLabel`, `placeLabel`). `signalId`: the red
    * signal it stands at, when it does (as `red-signal`'s).
    */
-  | { kind: "line-wait-for"; by: number; to: number; holder: "sections" | "router" | "dispatcher"; signalId?: number }
+  /** `single`: it waits for that train to clear the single line ahead (the dispatcher, one at a time: spec §2.2a). */
+  | { kind: "line-wait-for"; by: number; to: number; holder: "sections" | "router" | "dispatcher"; signalId?: number; single?: boolean }
   | { kind: "starting" }
   | { kind: "running" };
 
@@ -199,7 +200,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (train.speed < 1 && economy.dispatcher)
     for (const car of train.cars) {
       const d = car.kind === "engine" ? economy.dispatcher.waitingOn(car.id) : null;
-      if (d) return { kind: "line-wait-for", by: d.engine, to: nextStopOf(economy, car.id), holder: "dispatcher" };
+      if (d) return { kind: "line-wait-for", by: d.engine, to: nextStopOf(economy, car.id), holder: "dispatcher", ...(economy.dispatcher.singleLineWait(car.id) === d.engine ? { single: true } : {}) };
     }
   // Waiting short of points: set for another train, or a red switch against its way (the router's wait).
   if (train.speed < 1)
@@ -304,7 +305,7 @@ function lineWaitFor(economy: Economy, train: Train): TrainState | null {
     // (The dispatcher on (§8 step 2): its holds are the waits.)
     if (economy.dispatcher) {
       const d = economy.dispatcher.waitingOn(car.id);
-      if (d) return { kind: "line-wait-for", by: d.engine, to: nextStopOf(economy, car.id), holder: "dispatcher" };
+      if (d) return { kind: "line-wait-for", by: d.engine, to: nextStopOf(economy, car.id), holder: "dispatcher", ...(economy.dispatcher.singleLineWait(car.id) === d.engine ? { single: true } : {}) };
     }
     // (Sections' waits are none of its business with the dispatcher on: it holds no one then.)
     const w = economy.dispatcher ? null : economy.sectionWait(car.id);
@@ -714,6 +715,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // map, 2026-11-18). The one now in the way is under Show.)
       const gone = s.holder === "sections" ? economy.sections.goneFirst(engineCarId) : 0;
       if (gone > 0) return `Waiting for the line${to ? ` to ${to}` : ""}: ${gone} train${gone === 1 ? " has" : "s have"} gone first`;
+      if (s.single) return `Waiting for ${trainLabel(sim, s.by)} to clear the single line`;
       return `Waiting for ${trainLabel(sim, s.by)} to clear the line${to ? ` to ${to}` : ""}`;
     }
     case "running": {
