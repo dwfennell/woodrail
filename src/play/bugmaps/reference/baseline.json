@@ -133,9 +133,9 @@
     "seconds": 1800
   },
   "own-11-one-way.txt": {
-    "jams": 11,
-    "arrivals": 191,
-    "longestStand": 155,
+    "jams": 10,
+    "arrivals": 214,
+    "longestStand": 219,
     "firstBreak": null,
     "seconds": 1800
   },
