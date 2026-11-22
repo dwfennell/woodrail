@@ -95,6 +95,8 @@ export class Dispatcher {
   decisions = 0;
   grants = 0;
   detours = 0;
+  /** Grants refused as ending nose to nose with another train. */
+  noseRefused = 0;
   /**
    * Seconds granted trains stood short of their grants, by what held them (`DispatcherHost.overruled`; "other": nothing
    * seen): where the layout's own guards and the dispatcher disagree (§13.5 step 1).
@@ -336,7 +338,18 @@ export class Dispatcher {
       if (fp === last) continue;
       if (!h.rem.has(fp)) h.rem.set(fp, run);
       // (Points its front runs over on the way: they must lie for it before it may run onto them.)
-      if (k > 0 && t.frontRef[i] >= 0 && waysFrom(this.host.layout, fp, t.frontEn[i]).length > 1) h.points.push({ p: fp, en: t.frontEn[i], ex: indexOfRef(t.frontRef[i]), from: run + t.frontLen[i] });
+      // (Out by the exit toward the next front piece on the granted way: at a branch (a loop's other road, a detour) that
+      // isn't the node's own joint, which runs the booked way (own-03: the points set for the booked road, the train
+      // off its grant and nose to nose with another).)
+      if (k > 0 && t.frontRef[i] >= 0 && waysFrom(this.host.layout, fp, t.frontEn[i]).length > 1) {
+        let ex = indexOfRef(t.frontRef[i]);
+        const nx = p[k + 1];
+        if (nx !== undefined) {
+          const nf = t.pos[nx][t.pos[nx].length - 1];
+          if (nf !== fp) for (const w of waysFrom(this.host.layout, fp, t.frontEn[i], () => false)) if (next(this.host.layout, fp, w.exit)?.pieceId === nf) ex = w.exit;
+        }
+        h.points.push({ p: fp, en: t.frontEn[i], ex, from: run + t.frontLen[i] });
+      }
       run += t.frontLen[i];
       last = fp;
     }
@@ -400,6 +413,46 @@ export class Dispatcher {
     if (to < 0 && r.first[0] >= 0) {
       h.passed++;
       if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - Math.min(...weights) && r.first[0] > 0) to = r.firstTo[0];
+    }
+    // (Never to stand nose to nose: a move ending with its front against another lever-on train's front on the next piece
+    // isn't granted (the sim keeps a gap there and holds it short: netActed; and two noses together is a head-on with
+    // no way past). The router's "a train is coming" rule kept them apart before it stood down for held trains.)
+    if (to >= 0 && OWNER.on) {
+      const w = ways[k];
+      const ref = w.frontRef[to];
+      const nx = ref >= 0 ? next(this.host.layout, pieceOfRef(ref), indexOfRef(ref)) : null;
+      if (nx) {
+        // (Another's hold ending with its front on that piece, facing back across the same joint.)
+        const fp = w.pos[to][w.pos[to].length - 1];
+        for (const [key, o] of this.holdsBy) {
+          if (key === engine) continue;
+          const oe = o.t.pos[o.end];
+          if (oe[oe.length - 1] !== nx.pieceId) continue;
+          const oref = o.t.frontRef[o.end];
+          const onx = oref >= 0 ? next(this.host.layout, pieceOfRef(oref), indexOfRef(oref)) : null;
+          if (onx && onx.pieceId === fp) {
+            to = -1;
+            this.noseRefused++;
+            break;
+          }
+        }
+      }
+    }
+    // (Its front on points already (they can't be thrown under it): a move out of them by a road they don't lie for
+    // isn't granted; it would go the way they lie, off its grant, into another's (own-03: nose to nose).)
+    if (to >= 0 && OWNER.on) {
+      const w = ways[k];
+      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const path = this.pathTo(tt, to);
+      const fp = tt.pos[tt.at][tt.pos[tt.at].length - 1];
+      for (let q = 1; q < path.length; q++) {
+        const i = path[q];
+        if (tt.pos[i][tt.pos[i].length - 1] === fp) continue;
+        // (The first node whose front is past it: the way it left the points by.)
+        const out = tt.frontRef[path[q - 1]];
+        if (out >= 0 && waysFrom(this.host.layout, fp, tt.frontEn[tt.at]).length > 1 && !this.liesFor(fp, tt.frontEn[tt.at], indexOfRef(out))) to = -1;
+        break;
+      }
     }
     this.decisions++;
     this.decisionMs.push(performance.now() - t0);
@@ -505,20 +558,25 @@ export class Dispatcher {
       const layout = this.host.layout;
       const byPiece = new Map(h.points.map((q) => [q.p, q]));
       // (Its aim on a loop's other road or a detour till it's on it, as below; else its hold's end.)
-      const train = h.aim >= 0 ? this.host.sim.getTrain(h.trainId) : undefined;
+      // (By its engine: its train id can be stale.)
+      const train = h.aim >= 0 ? this.host.sim.findCar(engine)?.train : undefined;
       if (train && train.bogies.some((b) => b.pieceId === h.aim)) h.aim = -1;
       return {
-        aim: h.aim >= 0 ? h.aim : end[end.length - 1],
+        // (Else its stop: the router's walk ends at its aim, so an aim on the grant's own last points never set them; the
+        // walk is cut to the grant all the same: `grantedWay`.)
+        aim: h.aim >= 0 ? h.aim : this.stopAhead(engine, end[end.length - 1]),
         follow: (pieceId, path) => {
           const q = byPiece.get(pieceId);
           if (!q) return true;
-          return waysFrom(layout, pieceId, q.en).find((w) => w.path === path)?.exit === q.ex;
+          // (Only a road out by another exit than granted is against it; a path it doesn't know from that end isn't.)
+          const w = waysFrom(layout, pieceId, q.en).find((x) => x.path === path);
+          return !w || w.exit === q.ex;
         },
       };
     }
     if (!h || h.aim < 0) return undefined;
-    // (On it: from there it's steered as booked again.)
-    const train = this.host.sim.getTrain(h.trainId);
+    // (On it: from there it's steered as booked again. By its engine: its train id can be stale.)
+    const train = this.host.sim.findCar(engine)?.train;
     if (!train || train.bogies.some((b) => b.pieceId === h.aim)) {
       h.aim = -1;
       return undefined;
@@ -546,6 +604,13 @@ export class Dispatcher {
     return way;
   }
   private readonly wayCache = new Map<number, { ver: number; way: { pieces: Set<number>; exits: Map<number, number> } }>();
+
+  /** The piece of the stop a routed train heads for (the one after, while it's at one), else `fallback`. */
+  private stopAhead(engine: number, fallback: number): number {
+    const r = this.host.route(engine);
+    if (!r || r.stops.length === 0) return fallback;
+    return r.stops[(r.at ? r.next + 1 : r.next) % r.stops.length];
+  }
 
   /** Held where it stands (no move granted on): the router steers it nothing yet (its `awaitingGrant`). */
   awaiting(engine: number): boolean {
