@@ -17,6 +17,7 @@ import { blenderCar } from "./blender-models";
 import { compact, weld } from "./compact";
 import { floatVertices } from "./compact-vertices";
 import { nonIndexed } from "./non-indexed";
+import { gpuOnlyGeometry } from "./gpu-only";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
 import { Batcher } from "./dressing/batcher";
 import type { Materials } from "./materials";
@@ -287,7 +288,12 @@ function mergeBlenderCar(root: Group, mats: Materials, key: string): void {
     });
     const merged = parts.length ? mergeGeometries(parts) : null;
     for (const g of parts) g.dispose();
-    byKey.set(key, (entry = { paint, shadow: merged ? weld(merged) : null, copies: 0 }));
+    const shadow = merged ? weld(merged) : null;
+    // (Only drawn, shared by the copies and freed with the last: their arrays go once they're uploaded. The paint is
+    // tapped on, so its positions stay; the selection's rims are drawn from the parts it was made of.)
+    if (paint) gpuOnlyGeometry(paint, { pickable: true });
+    if (shadow) gpuOnlyGeometry(shadow);
+    byKey.set(key, (entry = { paint, shadow, copies: 0 }));
   }
   const of = entry;
   of.copies++;
