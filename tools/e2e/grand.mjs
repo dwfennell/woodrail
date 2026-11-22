@@ -805,7 +805,9 @@ const spot = await p.evaluate((townId) => {
       const z = Math.round((st.z + Math.sin(a) * r) / 6) * 6;
       const pose = { x: x - 108, z: z - 72, heading: 0 };
       if (Math.hypot(x - t.centre.x, z - t.centre.z) > 1200) continue;
-      if (w.interaction.placeWhy("kit-grand-central-1", pose, 0, -1) === null) return { x, z };
+      // (Room round it too: a drag lets go a few mm off the spot, and a project's plot may stand near.)
+      const near = [[0, 0], [36, 0], [-36, 0], [0, 36], [0, -36]];
+      if (near.every(([dx, dz]) => w.interaction.placeWhy("kit-grand-central-1", { ...pose, x: pose.x + dx, z: pose.z + dz }, 0, -1) === null)) return { x, z };
     }
   return null;
 }, town.id);

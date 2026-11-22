@@ -3830,6 +3830,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     endSiting(false);
     game.propsChanged();
     grandStarted(s.town, s.id);
+    // (The city's card again, on its project: stage 1 under way, the goods it needs.)
+    const station = game.stations.get(s.town.id);
+    const depot = station === undefined ? undefined : game.economy.depotAtPiece(station);
+    if (depot) {
+      townView.want = { depot: depot.id, tab: "projects", pick: s.id };
+      townView.depot = -1;
+      interaction.openDepotCard(depot.id);
+    }
   }
 
   /** A grand project started in `town`: coins shown, the toast and News, saved. */
