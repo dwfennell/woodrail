@@ -21,6 +21,7 @@ import { SURF_ROAD, type Town } from "../landscape";
 import { worldYards, footprintInYards } from "./depot-footprint";
 import { loadBugMap } from "../play/bugmap";
 import EXHIBITION_MAP from "../play/bugmaps/reports/2026-11-22-grand-exhibition-overlap.txt?raw";
+import CATHEDRAL_MAP from "../play/bugmaps/reports/2026-11-22-cathedral-overlap.txt?raw";
 
 /**
  * Grand projects (spec 2026-11-05-character-and-goals.md): started from a City ★'s card, built in stages from goods
@@ -205,6 +206,21 @@ describe("starting a grand project", () => {
     // Taken away, and Start tapped again in Rookhurst.
     w.props.remove(old.id);
     const town = w.landscape.towns.find((t) => t.name === "Rookhurst")!;
+    const spot = siteSpot(w, town, fp, footprintOf);
+    expect(spot).not.toBeNull();
+    expect(siteWhy(w.landscape, yards, fp, spot!)).toBeNull();
+    expect(checkProp({ land: w.landscape, track: new TrackIndex(w.layout), props: w.props, footprint: footprintOf }, fp, spot!, "land").kind).toBe("clear");
+  });
+
+  it("on the reported map, the cathedral's old spot (on a placed school's yard in Dimbleby) is refused too", async () => {
+    const { world: w } = await loadBugMap(CATHEDRAL_MAP.trim());
+    const fp = siteOf("cathedral");
+    const old = [...w.props.all()].find((q) => q.asset.startsWith("grand-cathedral-"))!;
+    const yards = worldYards(w);
+    expect(footprintInYards(yards, fp, old)?.type).toBe("depot-school");
+    expect(siteWhy(w.landscape, yards, fp, old)).toBe("yard");
+    w.props.remove(old.id);
+    const town = w.landscape.towns.find((t) => t.name === "Dimbleby")!;
     const spot = siteSpot(w, town, fp, footprintOf);
     expect(spot).not.toBeNull();
     expect(siteWhy(w.landscape, yards, fp, spot!)).toBeNull();
