@@ -1,8 +1,10 @@
 # Grand projects: the player picks the site
 
 2026-11-22. The user, on desktop, with a screenshot of Rookhurst: "the grand exhibition overlapped with our workshop ...
-I wonder if we can improve how placement works, ideally the player has more control". The map:
-`src/play/bugmaps/reports/2026-11-22-grand-exhibition-overlap.txt`.
+I wonder if we can improve how placement works, ideally the player has more control". Then: "similar issue with
+dimbleby and the cathedral" (the cathedral on the front of the Dimbleby school), and "Game should let us move things
+around too". The maps: `src/play/bugmaps/reports/2026-11-22-grand-exhibition-overlap.txt` and
+`2026-11-22-cathedral-overlap.txt` (the same save).
 
 ## Today
 
@@ -16,9 +18,10 @@ on it opens the city's card, and it can't be lifted, turned or swept (`Interacti
 track by its points, but a depot the player placed has no squares on the map: its yard lives with its piece
 (`placedYard`). The tray's prop drop checks those yards separately (`Interaction.propInYard`); `siteSpot` didn't. So on
 the report's map the exhibition (at 90, −158) went onto the yard of the player's workshop (piece 439) beside
-Rookhurst's station. `siteSpot` now also keeps out of every placed depot's and kit's yard (`worldYards` in
+Rookhurst's station, and the cathedral (at −858, −28) onto the yard of the player's school (piece 427) in Dimbleby.
+`siteSpot` now also keeps out of every placed depot's and kit's yard (`worldYards` in
 `depot-footprint.ts`) and off roads and lanes (`siteWhy`). Tests: `grand.test.ts`, "keeps clear of a workshop the
-player placed", "on the reported map …", "never covers a road".
+player placed", "on the reported map …" (both maps), "never covers a road".
 
 That fixes the overlap. It still leaves the player no say: the site can land on the one clear field they meant for a
 second sawmill, or turned so it blocks a line they're about to lay.
@@ -36,32 +39,37 @@ reasons.
 
 Two steps. Each ships on its own.
 
-### Step 1: move the site (about a day)
+### Step 1: move the site (built with this spec)
 
-The site stays where `siteSpot` puts it on Start, but the player can pick it up and move it, as a movable house:
+The site stays where `siteSpot` puts it on Start, but the player can pick it up and move it, as a movable house. A
+project already standing (the reporter's exhibition and cathedral) moves too: they drag it off the yard.
 
-- **Press and drag** on the site lifts it, exactly as any placed prop (`propDrag` with `from`). A tap still opens the
-  city's card.
+- **A finger resting on the site** lifts it, as a town's house (`armHold`; a mouse drags it). A drag that doesn't rest
+  first pans the view, since the site is big and often fills the screen. A tap still opens the city's card.
 - **Its whole footprint.** The ghost and outline show the whole site (`unionFootprint` of every stage), not just this
   stage's model, so a spot that fits the plot also fits the finished building.
-- **Its city's rule.** Within `SITE_REACH` of its city's middle, out of yards (`propInYard`), off roads (`siteWhy`), on
-  level ground (`checkProp`). Refused with a reason: "The exhibition stays near Rookhurst", "That's the workshop's
-  yard", "Not on a road".
-- **Not into the toy box.** A drop over the tray puts it back where it was (it's the city's, not a thing the player
-  owns). Not in a clearing sweep, and no Remove on its card.
-- **Turn** with R / Shift+R / two fingers, as any prop, if the whole site still fits.
-- **One undo step** per move. Saved with the props, as today (the plan keeps its prop id; `grandPlace` reads it live).
-
-This also lets the reporter fix their map: they drag the exhibition off the workshop's yard.
+- **Its city's rule** (`siteMoveRule`, given to the drag by main as `Interaction.siteMove`): within `SITE_REACH` of its
+  city's middle (the site's own reach added, as `siteSpot` looks), off roads and lanes; and, as any held prop, out of
+  yards (`propInYard`) and on clear, level ground (`checkProp`). Refused with a reason: "The Great Exhibition stays by
+  Rookhurst", "That's the workshop's yard", "Not on a road: the Great Exhibition needs open ground".
+- **Not into the toy box.** A drop over the tray puts it back where it was, saying "Grand projects stay on the map:
+  drop it by its city" (it's the city's, not a thing the player owns). Never selected, so no Remove; the clearing sweep
+  still leaves it ("Grand projects stay").
+- **Turned** while held, by a second finger (or R), as any held prop, if the whole site still fits.
+- **One undo step** per move (Undo, Redo). Saved with the props, as today (the plan keeps its prop id; `grandPlace` and
+  the stage swaps read where it stands).
+- Its stage models are asked for when it's first touched (`siteTown`), so the whole footprint is known by the time a
+  finger has rested long enough to lift it.
 
 Cost: nothing new per frame. The checks run on pointer moves while it's held: `checkProp` over the site's samples and
 `footprintInYards` against a cached yard list (`playerYards`). That's a few hundred point tests, under a millisecond.
 No new materials or draw calls: the ghost is the stage's own model.
 
-Tests: `grand.test.ts` for the rule (`siteWhy`, reach). e2e:grand gets a new group, on a 390×844 phone by touch:
-Start, the site dragged by finger to a spot by the city (the outline green), dropped; dragged onto a placed workshop's
-yard (red, the toast, it goes back); dragged too far from the city (refused); a reload keeps it; the next stage's
-goods are still delivered and the model swapped where it now stands; 0 idle frames.
+Tests: `grand.test.ts`, "moved by the player, it keeps by its city and off roads". e2e:grand's step 2b, on a 390×844
+phone by touch: a finger resting on the plot, held whole and green over a clear spot by the city (found by the game's
+own rules), let go there; Undo and Redo; held over the station (red, told why), let go, and it stays; let go on the
+tray, back where it stood, told so. Then the suite's stages are built by train where it now stands, 0 idle frames,
+and the reload keeps it there.
 
 ### Step 2: choose before paying (about two days on top of step 1)
 

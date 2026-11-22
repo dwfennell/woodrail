@@ -4,7 +4,7 @@ import { checkProp, TrackIndex, type Footprint } from "../props/placement";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { CATALOGUE } from "../catalogue/assets";
 import { kindsOf, total } from "../economy/goods";
-import { advanceGrands, achievements, centralWhy, countRider, earned, GRAND_CENTRAL_KITS, moveCentralKit, HUB_FARE, hubFare, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ROYAL_GIFT, siteAsset, siteSpot, siteWhy, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
+import { advanceGrands, achievements, centralWhy, countRider, earned, GRAND_CENTRAL_KITS, moveCentralKit, HUB_FARE, hubFare, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ROYAL_GIFT, siteAsset, siteMoveRule, siteSpot, siteWhy, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
 import { RECIPES } from "../economy/economy";
 import { CARRIES } from "../economy/cargo";
 import { FULL_PAY } from "./towns";
@@ -225,6 +225,25 @@ describe("starting a grand project", () => {
     expect(spot).not.toBeNull();
     expect(siteWhy(w.landscape, yards, fp, spot!)).toBeNull();
     expect(checkProp({ land: w.landscape, track: new TrackIndex(w.layout), props: w.props, footprint: footprintOf }, fp, spot!, "land").kind).toBe("clear");
+  });
+
+  it("moved by the player, it keeps by its city and off roads (step 1 of 2026-11-22-grand-placement.md)", () => {
+    const { w } = game();
+    const town = w.landscape.towns[0];
+    const g = grandOf("exhibition")!;
+    const rule = siteMoveRule(w.landscape, town, g, siteOf("exhibition"));
+    expect(rule.fp).toEqual(siteOf("exhibition"));
+    expect(rule.why({ x: town.centre.x + 100, z: town.centre.z, heading: 0 })).not.toMatch(/stays by/);
+    expect(rule.why({ x: town.centre.x + 5000, z: town.centre.z, heading: 0 })).toBe(`The ${g.name} stays by ${town.name}`);
+    const grid = w.landscape.grid;
+    let road = -1;
+    grid.forEachCell((i) => {
+      const x = grid.centreX(grid.colOf(i));
+      const z = grid.centreZ(grid.rowOf(i));
+      if (road < 0 && grid.surface[i] === SURF_ROAD && Math.hypot(x - town.centre.x, z - town.centre.z) < 600) road = i;
+    });
+    expect(road).toBeGreaterThanOrEqual(0);
+    expect(rule.why({ x: grid.centreX(grid.colOf(road)), z: grid.centreZ(grid.rowOf(road)), heading: 0 })).toMatch(/^Not on a road/);
   });
 
   it("never covers a road", () => {

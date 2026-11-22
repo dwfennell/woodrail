@@ -513,6 +513,34 @@ export function siteWhy(land: Landscape, yards: readonly PlacedYard[], fp: Footp
   return null;
 }
 
+/** Said when a grand project's site is dropped on the tray: it's its city's, never put in the toy box. */
+export const GRAND_STAYS = "Grand projects stay on the map: drop it by its city";
+
+/** How a grand project's site moves when the player picks it up (`Interaction.siteMove`). */
+export interface SiteMove {
+  /** Its whole footprint, every stage's (`unionFootprint`), scaled. */
+  readonly fp: Footprint;
+  /** Why it can't stand at `pose` beyond the props' rule and the yards (the drag checks those): too far, a road. */
+  why(pose: Pick<PropPose, "x" | "z" | "heading">): string | null;
+}
+
+/**
+ * The rule a site moved by the player keeps (spec 2026-11-22-grand-placement.md, step 1): near its city, as `siteSpot`
+ * looks (`SITE_REACH` from its middle, the site's own reach added), and never on a road or lane (`siteWhy`). The
+ * yards are the drag's own check (`Interaction.propInYard`, cached), so not looked at here: this runs on every move.
+ */
+export function siteMoveRule(land: Landscape, town: Town, g: Grand, fp: Footprint): SiteMove {
+  const reach = SITE_REACH + Math.hypot(fp.hw, fp.hd);
+  return {
+    fp,
+    why: (pose) => {
+      if (Math.hypot(pose.x - town.centre.x, pose.z - town.centre.z) > reach) return `The ${g.name} stays by ${town.name}`;
+      if (siteWhy(land, [], fp, pose) === "road") return `Not on a road: the ${g.name} needs open ground`;
+      return null;
+    },
+  };
+}
+
 export type StartResult = "started" | "no-room" | "not-now";
 
 /**

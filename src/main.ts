@@ -112,7 +112,7 @@ import { drawPlaceRows } from "./ui/places-row";
 import { paintable } from "./render/train-models";
 import { ownColoursOpen, paint, paintOpen, paintOwn, paintPots } from "./game/paint-shop";
 import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
-import { achievements, advanceGrands, centralPiece, centralWhy, countRider, fairTown, moveCentralKit, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, siteAsset, siteSpot, startGrand, unionFootprint, type GrandId, type GrandTile } from "./game/grand";
+import { achievements, advanceGrands, centralPiece, centralWhy, countRider, fairTown, moveCentralKit, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, siteAsset, siteMoveRule, siteSpot, startGrand, unionFootprint, type GrandId, type GrandTile } from "./game/grand";
 import { defaultPick, drawGrandRow } from "./ui/grand-row";
 import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
@@ -3879,11 +3879,35 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     audio.chime();
   }
 
-  // A grand project's site is its city's: a tap opens the city's card, and it's never lifted (Game mode).
+  // A grand project's site is its city's: a tap opens the city's card; a finger resting on it moves it by its city
+  // (spec 2026-11-22-grand-placement.md, step 1), never into the toy box (Game mode).
+  /** Projects whose stage models have been asked for (their whole footprint, for a move). */
+  const siteModelsAsked = new Set<GrandId>();
   interaction.siteTown = (propId) => {
     if (mode !== "game") return -1;
-    for (const plan of game.economy.grandPlans.values()) if (plan.prop === propId) return plan.townId;
+    for (const [key, plan] of game.economy.grandPlans)
+      if (plan.prop === propId) {
+        const id = key as GrandId;
+        // (Asked as it's touched: loaded by the time a finger has rested long enough to lift it.)
+        if (!siteModelsAsked.has(id)) {
+          siteModelsAsked.add(id);
+          grandModels(id).catch(() => siteModelsAsked.delete(id));
+        }
+        return plan.townId;
+      }
     return -1;
+  };
+  interaction.siteMove = (propId) => {
+    if (mode !== "game") return null;
+    for (const [id, plan] of game.economy.grandPlans) {
+      if (plan.prop !== propId) continue;
+      const g = grandOf(id);
+      const town = game.landscape.towns.find((t) => t.id === plan.townId);
+      // (A stage's model not loaded yet: the union of those that are, its own stage's always among them.)
+      const fp = g && unionFootprint(Array.from({ length: g.stages.length + 1 }, (_, i) => game.propLibrary.footprint(siteAsset(g, i))), g.scale);
+      return g && town && fp ? siteMoveRule(game.landscape, town, g, fp) : null;
+    }
+    return null;
   };
 
   /** The last game month the wheel's tickets were paid for (−1: none yet this session: the calendar is the session's). */

@@ -5,6 +5,9 @@
 //  2. The achievement's "Build it in" lists Larkfield (the player picks the city); its row opens Larkfield's card on
 //     Projects, the Exhibition's Start ringed: a tap on Start pays its coins, and its plot goes up on clear land by the
 //     city (a prop of the map). The tab says stage 1 of 4, in Larkfield.
+//  2b. The plot moved by a finger resting on it (spec 2026-11-22-grand-placement.md, step 1): held whole and green over a
+//     clear spot by the city, let go there; Undo and Redo; red and told why over the station, staying put; let go on
+//     the tray, back where it stood (never into the toy box). Kept after the reload (5).
 //  3. Each stage's goods by train to Larkfield's station (wagons standing at its crane): each stage moves the project
 //     on, its site's model swapped (foundations, the iron hall, the stands, opening day), the goods not paid for or
 //     counted toward growth. A picture of each stage.
@@ -204,6 +207,133 @@ const lookAtSite = async (dist = 1100) => {
 await lookAtSite();
 await shot("3-stage-0");
 
+// ---- 2b. The site moved by a finger (spec 2026-11-22-grand-placement.md, step 1) ---------------------------------------
+const cdp = await ctx.newCDPSession(p);
+const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+/** A point of the world (y: up from the ground) on screen. */
+const screenOf = (v) =>
+  p.evaluate((v) => {
+    const w = window.woodrail;
+    const c = new w.camera.position.constructor(v.x, v.y ?? 0, v.z).project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
+  }, v);
+const siteNow = () => p.evaluate(() => {
+  const w = window.woodrail;
+  const plan = w.world.economy.grandPlans.get("exhibition");
+  const q = w.world.props.get(plan.prop);
+  return { prop: plan.prop, x: q.x, z: q.z, heading: q.heading };
+});
+await p.evaluate(() => {
+  window.__said = [];
+  const h = window.woodrail.hud;
+  const f = h.toast.bind(h);
+  h.toast = (m, ...a) => (m && window.__said.push(m), f(m, ...a));
+});
+const said = () => p.evaluate(() => window.__said.splice(0));
+/**
+ * A finger put down on the site's middle, held still past the hold (to take hold), drawn towards the world point `to`
+ * (or the screen point `toScreen`) in small steps, nudged by eye till the site held stands on `to`, and lifted. What
+ * the interaction said while it was held (its mode, the site's rule set, blocked) comes back.
+ */
+const siteDrag = async ({ to, toScreen }) => {
+  const from = await siteNow();
+  const [x0, y0] = await screenOf({ x: from.x, y: 10, z: from.z });
+  await touch("touchStart", x0, y0);
+  await p.waitForTimeout(700);
+  await frames();
+  let [fx, fy] = toScreen ?? (await screenOf({ x: to.x, z: to.z }));
+  const steps = 16;
+  for (let k = 1; k <= steps; k++) {
+    await touch("touchMove", x0 + ((fx - x0) * k) / steps, y0 + ((fy - y0) * k) / steps);
+    await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
+  }
+  for (let k = 0; to && k < 5; k++) {
+    const held = await p.evaluate(() => (window.woodrail.interaction.mode.kind === "drag-prop" ? window.woodrail.interaction.mode.pose : null));
+    if (!held || Math.hypot(held.x - to.x, held.z - to.z) < 6) break;
+    const [a, c] = [await screenOf(held), await screenOf(to)];
+    fx += c[0] - a[0];
+    fy += c[1] - a[1];
+    await touch("touchMove", fx, fy);
+    await frames();
+  }
+  const held = await p.evaluate(() => {
+    const m = window.woodrail.interaction.mode;
+    return { kind: m.kind, site: !!m.site, blocked: m.blocked ?? null, pose: m.pose ?? null };
+  });
+  await touch("touchEnd", 0, 0);
+  await settle();
+  return held;
+};
+/** Undo or Redo by the HUD's own button. */
+const undoButton = (which) => p.evaluate((which) => {
+  const u = [...document.querySelectorAll("button")].find((x) => (x.title || x.getAttribute("aria-label") || "").startsWith(which) && !x.hidden);
+  // (Read before the tap: Undo of the last step leaves the button off.)
+  const on = !!u && !u.disabled;
+  u?.click();
+  return on;
+}, which);
+
+const site0 = await siteNow();
+// Where it can go: the nearest clear spot 150–500 mm away by the game's own rules (the props' rule, the yards, its
+// city's rule as the drag asks it: `Interaction.siteMove`), turned as it is; away from the station first (so it leaves
+// room there: Grand Central goes by the station in step 9).
+const target = await p.evaluate(async ([s, station]) => {
+  const w = window.woodrail;
+  const { checkProp, TrackIndex } = await import("/src/props/placement.ts");
+  const { footprintInYards, worldYards } = await import("/src/game/depot-footprint.ts");
+  const rule = w.interaction.siteMove(s.prop);
+  if (!rule) return null;
+  const ctx = { land: w.world.landscape, track: new TrackIndex(w.world.layout), props: w.world.props, footprint: w.propLibrary.footprint };
+  const yards = worldYards(w.world);
+  const st = w.world.layout.getPiece(station).pose;
+  const away = Math.atan2(s.z - st.z, s.x - st.x);
+  for (let r = 150; r <= 500; r += 30)
+    for (let k = 0; k < 24; k++) {
+      // (0, +1, −1, +2, −2 … steps of 15° from straight away from the station.)
+      const a = away + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 12);
+      const pose = { x: Math.round((s.x + Math.cos(a) * r) / 2) * 2, z: Math.round((s.z + Math.sin(a) * r) / 2) * 2, heading: s.heading };
+      if (checkProp(ctx, rule.fp, pose, "land", s.prop).kind === "clear" && !footprintInYards(yards, rule.fp, pose) && !rule.why(pose)) return pose;
+    }
+  return null;
+}, [site0, town.station]);
+check("2b. there's a clear spot by Larkfield to move the plot to", !!target, JSON.stringify(target));
+site = { x: (site0.x + (target?.x ?? site0.x)) / 2, z: (site0.z + (target?.z ?? site0.z)) / 2 };
+await lookAtSite(1500);
+await said();
+const moved = await siteDrag({ to: target });
+const site1 = await siteNow();
+check("2b. a finger resting on the plot takes hold of it, whole (its city's rule), green where it's going", moved.kind === "drag-prop" && moved.site && moved.blocked === null, JSON.stringify(moved));
+check("2b. let go, the plot stands there (the same project's prop)", site1.prop === site0.prop && Math.hypot(site1.x - target.x, site1.z - target.z) < 10, JSON.stringify({ site0, site1, target }));
+await shot("2b-moved");
+const undone = await undoButton("Undo");
+await frames();
+const site2 = await siteNow();
+check("2b. Undo puts it back where it was", undone && site2.x === site0.x && site2.z === site0.z, JSON.stringify(site2));
+const redone = await undoButton("Redo");
+await frames();
+const site3 = await siteNow();
+check("2b. Redo moves it again", redone && site3.x === site1.x && site3.z === site1.z, JSON.stringify(site3));
+// Refused: onto Larkfield's station (track and the station), and onto the tray (never into the toy box).
+const stationAt = await p.evaluate((id) => window.woodrail.world.layout.getPiece(id).pose, town.station);
+await said();
+const onStation = await siteDrag({ to: { x: stationAt.x, z: stationAt.z } });
+const site4 = await siteNow();
+const told4 = await said();
+check("2b. held over the station it's red, told why, and let go there it stays where it was", onStation.blocked !== null && told4.length > 0 && site4.x === site1.x && site4.z === site1.z, JSON.stringify({ onStation, told4, site4 }));
+// (The view back on the site: the drag to the station may have panned it at the screen's edge.)
+await lookAtSite(1500);
+const tray = await p.evaluate(() => {
+  const r = document.querySelector(".tray")?.getBoundingClientRect();
+  return r ? [r.left + r.width / 2, r.top + Math.min(40, r.height / 2)] : null;
+});
+const onTray = tray ? await siteDrag({ toScreen: tray }) : null;
+const site5 = await siteNow();
+const told5 = await said();
+check("2b. let go on the tray, it isn't put in the box: back where it stood, told so", !!tray && site5.prop === site0.prop && site5.x === site1.x && site5.z === site1.z && told5.some((m) => /stay on the map/.test(m)), JSON.stringify({ onTray, told5, site5 }));
+site = { x: site1.x, z: site1.z };
+
 // ---- 3. Each stage's goods by train ---------------------------------------------------------------------------------
 /**
  * Bring `n` of `kind` to Larkfield's station by train: a train of the wagons that carry it driven in along a short line
@@ -356,8 +486,10 @@ await settle();
 const back = await p.evaluate(async () => {
   const w = window.woodrail;
   const plan = w.world.economy.grandPlans.get("exhibition");
-  return { stage: plan?.stage, asset: plan ? w.world.props.get(plan.prop)?.asset : null };
+  const q = plan ? w.world.props.get(plan.prop) : null;
+  return { stage: plan?.stage, asset: q?.asset ?? null, x: q?.x, z: q?.z };
 });
+check("5. after a reload: the hall where the finger moved it", back.x === site.x && back.z === site.z, JSON.stringify({ back, site }));
 const levels2 = await levels();
 check("5. after a reload: the finished hall, earned", back.stage === 4 && back.asset === "grand-exhibition-4", JSON.stringify(back));
 check("5. after a reload: the towns as big as they grew", JSON.stringify(levels2.map((t) => t.level)) === JSON.stringify(levels1.map((t) => t.level)), `${JSON.stringify(levels1)} → ${JSON.stringify(levels2)}`);
