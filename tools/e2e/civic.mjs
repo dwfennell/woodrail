@@ -278,6 +278,8 @@ const red = await p.evaluate(async (id) => {
   await Promise.race([w.settled(2), new Promise((r) => setTimeout(r, 8000))]);
   let found = false;
   w.scene.traverse((o) => {
+    // (A car's lacquer colours are one vertex-coloured mesh, its colours listed: train-models.ts, mergeBlenderCar.)
+    if (o.userData?.carId === id && o.userData.paintColors?.some((c) => c.toLowerCase() === "#c8442f")) found = true;
     if (o.userData?.carId === id && o.material?.color && o.material.color.getHexString() === "c8442f") found = true;
   });
   return found;

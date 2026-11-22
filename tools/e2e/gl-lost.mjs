@@ -57,6 +57,8 @@ const tap = async (selector, text) => {
   const r = await p.evaluate(({ s, text }) => {
     const el = [...document.querySelectorAll(s)].find((e) => e.getBoundingClientRect().width > 0 && !e.closest("[hidden]") && (!text || e.textContent.includes(text)));
     if (!el) return null;
+    // (Scrolled to first, as a player scrolls ☰: its later items are below a phone's fold now it's grown.)
+    el.scrollIntoView({ block: "center" });
     const b = el.getBoundingClientRect();
     return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
   }, { s: selector, text });

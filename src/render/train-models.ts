@@ -310,6 +310,8 @@ function mergeBlenderCar(root: Group, mats: Materials, key: string): void {
     mesh.receiveShadow = true;
     mesh.userData.sharedGeometry = true;
     mesh.userData.shellParts = lacquered.map((m) => ({ geometry: m.geometry, matrix: local(m) }));
+    // (Its colours, as they're now only in its vertex colours: what a car is painted in, for the e2e's payoff checks.)
+    mesh.userData.paintColors = [...new Set(lacquered.map((m) => (m.material as Material).userData.paintColor as string))];
     for (const m of lacquered) m.removeFromParent();
     root.add(mesh);
   }
