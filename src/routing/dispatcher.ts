@@ -77,6 +77,9 @@ interface Hold {
   decided: number;
   /** Standing short of its hold's end since (tick; −1: not). */
   short: number;
+  /** The train it last held back for, head-on past its stop (`headOnPast`), and when (tick); −1: none. */
+  headOnWith: number;
+  headOnAt: number;
 }
 
 const capAt: Cursor = { pieceId: -1, pathIndex: 0, reversed: false, s: 0 };
@@ -86,6 +89,8 @@ export class Dispatcher {
   decisions = 0;
   grants = 0;
   detours = 0;
+  /** Grants refused as head-on past the stop (`headOnPast`). */
+  headOns = 0;
   /** Holds by why: its move's way taken ("blocked"), or another goes first ("order"). */
   heldBlocked = 0;
   heldOrder = 0;
@@ -250,7 +255,7 @@ export class Dispatcher {
         if (w > t.at) end = w;
         this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
-        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
+        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1, headOnWith: -1, headOnAt: -Infinity };
         this.holdsBy.set(s.key, nh);
         this.setHold(nh, t.at, []);
       }
@@ -379,6 +384,24 @@ export class Dispatcher {
       h.passed++;
       if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - Math.min(...weights) && r.first[0] > 0) to = r.firstTo[0];
     }
+    // (Head-on past its stop: a grant that delivers short of them all, ending where its way on past its stop runs
+    // through a train whose own way runs back over it, with no road to pass on, isn't granted: they'd meet nose to nose.)
+    let headOn = -1;
+    if (to >= 0 && r.plain < r.of) headOn = headOnPast(ways[k], to, members.filter((m) => m !== k).map((m) => ways[m]));
+    // (Only for a train held waiting on this one (it can't go till this one does), and not one held back for this one
+    // in turn: each holding back for the other, this one goes.)
+    if (headOn >= 0) {
+      const o = this.holdsBy.get(headOn);
+      const waitsOnMe = !!o && o.waitsOn === engine;
+      const mutual = !!o && o.headOnWith === engine && now - o.headOnAt <= RETRY_TICKS * 2;
+      if (!waitsOnMe || mutual) headOn = -1;
+    }
+    if (headOn >= 0) {
+      h.headOnWith = headOn;
+      h.headOnAt = now;
+      to = -1;
+      this.headOns++;
+    }
     this.decisions++;
     this.decisionMs.push(performance.now() - t0);
     const pt = this.perTrain.get(engine) ?? [0, 0];
@@ -386,7 +409,7 @@ export class Dispatcher {
     pt[to < 0 ? 1 : 0]++;
     // (Who it waits for: the train in its move's way, or (its turn not yet) the one the best order lets go first.)
     const firstOther = r.order.find((m) => m.k !== 0);
-    h.waitsOn = to >= 0 ? -1 : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    h.waitsOn = to >= 0 ? -1 : headOn >= 0 ? headOn : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
@@ -631,4 +654,55 @@ function oneWayOf(ts: readonly DTrain[]): Uint8Array {
   const out = new Uint8Array(max + 1);
   for (let p = 0; p <= max; p++) out[p] = seen[p] !== -1 && !two[p] ? 1 : 0;
   return out;
+}
+
+/**
+ * A grant to `to` that would meet another train nose to nose past it: `t`'s way on from `to` (up to its next stop after
+ * there) runs over where one of `others` stands, that one's own way (to its goal) runs back over `t` standing at `to`,
+ * and neither has a road to pass on (another way at points) before they meet. That train's key, or −1.
+ */
+export function headOnPast(t: DTrain, to: number, others: readonly DTrain[]): number {
+  const stops = t.arrivals.filter((a) => t.order[a] > t.order[to]);
+  const until = stops.length > 0 ? stops[0] : t.main - 1;
+  const atTo = new Set(t.pos[to]);
+  for (const o of others) {
+    if (o.fixed) continue;
+    const stand = new Set(o.pos[o.at]);
+    // (t's way on, from `to`, to where o stands: single track all the way?)
+    let meets = false;
+    let passT = false;
+    for (let i = to, n = 0; i >= 0 && n < 400; n++) {
+      if (t.pos[i].some((p) => stand.has(p))) {
+        meets = true;
+        break;
+      }
+      if (i === until || (i !== to && t.turned[i])) break;
+      const s = t.succ[i];
+      if (s.length > 1) {
+        passT = true;
+        break;
+      }
+      i = s[0] ?? -1;
+    }
+    if (!meets || passT) continue;
+    // (o's way to its goal back over t at `to`, single track up to there?)
+    const end = o.goal >= 0 ? o.goal : o.main - 1;
+    let back = false;
+    let passO = false;
+    for (let i = o.at, n = 0; i >= 0 && n < 400; n++) {
+      if (o.pos[i].some((p) => atTo.has(p))) {
+        back = true;
+        break;
+      }
+      if (i === end || (i !== o.at && o.turned[i])) break;
+      const s = o.succ[i];
+      if (s.length > 1) {
+        passO = true;
+        break;
+      }
+      i = s[0] ?? -1;
+    }
+    if (back && !passO) return o.key;
+  }
+  return -1;
 }
