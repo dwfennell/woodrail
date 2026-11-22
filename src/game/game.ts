@@ -431,7 +431,7 @@ export class Game {
       },
     });
     this.scene.add(this.stationTouches.group);
-    syncCuttings(this.landscape, this.layout);
+    this.syncGroundCuts();
     this.landscapeView.syncTrees(this.layout);
     this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf, this.archFloorsOf);
     this.trackView.onRoad = this.onRoad;
@@ -586,7 +586,8 @@ export class Game {
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
     this.wireClocks();
-    syncCuttings(this.landscape, this.layout);
+    // (A fresh landscape view: its felt has no trenches until told, so a saved underpass would be felted over.)
+    this.syncGroundCuts();
     this.landscapeView.syncTrees(this.layout);
     this.scene.remove(this.trackView.group);
     this.trackView.dispose();
@@ -855,14 +856,24 @@ export class Game {
     this.invalidate();
   }
 
+  /**
+   * The track's cuts in the ground: ramps and hilltop underpasses cut into the hills (`syncCuttings`), and the felt's
+   * holes for the trenches of underpasses and tunnel mouths on the felt (`underpassHoles`). On every layout edit, and
+   * whenever a world is put in (a new landscape view starts with no holes: QA 2026-11-22, an underpass felted over
+   * after a reload; a tunnel mouth's cutting the same). The felt sheet is cut again only when the holes change.
+   */
+  private syncGroundCuts(): void {
+    syncCuttings(this.landscape, this.layout);
+    this.landscapeView.setFeltHoles(underpassHoles(this.layout));
+  }
+
   /** Call after any layout edit. */
   trackChanged(): void {
     this.trackVersion++;
     this.invalidate();
     // Ramps cut into the hills, before anything asks the ground: the track's arches (how far down a bridge reaches),
     // trees.
-    syncCuttings(this.landscape, this.layout);
-    this.landscapeView.setFeltHoles(underpassHoles(this.layout));
+    this.syncGroundCuts();
     this.tunnelsView.sync(this.layout, this.landscape);
     this.trackView.setTunnelPieces(this.tunnelsView.found.pieces);
     this.trackView.sync();
