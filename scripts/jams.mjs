@@ -60,18 +60,23 @@ if (SEEDS > 1) {
   })();
   const pad = (s, n) => String(s).padEnd(n);
   const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
-  console.log(`${pad("map", 30)}${pad("stops mean (min–max)", 26)}${against ? pad("vs", 14) : ""}${pad("jams mean", 11)}${pad("breaks", 8)}first break`);
+  console.log(`${pad("map", 30)}${pad("stops mean (min–max)", 26)}${against ? pad("vs", 14) : ""}${pad("1st jam s", 14)}${pad("stuck s", 9)}${pad("jams mean", 11)}${pad("breaks", 8)}${process.env.JAMS_DISPATCHER ? pad("decide p98/max", 18) : ""}first break`);
   const out = {};
   let lower = 0;
   for (const [map, rs] of [...by].sort((a, b) => a[0].localeCompare(b[0]))) {
     const st = rs.map((r) => r.arrivals);
-    const m = { stops: mean(st), min: Math.min(...st), max: Math.max(...st), jams: mean(rs.map((r) => r.jams)), breaks: rs.filter((r) => r.firstBreak).length, firstBreak: rs.find((r) => r.firstBreak)?.firstBreak ?? null, seeds: rs.length, seconds: SECONDS };
+    const ms = rs.map((r) => r.dispatcher?.ms).filter(Boolean);
+    const fj = rs.map((r) => r.firstJam ?? SECONDS);
+    const m = { stops: mean(st), min: Math.min(...st), max: Math.max(...st), firstJam: mean(fj), firstJamMin: Math.min(...fj), stuckBefore: mean(rs.map((r) => r.stuckBefore ?? 0)), jams: mean(rs.map((r) => r.jams)), ...(ms.length ? { p98: Math.max(...ms.map((x) => x.p98)), maxMs: Math.max(...ms.map((x) => x.max)) } : {}), breaks: rs.filter((r) => r.firstBreak).length, firstBreak: rs.find((r) => r.firstBreak)?.firstBreak ?? null, seeds: rs.length, seconds: SECONDS };
     out[map] = m;
     const a = against?.[map];
     const d = a ? m.stops - a.stops : 0;
-    const flag = a && (d < 0 || m.breaks > a.breaks) ? "   LOWER" : "";
+    // (Lower: stops mean below, or a first jam sooner on the mean, or more seeds broken. `--bar first-jam`: the first
+    // jam no sooner on the mean, stops no lower than the other's min, no more seeds broken.)
+    const firstBar = opt("bar", "") === "first-jam";
+    const flag = a && (firstBar ? m.firstJam < (a.firstJam ?? SECONDS) || m.min < a.min || m.breaks > a.breaks : d < 0 || m.breaks > a.breaks) ? "   LOWER" : "";
     if (flag) lower++;
-    console.log(`${pad(map, 30)}${pad(`${m.stops.toFixed(0)} (${m.min}–${m.max})`, 26)}${a ? pad(`${a.stops.toFixed(0)} ${d >= 0 ? "+" : ""}${d.toFixed(0)}`, 14) : ""}${pad(m.jams.toFixed(1), 11)}${pad(`${m.breaks}/${rs.length}`, 8)}${m.firstBreak ?? "-"}${flag}`);
+    console.log(`${pad(map, 30)}${pad(`${m.stops.toFixed(0)} (${m.min}–${m.max})`, 26)}${a ? pad(`${a.stops.toFixed(0)} ${d >= 0 ? "+" : ""}${d.toFixed(0)}`, 14) : ""}${pad(`${m.firstJam.toFixed(0)}${a?.firstJam !== undefined ? ` (${a.firstJam.toFixed(0)})` : ""}`, 14)}${pad(m.stuckBefore.toFixed(0), 9)}${pad(m.jams.toFixed(1), 11)}${pad(`${m.breaks}/${rs.length}`, 8)}${m.p98 !== undefined ? pad(`${m.p98}/${m.maxMs} ms`, 18) : ""}${m.firstBreak ?? "-"}${flag}`);
   }
   console.log(`(${((Date.now() - t0) / 60000).toFixed(1)} min${against ? `; ${lower} map(s) lower on the mean, or more seeds broken, than ${opt("against", "")}` : ""})`);
   if (opt("out", "")) {
