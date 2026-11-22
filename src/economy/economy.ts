@@ -122,7 +122,8 @@ export interface Recipe {
   readonly gives: readonly CargoKind[];
   /**
    * One cycle every `seconds` (at rate 1): uses `uses` from its piles, adds `makes` to them. Runs while it has what it
-   * uses and room for what it makes. `eats`: uses one of whatever it has of `takes` (a town using up its goods).
+   * uses and room for at least one good it makes; a good with no room isn't made that cycle (a mine full of ore still
+   * brings up coal). `eats`: uses one of whatever it has of `takes` (a town using up its goods).
    */
   readonly cycle?: { readonly uses: Bag; readonly makes: Bag; readonly seconds: number; readonly eats?: boolean };
   /** Most units each pile holds (default `PILE_CAP`). */
@@ -261,6 +262,11 @@ export const SHED_CAP = 12;
 export const MAX_SHEDS = 3;
 
 /** How much each pile of this depot holds: its kind's, and its dock sheds' (a harbour's). */
+/** Has this depot's pile of `kind` room for `n` more (a cycle's make)? */
+export function hasRoomFor(d: DepotState, kind: CargoKind, n: number): boolean {
+  return d.piles[CARGO[kind].index] + n <= capAt(d);
+}
+
 export function capAt(d: DepotState): number {
   return capOf(d.role) * (d.stack ?? 1) + d.sheds * SHED_CAP;
 }
@@ -1964,16 +1970,22 @@ export class Economy {
   }
 
   /**
-   * Is this depot making (or using) something now: it has what its cycle uses and room for what it makes? (A
-   * sawmill's saw spins while true.)
+   * Is this depot making (or using) something now: it has what its cycle uses and room for at least one of the goods
+   * it makes? (A mine whose ore is full goes on bringing up coal; `hasRoomFor` says which it makes.) A sawmill's saw
+   * spins while true.
    */
   working(d: DepotState): boolean {
     const cycle = RECIPES[d.role].cycle;
     if (!cycle || d.rate <= 0) return false;
     if (cycle.eats) return RECIPES[d.role].takes.some((k) => d.piles[CARGO[k].index] > 0);
     for (const k in cycle.uses) if (d.piles[CARGO[k as CargoKind].index] < cycle.uses[k as CargoKind]!) return false;
-    for (const k in cycle.makes) if (d.piles[CARGO[k as CargoKind].index] + cycle.makes[k as CargoKind]! > capAt(d)) return false;
-    return true;
+    let made = false;
+    for (const k in cycle.makes) {
+      made = true;
+      if (hasRoomFor(d, k as CargoKind, cycle.makes[k as CargoKind]!)) return true;
+    }
+    // (A cycle that makes nothing, as a power station's, runs on its inputs alone.)
+    return !made;
   }
 
   /** Would the crane do anything for this car at this depot? */
@@ -3412,9 +3424,12 @@ export class Economy {
         continue;
       }
       for (const k in cycle.uses) d.piles[CARGO[k as CargoKind].index] -= cycle.uses[k as CargoKind]!;
+      // Only the goods with room are made: a full pile's share of the cycle isn't (a mine full of ore makes coal).
       for (const k in cycle.makes) {
-        d.piles[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
-        this.made[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
+        const n = cycle.makes[k as CargoKind]!;
+        if (!hasRoomFor(d, k as CargoKind, n)) continue;
+        d.piles[CARGO[k as CargoKind].index] += n;
+        this.made[CARGO[k as CargoKind].index] += n;
       }
     }
     // Towns post mail (Game mode's Post office), looked at once a second.

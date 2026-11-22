@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CARGO, Economy } from "../economy";
+import { capAt, CARGO, Economy } from "../economy";
 import { Sim, SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from "../track";
 import { townLevel } from "./towns";
@@ -39,6 +39,38 @@ describe("mining and iron", () => {
     expect(economy.made[CARGO.ore.index]).toBeGreaterThan(0);
     expect(economy.made[CARGO.iron.index]).toBeGreaterThan(0);
     expect(f.piles[CARGO.iron.index] + m.piles[CARGO.coal.index]).toBeGreaterThan(0);
+  });
+
+  it("a mine full of ore goes on bringing up coal; full of both, it stops", () => {
+    const layout = new Layout();
+    const mine = layout.addPiece("depot-mine", { x: 0, z: 0, heading: 0 });
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const m = economy.addDepot("mine", mine);
+    const run = (seconds: number) => {
+      for (let i = 0; i < seconds * SIM_HZ; i++) economy.tick();
+    };
+    // Ore piled to the cap (no train takes it): coal still comes up, a lump a cycle, and no ore past the cap.
+    m.piles[CARGO.ore.index] = capAt(m);
+    expect(economy.working(m)).toBe(true);
+    run(18 * 3 + 1);
+    expect(m.piles[CARGO.coal.index]).toBe(3);
+    expect(m.piles[CARGO.ore.index]).toBe(capAt(m));
+    expect(economy.made[CARGO.coal.index]).toBe(3);
+    expect(economy.made[CARGO.ore.index]).toBe(0);
+    // The same the other way round.
+    m.piles[CARGO.ore.index] = 0;
+    m.piles[CARGO.coal.index] = capAt(m);
+    run(18 + 1);
+    expect(m.piles[CARGO.ore.index]).toBe(1);
+    expect(m.piles[CARGO.coal.index]).toBe(capAt(m));
+    // Both full: not working, nothing made.
+    m.piles[CARGO.ore.index] = capAt(m);
+    expect(economy.working(m)).toBe(false);
+    const made = [economy.made[CARGO.coal.index], economy.made[CARGO.ore.index]];
+    run(60);
+    expect([economy.made[CARGO.coal.index], economy.made[CARGO.ore.index]]).toEqual(made);
+    expect(m.piles[CARGO.coal.index]).toBe(capAt(m));
   });
 
   it("a city ★ wants iron to grow its second star, and more from then on", () => {
