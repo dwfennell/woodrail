@@ -198,6 +198,37 @@ let m = await bar();
 check("the pill sits between the coins and the buttons, 44 px tall", fits(m), JSON.stringify(m));
 await shot("01-pill-pick-research");
 
+// 2b. The picker's code not fetched the first time (offline, or a tab older than the build served): every tap says so,
+// with a tap to reload, and after the reload it opens. (It once did nothing at all till a reload, saying nothing: the
+// loading flag stayed up. Chromium keeps a failed import() failed for the page's life, so a tap can't simply try again.)
+{
+  let refused = 0;
+  const route = "**/src/ui/blueprint-board.ts*";
+  const toast = () => p.evaluate(() => (document.querySelector(".toast:not([hidden])")?.getBoundingClientRect().height ? document.querySelector(".toast").textContent : ""));
+  await p.route(route, (r) => (refused++, r.abort("internetdisconnected")));
+  await tap(".research-pill");
+  await p.waitForTimeout(800);
+  const said = await toast();
+  const shut = await p.evaluate(() => !document.querySelector(".board-open"));
+  await p.unroute(route);
+  check("the picker's code not fetched: the tap says so, with a tap to reload, and it stays shut", refused > 0 && shut && /Couldn't fetch .*reload/.test(said), JSON.stringify({ refused, shut, said }));
+  await p.waitForFunction(() => !document.querySelector(".toast")?.getBoundingClientRect().height, null, { timeout: 15000 }).catch(() => null);
+  await tap(".research-pill");
+  await p.waitForTimeout(800);
+  const again = await toast();
+  check("…the next tap says so again (never nothing at all)", /Couldn't fetch/.test(again), JSON.stringify(again));
+  const reloaded = p.waitForEvent("load", { timeout: 60000 }).then(() => true, () => false);
+  await tap(".toast");
+  check("…a tap on the toast reloads the page", await reloaded);
+  await enterGame();
+  await p.waitForTimeout(600);
+  const opened = await board(true);
+  check("…and then the pill opens the picker", opened && !!(await ticket()), String(opened));
+  await board(false);
+  // (The refused fetch's own console errors, expected here.)
+  for (let i = errors.length - 1; i >= 0; i--) if (/couldn't fetch part of the game|Failed to load resource|ERR_INTERNET_DISCONNECTED|dynamically imported module/i.test(errors[i])) errors.splice(i, 1);
+}
+
 // 3. Show me for Research switches: the picker, open on Switches, its Research ringed; nothing picked.
 await tap(".goals-show-icon");
 await p.waitForTimeout(500);

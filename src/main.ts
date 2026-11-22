@@ -77,7 +77,7 @@ import { planIcons } from "./game/route-plan-text";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { capAt, isStore as isStoreRole, MAX_SHEDS, RECIPES, SHED_CAP, storeModeOf, type DepotState, type RouteStopDef } from "./economy";
 import type { Stuck } from "./economy/stalls";
-import type { BlueprintBoard, BlueprintBoardHandlers, Station } from "./ui/blueprint-board";
+import type { BlueprintBoardHandlers, Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, costOf as costOfResearch, dequeue, detachResearch, wants as researchWants, queuePlace, setSpeed, startNow, toggleQueue, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
@@ -2812,14 +2812,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return rows;
   }
   // The Research picker: the whole tree, each blueprint researched at a school. Its code is loaded the first time it's
-  // opened (`setBoardOpen`); till then `board` stands in, shut.
-  let boardImpl: BlueprintBoard | null = null;
-  let boardLoading = false;
+  // opened (`setBoardOpen`); till then `board` stands in, shut. (By `lazy`: a fetch that fails, offline or a tab older
+  // than the build served, says so and the next tap tries again. A flag of its own once stayed "loading" after a failed
+  // fetch, and Research never opened again till a reload.)
+  const boardLazy = lazy(async () => new (await import("./ui/blueprint-board")).BlueprintBoard(document.body, boardHandlers), (e) => lazyFailed(e));
   const board = {
     get open(): boolean {
-      return boardImpl?.open ?? false;
+      return boardLazy.now?.open ?? false;
     },
-    pictureCame: (key: string) => boardImpl?.pictureCame(key),
+    pictureCame: (key: string) => boardLazy.now?.pictureCame(key),
   };
   const boardHandlers: BlueprintBoardHandlers = {
     pick: (id) => picked(id, toggleQueue),
@@ -3009,14 +3010,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Open or close the Research picker; `on`: open on that card ("Show me" for a goal's research). */
   function setBoardOpen(open: boolean, on?: string): void {
+    const boardImpl = boardLazy.now;
     if (open && !boardImpl) {
-      // (Its code fetched the first time, then opened as asked: a second ask while it loads waits on the first.)
-      if (boardLoading) return;
-      boardLoading = true;
-      void import("./ui/blueprint-board").then(({ BlueprintBoard }) => {
-        boardImpl = new BlueprintBoard(document.body, boardHandlers);
-        setBoardOpen(true, on);
-      });
+      // (Its code fetched the first time, then opened as asked: asks while it loads wait on it.)
+      boardLazy.use(() => setBoardOpen(true, on));
       return;
     }
     if (!boardImpl) return refreshBoard();
@@ -3107,7 +3104,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return { ...base, state: "locked" as const, waits, ...(gate ? { school: gate } : other ? { gate: other.kind === "delivered" && GOODS_ICON[other.good as CargoKind] ? `${GOODS_ICON[other.good as CargoKind]} ${other.n} ${other.good}` : needTag(other) } : {}) };
     }
     const focus = goalPick(progress, goalTech, school !== null);
-    boardImpl?.show({
+    boardLazy.now?.show({
       stations,
       branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
       ...(focus ? { focus } : {}),
@@ -5727,7 +5724,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /**
    * A sheet or card whose code couldn't be fetched when first opened (offline, or a tab older than the build now
-   * served: the old files are gone): say so, with a tap to reload, and report it. The next tap tries again.
+   * served: the old files are gone): say so, with a tap to reload, and report it. The next tap tries again (and in
+   * Chromium, which keeps a failed import failed till a reload, says so again: never nothing at all).
    */
   function lazyFailed(e: unknown): void {
     console.error("Woodrail: couldn't fetch part of the game", e);
