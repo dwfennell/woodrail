@@ -319,7 +319,13 @@ def rose(k, r, stained, x, y, z, ry=0):
     if stained:
         for i in range(8):
             a = i / 8 * PI * 2
-            g.add(k.cylZ(k.paint(JEWELS[i % len(JEWELS)]), r * 0.26, 1.8, math.cos(a) * r * 0.62, math.sin(a) * r * 0.62, 0, 10))
+            # Eight petal-shaped inlays, cut into a dark blue disc like a toy rosette.
+            petal = k.extrude(k.paint(JEWELS[i % len(JEWELS)]), [
+                (-0.12 * r, 0.29 * r), (-0.21 * r, 0.64 * r), (0, 0.87 * r),
+                (0.21 * r, 0.64 * r), (0.12 * r, 0.29 * r),
+            ], 1.9, bevel=0.15)
+            petal.rotation.z = a
+            g.add(petal)
         g.add(k.cylZ(k.paint("#e3a92c"), r * 0.28, 2, 0, 0, 0, 10))
     else:
         for a in (0, PI / 4, PI / 2, 3 * PI / 4):
@@ -378,8 +384,7 @@ def cathedral(k, stage):
     top = y0 + H
     g.add(k.roof(roof_m, L, W + 6, 50, 0, top, 0, 3.5))
     tr = k.roof(roof_m, TL, TW + 6, 50, 0, 0, 0, 3.5)
-    tr.rotation.y = PI / 2
-    g.add(k.at(tr, TX, top, 0))
+    g.add(k.at(tr, TX, top, 0, PI / 2))
     for s in (-1, 1):
         ar = k.box(roof_m, L - 20, 3, AW + 8, 1, 0, 0, 0)
         ar.position.set(-10, y0 + AH + 6, s * (W / 2 + AW / 2))
@@ -397,7 +402,7 @@ def cathedral(k, stage):
     g.add(k.box(stone, 34, 30, 34, 2, TX, top + 30, 0))
     for s in (-1, 1):
         g.add(lancet(k, TX, top + 36, s * 17.4, 8, 18, glass()))
-    g.add(k.cone(roof_m, 22, 90, TX, top + 60, 0, 8))
+    g.add(k.lathe(roof_m, [(22, 0), (22.8, 2.5), (16.5, 16), (5.5, 65), (2.9, 71), (0.8, 90)], TX, top + 60, 0, 8))
     g.add(k.box(gold, 1.6, 16, 1.6, 0, TX, top + 150, 0), k.box(gold, 1.6, 1.6, 9, 0, TX, top + 160, 0))
     g.add(k.roof(roof_m, FRONT - L / 2 - 0.5, W + 6, 50, (FRONT + L / 2 - 0.5) / 2, top, 0, 3.5))
 
@@ -437,7 +442,8 @@ def cathedral(k, stage):
                 g.add(on_face(lancet(k, 0, 0, 0, 7, 34, glass()), tx, tz, face, d * 7, y0 + 64))
             for face in ("+x", "-x", "+z", "-z"):
                 g.add(on_face(lancet(k, 0, 0, 0, 7, 26, "#2b3644"), tx, tz, face, d * 7, y0 + TH - 33))
-        spire = k.cone(roof_m, 17, 70, tx, y0 + TH + 1, tz, 8)
+        # An octagonal steeple with a flared foot and a narrow shoulder below the finial.
+        spire = k.lathe(roof_m, [(17.8, 0), (18.2, 2), (13.2, 12), (5, 52), (2.4, 56), (0.8, 70)], tx, y0 + TH + 1, tz, 8)
         g.add(spire)
         g.add(k.ball(gold, 2.4, tx, y0 + TH + 72, tz))
         portal(tx + TOWER / 2, tz, 14, 30)

@@ -15,6 +15,8 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   createSample,
+  flipSwapsEnds,
+  getPieceDef,
   GROOVE_SPACING,
   GROOVE_WIDTH,
   canStandOnArches,
@@ -28,6 +30,7 @@ import {
   type PathGeom,
   type PieceDef,
 } from "../track";
+import { mapBoardGrain } from "./wood-grain";
 import { nonIndexed } from "./non-indexed";
 
 // Render-only dimensions (mm).
@@ -131,6 +134,13 @@ export function framesAlong(geom: PathGeom, extendStart: number, extendEnd: numb
     out.push({ x: p.x + Math.cos(p.heading) * extendEnd, y: p.y, z: p.z + Math.sin(p.heading) * extendEnd, heading: p.heading, s: len + extendEnd });
   }
   return out;
+}
+
+/** A stand-in or distant piece samples the same blank as its carved mesh,
+ * including curves reflected in z after carving. */
+function mapTrackGrain(g: BufferGeometry, def: PieceDef): BufferGeometry {
+  const mirrored = def !== getPieceDef(def.type, false) && !flipSwapsEnds(def.type);
+  return mapBoardGrain(g, undefined, mirrored);
 }
 
 /**
@@ -294,14 +304,14 @@ export function connectorBasis(x: number, y: number, z: number, heading: number)
   return new Matrix4().makeBasis(a, right, up).setPosition(x, y, z);
 }
 
-export function extrudeUp(shape: Shape, height: number, bevel: number): BufferGeometry {
+export function extrudeUp(shape: Shape, height: number, bevel: number, curveSegments = 24): BufferGeometry {
   const g = new ExtrudeGeometry(shape, {
     depth: Math.max(0.1, height - 2 * bevel),
     bevelEnabled: bevel > 0,
     bevelThickness: bevel,
     bevelSize: bevel,
     bevelSegments: 2,
-    curveSegments: 24,
+    curveSegments,
   });
   g.translate(0, 0, bevel);
   return nonIndexed(g);
@@ -375,7 +385,7 @@ export function buildPieceStandIn(def: PieceDef): BufferGeometry {
   g.addGroup(0, g.index ? g.index.count : g.attributes.position.count, SLOT_BODY);
   g.computeBoundingBox();
   g.computeBoundingSphere();
-  return g;
+  return mapTrackGrain(g, def);
 }
 
 /**
@@ -420,7 +430,7 @@ export function hasFarVersion(def: PieceDef): boolean {
 /**
  * A piece's far version, for where it's drawn too small to see its finer carving (see `TrackView.setDetail`): the body
  * and its grooves swept as one outline (no carving), its bevels in fewer steps, its curve every 7.5° (not 3°), and no
- * holes at its ends (a joint's peg fills them: `buildPegGeometry`). About a tenth of the triangles: a large curve's
+ * sockets at receiving ends. About a tenth of the triangles: a large curve's
  * 3.1k are about 300. Its materials' groups, uvs and shading as the carved piece's. A millisecond or so to make.
  */
 export function buildPieceFar(def: PieceDef): BufferGeometry {
@@ -449,7 +459,7 @@ export function buildPieceFar(def: PieceDef): BufferGeometry {
   };
   arc(-w + BOTTOM_RADIUS, BOTTOM_RADIUS, BOTTOM_RADIUS, Math.PI, 1.5 * Math.PI, 1);
   arc(w - BOTTOM_RADIUS, BOTTOM_RADIUS, BOTTOM_RADIUS, 1.5 * Math.PI, 2 * Math.PI, 1);
-  arc(w - TOP_RADIUS, h - TOP_RADIUS, TOP_RADIUS, 0, 0.5 * Math.PI, 2);
+  arc(w - TOP_RADIUS, h - TOP_RADIUS, TOP_RADIUS, 0, 0.5 * Math.PI, 1);
   // Along the top, right to left, each groove's walls and floor (the carving's colour), then the top on past it.
   for (const c of [GROOVE_SPACING / 2, -GROOVE_SPACING / 2]) {
     const right = c + GROOVE_WIDTH / 2;
@@ -462,13 +472,13 @@ export function buildPieceFar(def: PieceDef): BufferGeometry {
     // The top past the groove has its texture where the body's would be, as if the groove weren't there.
     v = top + (right - left);
   }
-  arc(-w + TOP_RADIUS, h - TOP_RADIUS, TOP_RADIUS, 0.5 * Math.PI, Math.PI, 2);
+  arc(-w + TOP_RADIUS, h - TOP_RADIUS, TOP_RADIUS, 0.5 * Math.PI, Math.PI, 1);
   // The closing edge, back to the first point (the left side).
   edges.push({ slot: SLOT_BODY, va: v, vb: v + Math.hypot(pts[0].u - pts[pts.length - 1].u, pts[0].v - pts[pts.length - 1].v) });
   const g = sweep(pts, framesAlong(def.paths[0].geom, 0, 0, 0, true), edges);
   g.computeBoundingBox();
   g.computeBoundingSphere();
-  return g;
+  return mapTrackGrain(g, def);
 }
 
 /** Scaffolding: posts this thick (mm), ledgers and braces a little thinner. */
@@ -527,68 +537,80 @@ export function buildScaffold(def: PieceDef, bottom: number, top: number): Buffe
   return g;
 }
 
-/** The plug's top sits this far below the track surface: a faint seam where it fills its hole (and no flicker on a stand-in's uncarved body). */
-const PLUG_DROP = 0.1;
-
-/**
- * A peg as it stands on the end of a piece: a plug filling that end's hole, and the peg reaching out of it (into the
- * hole of the piece it joins, or out of a free end). In an end's frame: x outward from the end face, z across, y up
- * from the track base. Plain extrusions, no carving. Indexed, with position, normal and uv.
- */
+/** The exposed wooden tongue, in the connector frame. The owning board is solid behind it. */
 export function buildPegGeometry(): BufferGeometry {
-  // Only what can be seen: the plug's top (its walls stand against the hole's, its bottom on the piece's floor), its
-  // face on the end of the piece, and the peg's top and walls out past it (its bottom sits on whatever's below). A
-  // seat for every joint on the map, so kept to a few dozen triangles: coarse curves, no bevel.
-  const plugShape = keyholeShape(0, PEG_NECK_LENGTH + SOCKET_CLEARANCE - 1, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1);
   const pegShape = keyholeShape(0, PEG_NECK_LENGTH, PEG_NECK_WIDTH / 2, PEG_HEAD_RADIUS, 1);
   const top = (shape: Shape, height: number) => nonIndexed(new ShapeGeometry(shape, PEG_CURVE_SEGMENTS).translate(0, 0, height));
-  const plugTop = top(plugShape, TRACK_THICKNESS - PLUG_DROP);
-  const pegTop = top(pegShape, PEG_HEIGHT);
-  // The peg's walls: an extrusion's sides only (its caps are the first group).
-  const extruded = new ExtrudeGeometry(pegShape, { depth: PEG_HEIGHT, bevelEnabled: false, curveSegments: PEG_CURVE_SEGMENTS });
-  const capCount = extruded.groups[0].count;
-  const walls = nonIndexed(extruded);
-  const wallPositions = walls.getAttribute("position").array.slice(capCount * 3);
-  const wallUvs = walls.getAttribute("uv").array.slice(capCount * 2);
+  // Sand the lip of the projecting tongue. The full-width wall still determines its fit in a socket.
+  const lip = 0.55;
+  const insetTop = keyholeShape(0, PEG_NECK_LENGTH + lip, PEG_NECK_WIDTH / 2 - lip, PEG_HEAD_RADIUS - lip, 1);
+  const pegTop = top(insetTop, PEG_HEIGHT);
+  const outer = pegShape.getPoints(PEG_CURVE_SEGMENTS);
+  const inner = insetTop.getPoints(PEG_CURVE_SEGMENTS);
+  const sides: number[] = [];
+  const band = (a: Vector2, b: Vector2, c: Vector2, d: Vector2, low: number, high: number) => {
+    sides.push(a.x, a.y, low, b.x, b.y, low, c.x, c.y, high);
+    sides.push(a.x, a.y, low, c.x, c.y, high, d.x, d.y, high);
+  };
+  for (let i = 0; i + 1 < outer.length; i++) {
+    const a = outer[i], b = outer[i + 1];
+    if (a.x === 0 && b.x === 0) continue; // against the board end
+    band(a, b, b, a, 0, PEG_HEIGHT - lip);
+    band(a, b, inner[i + 1], inner[i], PEG_HEIGHT - lip, PEG_HEIGHT);
+  }
   const pegWalls = new BufferGeometry();
-  pegWalls.setAttribute("position", new Float32BufferAttribute(wallPositions, 3));
-  pegWalls.setAttribute("uv", new Float32BufferAttribute(wallUvs, 2));
+  pegWalls.setAttribute("position", new Float32BufferAttribute(sides, 3));
   pegWalls.computeVertexNormals();
-  // The plug's face on the end of the piece (across its neck, base to top), facing out.
-  const half = PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE;
-  const h = TRACK_THICKNESS - PLUG_DROP;
-  const face = new BufferGeometry();
-  face.setAttribute("position", new Float32BufferAttribute([0, -half, 0, 0, half, 0, 0, half, h, 0, -half, 0, 0, half, h, 0, -half, h], 3));
-  face.setAttribute("uv", new Float32BufferAttribute([-half, 0, half, 0, half, h, -half, 0, half, h, -half, h], 2));
-  face.computeVertexNormals();
+  mapBoardGrain(pegWalls);
   const toEnd = connectorBasis(0, 0, 0, 0);
-  const parts = [plugTop, pegTop, pegWalls, face].map((g) => onlyCsgAttributes(g.applyMatrix4(toEnd)));
-  for (const part of parts) if (!part.getAttribute("normal")) part.computeVertexNormals();
+  const parts = [pegTop, pegWalls].map(g => onlyCsgAttributes(g.applyMatrix4(toEnd)));
+  // The neck leaves the board flush; the head sits just below the receiving socket.
+  for (const part of parts) {
+    const pos = part.getAttribute("position");
+    for (let i = 0; i < pos.count; i++) {
+      if (pos.getY(i) > 0) pos.setY(i, pos.getY(i) + (TRACK_THICKNESS - PEG_HEIGHT) * Math.max(0, 1 - pos.getX(i) / PEG_NECK_LENGTH));
+    }
+    part.computeVertexNormals();
+  }
   const g = mergeVertices(mergeGeometries(parts), 1e-4);
-  for (const part of [...parts, extruded, walls]) part.dispose();
+  for (const part of parts) part.dispose();
   g.computeBoundingBox();
   g.computeBoundingSphere();
-  return g;
+  return mapBoardGrain(g);
 }
 
 /** A peg's curves: round enough at the size it's seen. */
-const PEG_CURVE_SEGMENTS = 8;
+export const PEG_CURVE_SEGMENTS = 12;
 
 /** Where a peg stands on this end of a piece, in piece space (for `buildPegGeometry`). */
 export function pegMatrix(c: ConnectorDef, out = new Matrix4()): Matrix4 {
   return out.makeRotationY(-c.pose.heading).setPosition(c.pose.x, c.y, c.pose.z);
 }
 
+let sharedTongue: BufferGeometry | undefined;
+export function pegTongue(): BufferGeometry {
+  return sharedTongue ??= buildPegGeometry();
+}
+
+/** Bits toggle the piece's normal end kinds when two matching kinds meet. */
+export function maleEnd(c: ConnectorDef, end: number, swappedEnds: number): boolean {
+  return (c.kind === "peg") !== Boolean(swappedEnds & (1 << end));
+}
+
 /**
- * A lone piece as it comes, its own pegs on (a held piece, the tray's picture): `carved` (its holes at every end) with
+ * A lone piece as it comes, its own pegs on (a held piece, the tray's picture): the carved board with
  * a peg in each end that's a peg end. A joiner's pegs are its own already.
  */
 export function withPegs(carved: BufferGeometry, def: PieceDef): BufferGeometry {
   const ends = def.type === "joiner" ? [] : def.connectors.filter((c) => c.kind === "peg");
   if (ends.length === 0) return carved;
-  const source = buildPegGeometry();
-  const peg = carved.index ? source : nonIndexed(source);
-  const pegs = ends.map((c) => peg.clone().applyMatrix4(pegMatrix(c)));
+  const pegs = ends.map(c => {
+    const peg = pegTongue().clone().applyMatrix4(pegMatrix(c));
+    if (carved.index) return peg;
+    const flat = nonIndexed(peg);
+    peg.dispose();
+    return flat;
+  });
   const attrs = Object.keys(carved.attributes);
   for (const p of pegs) for (const name of Object.keys(p.attributes)) if (!attrs.includes(name)) p.deleteAttribute(name);
   const shown = carved.clone();
@@ -596,7 +618,6 @@ export function withPegs(carved: BufferGeometry, def: PieceDef): BufferGeometry 
   const merged = mergeGeometries([shown, ...pegs]);
   shown.dispose();
   for (const p of pegs) p.dispose();
-  source.dispose();
   if (!merged) return carved;
   merged.clearGroups();
   const count = (g: BufferGeometry) => (g.index ? g.index.count : g.attributes.position.count);

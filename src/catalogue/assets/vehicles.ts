@@ -69,7 +69,12 @@ function bob(root: Object3D, t: number, amount = 1): void {
 function roadWheel(k: Kit, x: number, z: number, r = 6.5, hub: string = TOY.red, w = 5, y = r): Group {
   const g = pivot("wheel", x, y, z);
   g.userData.r = r;
-  g.add(k.cylZ(k.paint(TOY.black), r, w, 0, 0, 0, 20));
+  const half = w / 2;
+  const tyre = k.lathe(k.paint(TOY.black), [
+    [r * 0.48, -half], [r * 0.85, -half], [r, -half * 0.68],
+    [r, half * 0.68], [r * 0.85, half], [r * 0.48, half],
+  ], 0, 0, 0, 28, 12);
+  g.add(tyre.rotateX(Math.PI / 2));
   g.add(k.cylZ(k.paint(hub), r * 0.52, w + 0.6, 0, 0, 0, 14));
   g.add(k.box(k.wood, r * 0.9, r * 0.22, w + 0.9, 0, 0, -r * 0.11, 0));
   return g;
@@ -212,13 +217,24 @@ function van(k: Kit, color: string): Group {
   );
 }
 
+/** Painted window panes on both flanks. The body showing between them forms the pillars. */
+function busWindows(k: Kit, span: number, count: number, x: number, y: number): Group {
+  const windows = new Group();
+  const pitch = span / count;
+  for (let i = 0; i < count; i++) {
+    const centre = x - span / 2 + (i + 0.5) * pitch;
+    windows.add(k.box(k.glass, pitch - 2.4, 8, 26.6, 0, centre, y));
+  }
+  return windows;
+}
+
 /** A bus body: one or two decks of windows, white roof, wheels. */
 function bus(k: Kit, color: string, len = 88, decks = 1): Group {
   const c = k.paint(color);
   const h = decks === 1 ? 26 : 44;
   const g = k.group(
     k.box(c, len, h, 26, 4, 0, 5),
-    glass(k, len - 14, 8, 26.6, -4, 17),
+    busWindows(k, len - 14, 5, -4, 17),
     k.box(k.glass, 1.2, 12, 22, 0.5, len / 2, 14),
     k.box(k.paint(TOY.white), len - 4, 2.5, 24, 1, 0, 5 + h),
     k.box(k.paint(TOY.black), 1, 4, 16, 0.3, len / 2 + 0.2, 5 + h - 6),
@@ -229,7 +245,7 @@ function bus(k: Kit, color: string, len = 88, decks = 1): Group {
     wheelSet(k, [-(len / 2 - 16), len / 2 - 16], 12.5, 7),
   );
   if (decks > 1) {
-    g.add(glass(k, len - 6, 8, 26.6, 0, 35));
+    g.add(busWindows(k, len - 6, 5, 0, 35));
     g.add(k.box(k.paint(TOY.cream), len + 0.4, 2.5, 26.4, 1, 0, 29));
   }
   return g;
@@ -418,7 +434,7 @@ export const ASSETS: Asset[] = [
       const y = k.paint(TOY.yellow);
       const g = k.group(
         k.box(y, 70, 26, 26, 4, -8, 5),
-        glass(k, 58, 8, 26.6, -10, 17),
+        busWindows(k, 58, 4, -10, 17),
         k.box(k.glass, 1.2, 10, 22, 0.5, 27, 18),
         k.box(y, 18, 14, 22, 4, 34, 5),
         k.box(k.paint(TOY.grey), 1, 8, 14, 0.5, 43.2, 8),
@@ -1659,66 +1675,64 @@ export const ASSETS: Asset[] = [
     name: "Rocket on launch pad",
     category: "Vehicles",
     tags: ["rocket", "space", "launch", "gantry", "pad"],
-    notes: "A white and red rocket on a pad beside a gantry tower whose arm swings away; its engine flame flickers. A space centre at the end of a branch line could need fuel tanker trains before launch day.",
+    notes: "A turned wooden rocket with a cherry-red nose, brass-rimmed cabin windows and three swept feet. Its gantry swings clear for a little hop off the launch pad.",
     build: (k) => {
-      const w = k.paint(TOY.white);
-      const flame = pivot("flame", 0, 9, 0);
-      const f = k.cone(k.paint(TOY.orange), 5, 10, 0, -10, 0, 16);
-      f.rotation.x = Math.PI;
-      f.position.y = -4;
-      flame.add(f);
-      const f2 = k.cone(k.paint(TOY.yellow), 3, 6, 0, -6, 0, 12);
-      f2.rotation.x = Math.PI;
-      f2.position.y = -3;
-      flame.add(f2);
-      const rocket = k.group(
-        k.lathe(w, [
-          [0, 0],
-          [6, 0],
-          [9, 6],
-          [9, 70],
-          [8, 80],
-          [5, 90],
-          [0, 98],
-        ], 0, 12, 0, 28),
-        k.cyl(k.paint(TOY.red), 9.2, 4, 0, 30, 0, 9.2, 28),
-        k.cyl(k.paint(TOY.red), 9.2, 4, 0, 56, 0, 9.2, 28),
-        k.cyl(k.paint(TOY.black), 5, 4, 0, 9, 0, 3, 16),
-        k.cylZ(k.glass, 2.5, 1, 0, 76, 8.6, 14),
+      const red = k.paint(TOY.red);
+      const teal = k.paint("#376869");
+      const brass = k.paint("#d5aa68");
+      const flame = pivot("flame", 0, 12, 0);
+      const plume = k.cone(k.paint(TOY.orange), 4.3, 9, 0, -9, 0, 16);
+      plume.rotation.x = Math.PI;
+      flame.add(plume);
+      flame.visible = false;
+      const rocket = pivot("rocket", 0, 0, 0,
+        k.lathe(k.paint(TOY.cream), [
+          [0, 16], [7, 16], [9.5, 25], [12.5, 42], [14, 60], [13.6, 69], [11.6, 78], [0, 78],
+        ], 0, 0, 0, 32),
+        k.lathe(red, [[0, 78], [11.6, 78], [10.4, 82], [7.4, 89], [4, 95], [1.4, 98], [0, 98.4]], 0, 0, 0, 32),
+        k.cyl(teal, 11.3, 5, 0, 33, 0, 12.2, 32),
+        k.cyl(k.metal, 5.5, 6, 0, 12, 0, 4.5, 16),
         flame,
       );
-      for (let i = 0; i < 4; i++) {
-        const fin = new Group();
-        fin.rotation.y = (i * Math.PI) / 2;
-        fin.add(
-          k.extrude(k.paint(TOY.red), [
-            [0, 0],
-            [8, -6],
-            [8, 4],
-            [0, 18],
-          ], 1.6, 8, 12, 0, 0.5),
-        );
-        rocket.add(fin);
+      // A cabin window and a splayed wooden foot on each face of the toy.
+      for (let i = 0; i < 3; i++) {
+        const face = new Group();
+        face.rotation.y = i * Math.PI * 2 / 3 + 0.22;
+        face.add(k.cylZ(brass, 5.3, 2.4, 0, 61, 13.2, 24),
+          k.cylZ(k.paint("#284951"), 3.8, 1.3, 0, 61, 14.3, 24));
+        const fin = k.extrude(red, [[6, 22], [10, 39], [15, 33], [21, 16],
+          [21, 9], [17, 9], [13, 18]], 4, 0, 0, 0, 0.8);
+        fin.rotation.y = -Math.PI / 2;
+        face.add(fin);
+        rocket.add(face);
       }
-      const arm = pivot("arm", -24, 74, 0, k.box(k.paint(TOY.orange), 16, 3, 4, 1, 8, -1.5, 0));
-      const g = k.group(k.box(k.paint(TOY.grey), 70, 6, 60, 2, 0, 0), k.box(k.cut, 16, 0.6, 16, 0, 0, 5.8), rocket, arm);
-      for (const [x, z] of [
-        [-30, -4],
-        [-30, 4],
-        [-22, -4],
-        [-22, 4],
-      ]) g.add(k.box(k.paint(TOY.orange), 2, 84, 2, 0.5, x, 6, z));
-      for (let i = 0; i < 6; i++) g.add(k.box(k.paint(TOY.orange), 10, 1.6, 10, 0.4, -26, 14 + i * 14, 0));
-      g.add(k.box(k.paint(TOY.red), 12, 2, 12, 0.6, -26, 90, 0));
+      const arm = pivot("arm", -26, 68, 0,
+        k.box(teal, 14, 4, 6, 0.8, 7, -2, 0),
+        k.cyl(brass, 3.5, 2, 0, 2, 0, 3.5, 16));
+      const g = k.group(k.box(k.wood, 78, 6, 61, 2.5),
+        k.cyl(teal, 24, 2, 0, 6, 0, 23, 36), rocket, arm);
+      for (const x of [-33, -25]) for (const z of [-5, 5])
+        g.add(k.box(k.wood, 3, 69, 3, 0.6, x, 6, z));
+      for (let i = 0; i < 3; i++) {
+        const brace = k.box(teal, 2.5, 23, 2.4, 0.4);
+        brace.rotation.z = (i % 2 ? -1 : 1) * 0.37;
+        brace.position.set(-29, 18 + i * 22, 5);
+        g.add(brace, k.box(teal, 12, 2, 13, 0.4, -29, 7 + i * 22, 0));
+      }
+      g.add(k.box(red, 14, 3, 15, 0.8, -29, 74, 0));
       return g;
     },
     animate: (root, t) => {
-      const a = part(root, "arm");
-      const f = part(root, "flame");
-      if (a) a.rotation.y = Math.max(0, Math.sin(t * 0.4)) * 1.4;
-      if (f) {
-        f.scale.y = 0.8 + 0.3 * Math.abs(Math.sin(t * 23));
-        f.visible = Math.sin(t * 0.4) > 0.3;
+      const arm = part(root, "arm");
+      const rocket = part(root, "rocket");
+      const flame = part(root, "flame");
+      const phase = t % 8;
+      const lift = phase > 2 && phase < 6 ? Math.sin((phase - 2) * Math.PI / 4) ** 2 : 0;
+      if (arm) arm.rotation.y = Math.min(1, phase, Math.max(0, 7 - phase)) * 1.45;
+      if (rocket) rocket.position.y = lift * 24;
+      if (flame) {
+        flame.visible = lift > 0.04;
+        flame.scale.y = Math.min(1, lift * 4) * (0.85 + 0.15 * Math.sin(t * 23));
       }
     },
   },

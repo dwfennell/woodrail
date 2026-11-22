@@ -1,10 +1,11 @@
-import { BufferAttribute, Matrix3, Matrix4, Vector3, type BufferGeometry, type Group, type Material, type Mesh, type Object3D } from "three";
+import { BufferAttribute, Matrix4, type BufferGeometry, type Group, type Material, type Mesh, type Object3D } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import type { Kit } from "../catalogue/kit";
 import type { CarKind, CarLook } from "../sim";
 import { Batcher } from "./dressing/batcher";
 import { splitFlatHands, type ClockHands } from "./clock-hands";
+import { mapBoardGrain } from "./wood-grain";
 import type { Materials } from "./materials";
 
 /**
@@ -69,7 +70,7 @@ export function loadModelSet(set: ModelSet, floats = false): Promise<Map<string,
           const m = o as Mesh;
           if (!m.isMesh) return;
           if (floats) toFloats(m);
-          addUvs(m, new Matrix4().multiplyMatrices(toModel, m.matrixWorld));
+          if (!m.geometry.hasAttribute("uv")) mapBoardGrain(m.geometry, new Matrix4().multiplyMatrices(toModel, m.matrixWorld));
           tris += (m.geometry.index?.count ?? m.geometry.attributes.position.count) / 3;
         });
         models.set(node.name, node);
@@ -220,37 +221,6 @@ function partMaterial(mats: Materials, name: string, slots: Readonly<Record<stri
 
 let trains = new Map<string, Object3D>();
 
-const UV_SCALE = 60;
-const v = new Vector3();
-const n = new Vector3();
-const nm = new Matrix3();
-
-/**
- * Texture coordinates for the beech grain and the lacquer's bump: a planar projection from each vertex's main
- * direction, one repeat per 60 mm of the model's own space (as tools/blender/toy.py once baked in). Made here rather
- * than shipped, which keeps the files small; and every mesh then has them, as batching needs.
- */
-function addUvs(mesh: Mesh, toModel: Matrix4): void {
-  const g = mesh.geometry;
-  if (g.getAttribute("uv")) return;
-  const pos = g.getAttribute("position");
-  const nor = g.getAttribute("normal");
-  nm.getNormalMatrix(toModel);
-  const uv = new Float32Array(pos.count * 2);
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i).applyMatrix4(toModel);
-    n.fromBufferAttribute(nor, i).applyMatrix3(nm);
-    const ax = Math.abs(n.x);
-    const ay = Math.abs(n.y);
-    const az = Math.abs(n.z);
-    // The game's x/z ground plane and y up: a face looking along x shows (z, y), along y (x, z), along z (x, y).
-    const [a, b] = ax >= ay && ax >= az ? [v.z, v.y] : ay >= az ? [v.x, v.z] : [v.x, v.y];
-    uv[i * 2] = a / UV_SCALE;
-    uv[i * 2 + 1] = b / UV_SCALE;
-  }
-  g.setAttribute("uv", new BufferAttribute(uv, 2));
-}
-
 /** Plain float vertex data in place of quantized (merging needs one array type throughout). */
 function toFloats(mesh: Mesh): void {
   const g = mesh.geometry;
@@ -289,6 +259,7 @@ export function shownModel(model: Object3D, mats: Materials, lamp: Material, slo
     if (name.startsWith("lacquer slot ")) return mats.lacquer(slots[name.slice(13)] ?? "#c8442f");
     if (name === "wood") return mats.naturalWood;
     if (name === "coal") return mats.coal;
+    if (name === "nickel") return mats.nickel;
     if (name === "lamp") return lamp;
     return mats.magnet;
   });
@@ -345,6 +316,7 @@ export function blenderCar(
     if (name.startsWith("lacquer slot ")) return mats.lacquer(slots[name.slice(13)] ?? SLOT_DEFAULT);
     if (name === "wood") return mats.naturalWood;
     if (name === "coal") return mats.coal;
+    if (name === "nickel") return mats.nickel;
     if (name === "lamp") return lamp;
     return mats.magnet;
   }) as Group;

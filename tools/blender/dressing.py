@@ -652,11 +652,28 @@ def industry_warehouse(k):
     sacks on it, a cream sliding door and a yellow hand crane at the dock's far end reaching toward the track. It stands
     on the far half of the yard, clear of the piles (x 24-92) and the jib crane (x 60).
     """
-    from bldg_parts import WIN, crate, house, sack, winX
+    from bldg_parts import WIN, crate, house, roof_lantern, sack, winX
 
     s = Node()
     # The goods shed in its own frame, turned so the dock faces -z (the kit's is on +z).
     s.add(house(k, 90, 40, 38, k.paint(TOY.brown), TOY.red, 14))
+    s.add(roof_lantern(k, TOY.red, TOY.cream))
+    # The landward wall faces the catalogue camera and is visible from the road.
+    # Two large glazed bays sit between the shed's exposed timber uprights.
+    for x in (-37, 0, 37):
+        s.add(k.box(k.wood, 3.6, 35, 2.2, 0.5, x, 1.5, 20.6, seg=1))
+    for x in (-19, 19):
+        s.add(k.box(k.paint(TOY.cream), 25, 13, 1.8, 0.6, x, 17, 20.5, seg=1))
+        for dx in (-5.5, 5.5):
+            s.add(k.box(k.paint(WIN), 9.4, 9, 1.2, 0.4, x + dx, 19, 21.5, seg=1))
+    # A sloping dock canopy leaves the crane's sweep and the separate lift tower clear.
+    canopy = k.box(k.paint(TOY.red), 57, 3, 16, 0.8, seg=1)
+    canopy.rotation.x = -0.20
+    s.add(k.at(canopy, -4, 33, -27))
+    for x in (-29, 21):
+        bracket = k.box(k.wood, 3, 3, 14, 0.5, seg=1)
+        bracket.rotation.x = 0.55
+        s.add(k.at(bracket, x, 27.8, -25.5))
     s.add(winX(k, 45, 22, 0, 10, 10), winX(k, -45, 22, 0, 10, 10))
     s.add(k.box(k.paint(WIN), 34, 28, 1, 0.3, 0, 0, -20.2))
     s.add(k.box(k.paint(TOY.cream), 34, 28, 2, 0.6, 0, 0, -21.8), k.box(k.paint(TOY.red), 2, 26, 2.6, 0.3, 0, 1, -21.8))

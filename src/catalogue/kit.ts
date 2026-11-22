@@ -7,6 +7,7 @@ import {
   ExtrudeGeometry,
   Group,
   LatheGeometry,
+  Matrix4,
   Mesh,
   Object3D,
   Shape,
@@ -16,7 +17,13 @@ import {
   type Material,
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { slabProfile } from "./track-profile";
+import { mapBoardGrain } from "../render/wood-grain";
 import type { Materials } from "../render/materials";
+
+// Align the grain with the length of tall posts and crosswise axles as well as horizontal boards.
+const uprightGrain = new Matrix4().makeRotationZ(-Math.PI / 2);
+const crosswiseGrain = new Matrix4().makeRotationY(Math.PI / 2);
 
 /**
  * Building blocks for catalogue assets: turned and sawn wood, lacquered in toy colours. Sizes in mm, the game's scale
@@ -85,21 +92,36 @@ export class Kit {
     return this.mesh(g, mat, x, y + h / 2, z);
   }
 
+  /** Ease the two rims of a substantial turned wooden part, keeping its axle, height and outside diameter. */
+  private cylinder(mat: Material, bottom: number, top: number, height: number, segments: number): BufferGeometry {
+    const count = this.seg(segments, Math.max(bottom, top));
+    const wood = mat === this.wood || mat === this.cut || mat.userData.paintColor;
+    if (!wood || Math.min(bottom, top) < 3 || height < 4 || segments <= 8) {
+      return new CylinderGeometry(top, bottom, height, count);
+    }
+    const half = height / 2;
+    const edge = Math.min(1.1, Math.min(bottom, top) * 0.12, height * 0.09);
+    return new LatheGeometry([
+      new Vector2(0, -half), new Vector2(bottom - edge, -half), new Vector2(bottom, -half + edge),
+      new Vector2(top, half - edge), new Vector2(top - edge, half), new Vector2(0, half),
+    ], count);
+  }
+
   /** An upright cylinder (or a cone frustum, `rTop` ≠ `rBottom`), its base on y = `y`. */
   cyl(mat: Material, rBottom: number, h: number, x = 0, y = 0, z = 0, rTop = rBottom, segments = 28): Mesh {
-    return this.mesh(new CylinderGeometry(rTop, rBottom, h, this.seg(segments, Math.max(rTop, rBottom))), mat, x, y + h / 2, z);
+    return this.mesh(this.cylinder(mat, rBottom, rTop, h, segments), mat, x, y + h / 2, z);
   }
 
   /** A cylinder lying along x (an axle, a log, a boiler), centred at (x, y, z). */
   cylX(mat: Material, r: number, length: number, x = 0, y = 0, z = 0, segments = 28): Mesh {
-    const g = new CylinderGeometry(r, r, length, this.seg(segments, r));
+    const g = this.cylinder(mat, r, r, length, segments);
     g.rotateZ(Math.PI / 2);
     return this.mesh(g, mat, x, y, z);
   }
 
   /** A cylinder lying along z (a wheel's axle across the track, a drum), centred at (x, y, z). */
   cylZ(mat: Material, r: number, length: number, x = 0, y = 0, z = 0, segments = 28): Mesh {
-    const g = new CylinderGeometry(r, r, length, this.seg(segments, r));
+    const g = this.cylinder(mat, r, r, length, segments);
     g.rotateX(Math.PI / 2);
     return this.mesh(g, mat, x, y, z);
   }
@@ -129,10 +151,10 @@ export class Kit {
   }
 
   /** A turned shape: (radius, height) profile points from the bottom up, spun round y; its base on y = `y`. */
-  lathe(mat: Material, profile: readonly [number, number][], x = 0, y = 0, z = 0, segments = 32): Mesh {
+  lathe(mat: Material, profile: readonly [number, number][], x = 0, y = 0, z = 0, segments = 32, minSegments = 0): Mesh {
     return this.mesh(new LatheGeometry(
         profile.map(([r, h]) => new Vector2(r, h)),
-        this.seg(segments, Math.max(...profile.map(([r]) => r))),
+        Math.max(minSegments, this.seg(segments, Math.max(...profile.map(([r]) => r)))),
       ), mat, x, y, z);
   }
 
@@ -171,22 +193,32 @@ export class Kit {
   /** A train wheel (painted rim colour optional), its axle along z, centred at (x, y, z). */
   wheel(r = 6, x = 0, y = 6, z = 0, color = "#c8442f", width = 4.5): Group {
     const g = new Group();
-    g.add(this.cylZ(this.paint(color), r, width, 0, 0, 0));
-    g.add(this.cylZ(this.wood, r * 0.45, width + 0.6, 0, 0, 0, 16));
+    const half = width / 2;
+    const rim = this.lathe(this.paint(color), [
+      [0, -half + 0.5], [r - 1.3, -half], [r, -half + 0.8],
+      [r, half - 0.8], [r - 1.3, half], [r - 2, half - 0.5], [0, half - 0.5],
+    ], 0, 0, 0, 32, 16);
+    rim.rotation.x = Math.sign(z || 1) * Math.PI / 2;
+    const pin = this.lathe(this.mats.nickel, [[1.9, 0], [1.9, 0.7], [1.4, 1.35], [0, 1.7]], 0, 0, Math.sign(z || 1) * (half - 0.5), 24, 12);
+    pin.rotation.x = rim.rotation.x;
+    g.add(rim, pin);
     return this.at(g, x, y, z);
   }
 
   /** Two pairs of wheels under a car `length` long (axles `inset` in from each end), as the game's cars sit on track. */
   bogies(length: number, inset = 18, color = "#c8442f"): Group {
     const g = new Group();
-    for (const x of [-(length / 2 - inset), length / 2 - inset]) for (const z of [-13, 13]) g.add(this.wheel(6, x, 7.5, z, color));
+    for (const x of [-(length / 2 - inset), length / 2 - inset]) for (const z of [-13, 13]) g.add(this.wheel(6.5, x, 7.5, z, color));
     return g;
   }
 
   /** A magnet coupler disc on a car's end (`end` +1 front, −1 back). */
-  coupler(length: number, end: 1 | -1, y = 10): Mesh {
-    const m = this.cylX(this.metal, 3.5, 3, end * (length / 2 + 1), y, 0, 16);
-    return m;
+  coupler(length: number, end: 1 | -1, y = 11.5): Mesh {
+    const disc = this.lathe(this.mats.nickel, [
+      [0, -4.5], [2.2, -4.5], [2.2, -2.7], [4.4, -2.7], [5, -2.1], [5, 0.25], [4.5, 1], [0, 1],
+    ], end * length / 2, y, 0, 32, 16);
+    disc.rotation.z = -end * Math.PI / 2;
+    return disc;
   }
 
   /** A peg person (about 18 mm): turned body in `coat`, beech head, optional hat. */
@@ -209,8 +241,9 @@ export class Kit {
     const g = new Group();
     g.name = "slab";
     g.userData.slab = true;
-    g.add(this.box(this.wood, length, 12, 40, 1.5));
-    for (const gz of [-13, 13]) g.add(this.box(this.cut, length - 0.2, 0.6, 6, 0, 0, 11.6, gz));
+    const board = this.extrude(this.wood, slabProfile(40, [0]), length, 0, 0, 0, 0);
+    g.add(board.rotateY(Math.PI / 2));
+    for (const gz of [-13, 13]) g.add(this.box(this.cut, length - 1, 0.55, 3.6, 0, 0, 8.85, gz));
     return this.at(g, x, y, z);
   }
 
@@ -243,6 +276,13 @@ export class Kit {
   }
 
   private mesh(g: BufferGeometry, mat: Material, x: number, y: number, z: number): Mesh {
+    if (mat === this.wood || mat === this.cut || mat.userData.paintColor) {
+      g.computeBoundingBox();
+      const { min, max } = g.boundingBox!;
+      const w = max.x - min.x, h = max.y - min.y, d = max.z - min.z;
+      const grain = h > w && h > d ? uprightGrain : d > w ? crosswiseGrain : undefined;
+      mapBoardGrain(g, grain);
+    }
     const m = new Mesh(g, mat);
     m.position.set(x, y, z);
     m.castShadow = true;

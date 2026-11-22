@@ -6,7 +6,7 @@ from kit import TOY, Node
 from bldg_parts import (  # noqa: F401
     BRICK, FRAME, SLATE, STONE, WIN, YARD_RIDGE, YARD_SLATE, YARD_STONE, YARD_TRIM, YARD_WALL, awningX, barredX, barredZ,
     barsX, barsZ, bench, braced, chimney, churn, clock, crate, doorX, doorZ, gable, glassBand, hip, house, lamp, nameBoard,
-    named, panel, peg, pine, platform, sack, smoke, winX, winZ,
+    named, panel, peg, pine, platform, roof_lantern, sack, smoke, winX, winZ,
 )
 
 
@@ -209,7 +209,7 @@ def roundhouse_segment(k):
 def goods_shed(k):
     """
     The goods shed, in the yard's colours: cream walls over a green boarded skirt and a stone course, a slate roof
-    with a ridge board and two vents, barred windows in its ends and along its back, a round light in each gable.
+    with a raised glazed lantern, barred windows in its ends and along its back, a round light in each gable.
     Its outline, dock, door and crane stand where they always did (the game slides `door` and swings `jib`).
     """
     g = Node()
@@ -217,10 +217,7 @@ def goods_shed(k):
     g.add(k.box(k.paint(YARD_STONE), 92.4, 4, 42.4, 0.8, seg=1))
     g.add(house(k, 90, 40, 38, k.paint(YARD_WALL), YARD_SLATE, 14))
     g.add(k.box(trim, 91.2, 11, 41.2, 1.0, 0, 3, 0, seg=1))
-    # The roof's ridge board and its two vents.
-    g.add(k.box(k.paint(YARD_RIDGE), 88, 2.2, 4.4, 0.8, 0, 52.6, 0, seg=1))
-    for x in (-24, 24):
-        g.add(k.box(k.paint(YARD_WALL), 8, 5, 8, 0.9, x, 52, 0, seg=1), hip(k, k.paint(YARD_SLATE), 12, 4.5, x, 56.6, 0))
+    g.add(roof_lantern(k, YARD_SLATE, YARD_WALL))
     # Windows: one in each end, three along the back; a round light in each gable.
     for x in (45, -45):
         g.add(winX(k, x, 19, 0, 10, 12), barsX(k, x, 19, 0, 10, 12))
@@ -245,6 +242,14 @@ def goods_shed(k):
     g.add(k.box(k.wood, 100, 12, 18, 1.2, 0, 0, 30))
     g.add(crate(k, -38, 12, 30), crate(k, -28, 12, 33, 8, TOY.blue), crate(k, -36, 21, 31, 7, TOY.red))
     g.add(sack(k, 24, 12, 32), sack(k, 31, 12, 30), sack(k, 27, 18, 31))
+    # A lean-to over the loading door, its two timber brackets clear of the sliding door and the crane.
+    canopy = k.box(k.paint(YARD_SLATE), 64, 2.8, 18, 0.8, seg=1)
+    canopy.rotation.x = 0.16
+    g.add(k.at(canopy, -4, 32.8, 29))
+    for x in (-34, 26):
+        bracket = k.box(k.wood, 2.6, 2.6, 15.5, 0.5, seg=1)
+        bracket.rotation.x = -0.52
+        g.add(k.at(bracket, x, 27.3, 26.5))
     # Hand crane at the dock's end.
     crane = named(Node(), "jib")
     crane.add(k.cyl(k.paint(TOY.yellow), 2.4, 30, 0, 0, 0, 2, 12))
@@ -277,8 +282,20 @@ def warehouse(k):
         g.add(k.box(k.paint(YARD_WALL), 60.8, 1.8, 46.8, 0.5, 0, y, 0, seg=1))
     for x in (34.2, -34.2):
         g.add(k.cylX(k.paint(FRAME), 3.6, 1.2, x, 102, 0, 18), k.cylX(k.paint(WIN), 2.5, 1.7, x, 102, 0, 18))
-    # Hoist beam, rope and load.
-    g.add(k.box(k.paint(TOY.black), 18, 3, 3, 0.6, 38, 100, 0))
+    # A timber hoist loft projects over the loading doors. Its open end exposes the sheave.
+    for z in (-8, 8):
+        g.add(k.box(k.paint(YARD_TRIM), 20, 10, 3, 0.7, 37, 96, z, seg=1))
+        brace = k.box(k.wood, 18, 3, 2.3, 0.4, seg=1)
+        brace.rotation.z = 0.62
+        g.add(k.at(brace, 37, 91, z))
+    g.add(k.roof(k.paint(YARD_SLATE), 24, 23, 6, 38, 106, 0, 2))
+    g.add(k.cylZ(k.paint(TOY.black), 4.2, 5, 40, 100, 0, 20))
+    g.add(k.cylZ(k.wood, 1.5, 21, 40, 100, 0, 12))
+    # A thick receiving dock below the sack, on two sleepers with a stepped end.
+    for z in (-12, 12):
+        g.add(k.box(k.paint(YARD_TRIM), 16, 4, 4, 0.5, 39, 0, z, seg=1))
+    g.add(k.box(k.wood, 20, 4, 37, 0.8, 39, 4, 0, seg=1))
+    g.add(k.box(k.wood, 15, 3, 5, 0.6, 39, 0, 20, seg=1))
     rope = named(Node(), "rope")
     rope.add(k.cyl(k.paint(TOY.cream), 0.5, 1, 0, 0, 0, 0.5, 6))
     g.add(k.at(rope, 44, 30, 0))
@@ -399,13 +416,22 @@ def watermill(k):
     g.add(k.box(k.water, 80, 1.6, 18, 0.4, 0, 0, 30))
     wheel = named(Node(), "wheel")
     for z in (-4.5, 4.5):
-        wheel.add(k.ring(k.paint(TOY.red), 19, 1.4, 0, 0, z, True))
+        rim = k.lathe(k.paint(TOY.red), [(16, -1.2), (19.8, -1.2), (20.2, -0.7),
+                                          (20.2, 0.7), (19.8, 1.2), (16, 1.2), (16, -1.2)], 0, 0, z, 32)
+        rim.rotation.x = math.pi / 2
+        wheel.add(rim)
     wheel.add(k.cylZ(k.paint(TOY.black), 3, 14, 0, 0, 0, 14))
     for i in range(10):
         p = Node()
-        p.add(k.box(k.wood, 8, 1.6, 10, 0.4, 0, 16.5, 0), k.box(k.paint(TOY.red), 1.2, 16, 1.2, 0.2, 0, 2, 0))
+        p.add(k.box(k.wood, 6, 2.5, 12, 0.4, 0, 18.4, 0), k.box(k.wood, 2.6, 16, 3, 0.4, 0, 2, 0))
         p.rotation.z = (i * math.pi * 2) / 10
         wheel.add(p)
+    # Open wooden millrace pours onto the paddles, carried on a trestle at the upstream end.
+    g.add(k.box(k.wood, 28, 2, 12, 0.6, -27, 39, 27, seg=1))
+    g.add(k.box(k.water, 27, 0.8, 8.2, 0.3, -27, 41, 27, seg=1))
+    for z in (22, 32):
+        g.add(k.box(k.wood, 28, 3, 2, 0.5, -27, 41, z, seg=1))
+        g.add(k.box(k.paint(TOY.brown), 4, 38, 3, 0.5, -36, 1.4, z, seg=1))
     g.add(k.at(wheel, 0, 22, 27))
     g.add(k.cylZ(k.paint(TOY.black), 1.8, 10, 0, 22, 20, 10))
     return g

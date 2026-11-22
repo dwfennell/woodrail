@@ -2,9 +2,10 @@ import { BoxGeometry, BufferAttribute, BufferGeometry, Color, Group, InstancedMe
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, CORNER_RADIUS, forEachInPlot, hillPieces, hillSlabs, hillsOf, type LandscapeGrid, type RoundBlock, type Slab } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
-import { BEECH_UV_SCALE, type Materials } from "../materials";
+import type { Materials } from "../materials";
 import { roundedChamferedBox } from "./chamfer";
 import { nonIndexed } from "../non-indexed";
+import { mapBoardGrain } from "../wood-grain";
 import { weld } from "../compact";
 
 /** Beech tones (multiplied over the wood texture) so a hill reads as a stack of separate blocks. */
@@ -65,12 +66,6 @@ export function blockInstances(grid: LandscapeGrid, seed: number, plots: readonl
     });
   }
   return out;
-}
-
-function scaleUv(g: BufferGeometry, u: number, v: number): BufferGeometry {
-  const uv = g.getAttribute("uv");
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * u, uv.getY(i) * v);
-  return g;
 }
 
 /**
@@ -215,7 +210,6 @@ export function blockMeshes(
   const paintH = PAINT * k;
   // Rounded corners (see `HillShape.blockCorners`) follow the same circle with the gap taken off.
   const round = (CORNER_RADIUS - BLOCK_GAP / 2) * k;
-  const uv = (g: BufferGeometry, v: number) => scaleUv(g, w * BEECH_UV_SCALE.x, v * BEECH_UV_SCALE.y);
   const m = new Matrix4();
   const c = new Color();
   const scale = new Matrix4();
@@ -230,11 +224,11 @@ export function blockMeshes(
   }
   for (const [corners, list] of byCorners) {
     const tops = list.filter((b) => b.top);
-    const body = blockShape(`body:${rounded}:${w}:${h}:${k}:${corners}:${round}`, () => uv(rounded ? roundedChamferedBox(w, h, w, 2.5 * k, corners, round) : new BoxGeometry(w, h, w), h));
+    const body = blockShape(`body:${rounded}:${w}:${h}:${k}:${corners}:${round}`, () => mapBoardGrain(rounded ? roundedChamferedBox(w, h, w, 2.5 * k, corners, round) : new BoxGeometry(w, h, w)));
     // The green paint is a layer of its own on top of a shorter block (same width, nothing overlapping), so no faces
     // lie close enough together to flicker.
     const paint = blockShape(`paint:${roundedPaint}:${w}:${paintH}:${k}:${corners}:${round}`, () =>
-      uv(roundedPaint ? roundedChamferedBox(w, paintH, w, PAINT_CHAMFER * k, corners, round) : new BoxGeometry(w, paintH, w), w),
+      mapBoardGrain(roundedPaint ? roundedChamferedBox(w, paintH, w, PAINT_CHAMFER * k, corners, round) : new BoxGeometry(w, paintH, w)),
     );
     const wood = instanced(body, materials.wood, list.length);
     const grass = instanced(paint, materials.top, tops.length);

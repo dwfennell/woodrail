@@ -1,4 +1,6 @@
-import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Path, Shape, type Material, type Object3D } from "three";
+import { slabProfile } from "../track-profile";
+import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Path, Shape, ShapeUtils, Vector2, type Material, type Object3D } from "three";
+import { mapBoardGrain } from "../../render/wood-grain";
 import { TOY, type Kit } from "../kit";
 import type { Asset } from "../types";
 
@@ -82,10 +84,11 @@ const lifted = (path: S[], dy: number): S[] => path.map((s) => ({ ...s, y: s.y +
 
 // ——— Swept meshes ———
 
-/** Sweep a convex cross-section (lateral l, height v pairs, anticlockwise from bottom left) along a path. */
-function sweep(path: S[], prof: readonly [number, number][]): BufferGeometry {
+/** Sweep a cross-section (lateral l, height v pairs, anticlockwise from bottom left) along a path. */
+function sweep(path: S[], prof: readonly [number, number][], routed = false): BufferGeometry {
   const pos: number[] = [];
   const idx: number[] = [];
+  const cut: number[] = [];
   const corner = (s: S, l: number, v: number) => {
     const cb = Math.cos(s.b);
     const sb = Math.sin(s.b);
@@ -102,45 +105,43 @@ function sweep(path: S[], prof: readonly [number, number][]): BufferGeometry {
       corner(s, c0[0], c0[1]);
       corner(s, c1[0], c1[1]);
     }
+    // Only the tool-cut channel floors take the darker beech. Keep them in one material group.
+    const faces = routed && c0[1] === H - 2.9 && c1[1] === c0[1] ? cut : idx;
     for (let i = 0; i < n - 1; i++) {
       const a = base + 2 * i;
-      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      faces.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
     }
   }
+  const cap = ShapeUtils.triangulateShape(prof.map(([l, y]) => new Vector2(l, y)), []);
   for (const [s, end] of [
     [path[0], false],
     [path[n - 1], true],
   ] as const) {
     const base = pos.length / 3;
     for (const [l, v] of prof) corner(s, l, v);
-    for (let j = 1; j < m - 1; j++) {
-      if (end) idx.push(base, base + j + 1, base + j);
-      else idx.push(base, base + j, base + j + 1);
+    for (const [a, b, c] of cap) {
+      if (end) idx.push(base + a, base + c, base + b);
+      else idx.push(base + a, base + b, base + c);
     }
   }
   const g = new BufferGeometry();
   g.setAttribute("position", new Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
+  if (cut.length) {
+    g.addGroup(0, idx.length, 0);
+    g.addGroup(idx.length, cut.length, 1);
+  }
+  g.setIndex(idx.concat(cut));
   g.computeVertexNormals();
-  return g;
+  return mapBoardGrain(g);
 }
 
-function meshOf(g: BufferGeometry, mat: Material): Mesh {
+function meshOf(g: BufferGeometry, mat: Material | Material[]): Mesh {
   const m = new Mesh(g, mat);
   m.castShadow = true;
   m.receiveShadow = true;
   return m;
 }
 
-/** The slab's cross-section: `w` wide, 12 thick, its top edges chamfered. */
-const slabProfile = (w: number, h = H): [number, number][] => [
-  [-w / 2, 0],
-  [w / 2, 0],
-  [w / 2, h - 1.2],
-  [w / 2 - 1.2, h],
-  [-w / 2 + 1.2, h],
-  [-w / 2, h - 1.2],
-];
 const grooveProfile = (l: number): [number, number][] => [
   [l - 3, H - 0.1],
   [l + 3, H - 0.1],
@@ -183,8 +184,8 @@ function track(k: Kit, path0: S[], o: TrackOpts = {}): Group {
   const { w = W, offs = [0], start = "hole", end = "peg", lift = 0, slab = true } = o;
   const path = lift ? lifted(path0, lift) : path0;
   const g = new Group();
-  if (slab) g.add(meshOf(sweep(path, slabProfile(w)), k.wood));
-  for (const off of offs) for (const gz of [-GROOVE, GROOVE]) g.add(meshOf(sweep(path, grooveProfile(off + gz)), k.cut));
+  if (slab) g.add(meshOf(sweep(path, slabProfile(w, offs), true), [k.wood, k.cut]));
+  else for (const off of offs) for (const gz of [-GROOVE, GROOVE]) g.add(meshOf(sweep(path, grooveProfile(off + gz)), k.cut));
   const s0 = path[0];
   const s1 = path[path.length - 1];
   for (const off of offs) {

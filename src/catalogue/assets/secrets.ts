@@ -415,11 +415,16 @@ function castle(k: Kit, found: boolean): Object3D {
   // Four round corner towers with conical red roofs and pennants (broken stumps when ruined).
   for (const [i, [x, z]] of ([[-S, cz - S], [S, cz - S], [-S, cz + S], [S, cz + S]] as const).entries()) {
     const h = found ? 66 : [52, 34, 26, 44][i];
-    g.add(k.cyl(stone2, 15, h, x, Y, z, 15, 24));
-    g.add(k.cyl(stone, 17.5, 6, x, Y + h - 4, z, 17.5, 24));
-    for (const a of [0, 1, 2, 3, 4, 5, 6, 7]) if (found || a % 3 === 0) g.add(stick(k, stone2, 3, 10, 1, x + Math.cos((a * Math.PI) / 4) * 15.6, Y + 26, z + Math.sin((a * Math.PI) / 4) * 15.6).rotateY(-(a * Math.PI) / 4 + Math.PI / 2));
+    // Turned tower blocks with a flared foot and a projecting parapet.
+    g.add(k.lathe(stone2, [[17, 0], [17, 4], [15, 7], [15, h - 4]], x, Y, z, 32));
+    g.add(k.lathe(stone, [[15, 0], [16, 2], [18, 4], [18, 6], [0, 6]], x, Y + h - 4, z, 32));
+    for (let i = 0; i < 8; i++) {
+      if (!found && i % 3 !== 0) continue;
+      const a = i * Math.PI / 4;
+      g.add(stick(k, paint("#675f52"), 2.4, 8, 1, x + Math.cos(a) * 14.8, Y + Math.min(26, h - 14), z + Math.sin(a) * 14.8).rotateY(Math.PI / 2 - a));
+    }
     if (found) {
-      g.add(k.cone(roofRed, 20, 32, x, Y + h + 2, z, 16));
+      g.add(k.lathe(roofRed, [[0, 0], [20, 0], [20, 2], [15.5, 7], [2, 30], [0, 32]], x, Y + h + 2, z, 40));
       g.add(pennant(k, i % 2 ? TOY.yellow : TOY.blue, 20, x, Y + h + 33, z));
     }
   }
@@ -431,18 +436,35 @@ function castle(k: Kit, found: boolean): Object3D {
     for (const [dx, dz] of [[-8, -8], [8, -8], [-8, 8], [8, 8]]) if (found || dx < 0) g.add(stick(k, stone, 7, 8, 7, sx * 21 + dx, Y + h, gz + dz));
     g.add(stick(k, k.cut, 4, 9, 1, sx * 21, Y + h - 22, gz + 12.3));
   }
-  g.add(k.box(stone, 20, 16, 22, 0, 0, Y + 32, gz));
-  g.add(stick(k, k.cut, 18, 32, 1, 0, Y, gz + 11.2));
+  const gate = new Shape();
+  gate.moveTo(-11, 0);
+  gate.lineTo(-11, 48);
+  gate.lineTo(11, 48);
+  gate.lineTo(11, 0);
+  gate.lineTo(8.5, 0);
+  gate.lineTo(8.5, 25);
+  for (let i = 1; i <= 10; i++) {
+    const a = (Math.PI * i) / 10;
+    gate.lineTo(8.5 * Math.cos(a), 25 + 8.5 * Math.sin(a));
+  }
+  gate.lineTo(-8.5, 0);
+  gate.closePath();
+  g.add(k.extrude(stone, gate, 22, 0, Y, gz, 0.6));
   const iron = paint(TOY.black);
   const portY = found ? Y + 22 : Y + 2;
   for (const dx of [-6, -2, 2, 6]) g.add(stick(k, iron, 1.4, found ? 12 : 26, 1.4, dx, portY, gz + 12));
   for (const y of found ? [4, 9] : [6, 14, 22]) g.add(stick(k, iron, 17, 1.4, 1.4, 0, portY + y, gz + 12));
   if (found) {
-    const bridge = stick(k, wood, 18, 2.5, 34, 0, 0, 0);
-    bridge.position.set(0, Y - 4, gz + 28);
-    bridge.rotation.x = 0.36;
-    g.add(bridge);
-    for (const sx of [-1, 1]) g.add(beam(k, iron, [sx * 9, Y + 30, gz + 12], [sx * 9, Y - 3, gz + 44], 0.8));
+    // The mound is level in front of the gate. The lowered leaf rests on it,
+    // with the chains fastened to its far corners.
+    const bridge = new Group();
+    for (let i = 0; i < 6; i++) {
+      bridge.add(stick(k, wood, 18, 2.5, 5.5, 0, 0, 2.8 + i * 5.7));
+    }
+    bridge.rotation.x = 0.045;
+    bridge.position.set(0, Y + 1.6, gz + 11);
+    g.add(bridge, k.cylX(iron, 1.6, 19, 0, Y + 2.8, gz + 11, 12));
+    for (const sx of [-1, 1]) g.add(beam(k, iron, [sx * 9, Y + 30, gz + 12], [sx * 8.4, Y + 2.7, gz + 43], 0.8));
   }
   // The keep: a tall square tower, corner turrets with red caps, windows, the great flag and its banners.
   const kz = cz - 14;

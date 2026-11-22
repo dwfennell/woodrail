@@ -51,6 +51,18 @@ def house(k, w, d, h, wall, roof, rh=None, x=0, z=0, o=2.5):
     return k.at(g, x, 0, z)
 
 
+def roof_lantern(k, roof_colour, frame_colour):
+    """A raised strip of workshop windows along the ridge of a 90 mm freight shed."""
+    g = Node()
+    frame = k.paint(frame_colour)
+    g.add(k.box(frame, 46, 13, 14, 1, 0, 46, 0, seg=1))
+    for z in (-7.2, 7.2):
+        for x in (-16.5, -5.5, 5.5, 16.5):
+            g.add(k.box(k.paint(WIN), 8.6, 5.4, 0.8, 0.3, x, 52, z, seg=1))
+    g.add(k.roof(k.paint(roof_colour), 51, 20, 6, 0, 58, 0, 2))
+    return g
+
+
 def hip(k, mat, side, h, x=0, y=0, z=0):
     """A four-sided pyramid roof, `side` across at its base on y."""
     return k.at(k.cone(mat, side / math.sqrt(2), h, 0, 0, 0, 4), x, y, z, math.pi / 4)
@@ -58,10 +70,15 @@ def hip(k, mat, side, h, x=0, y=0, z=0):
 
 def _window(k, w, h, cross):
     """A printed-look window round the origin in the y/z plane (a wall facing x): a dark pane in a white surround,
-    standing just proud of the wall. (`cross` is kept for callers; toy windows are plain.)"""
+    standing just proud of the wall. Broad sash windows are divided by a painted mullion."""
     g = Node()
     g.add(k.box(k.paint(FRAME), 1.0, h + 2, w + 2, 0.8, 0, -1, 0, seg=1))
-    g.add(k.box(k.paint(WIN), 1.3, h, w, 0.6, 0, 0, 0, seg=1))
+    if cross and w >= 8:
+        pane = (w - 1.4) / 2
+        for side in (-1, 1):
+            g.add(k.box(k.paint(WIN), 1.4, h, pane, 0, 0, 0, side * (pane + 1.4) / 2))
+    else:
+        g.add(k.box(k.paint(WIN), 1.3, h, w, 0.6, 0, 0, 0, seg=1))
     return g
 
 
@@ -79,6 +96,8 @@ def _door(k, color, w, h):
     """A printed-look door round the origin in the y/z plane: a painted panel standing just proud of the wall."""
     g = Node()
     g.add(k.box(k.paint(color), 1.3, h, w, 0.8, 0, 0, 0, seg=1))
+    # Through the panel so either outward-facing wall shows the brass pull.
+    g.add(k.cylX(k.paint("#bc9255"), min(1.2, w * 0.1), 2.8, 0, h * 0.47, w * 0.29, 12))
     return g
 
 

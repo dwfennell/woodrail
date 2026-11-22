@@ -81,7 +81,8 @@ def body_profile():
     pts = [(0.0, 0.0), (3.8, 0.0), (4.1, 0.1), (4.24, 0.4), (4.2, 0.8)]
     for y in (2.0, 4.0, 6.0, 8.0, 9.4):
         pts.append((r_at(y), y))
-    pts += [(3.25, 10.2), (3.0, 10.75), (2.55, 11.15), (1.9, 11.4), (0.0, 11.5)]
+    # A narrow turned collar catches a rim of light below the beech head.
+    pts += [(3.18, 10.1), (2.55, 10.6), (2.12, 10.75), (2.36, 10.95), (2.36, 11.35), (1.9, 11.5), (0.0, 11.5)]
     return pts
 
 
@@ -297,7 +298,11 @@ def quad(k, coat, L, W, H, leg_h, leg_r, leg_col=None, hoof=None):
             # A turned leg: a little wider at the foot, tapering up into the body.
             g.add(k.lathe(k.paint(leg_col), [(0.0, 0), (leg_r * 1.02, 0), (leg_r * 1.08, 0.35), (leg_r, 1.2), (leg_r * 0.85, leg_h + 2), (0.0, leg_h + 2)], x, 0, z, 20))
             if hoof:
-                g.add(k.cyl(k.paint(hoof), leg_r + 0.2, 1.6, x, 0, z, leg_r + 0.05, 20))
+                shoe = k.lathe(k.paint(hoof), [(0, 0), (leg_r, 0), (leg_r + 0.3, 0.35),
+                                              (leg_r + 0.1, 1.35), (leg_r - 0.1, 1.65), (0, 1.65)],
+                               x + leg_r * 0.13, 0, z, 16)
+                shoe.scale.x = 1.16
+                g.add(shoe)
     head = pivot("head", L / 2 - 1, leg_h + H * 0.7, 0)
     tail = pivot("tail", -L / 2 + 0.5, leg_h + H * 0.75, 0)
     g.add(head, tail)

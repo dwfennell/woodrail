@@ -2,7 +2,6 @@ import { BoxGeometry, BufferGeometry, Color, InstancedMesh, Float32BufferAttribu
 import { blockOutline, CELL, hillPieces, hillsOf, plotOfCol, plotOfRow, plotSlabs, type HillCut, type LandscapeGrid } from "../../landscape";
 import { plotRect, setCullRects } from "./tiles";
 import { RISER_HEIGHT } from "../../track";
-import { BEECH_UV_SCALE } from "../materials";
 import { blockKey, BLOCK_GAP, CORE_COLOUR, CORE_INSET, hillCore, shadowProxy, SHADOW_PROXY_LAYER, type BlockInstanceRef } from "./blocks";
 
 /** A block's top is a grid this many steps across (about 4 mm); coarser (6 mm) for a quick preview. */
@@ -48,7 +47,7 @@ export function columnGeometry(
   const paintUv: number[] = [];
   const put = (target: number[], uvs: number[], p: P2, y: number, uu: number, vv: number) => {
     target.push(p.x, y, p.z);
-    uvs.push(uu * BEECH_UV_SCALE.x, vv * BEECH_UV_SCALE.y);
+    uvs.push(uu, vv);
   };
   // Is a triangle anticlockwise seen from above (+y)?
   const up = (a: P2, b: P2, c: P2) => (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x) < 0;
