@@ -52,6 +52,12 @@ export interface DispatcherHost {
   drive(train: Train): number;
   /** Told of each grant (the router steers it at once). */
   granted?(engine: number): void;
+  /**
+   * What holds a train short of its grant, if anything does but the dispatcher: the router's points wait ("points"), or
+   * the sim's own guards (its `HeldHow`: "signal", "follow", "nose", "side", "cross", "turn"); null: nothing seen. For
+   * the count of grants overruled (`overruled`: dispatcher spec §13.5 step 1).
+   */
+  overruled?(train: Train): string | null;
 }
 
 interface Hold {
@@ -86,6 +92,11 @@ export class Dispatcher {
   decisions = 0;
   grants = 0;
   detours = 0;
+  /**
+   * Seconds granted trains stood short of their grants, by what held them (`DispatcherHost.overruled`; "other": nothing
+   * seen): where the layout's own guards and the dispatcher disagree (§13.5 step 1).
+   */
+  readonly overruled = new Map<string, number>();
   /** Holds by why: its move's way taken ("blocked"), or another goes first ("order"). */
   heldBlocked = 0;
   heldOrder = 0;
@@ -138,6 +149,11 @@ export class Dispatcher {
       // (Granted but standing short of its hold's end (held by something else: a red signal's block, points): after
       // `GIVE_BACK_S` it gives the rest of its hold back, and asks again from where it stands.)
       if (h && t.speed === 0 && h.end !== h.t.at) {
+        // (Overruled, counted: once a look, its share of the time.)
+        if (this.host.overruled) {
+          const why = this.host.overruled(t) ?? "other";
+          this.overruled.set(why, (this.overruled.get(why) ?? 0) + LOOK_TICKS / 120);
+        }
         if (h.short < 0) h.short = sim.ticks;
         else if (sim.ticks - h.short >= GIVE_BACK_S * 120) {
           this.setHold(h, h.t.at, []);

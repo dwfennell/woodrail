@@ -68,6 +68,10 @@ if (SEEDS > 1) {
     const ms = rs.map((r) => r.dispatcher?.ms).filter(Boolean);
     const fj = rs.map((r) => r.firstJam ?? SECONDS);
     const m = { stops: mean(st), min: Math.min(...st), max: Math.max(...st), firstJam: mean(fj), firstJamMin: Math.min(...fj), stuckBefore: mean(rs.map((r) => r.stuckBefore ?? 0)), jams: mean(rs.map((r) => r.jams)), ...(ms.length ? { p98: Math.max(...ms.map((x) => x.p98)), maxMs: Math.max(...ms.map((x) => x.max)) } : {}), breaks: rs.filter((r) => r.firstBreak).length, firstBreak: rs.find((r) => r.firstBreak)?.firstBreak ?? null, seeds: rs.length, seconds: SECONDS };
+    // (Seconds granted trains stood short of their grants, by what held them, mean over seeds: §13.5 step 1.)
+    const ov = {};
+    for (const r of rs) for (const [k, v] of Object.entries(r.dispatcher?.overruled ?? {})) ov[k] = (ov[k] ?? 0) + v / rs.length;
+    if (Object.keys(ov).length) m.overruled = Object.fromEntries(Object.entries(ov).map(([k, v]) => [k, Math.round(v)]));
     out[map] = m;
     const a = against?.[map];
     const d = a ? m.stops - a.stops : 0;
@@ -77,6 +81,10 @@ if (SEEDS > 1) {
     const flag = a && (firstBar ? m.firstJam < (a.firstJam ?? SECONDS) || m.min < a.min || m.breaks > a.breaks : d < 0 || m.breaks > a.breaks) ? "   LOWER" : "";
     if (flag) lower++;
     console.log(`${pad(map, 30)}${pad(`${m.stops.toFixed(0)} (${m.min}–${m.max})`, 26)}${a ? pad(`${a.stops.toFixed(0)} ${d >= 0 ? "+" : ""}${d.toFixed(0)}`, 14) : ""}${pad(`${m.firstJam.toFixed(0)}${a?.firstJam !== undefined ? ` (${a.firstJam.toFixed(0)})` : ""}`, 14)}${pad(m.stuckBefore.toFixed(0), 9)}${pad(m.jams.toFixed(1), 11)}${pad(`${m.breaks}/${rs.length}`, 8)}${m.p98 !== undefined ? pad(`${m.p98}/${m.maxMs} ms`, 18) : ""}${m.firstBreak ?? "-"}${flag}`);
+  }
+  if (Object.values(out).some((m) => m.overruled)) {
+    console.log(`\ngrants overruled (s granted trains stood short, mean over seeds, by what held them)`);
+    for (const [map, m] of Object.entries(out)) if (m.overruled) console.log(`${pad(map, 30)}${Object.entries(m.overruled).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join("  ")}`);
   }
   console.log(`(${((Date.now() - t0) / 60000).toFixed(1)} min${against ? `; ${lower} map(s) lower on the mean, or more seeds broken, than ${opt("against", "")}` : ""})`);
   if (opt("out", "")) {

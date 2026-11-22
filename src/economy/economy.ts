@@ -2807,6 +2807,7 @@ export class Economy {
         drive: (train) => this.drive(train),
         // (A grant steers it at once, as a sections grant does: the router sets the points ahead.)
         granted: (engine) => this.sections.steerSoon.add(engine),
+        overruled: (train) => (this.router.speedCap(train) < 1 ? "points" : this.sim.heldHow(train.id)),
       });
       this.dispatcher = d;
       // (A move past a plain signal still needs its whole block free: without it, trains ran deep into single track and
