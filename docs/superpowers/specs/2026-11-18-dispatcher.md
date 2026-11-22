@@ -4,6 +4,9 @@
 
 Design only. Nothing here is built, and nothing will be until the user has read it.
 
+**2026-11-22:** built behind ☰ "Train dispatcher (beta)", off by default. Not on by default: no rule tried since has
+cleared the bar on every reference map. Where it stands, what was tried and why it stopped: §13.
+
 The user (via the routing coordinator, 2026-11-18): per-train rules aren't cutting it, so we're building a dispatcher.
 
 It builds on `2026-11-07-routing-redesign.md` (the reservation core, "§R" below). §R's table, waiting points, release
@@ -383,3 +386,89 @@ back-up. 135 are unknown: nearly every whole-map search now hits the 200,000-sta
 
 The whole-map oracle can't judge these maps either way. The per-stretch search (§12, point 3) is needed both as the
 dispatcher's way to meet §5's budget and as a judge that finishes.
+
+## 13. Where it stands (2026-11-22)
+
+### 13.1 What's in
+
+- **The dispatcher** (`src/routing/dispatcher.ts`), acting (§8 step 2): holds, grants by the per-stretch search
+  (`stretch.ts`), detours, fair turns. It owns the signals' aspects for the trains it holds (`Sim.signalOwner`), and
+  keeps a move from stopping inside a path signal's block (`BLOCK_RULE`).
+- **The ☰ switch**, "Train dispatcher (beta)": off by default, saved with the game (`dispatcher: true`), its e2e
+  `e2e:dispatcher`.
+- **A routed train turns back at a stop that ends its line on through track** (`Economy.turnAtLineEnds`): its next stop
+  can't be reached going on, but can turned round. The user's two-train map (reference map `user-2026-11-22-two-train`)
+  stood for good with the dispatcher on, and ran round the loops for good with it off. Both modes.
+- **The jams bar's measures:** `--seeds N` (a seeded run sets each train going 0–9 s late: the sim draws no dice of its
+  own), `--against`, the first jam and the stuck-train-seconds before it (`--bar first-jam`), and the decision time.
+
+**The bar for default-on** (the coordinator's, 2026-11-22): 3 seeds, 22 maps, dispatcher on against main with it on.
+The first jam no sooner on any map, stops no lower than main's lowest seed, no new invariant break, decision p98 ≤
+1.5 ms. Single runs swing ±150 stops a map (each change reshuffles the traffic after it), so a rule is judged on seeds,
+and on the first jam: after it, the stops count measures the luck of the jam clearing as much as the rule.
+
+### 13.2 What was tried
+
+Each is on its branch, judged on the reference maps (from the seeds on, on the seeded bar). None landed.
+
+| Rule | Branch | What it did | Why not |
+|---|---|---|---|
+| A held train waiting on the asker isn't "coming" at its points (router) | `dispatch-starvation` (deleted) | broke dandelion's three-train ring | rowan-2 −186: two trains sent head-on; netActed breaks |
+| No grant into a head-on past the stop (by the booked ways) | `dispatch-headon` (deleted) | rowan-2 +161 | own-11 −119 (one-way ring read as head-on), dandelion −171; trains get by on roads the booked ways don't have |
+| Back-ups (§2.2 step 5): levers set the other way, a hold along the way back, the card "Backing up to let … by" | `dispatch-backup-2` (deleted; in `dispatch-delivered`) | works as built; rowan-3 +47, rowan-2 +29 | dandelion −77: the search, a stop ahead, counts moving a deadlock a stop on as a delivery |
+| A train at its goal head-on into a member isn't delivering | `dispatch-delivered` | own-07 +42, own-11 +45 | rowan-1 −70, complex-3 −48: false positives where the booked ways aren't the whole story |
+| …the same, only where the stretch's ways are exact (no points off them) | `dispatch-delivered` | own-07 +42; 20 maps as main | own-01 −16 (its three-train knot, not the rule) |
+| …plus back-ups | `dispatch-delivered` | +118 stops over rowan-2, rowan-3, own-07 | first jam sooner on dandelion (234 s, main 318), own-01 (52, 87), rowan-3 (296, 348) |
+| Every decision judged two stops ahead | `dispatch-delivered` | — | 16 maps lower; p98 +0.1–0.5 ms; the 500-state cap cuts deeper searches short |
+| Wider loop roads (8 m, 60 pieces) | `dispatch-delivered` | — | no change; trains leave their booked ways 2–6 times in 900 s on the busy maps |
+| A grant given back isn't granted again for 10 s | `dispatch-veto` (deleted) | wren's first jam later | 13 maps lower; own-02 jams for the first time (1032 s); wrongRoad on own-05, own-06 |
+| No grant over points the router has locked for another train | `dispatch-pathblocks` | dandelion +12, wren +15 | 6 maps lower: rowan-3 −76 (first jam sooner), rowan-2 −50, complex-2/3, own-09, user |
+
+### 13.3 The first jams, traced
+
+Main, dispatcher on, seed 1, the three maps that keep recurring:
+
+- **Dandelion** (first jam 312 s): Dandelion and Conker. For 90 s before it, each is granted a move every 1.5 s and
+  neither moves: Dandelion stands at a red signal "by Conker", Conker waits at signal 308 for Dandelion. 210 grants
+  given back in 600 s.
+- **Rowan 3** (405 s): Dandelion granted 360 → 361 → 354 → 133 → 7 every 3 s for 90 s, held at red signal 360 by Conker
+  in its block; Conker waits on Dandelion. 115 given back.
+- **Own 01** (47 s): Hopper granted the single line through 37 and 35 at 2.7 s, held by the router at points 47 (a
+  points wait, "by" Middle); it gives the grant back, and at 7.6 s Middle is granted 33 → 35 → 37 into it. Then the three
+  trains on that line wait on each other.
+
+### 13.4 The root cause
+
+Each circle starts where the dispatcher grants a move that the layout's own guards overrule: the router's point locks
+and its "a train is coming" rule (`comingAt`), and the sim's path signals reading them. The granted train stands short,
+its hold still takes the track, and the train it should let by waits on it. Each rule in §13.2 patches one side, and
+the deadlock moves elsewhere.
+
+§8 step 3 assumed the dispatcher replaces sections' holds and that's enough. It isn't, while the router's points rules
+still decide on their own beside it: two owners of the same track, judging by different models.
+
+### 13.5 Next design (a proposal, not a plan)
+
+**One owner of all track grants.** The dispatcher grants a move together with the points on it. The router sets the
+points as granted and keeps no rule of its own about who goes over them.
+
+Rough steps, each behind the ☰ switch, each judged on the seeded bar:
+1. **Measure the disagreement.** Count, per map, the grants the router's locks or `comingAt` overrule (the traces
+   above, made a counter, as `leftWay` is). Each later step should bring it to near zero.
+2. **Points with the grant.** A grant names the points on its way and how they lie for it. The router throws them as
+   the train comes, and `comingAt` and its locks stand down for trains the dispatcher holds. Path signals then read the
+   grant alone (the dispatcher already owns their aspect).
+3. **The router as a steerer only.** For held trains: no waits of its own, only the way to the next stop for the
+   dispatcher's booked ways, and the points set as granted.
+4. **Then back-ups and head-on scoring again**, on a model where a grant means the train goes: §13.2's best combination
+   was judged where grants were overruled.
+
+**Risks:**
+- The router's points rules are what keep trains apart today, with the dispatcher off too. Step 2 must leave them
+  untouched for trains the dispatcher doesn't hold (hand-run, parked, dispatcher off), and the jams bar off must stay
+  identical to the pins.
+- The search's booked ways become the whole truth for the points. Where they miss a road the router used to find
+  (rare: §13.2, wider loop roads), a train is held where it went before.
+- netActed and wrongRoad: grants and points must never disagree, even for a tick. The invariants already watch both.
+- Cost: points with every grant adds work to each decision. p98 is about 1 ms on the big maps today, against a bar of
+  1.5 ms.
