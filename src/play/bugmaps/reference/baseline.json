@@ -21,30 +21,30 @@
     "seconds": 1800
   },
   "dandelion.txt": {
-    "jams": 12,
-    "arrivals": 630,
+    "jams": 8,
+    "arrivals": 673,
     "longestStand": 146,
-    "firstBreak": null,
+    "firstBreak": "greenHeld: train 70 stood 5 s at signal -7, which shows clear (piece 48)",
     "seconds": 1800
   },
   "rowan-1.txt": {
-    "jams": 28,
-    "arrivals": 434,
+    "jams": 30,
+    "arrivals": 419,
     "longestStand": 192,
-    "firstBreak": "greenHeld: train 161 stood 5 s at signal -72, which shows clear (piece 362)",
+    "firstBreak": "greenHeld: train 170 stood 5 s at signal -85, which shows clear (piece 329)",
     "seconds": 1800
   },
   "rowan-2.txt": {
-    "jams": 24,
+    "jams": 23,
     "arrivals": 582,
-    "longestStand": 155,
+    "longestStand": 177,
     "firstBreak": "greenHeld: train 109 stood 5 s at signal -81, which shows clear (piece 329)",
     "seconds": 1800
   },
   "rowan-3.txt": {
-    "jams": 6,
-    "arrivals": 692,
-    "longestStand": 146,
+    "jams": 10,
+    "arrivals": 635,
+    "longestStand": 190,
     "firstBreak": null,
     "seconds": 1800
   },
@@ -141,9 +141,16 @@
   },
   "own-12-big.txt": {
     "jams": 33,
-    "arrivals": 59,
-    "longestStand": 298,
+    "arrivals": 52,
+    "longestStand": 278,
     "firstBreak": "greenHeld: train 28 stood 5 s at signal -59, which shows clear (piece 179)",
+    "seconds": 1800
+  },
+  "user-2026-11-22-two-train.txt": {
+    "jams": 0,
+    "arrivals": 91,
+    "longestStand": 28,
+    "firstBreak": null,
     "seconds": 1800
   }
 }
