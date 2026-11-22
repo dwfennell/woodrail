@@ -5,6 +5,7 @@ import { legStop } from "../../game/lines";
 import { legFromCursor, viaLegs } from "../../game/route-path";
 import { loadBugMap } from "../bugmap";
 import MAP from "./reports/2026-11-22-teal-line-warehouse.txt?raw";
+import ACORN_MAP from "./reports/2026-11-22-acorn-line-depot.txt?raw";
 
 /**
  * A user's map (2026-11-22): "Seems to be some issue with the multi-track and routes... I should be able to 'stop' at
@@ -17,7 +18,7 @@ import MAP from "./reports/2026-11-22-teal-line-warehouse.txt?raw";
  * planks at Warehouse 2: they go on a flatbed wagon" all along, for the workshop further on, though the warehouse held
  * no planks.
  */
-describe("the user's Teal line 2 map: a warehouse's second track on another line", () => {
+describe("the user's Teal line 2 and Acorn maps: a warehouse's second track on another line", () => {
   const WAREHOUSE = 15;
   const DANDELION = 56;
   const ORANGE = 51;
@@ -81,4 +82,40 @@ describe("the user's Teal line 2 map: a warehouse's second track on another line
     expect(flour).toBeGreaterThan(0);
     expect([...said].filter((s) => /planks/.test(s))).toEqual([]);
   }, 120_000);
+
+  it("the user's later map: Acorn (Red line 3) laps a ring through Warehouse 17's second track, not held at a red by its own tail", async () => {
+    // "same with the acorn line": Warehouse 17's second track (652) on another line than its first (650), Acorn's line
+    // (Warehouse 17, the yard at 654, the yard at 293) a ring through it with one signal (piece 413): all one block,
+    // Acorn's own tail in it, so it stood at that red for good, "the train on the Red line 3 is in the block ahead".
+    const { world } = await loadBugMap(ACORN_MAP);
+    const { sim, economy, layout } = world;
+    const ACORN = 60;
+    const line = economy.lines.get(economy.lineIdOf.get(ACORN)!)!;
+    expect(line.stops.map((st) => st.depotId)).toEqual([17, 18, 7]);
+    expect(economy.reachableTracks(economy.depot(17)!)).toEqual([650, 652]);
+    const legs = viaLegs(layout, line.stops.map((st) => legStop(economy, economy.depot(st.depotId)!, st.via)));
+    expect(legs.map((l) => !!l)).toEqual([true, true, true]);
+    let arrivals = 0;
+    let wasAt = false;
+    let longest = 0;
+    let still = 0;
+    for (let i = 0; i < 240 * SIM_HZ; i++) {
+      sim.tick();
+      economy.tick();
+      const r = economy.routeOf(ACORN)!;
+      const at = !!r.at && r.stops[r.next % r.stops.length].depotId === 17;
+      if (at && !wasAt) {
+        arrivals++;
+        expect(sim.piecesUnder(sim.findCar(ACORN)!.train.id).has(652)).toBe(true);
+      }
+      wasAt = at;
+      const t = sim.findCar(ACORN)!.train;
+      still = t.speed < 1 && !r.at ? still + 1 : 0;
+      longest = Math.max(longest, still);
+      if (i % SIM_HZ === 0) expect(engineStatus(sim, economy, ACORN, () => "?")).not.toMatch(/red signal/);
+    }
+    expect(arrivals).toBeGreaterThanOrEqual(2);
+    expect(longest / SIM_HZ).toBeLessThan(20);
+  }, 120_000);
 });
+
