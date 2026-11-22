@@ -27,6 +27,9 @@ import { next, waysFrom } from "./graph";
 import { STAND_SHORT } from "../economy/sections";
 import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
+/** The points check: on, unless POINTS_CHECK=0 (for comparing runs). */
+export const POINTS_CHECK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).POINTS_CHECK !== "0" };
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -86,6 +89,8 @@ export class Dispatcher {
   decisions = 0;
   grants = 0;
   detours = 0;
+  /** Grants refused as over points the router has locked for another train (`POINTS_CHECK`). */
+  lockedOut = 0;
   /** Holds by why: its move's way taken ("blocked"), or another goes first ("order"). */
   heldBlocked = 0;
   heldOrder = 0;
@@ -379,6 +384,30 @@ export class Dispatcher {
       h.passed++;
       if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - Math.min(...weights) && r.first[0] > 0) to = r.firstTo[0];
     }
+    // (Points on the move locked for another train by the router (it holds them for one coming, or crossing): the
+    // layout would hold this one short of them, its grant unused but its track taken, the other waiting on it (the
+    // first jam on dandelion, rowan-3, own-01). Not granted: it waits on that one.)
+    let lockedBy = -1;
+    if (to >= 0 && POINTS_CHECK.on && this.host.sim.pathLocks) {
+      const w = ways[k];
+      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const path = this.pathTo(tt, to);
+      const points: number[] = [];
+      for (let q = 1; q < path.length; q++) {
+        const i = path[q];
+        const fp = tt.pos[i][tt.pos[i].length - 1];
+        if (fp !== tt.pos[path[q - 1]][tt.pos[path[q - 1]].length - 1] && waysFrom(this.host.layout, fp, tt.frontEn[i]).length > 1) points.push(fp);
+      }
+      const train = this.host.sim.findCar(engine)?.train;
+      if (train && points.length > 0) {
+        const by = this.host.sim.pathLocks.locks(train, points, points.map(() => false));
+        if (by >= 0 && by !== engine) {
+          lockedBy = by;
+          to = -1;
+          this.lockedOut++;
+        }
+      }
+    }
     this.decisions++;
     this.decisionMs.push(performance.now() - t0);
     const pt = this.perTrain.get(engine) ?? [0, 0];
@@ -386,7 +415,7 @@ export class Dispatcher {
     pt[to < 0 ? 1 : 0]++;
     // (Who it waits for: the train in its move's way, or (its turn not yet) the one the best order lets go first.)
     const firstOther = r.order.find((m) => m.k !== 0);
-    h.waitsOn = to >= 0 ? -1 : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    h.waitsOn = to >= 0 ? -1 : lockedBy >= 0 ? lockedBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
