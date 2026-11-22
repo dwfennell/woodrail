@@ -32,6 +32,12 @@ export interface JamsRun {
   arrivals: number;
   /** The longest any lever-on train stood not busy where it was (s): replay's liveness. */
   longestStand: number;
+  /**
+   * When the first jam was found (s; the run's length if none), and the stuck-train-seconds before it (each second, the
+   * trains stalls say are stuck): what a rule avoids or puts off, before the player's clearing reshuffles the trains.
+   */
+  firstJam: number;
+  stuckBefore: number;
   /** The first invariant broken, as "name: what" (null: none). */
   firstBreak: string | null;
   /** Stops come to, by engine. */
@@ -90,6 +96,7 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
   const stuckSince = new Map<number, number>();
   const lastStuck = new Map<number, number>();
   const log: JamsRun["log"] = [];
+  let stuckBefore = 0;
   const r = replayBugMap(world, {
     seed,
     seconds,
@@ -146,6 +153,8 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
           break;
         }
       }
+      // (Before the first jam: its trains stuck this second.)
+      if (log.length === 0) for (const id of sim.trainIds()) if (economy.stalls.stuckOf(sim.getTrain(id)!.cars[0].id)) stuckBefore++;
       // (One cleared a second at most: the first found stuck long enough.)
       for (const id of sim.trainIds()) {
         const t = sim.getTrain(id)!;
@@ -176,5 +185,5 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
   for (const n of r.arrivals.values()) arrivals += n;
   let longest = 0;
   for (const s of r.longestStand.values()) longest = Math.max(longest, s);
-  return { jams: log.length, arrivals, byEngine: Object.fromEntries(r.arrivals), longestStand: longest, firstBreak: r.first ? `${r.first.invariant}: ${r.first.what}` : null, log, seconds };
+  return { jams: log.length, arrivals, byEngine: Object.fromEntries(r.arrivals), longestStand: longest, firstJam: log.length > 0 ? log[0].at : seconds, stuckBefore, firstBreak: r.first ? `${r.first.invariant}: ${r.first.what}` : null, log, seconds };
 }
