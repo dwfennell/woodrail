@@ -41,7 +41,7 @@ describe("the user's Teal line 2 map: a warehouse's second track on another line
       economy.tick();
     };
     const said = new Set<string>();
-    const aims = { [DANDELION]: new Set<number>(), [ORANGE]: new Set<number>() };
+    const aims: Record<number, Set<number>> = { [DANDELION]: new Set(), [ORANGE]: new Set() };
     let arrivals = 0;
     let wasAt = false;
     let flour = 0;
