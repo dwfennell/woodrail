@@ -24,6 +24,7 @@ import {
   type ConnectorDef,
   type PieceDef,
 } from "../track";
+import { mapBoardGrain } from "./wood-grain";
 import { nonIndexed } from "./non-indexed";
 import {
   ARC_STEP,
@@ -34,8 +35,10 @@ import {
   framesAlong,
   grooveProfile,
   isGirder,
+  maleEnd,
   keyholeShape,
   onlyCsgAttributes,
+  PEG_CURVE_SEGMENTS,
   PEG_HEAD_RADIUS,
   PEG_HEIGHT,
   PEG_NECK_LENGTH,
@@ -57,6 +60,7 @@ import {
 // versions) are in track-geometry.ts.
 
 function brush(g: BufferGeometry, material: Material = BODY): Brush {
+  if (material === BODY || material === CUT) mapBoardGrain(g);
   const b = new CsgBrush(nonIndexed(g), material);
   b.updateMatrixWorld();
   return b;
@@ -86,7 +90,10 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
   // The viaduct body: a softly rounded block swept along the deck, from just below the ground to just under the track.
   const inset = 3;
   const frames: Frame[] = [];
-  const steps = path.kind === "arc" ? Math.max(8, Math.ceil(Math.abs(path.sweep) / ARC_STEP)) : path.kind !== "line" ? Math.max(8, Math.ceil(len / 4)) : 1;
+  let steps = 1;
+  if (path.kind === "arc") steps = Math.max(8, Math.ceil(Math.abs(path.sweep) / ARC_STEP));
+  else if (path.kind !== "line") steps = Math.max(8, Math.ceil(len / 4));
+  else if (path.rise) steps = Math.ceil(len / 14); // the straight ramp eases vertically at both ends
   const p = createSample();
   for (let i = 0; i <= steps; i++) {
     const at = inset + ((len - 2 * inset) * i) / steps;
@@ -262,8 +269,11 @@ function viaductProfile(height: number): ProfilePoint[] {
   };
   arc(-w + r, bottom + r, Math.PI, 1.5 * Math.PI);
   arc(w - r, bottom + r, 1.5 * Math.PI, 2 * Math.PI);
-  arc(w - r, top - r, 0, 0.5 * Math.PI);
-  arc(-w + r, top - r, 0.5 * Math.PI, Math.PI);
+  // The raised rail just below the beech deck catches a fine line of light on a sloping approach too.
+  pts.push({ u: w, v: -6, smooth: false }, { u: w + 1.1, v: -4.6, smooth: false });
+  arc(w + 1.1 - r, top - r, 0, 0.5 * Math.PI);
+  arc(-w - 1.1 + r, top - r, 0.5 * Math.PI, Math.PI);
+  pts.push({ u: -w - 1.1, v: -4.6, smooth: false }, { u: -w, v: -6, smooth: false });
   return pts;
 }
 
@@ -322,15 +332,20 @@ function slotGroups(result: Brush): BufferGeometry {
 }
 
 /** Geometry for a piece type in piece-local space (plan x/z → world x/z, y up, track base at y = 0). */
-export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly number[] | null = null): BufferGeometry {
+export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly number[] | null = null, swappedEnds = 0): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
   if (def.type === "joiner") return joinerGeometry(def);
-  if (def.paths.length === 1 && def.paths[0].geom.kind === "loop") return loopGeometry(def);
+  if (def.paths.length === 1 && def.paths[0].geom.kind === "loop") return loopGeometry(def, swappedEnds);
 
   let result =
     def.paths.length === 1
       ? brush(sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)))
       : brush(flatBlockBody(def));
+
+  // Multi-path boards already have a bevel around their extruded outline.
+  if (def.paths.length === 1) {
+    def.connectors.forEach((c, i) => { result = easeEnd(result, c, maleEnd(c, i, swappedEnds)); });
+  }
 
   // A ramp brings its own support: a sloping viaduct from the ground up under its high end (so it stands, and turns,
   // without a riser). Up off the ground, it stands on arches as a bridge does.
@@ -341,6 +356,34 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
     const support = new CsgBrush(bridgeSupport(def, levels * RISER_HEIGHT, floors), [paint, paint, paint]);
     support.updateMatrixWorld();
     result = csgEvaluate(evaluator, result, support, ADDITION);
+    if (paint === PAINT && !isGirder(floors)) {
+      const path = def.paths[0].geom;
+      const len = pathLength(path);
+      const p = createSample();
+      const fittings: BufferGeometry[] = [];
+      for (const at of [13, len / 2, len - 13]) {
+        samplePath(path, at, p);
+        // At the toe of a ramp there is only the track itself.
+        if (p.y + levels * RISER_HEIGHT < 15) continue;
+        const pin = onlyCsgAttributes(nonIndexed(new CylinderGeometry(2.8, 2.8, TRACK_WIDTH - 3.2, 12)));
+        pin.rotateX(Math.PI / 2).rotateY(-p.heading).translate(p.x, p.y - 9, p.z);
+        fittings.push(pin);
+        // Short beech shoes seat the end piers on the mat, inside the deck footprint.
+        if (at !== len / 2) {
+          const fromEnd = at < len / 2 ? 9 : len - 9;
+          samplePath(path, fromEnd, p);
+          const shoe = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(12, 4.5, TRACK_WIDTH - 0.8, 1, 1)));
+          shoe.rotateY(-p.heading).translate(p.x, -levels * RISER_HEIGHT + 2.25, p.z);
+          fittings.push(shoe);
+        }
+      }
+      if (fittings.length) {
+        const joined = mergeGeometries(fittings)!;
+        result = csgEvaluate(evaluator, result, brush(joined), ADDITION);
+        for (const part of fittings) part.dispose();
+        joined.dispose();
+      }
+    }
   }
 
   // (`levels` for an underpass: its block's plinth down off a hill's edge.)
@@ -358,9 +401,9 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
     }
   }
 
-  // Every end is carved as a hole: any two ends join, so which end of a joint shows the peg is the layout's to say.
-  // TrackView draws the pegs (`buildPegGeometry`), and `withPegs` adds a lone piece's own.
-  for (const c of def.connectors) result = csgEvaluate(evaluator, result, brush(socketCutter(c), CUT), SUBTRACTION);
+  def.connectors.forEach((c, i) => {
+    if (!maleEnd(c, i, swappedEnds)) result = csgEvaluate(evaluator, result, brush(socketCutter(c), CUT), SUBTRACTION);
+  });
 
   const out = slotGroups(result);
   out.computeBoundingBox();
@@ -372,7 +415,7 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
  * A balloon loop: its track leaves and comes back through the same end, overlapping itself there, so it's built as
  * two halves (out and back), merged like a switch's routes.
  */
-function loopGeometry(def: PieceDef): BufferGeometry {
+function loopGeometry(def: PieceDef, swappedEnds: number): BufferGeometry {
   const geom = def.paths[0].geom;
   const frames = framesAlong(geom, 0, 0);
   const mid = Math.floor(frames.length / 2);
@@ -383,7 +426,9 @@ function loopGeometry(def: PieceDef): BufferGeometry {
   for (const run of [grooveFrames.slice(0, gm + 2), grooveFrames.slice(gm - 1)]) {
     for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) result = csgEvaluate(evaluator, result, brush(sweep(grooveProfile(c), run), CUT), SUBTRACTION);
   }
-  for (const c of def.connectors) result = csgEvaluate(evaluator, result, brush(socketCutter(c), CUT), SUBTRACTION);
+  def.connectors.forEach((c, i) => {
+    if (!maleEnd(c, i, swappedEnds)) result = csgEvaluate(evaluator, result, brush(socketCutter(c), CUT), SUBTRACTION);
+  });
   const out = slotGroups(result);
   out.computeBoundingBox();
   out.computeBoundingSphere();
@@ -435,10 +480,30 @@ function rackStrip(def: PieceDef): BufferGeometry {
   return out;
 }
 
-/** The cutter for an end's hole (a keyhole through the piece, open at the end face). */
+function easeEnd(body: Brush, c: ConnectorDef, male: boolean): Brush {
+  // A pair of lightly sanded ends makes a V at a joint. Just the top edge is eased, above the wheel grooves.
+  const h = TRACK_THICKNESS;
+  const bevel = 0.85;
+  const edge = new Shape([new Vector2(-4, h + 4 - bevel), new Vector2(2, h - 2 - bevel), new Vector2(2, h + 4 - bevel)]);
+  const half = TRACK_WIDTH / 2 + 1;
+  const neck = PEG_NECK_WIDTH / 2;
+  const ranges = male ? [[-half, -neck], [neck, half]] : [[-half, half]];
+  const wedges = ranges.map(([left, right]) => {
+    const wedge = new ExtrudeGeometry(edge, { depth: right - left, bevelEnabled: false });
+    wedge.translate(0, 0, left).rotateY(-c.pose.heading).translate(c.pose.x, c.y, c.pose.z);
+    return onlyCsgAttributes(wedge);
+  });
+  const cutter = mergeGeometries(wedges)!;
+  const eased = csgEvaluate(evaluator, body, brush(cutter), SUBTRACTION);
+  for (const wedge of wedges) wedge.dispose();
+  cutter.dispose();
+  return eased;
+}
+
+/** The cutter for an end's hole, open at the end face and tall enough for the rise behind a ramp's toe. */
 function socketCutter(c: ConnectorDef): BufferGeometry {
   const shape = keyholeShape(1, PEG_NECK_LENGTH + SOCKET_CLEARANCE, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1);
-  const g = extrudeUp(shape, TRACK_THICKNESS + 4, 0);
+  const g = extrudeUp(shape, TRACK_THICKNESS + 12, 0, PEG_CURVE_SEGMENTS);
   g.applyMatrix4(connectorBasis(c.pose.x, c.y - 2, c.pose.z, c.pose.heading));
   return onlyCsgAttributes(g);
 }

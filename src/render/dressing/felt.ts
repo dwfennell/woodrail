@@ -2,7 +2,7 @@ import { ExtrudeGeometry, Group, Mesh, Path, PlaneGeometry, Shape, ShapeGeometry
 import { compact } from "../compact";
 import { useFarDetail } from "../far-detail";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CELL, PLOT_DEPTH, PLOT_WIDTH, type LandscapeGrid, type PlotCoord, type Rect } from "../../landscape";
+import { CELL, PLOT_DEPTH, PLOT_WIDTH, SURF_SAND, type LandscapeGrid, type PlotCoord, type Rect } from "../../landscape";
 import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop, type LoopPoint } from "../../landscape/outline";
 import { setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./tiles";
 import { FELT_TILE, type Materials } from "../materials";
@@ -166,6 +166,19 @@ function extrudeFelt(outer: Loop, holes: readonly Loop[], thickness: number, bev
   return g;
 }
 
+const BANK_WIDTH = 3.5 / CELL;
+
+/** The sand backing peeks out from under the blue felt. Offset the real outline before clipping
+ * to draw tiles, so tile boundaries never acquire a strip. Hole loops run the other way. */
+function bankLip(loop: Loop): Loop {
+  return loop.map((p, i) => {
+    const a = inward(loop[(i + loop.length - 1) % loop.length], p);
+    const b = inward(p, loop[(i + 1) % loop.length]);
+    const miter = BANK_WIDTH / Math.max(0.5, 1 + a.x * b.x + a.z * b.z);
+    return { x: p.x - (a.x + b.x) * miter, z: p.z - (a.z + b.z) * miter };
+  });
+}
+
 /** How far (squares) past its tile a tile's felt is traced, so smoothing near its edge comes out as if traced whole. */
 const TILE_MARGIN = 8;
 
@@ -210,10 +223,17 @@ export function buildFeltTiles(
   const tiles = new Map<number, { tc: number; tr: number }>();
   for (const g of grids) {
     g.forEachCell((i, col, row) => {
-      if (groupOf(g.surface[i]) === -1 || skip(g, i)) return;
-      const tc = Math.floor(col / tileCols);
-      const tr = Math.floor(row / tileRows);
-      tiles.set(tileAt(tc * TILE_WIDTH, tr * TILE_DEPTH), { tc, tr });
+      const family = groupOf(g.surface[i]);
+      if (family === -1 || skip(g, i)) return;
+      // A backing can extend into an otherwise dry tile when the bank follows a tile boundary.
+      const pad = groups[family][0] === SURF_SAND ? BANK_WIDTH : 0;
+      const lastCol = Math.ceil((col + 1 + pad) / tileCols) - 1;
+      const lastRow = Math.ceil((row + 1 + pad) / tileRows) - 1;
+      for (let tc = Math.floor((col - pad) / tileCols); tc <= lastCol; tc++) {
+        for (let tr = Math.floor((row - pad) / tileRows); tr <= lastRow; tr++) {
+          tiles.set(tileAt(tc * TILE_WIDTH, tr * TILE_DEPTH), { tc, tr });
+        }
+      }
     });
   }
   const used = new Set<number>();
@@ -242,7 +262,8 @@ export function buildFeltTiles(
         const loops = traceRegions((c, r) => window[r * w + c] === k, w, d).map((l) => {
           // A loop cut off by the window's edge continues beyond it: smooth it fully, as the whole world's would be.
           const cut = l.some((p) => p.x <= 0 || p.z <= 0 || p.x >= w || p.z >= d);
-          return smoothLoop(l, 8, 2, cut).map((p) => ({ x: col0 + p.x, z: row0 + p.z }));
+          const smooth = smoothLoop(l, 8, 2, cut);
+          return (surface === SURF_SAND ? bankLip(smooth) : smooth).map((p) => ({ x: col0 + p.x, z: row0 + p.z }));
         });
         const x0 = tc * tileCols;
         const z0 = tr * tileRows;

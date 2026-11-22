@@ -52,7 +52,8 @@ function partsOf(root: Object3D, prefix: string): Object3D[] {
 }
 
 /** A turned beech base disc, `r` across, 3 thick. */
-const base = (k: Kit, r: number, mat?: Material) => k.cyl(mat ?? k.wood, r, 3, 0, 0, 0, r - 0.6, 36);
+const base = (k: Kit, r: number, mat?: Material) => k.lathe(mat ?? k.wood,
+  [[0, 0], [r - 0.9, 0], [r, 0.8], [r, 1.8], [r - 1.2, 3], [0, 3]], 0, 0, 0, 36);
 
 /** A flat outline (x, -z) laid on the ground, `thick` high, its base at y. */
 function slab(k: Kit, mat: Material, shape: Shape | readonly [number, number][], thick: number, y = 0, bevel = 0): Mesh {

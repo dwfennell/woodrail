@@ -69,7 +69,12 @@ function bob(root: Object3D, t: number, amount = 1): void {
 function roadWheel(k: Kit, x: number, z: number, r = 6.5, hub: string = TOY.red, w = 5, y = r): Group {
   const g = pivot("wheel", x, y, z);
   g.userData.r = r;
-  g.add(k.cylZ(k.paint(TOY.black), r, w, 0, 0, 0, 20));
+  const half = w / 2;
+  const tyre = k.lathe(k.paint(TOY.black), [
+    [r * 0.48, -half], [r * 0.85, -half], [r, -half * 0.68],
+    [r, half * 0.68], [r * 0.85, half], [r * 0.48, half],
+  ], 0, 0, 0, 28, 12);
+  g.add(tyre.rotateX(Math.PI / 2));
   g.add(k.cylZ(k.paint(hub), r * 0.52, w + 0.6, 0, 0, 0, 14));
   g.add(k.box(k.wood, r * 0.9, r * 0.22, w + 0.9, 0, 0, -r * 0.11, 0));
   return g;
@@ -212,13 +217,24 @@ function van(k: Kit, color: string): Group {
   );
 }
 
+/** Painted window panes on both flanks. The body showing between them forms the pillars. */
+function busWindows(k: Kit, span: number, count: number, x: number, y: number): Group {
+  const windows = new Group();
+  const pitch = span / count;
+  for (let i = 0; i < count; i++) {
+    const centre = x - span / 2 + (i + 0.5) * pitch;
+    windows.add(k.box(k.glass, pitch - 2.4, 8, 26.6, 0, centre, y));
+  }
+  return windows;
+}
+
 /** A bus body: one or two decks of windows, white roof, wheels. */
 function bus(k: Kit, color: string, len = 88, decks = 1): Group {
   const c = k.paint(color);
   const h = decks === 1 ? 26 : 44;
   const g = k.group(
     k.box(c, len, h, 26, 4, 0, 5),
-    glass(k, len - 14, 8, 26.6, -4, 17),
+    busWindows(k, len - 14, 5, -4, 17),
     k.box(k.glass, 1.2, 12, 22, 0.5, len / 2, 14),
     k.box(k.paint(TOY.white), len - 4, 2.5, 24, 1, 0, 5 + h),
     k.box(k.paint(TOY.black), 1, 4, 16, 0.3, len / 2 + 0.2, 5 + h - 6),
@@ -229,7 +245,7 @@ function bus(k: Kit, color: string, len = 88, decks = 1): Group {
     wheelSet(k, [-(len / 2 - 16), len / 2 - 16], 12.5, 7),
   );
   if (decks > 1) {
-    g.add(glass(k, len - 6, 8, 26.6, 0, 35));
+    g.add(busWindows(k, len - 6, 5, 0, 35));
     g.add(k.box(k.paint(TOY.cream), len + 0.4, 2.5, 26.4, 1, 0, 29));
   }
   return g;
@@ -418,7 +434,7 @@ export const ASSETS: Asset[] = [
       const y = k.paint(TOY.yellow);
       const g = k.group(
         k.box(y, 70, 26, 26, 4, -8, 5),
-        glass(k, 58, 8, 26.6, -10, 17),
+        busWindows(k, 58, 4, -10, 17),
         k.box(k.glass, 1.2, 10, 22, 0.5, 27, 18),
         k.box(y, 18, 14, 22, 4, 34, 5),
         k.box(k.paint(TOY.grey), 1, 8, 14, 0.5, 43.2, 8),

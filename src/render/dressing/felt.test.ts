@@ -1,4 +1,4 @@
-import { MeshBasicMaterial, type Mesh } from "three";
+import { MeshBasicMaterial, Raycaster, Vector3, type Mesh } from "three";
 import { describe, expect, it } from "vitest";
 import { CELL, generateLandscape, gridWithPlots, SURF_RIVER, SURF_ROAD, SURF_SAND, SURF_SEA, type LandscapeGrid } from "../../landscape";
 import { buildFeltTiles, clipLoop, type FeltTiles } from "./felt";
@@ -33,6 +33,19 @@ describe("felt in tiles", () => {
     const right = edgeZs(b, 0);
     expect(left.length).toBeGreaterThanOrEqual(2);
     expect(left).toEqual(right);
+  });
+
+  it("the river backing extends across a dry tile boundary without an interior seam", () => {
+    const grid = gridWithPlots(-1, 0, 2, 1);
+    for (let row = 3; row < 12; row++) grid.surface[grid.index(-1, row)] = SURF_RIVER;
+    const backing = buildFeltTiles([grid], [[SURF_SAND, SURF_RIVER]], new MeshBasicMaterial(), () => 0.8, new Map());
+    const [left, right] = backing.children as Mesh[];
+    expect(right).toBeDefined();
+    expect(edgeZs(left, 0)).toEqual(edgeZs(right, 0));
+    // Measure along the straight bank, away from the rounded ends.
+    const hits = (x: number) => new Raycaster(new Vector3(x, 10, 7.5 * CELL), new Vector3(0, -1, 0)).intersectObject(right).length;
+    expect(hits(2)).toBeGreaterThan(0);
+    expect(hits(5)).toBe(0);
   });
 
   it("extrudes a tile again only when its squares change", () => {

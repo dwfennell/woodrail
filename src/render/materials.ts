@@ -1,4 +1,4 @@
-import { Color, MeshPhysicalMaterial, MeshStandardMaterial, Vector2 } from "three";
+import { Color, MeshPhysicalMaterial, MeshStandardMaterial } from "three";
 import type { Texture } from "three";
 import { beechTextures, feltTextures, feltTileTextures, mottleTexture, stitchTexture, type SurfaceTextures } from "./textures";
 
@@ -22,6 +22,7 @@ export interface Materials {
   blockTop: MeshStandardMaterial;
   naturalWood: MeshPhysicalMaterial;
   magnet: MeshStandardMaterial;
+  nickel: MeshStandardMaterial;
   coal: MeshStandardMaterial;
   glass: MeshPhysicalMaterial;
   /** The painted viaduct under bridge pieces (track geometry's third slot). */
@@ -58,8 +59,8 @@ function woodMaterial(t: SurfaceTextures, bump: number): MeshPhysicalMaterial {
     bumpScale: bump,
     roughness: 1,
     // A thin satin finish: sheen without mirror-like highlights.
-    clearcoat: 0.15,
-    clearcoatRoughness: 0.6,
+    clearcoat: 0.22,
+    clearcoatRoughness: 0.48,
     sheen: 0.15,
     sheenRoughness: 0.6,
     sheenColor: new Color("#fff1dc"),
@@ -86,18 +87,15 @@ export function createMaterials(anisotropy: number, small = false): Materials {
       emissiveIntensity: 0.15,
     });
 
+  // Keep the same brushed surface on individual pieces and on merged scenery.
+  const satinPaint = { roughness: 0.48, clearcoat: 0.24, clearcoatRoughness: 0.48, bumpMap: beech.bumpMap, bumpScale: 0.42 };
   const lacquerCache = new Map<string, MeshPhysicalMaterial>();
   const lacquer = (color: string) => {
     let m = lacquerCache.get(color);
     if (!m) {
       m = new MeshPhysicalMaterial({
         color: new Color(color),
-        // Satin toy paint: a soft highlight, not a glossy one (strong highlights washed reds out to pink).
-        roughness: 0.55,
-        clearcoat: 0.3,
-        clearcoatRoughness: 0.35,
-        bumpMap: beech.bumpMap,
-        bumpScale: 0.25,
+        ...satinPaint,
       });
       // Static scenery batches swap this for `paint` plus vertex colours (one draw call for every colour).
       m.userData.paintColor = color;
@@ -106,7 +104,7 @@ export function createMaterials(anisotropy: number, small = false): Materials {
     return m;
   };
 
-  const trackCut = new MeshStandardMaterial({ map: beech.map, color: new Color("#a88866"), roughness: 0.85, bumpMap: beech.bumpMap, bumpScale: 0.4 });
+  const trackCut = new MeshStandardMaterial({ map: beech.map, color: new Color("#b49776"), roughness: 0.85, bumpMap: beech.bumpMap, bumpScale: 0.4 });
 
   const mottle = mottleTexture();
   const feltTiles = feltTileTextures(small);
@@ -134,14 +132,14 @@ export function createMaterials(anisotropy: number, small = false): Materials {
   const stitch = new MeshStandardMaterial({ map: stitchTexture(anisotropy), transparent: true, alphaTest: 0.3, roughness: 0.9 });
   // Building blocks are bare, unvarnished beech: matte, and a cheap shader for the hundreds on screen.
   const blockWood = new MeshStandardMaterial({ map: beech.map, roughnessMap: beech.roughnessMap, bumpMap: beech.bumpMap, bumpScale: 0.5, roughness: 0.92 });
-  // Satin green paint over beech: the grain still shows through faintly.
-  const blockTop = new MeshStandardMaterial({ map: beech.map, color: new Color("#79b851"), roughness: 0.6, bumpMap: beech.bumpMap, bumpScale: 0.35 });
+  // Opaque sage paint: the grain catches light in relief, while the bare sides show its colour.
+  const blockTop = new MeshStandardMaterial({ color: new Color("#849e59"), roughness: 0.6, bumpMap: beech.bumpMap, bumpScale: 0.35 });
 
   const held = withRim(woodMaterial(beech, 0.6));
 
   const scenery: SceneryMaterials = {
     wood: new MeshStandardMaterial({ map: beech.map, roughness: 0.9 }),
-    top: new MeshStandardMaterial({ map: beech.map, color: new Color("#79b851"), roughness: 0.65 }),
+    top: new MeshStandardMaterial({ color: new Color("#849e59"), roughness: 0.65 }),
     crown: new MeshStandardMaterial({ roughness: 0.45 }),
   };
 
@@ -168,7 +166,7 @@ export function createMaterials(anisotropy: number, small = false): Materials {
     }
   };
   const naturalWood = woodMaterial(beech, 0.5);
-  const paint = new MeshPhysicalMaterial({ vertexColors: true, roughness: 0.55, clearcoat: 0.3, clearcoatRoughness: 0.35, bumpMap: beech.bumpMap, bumpScale: 0.25 });
+  const paint = new MeshPhysicalMaterial({ vertexColors: true, ...satinPaint });
   // (Not the felt: its fibre bumps set how light it looks even far out, so dropping them would show as a jump.)
   detailed.push(track, trackCut, held, blockWood, blockTop, naturalWood, paint);
 
@@ -189,9 +187,10 @@ export function createMaterials(anisotropy: number, small = false): Materials {
     trackGhost: ghost("#ffffff"),
     trackGhostSnap: ghost("#9be37b"),
     naturalWood,
+    nickel: new MeshStandardMaterial({ color: "#b7b8b4", metalness: 0.48, roughness: 0.29 }),
     magnet: new MeshStandardMaterial({ color: new Color("#2a2b2e"), metalness: 0.85, roughness: 0.3 }),
-    coal: new MeshStandardMaterial({ color: new Color("#1c1a19"), roughness: 0.7, metalness: 0.1 }),
-    glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),
+    coal: new MeshStandardMaterial({ color: new Color("#302e30"), roughness: 0.51, metalness: 0 }),
+    glass: new MeshPhysicalMaterial({ color: new Color("#273941"), roughness: 0.23, clearcoat: 0.65, metalness: 0.2 }),
     lacquer,
     bridgePaint: lacquer("#c8442f"),
     viaductStone: lacquer("#b8b0a2"),
@@ -257,5 +256,3 @@ function withWorldMottle<T extends MeshStandardMaterial>(m: T, tex: Texture, sca
   m.customProgramCacheKey = () => `mottle-${scale}-${strength}`;
   return m;
 }
-
-export const BEECH_UV_SCALE = new Vector2(1 / 512, 1 / 128);

@@ -28,7 +28,7 @@ import { MAX_BRIDGE_LEVELS, PLOT_DEPTH, PLOT_WIDTH } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
-import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceFar, buildPieceShadowCaster, hasFarVersion, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
+import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceFar, buildPieceShadowCaster, hasFarVersion, buildPieceStandIn, pegTongue, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import pieceWorkerUrl from "./piece-worker.ts?worker-chunk";
 import { loadCached, saveCached } from "./piece-cache";
@@ -46,7 +46,7 @@ export type OutlineTone = keyof typeof OUTLINE_TONES;
 const PICK_TINTS: Record<OutlineTone, string> = { select: "#ffd36b", snap: "#9be38a", blocked: "#ff8f7d" };
 
 /** The one peg shape, shared by every TrackView. */
-let sharedPeg: BufferGeometry | null = null;
+
 const bufferBlockCache = new Map<string, BufferGeometry | null>();
 /** A piece worker that hasn't answered in this long (ms) is given up, and what it had left is carved here. */
 const WORKER_PATIENCE_MS = 20_000;
@@ -110,9 +110,10 @@ const carvedInBackground = (type: PieceTypeId) => !isJoin(type) && !modelRails(t
 const modelRails = (type: PieceTypeId) => kitOf(type)?.rails === "model";
 
 /** The job that carves this piece (a mirrored piece is made here from the plain one; a flip that swaps ends is carved). */
-function jobFor(type: PieceTypeId, flipped: boolean, levels: number, floors: readonly number[] | null = null): PieceJob {
+function jobFor(type: PieceTypeId, flipped: boolean, levels: number, floors: readonly number[] | null = null, swappedEnds = 0): PieceJob {
   const job: PieceJob = flipped && getPieceDef(type, true) !== getPieceDef(type, false) && flipSwapsEnds(type) ? { type, levels, flipped: true } : { type, levels };
   if (floors) job.floors = floors;
+  if (swappedEnds) job.swappedEnds = swappedEnds;
   return job;
 }
 
@@ -213,16 +214,18 @@ function carveSoon(): void {
       built(resultKey(job), geometryCache.get(resultKey(job))!);
       job = carving.localQueue.shift();
     }
-    if (job) built(resultKey(job), compactPiece(carverNow()!.buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels, job.floors ?? null)));
+    if (job) built(resultKey(job), compactPiece(carverNow()!.buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels, job.floors ?? null, job.swappedEnds)));
     carveSoon();
   }, LOCAL_CARVE_GAP_MS);
 }
 
 const jobOfKey = (key: string): PieceJob => {
   const [type, side, rest] = key.split(":");
-  const [levels, floors] = rest.split("/");
+  const [profile, swap] = rest.split("~");
+  const [levels, floors] = profile.split("/");
   const job: PieceJob = side === "f" ? { type: type as PieceTypeId, levels: Number(levels), flipped: true } : { type: type as PieceTypeId, levels: Number(levels) };
   if (floors) job.floors = floors.split(",").map(Number);
+  if (swap) job.swappedEnds = Number(swap);
   return job;
 };
 
@@ -294,16 +297,16 @@ export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0, f
   return g;
 }
 
-/** A piece's geometry with a hole at every end (or its stand-in while it's carved). */
-function carvedGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors: readonly number[] | null = null): BufferGeometry {
+/** The board with sockets only at its receiving ends (or its stand-in while carved). */
+function carvedGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors: readonly number[] | null = null, swappedEnds = 0): BufferGeometry {
   const def = getPieceDef(type, flipped);
   const plain = def === getPieceDef(type, false);
-  const key = `${type}:${plain ? "n" : "f"}:${levels}${floorsKey(floors)}`;
+  const key = `${type}:${plain ? "n" : "f"}:${levels}${floorsKey(floors)}${swappedEnds ? "~" + swappedEnds : ""}`;
   let g = geometryCache.get(key);
   if (!g && modelRails(type)) geometryCache.set(key, (g = buildPieceStandIn(def)));
   if (!g && carving.started && !carving.broken && carvedInBackground(type)) {
     // Not carved yet: next in line, and a stand-in meanwhile. (A mirrored piece is made here once the plain one's in.)
-    const job = jobFor(type, flipped, levels, floors);
+    const job = jobFor(type, flipped, levels, floors, swappedEnds);
     if (!geometryCache.has(resultKey(job))) {
       hurry(job);
       // Arches over a hill's edge: the bridge with its arches all the way down meanwhile (or its own stand-in).
@@ -315,14 +318,14 @@ function carvedGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors:
     if (!carver) {
       // Carved here (a join piece, or no workers), but the carver isn't in yet (it's not in the first download): a
       // stand-in meanwhile, swapped when it's carved (`onPiecesBuilt`), as a worker's piece is.
-      const job = jobFor(type, flipped, levels, floors);
+      const job = jobFor(type, flipped, levels, floors, swappedEnds);
       if (!carving.wanted.has(resultKey(job))) carving.wanted.set(resultKey(job), []);
       localJob(job, false);
       return floors ? carvedGeometry(type, flipped, levels) : standIn(type, levels, def);
     }
     // A mirrored piece is its plain shape reflected across its centre line: no need to carve it again.
     // A piece whose flip swaps its ends' peg and hole is carved as it is.
-    g = plain || flipSwapsEnds(type) ? compactPiece(carver.buildPieceGeometry(def, levels, floors)) : mirrored(carvedGeometry(type, false, levels, floors));
+    g = plain || flipSwapsEnds(type) ? compactPiece(carver.buildPieceGeometry(def, levels, floors, swappedEnds)) : mirrored(carvedGeometry(type, false, levels, floors, swappedEnds));
     geometryCache.set(key, g);
     // Its stand-in was shown before the carver was in: swapped now, and no longer waited for (`piecesWanted`).
     if (carving.wanted.has(key)) built(key, g);
@@ -919,8 +922,8 @@ function farGeometry(type: PieceTypeId, flipped: boolean): BufferGeometry | null
 
 /** The carved geometry (or its stand-in for now) a tile mesh of this key (see `TrackView.sync`) draws close up. */
 function carvedOfKey(key: string): BufferGeometry {
-  const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
-  return carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
+  const [type, flipped, levels, floors, , swapped] = key.split("|");
+  return carvedGeometry(type as PieceTypeId, flipped === "1", Number(levels), floorsOf(floors), Number(swapped) || 0);
 }
 
 /**
@@ -957,7 +960,9 @@ export class TrackView {
   private bufferMesh: { mesh: InstancedMesh; ids: number[] } | null = null;
   private flagMeshes: InstancedMesh[] = [];
   private flagIds: number[] = [];
-  /** The pegs: one at each joint (in the hole of one of its two pieces) and in each free peg end. */
+  /** Pieces whose joined ends differ from the piece as it comes from the tray. */
+  private readonly endSwaps = new Map<number, number>();
+  /** One projecting tongue per joint and per free male end. */
   private pegMesh: InstancedMesh | null = null;
   /** Each peg's piece and end, by instance. */
   private pegOwners: number[] = [];
@@ -1082,6 +1087,7 @@ export class TrackView {
     this.flagMeshes = [];
     this.flagIds = [];
 
+    this.endSwaps.clear();
     const groups = new Map<string, number[]>();
     for (const id of this.layout.pieceIds()) {
       if (this.layout.isLifted(id) || this.hidden.has(id)) continue;
@@ -1091,7 +1097,9 @@ export class TrackView {
       // (And by the tile it's on: each tile's instances are a mesh of their own, so a tile out of view, or out of the
       // shadow camera's, isn't drawn. One mesh for every curve on a big map drew all of them if any was in view.)
       const tile = `${Math.floor(p.pose.x / TRACK_TILE_WIDTH)},${Math.floor(p.pose.z / TRACK_TILE_DEPTH)}`;
-      const key = `${p.type}|${def === getPieceDef(p.type, false) ? 0 : 1}|${levels}|${this.archFloors(p, levels)?.join(",") ?? ""}|${tile}`;
+      const swapped = this.swappedEndsOf(p);
+      if (swapped) this.endSwaps.set(id, swapped);
+      const key = `${p.type}|${def === getPieceDef(p.type, false) ? 0 : 1}|${levels}|${this.archFloors(p, levels)?.join(",") ?? ""}|${tile}|${swapped}`;
       let list = groups.get(key);
       if (!list) groups.set(key, (list = []));
       list.push(id);
@@ -1100,9 +1108,9 @@ export class TrackView {
     const m = new Matrix4();
     const bufferIds: number[] = [];
     for (const [key, ids] of groups) {
-      const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
+      const [type, flipped, levels] = key.split("|") as [PieceTypeId, string, string];
       const unseen = modelRails(type);
-      const near = carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
+      const near = carvedOfKey(key);
       const far = Number(levels) === 0 && !unseen ? farGeometry(type, flipped === "1") : null;
       const mesh = new InstancedMesh(near, unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint, this.mats.viaductStone], ids.length);
       mesh.castShadow = !unseen;
@@ -1235,8 +1243,34 @@ export class TrackView {
     }
   }
 
+  /** Only nonstandard pairings need a different carving: like ends choose one owner, and a joiner owns both tongues. */
+  private swappedEndsOf(p: PlacedPiece): number {
+    if (p.type === "joiner") return 0;
+    const def = getPieceDef(p.type, p.flipped);
+    let mask = 0;
+    def.connectors.forEach((c, i) => {
+      const ref = connectorRef(p.id, i);
+      const other = this.layout.joinedConnector(ref);
+      if (other < 0) return;
+      const id = pieceOfRef(other);
+      if (this.layout.isLifted(id) || this.hidden.has(id)) return;
+      const neighbour = this.layout.getPiece(id)!;
+      const oc = getPieceDef(neighbour.type, neighbour.flipped).connectors[indexOfRef(other)];
+      const mine = neighbour.type !== "joiner" && (c.kind === oc.kind ? ref < other : c.kind === "peg");
+      if (mine !== (c.kind === "peg")) mask |= 1 << i;
+    });
+    return mask;
+  }
+
   /** Joints were made or parted without the pieces changing (a group taken up to drag): redo the pegs and end boards. */
   jointsChanged(): void {
+    for (const id of this.layout.pieceIds()) {
+      if (this.layout.isLifted(id) || this.hidden.has(id)) continue;
+      if (this.swappedEndsOf(this.layout.getPiece(id)!) !== (this.endSwaps.get(id) ?? 0)) {
+        this.sync();
+        return;
+      }
+    }
     this.syncPegs();
     this.syncEndBoards();
   }
@@ -1314,7 +1348,7 @@ export class TrackView {
   }
 
   /**
-   * One peg at each joint, standing in the hole of the piece whose end is a peg end (where both ends are pegs or both
+   * One peg at each joint, projecting from the piece whose end is a peg end (where both ends are pegs or both
    * holes, the first piece's), and one in each free peg end. A joiner brings its own. An end joined to a piece that
    * isn't drawn (lifted, or a stand-in animating in its place) counts as free.
    */
@@ -1328,13 +1362,7 @@ export class TrackView {
       if (p.type === "joiner") continue;
       const def = getPieceDef(p.type, p.flipped);
       def.connectors.forEach((c, i) => {
-        const ref = connectorRef(id, i);
-        const other = this.layout.joinedConnector(ref);
-        const op = other >= 0 && drawn(pieceOfRef(other)) ? this.layout.getPiece(pieceOfRef(other)) : undefined;
-        if (op?.type === "joiner") return;
-        const oc = op && getPieceDef(op.type, op.flipped).connectors[indexOfRef(other)];
-        const mine = !oc ? c.kind === "peg" : c.kind !== oc.kind ? c.kind === "peg" : ref < other;
-        if (!mine) return;
+        if ((c.kind === "peg") === Boolean((this.endSwaps.get(id) ?? 0) & (1 << i))) return;
         owners.push(id);
         ends.push(i);
       });
@@ -1348,7 +1376,7 @@ export class TrackView {
         this.group.remove(mesh);
         mesh.dispose();
       }
-      mesh = new InstancedMesh((sharedPeg ??= buildPegGeometry()), this.mats.track, Math.max(16, Math.ceil(owners.length * 1.5)));
+      mesh = new InstancedMesh(pegTongue(), this.mats.track, Math.max(16, Math.ceil(owners.length * 1.5)));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.userData.kind = "track";
@@ -1386,8 +1414,7 @@ export class TrackView {
   piecesBuilt(): void {
     for (const [key, { mesh, isFar }] of this.meshes) {
       if (isFar) continue;
-      const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
-      const g = carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
+      const g = carvedOfKey(key);
       if (mesh.geometry !== g) {
         mesh.geometry = g;
         mesh.computeBoundingSphere();
@@ -1446,7 +1473,7 @@ export class TrackView {
       const p = this.hidden.has(id) ? undefined : this.layout.getPiece(id);
       if (!p || this.layout.isLifted(id)) continue;
       const levels = this.bridgeLevels(p);
-      const geometry = carvedGeometry(p.type, p.flipped, levels, this.archFloors(p, levels));
+      const geometry = carvedGeometry(p.type, p.flipped, levels, this.archFloors(p, levels), this.endSwaps.get(id));
       let outline = this.outlines[n];
       if (!outline) {
         outline = new Mesh(geometry, this.outlineMaterial);
@@ -2026,7 +2053,7 @@ function geometryOf(r: PieceResult): BufferGeometry {
   return g;
 }
 
-const resultKey = (r: PieceJob): string => `${r.type}:${r.flipped ? "f" : "n"}:${r.levels}${floorsKey(r.floors)}`;
+const resultKey = (r: PieceJob): string => `${r.type}:${r.flipped ? "f" : "n"}:${r.levels}${floorsKey(r.floors)}${r.swappedEnds ? "~" + r.swappedEnds : ""}`;
 
 /** A stand-in mesh for a piece (held, settling, shrinking away). Pass [face, groove] materials for real wood. */
 export function ghostMesh(type: PieceTypeId, flipped: boolean, material: Material | Material[], levels = 0, floors: readonly number[] | null = null): Mesh {

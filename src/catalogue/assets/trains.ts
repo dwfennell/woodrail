@@ -1,4 +1,4 @@
-import { Group, Shape, type Material, type Object3D } from "three";
+import { Group, Path, Shape, type Material, type Object3D } from "three";
 import { TOY, type Kit } from "../kit";
 import type { Asset } from "../types";
 
@@ -10,7 +10,7 @@ import type { Asset } from "../types";
 /** Top of the chassis slab: where bodies and loads sit. */
 const DECK = 19;
 /** Windows look printed on: a pale sky-blue pane, as on the game's own cars. */
-const PANE = "#a9cfe6";
+const PANE = "#415f68";
 /** A lit lamp, and the same lamp dark. */
 const LIT = "#fff3a6";
 /** Radius of the white dot on each wheel (and the crank pin the connecting rods ride on). */
@@ -60,6 +60,7 @@ function hoop(k: Kit, mat: Material, r: number, tube: number, x: number, y: numb
 function puffs(k: Kit, x: number, y: number, z = 0): Group {
   const g = k.many(3, (i) => k.ball(k.paint(TOY.white), 3, -i * 3, i * 7, 0));
   g.name = "puffs";
+  g.visible = false;
   g.position.set(x, y, z);
   return g;
 }
@@ -77,6 +78,18 @@ function windows(k: Kit, len: number, n: number, h: number, y: number, x = 0, ga
   const pw = len / n;
   for (let i = 0; i < n; i++) for (const z of [-16.3, 16.3]) g.add(k.box(k.paint(color), pw - gap, h, 0.8, 0.3, x - len / 2 + pw * (i + 0.5), y, z));
   return g;
+}
+
+/** A bowed wooden roof, cut from one blank across the width of the car. */
+function coachRoof(k: Kit, mat: Material, length: number, width: number, x: number, y: number): Object3D {
+  const half = width / 2;
+  const roof = new Shape();
+  roof.moveTo(-half, 0);
+  roof.lineTo(half, 0);
+  roof.lineTo(half, 1.6);
+  roof.quadraticCurveTo(0, 7, -half, 1.6);
+  roof.closePath();
+  return k.extrude(mat, roof, length, x, y, 0, 0.55).rotateY(Math.PI / 2);
 }
 
 interface Steam {
@@ -110,19 +123,51 @@ function steam(
   bg.rotation.z = o.tilt ?? 0;
   g.add(bg);
   bg.add(k.cylX(body, r, bLen, bLen / 2, 0, 0));
-  bg.add(k.cylX(k.metal, r * 0.9, 2.5, bLen + 1, 0, 0));
-  bg.add(k.ball(trim, 1.6, bLen + 2.6, 0, 0));
+  const brass = k.paint("#c59653");
+  bg.add(k.cylX(k.paint("#343438"), r + 0.25, 7, bLen - 2, 0, 0, 36));
+  bg.add(k.cylX(brass, r * 0.77, 1.8, bLen + 1.8, 0, 0));
+  bg.add(k.cylX(k.paint("#343438"), r * 0.64, 2, bLen + 2.5, 0, 0));
+  bg.add(k.cylX(brass, 1.6, 2, bLen + 3.7, 0, 0));
   for (const f of [0.3, 0.7]) bg.add(hoop(k, trim, r + 0.2, 1, bLen * f, 0));
   const chimX = bLen - 7;
-  bg.add(k.lathe(o.chimney ? k.paint(o.chimney) : k.metal, [[3.6, 0], [3.6, 9], [5.4, 12.5], [5.4, 14.5], [0, 14.5]], chimX, r - 2, 0, 20));
+  bg.add(k.lathe(o.chimney ? k.paint(o.chimney) : k.metal, [[6, 0], [6, 2.6], [3.8, 4.6], [3.8, 9], [5.6, 11.2], [5.6, 14], [3.6, 14], [3.4, 11.5], [0, 11.5]], chimX, r - 2, 0, 20));
   if (o.dome !== false) bg.add(k.ball(trim, 4.5, bLen * 0.42, r - 0.5, 0));
   if (o.tanks === "side") for (const s of [-1, 1]) bg.add(k.box(body, bLen * 0.68, r * 1.25, 7, 1.5, bLen * 0.38, -r, s * 12.5));
-  if (o.tanks === "saddle") bg.add(k.cylX(body, r + 3, bLen * 0.6, bLen * 0.4, 2.5, 0));
-  // Cab: windows printed on each side, two round spectacle windows looking forward over the boiler.
-  g.add(k.box(body, cabLen, 30, 32, 2.5, cabX, DECK, 0));
-  g.add(windows(k, cabLen, 1, 9, DECK + 16, cabX, cabLen * 0.4));
-  for (const z of [-9, 9]) g.add(k.cylX(k.paint(PANE), 3, 0.8, bBack + 0.3, DECK + 25, z, 16));
-  g.add(k.box(trim, cabLen + 5, 3.5, 36, 1.6, cabX, DECK + 30, 0));
+  if (o.tanks === "saddle") {
+    // A single broad, arch-topped casting sits across the narrow boiler.
+    const tank = new Shape();
+    tank.moveTo(-15, -6);
+    tank.lineTo(15, -6);
+    tank.lineTo(15, 5);
+    tank.bezierCurveTo(15, 20, -15, 20, -15, 5);
+    tank.closePath();
+    bg.add(k.extrude(body, tank, bLen * 0.64, bLen * 0.36, 0, 0, 0.9).rotateY(Math.PI / 2));
+    bg.add(k.lathe(brass, [[0, 0], [5, 0], [5, 2], [4, 3.5], [0, 3.5]], bLen * 0.34, 16, 0, 20));
+    for (const z of [-15.7, 15.7]) {
+      bg.add(k.box(brass, bLen * 0.48, 3, 0.8, 0.3, bLen * 0.36, -2.5, z));
+    }
+  }
+  // A routed opening through the cab leaves a thick sill, rounded corners and visible inner walls.
+  const half = cabLen / 2;
+  const cab = new Shape();
+  cab.moveTo(-half, 0);
+  cab.lineTo(half, 0);
+  cab.lineTo(half, 30);
+  cab.lineTo(-half, 30);
+  cab.closePath();
+  const opening = new Path();
+  const edge = half - 4;
+  opening.moveTo(-edge, 15);
+  opening.lineTo(-edge, 24);
+  opening.quadraticCurveTo(-edge, 28, -edge + 4, 28);
+  opening.lineTo(edge - 4, 28);
+  opening.quadraticCurveTo(edge, 28, edge, 24);
+  opening.lineTo(edge, 15);
+  opening.closePath();
+  cab.holes.push(opening);
+  g.add(k.extrude(body, cab, 32, cabX, DECK, 0, 0.7));
+  for (const z of [-9, 9]) g.add(k.cylX(brass, 3.4, 1.2, bBack + 0.8, DECK + 25, z, 16));
+  g.add(coachRoof(k, trim, cabLen + 5, 36, cabX, DECK + 30));
   // Buffer beam and buffers.
   g.add(k.box(trim, 4, 8, 32, 1.2, L / 2 - 4, 10.5, 0));
   for (const z of [-10, 10]) g.add(k.cylX(k.metal, 2.2, 3, L / 2 - 0.5, 14.5, z, 12));
@@ -143,18 +188,21 @@ function tanker(k: Kit, L: number, color: string, band: string): { g: Group; y: 
     cap.scale.x = 0.45;
     g.add(cap);
   }
-  for (const x of [-len / 3, len / 3]) g.add(hoop(k, k.paint(band), r + 0.2, 1, x, y));
+  for (const x of [-len / 3, len / 3]) g.add(k.cylX(k.paint(band), r + 0.65, 3.8, x, y, 0, 32));
   g.add(k.cyl(k.paint(band), 4.5, 4, 0, y + r - 1, 0, 4.5, 20));
   g.add(k.cyl(k.paint(band), 5.2, 1.4, 0, y + r + 3, 0, 5.2, 20));
   return { g, y, len };
 }
 
 /** A coal tender: a box body with a heaped load. */
-function tender(k: Kit, L: number, color: string, trim: string): Group {
+function tender(k: Kit, L: number, color: string, trim: string, fillerDeck = 0): Group {
   const g = base(k, L, { inset: 14 });
   g.add(k.box(k.paint(color), L - 6, 18, 32, 2.5, 0, DECK, 0));
   g.add(k.box(k.paint(trim), L - 4, 2.5, 33, 1, 0, DECK + 16, 0));
-  coalHeap(k, g, L - 14, 26, DECK + 15);
+  const load = new Group();
+  coalHeap(k, load, L - 14 - fillerDeck, 26, DECK + 19);
+  load.position.x = fillerDeck / 2;
+  g.add(load);
   return g;
 }
 
@@ -213,6 +261,7 @@ function roll(root: Object3D, t: number, speed = 3): void {
 /** Smoke rising from every "puffs" group. */
 function smoke(root: Object3D, t: number): void {
   for (const p of parts(root, "puffs")) {
+    p.visible = true;
     const n = p.children.length;
     for (let i = 0; i < n; i++) {
       const f = (t * 0.7 + i / n) % 1;
@@ -275,18 +324,33 @@ const engines: Asset[] = [
       const L = 66;
       const g = base(k, L);
       const orange = k.paint(TOY.orange);
-      g.add(k.box(orange, 34, 18, 26, 3, 12, DECK, 0));
-      for (let i = 0; i < 4; i++) for (const z of [-13.2, 13.2]) g.add(k.box(k.cut, 2, 10, 0.6, 0.3, 3 + i * 6, DECK + 4, z));
-      g.add(k.box(orange, 22, 30, 32, 2.5, -19, DECK, 0));
-      g.add(windows(k, 22, 1, 9, DECK + 17, -19, 8));
-      g.add(k.box(k.paint(PANE), 0.8, 8, 22, 0.3, -7.8, DECK + 20, 0));
-      g.add(k.box(k.paint(TOY.black), 26, 3, 36, 1.4, -19, DECK + 30, 0));
-      g.add(k.cyl(k.metal, 2, 6, 22, DECK + 17, 0, 2, 12));
+      // The narrow bonnet leaves a beech running board on either side.
+      const hood = new Shape();
+      hood.moveTo(-7, 0);
+      hood.lineTo(29, 0);
+      hood.lineTo(29, 12);
+      hood.quadraticCurveTo(29, 15, 25, 16);
+      hood.lineTo(8, 21);
+      hood.lineTo(-7, 21);
+      hood.closePath();
+      g.add(k.extrude(orange, hood, 20, 0, DECK + 0.8, 0, 0.8));
+      for (const z of [-10, 10]) {
+        g.add(k.box(k.paint("#533d32"), 19, 7, 1, 0.4, 9, DECK + 6, z));
+        for (const x of [2, 7, 12, 17]) g.add(k.box(orange, 2, 6, 1.5, 0.4, x, DECK + 6.5, z));
+      }
+      g.add(k.box(orange, 23, 11, 31, 1.5, -18, DECK, 0));
+      for (const x of [-28, -8]) for (const z of [-13, 13])
+        g.add(k.box(orange, 3.5, 20, 3.5, 0.7, x, DECK + 10, z));
+      g.add(k.peg(TOY.blue, TOY.black, -18, DECK + 11, 2));
+      g.add(coachRoof(k, k.paint(TOY.black), 29, 36, -18, DECK + 30));
+      g.add(k.box(k.paint("#39393b"), 1.2, 9, 15, 0.5, 30, DECK + 3));
+      for (const z of [-5, 0, 5]) g.add(k.box(k.mats.nickel, 1.4, 7, 1, 0, 30.5, DECK + 4, z));
+      g.add(k.lathe(k.metal, [[3, 0], [3, 2], [2, 3], [2, 9], [3, 10], [3, 11], [0, 11]], 4, DECK + 21, 0, 16));
       // Hazard-striped buffer beams.
       for (const x of [L / 2 - 2, -L / 2 + 2])
         for (let i = 0; i < 5; i++) g.add(k.box(k.paint(i % 2 ? TOY.black : TOY.yellow), 4, 8, 6.4, 0.4, x, 10.5, -12.8 + i * 6.4));
       g.add(lamp(k, "beacon", "#ffb347", 2.7, -19, DECK + 35.5, 0));
-      g.add(k.ball(k.paint(LIT), 2, L / 2 - 4, DECK + 8, 0));
+      g.add(k.ball(k.paint(LIT), 2, L / 2 - 3, DECK + 13, 0));
       return g;
     },
     animate: (root, t) => {
@@ -312,10 +376,20 @@ const engines: Asset[] = [
       nose.quadraticCurveTo(30, 22, 0, 28);
       nose.lineTo(0, 0);
       g.add(k.extrude(white, nose, 31, 18, DECK, 0, 1));
-      const screen = k.box(k.paint(TOY.black), 15, 1, 24, 0.4, 0, 0, 0);
-      screen.position.set(18 + 20.2, DECK + 21.8, 0);
-      screen.rotation.z = -0.47;
-      g.add(screen);
+      // Follow the actual nose curve so the windscreen stays above its bevel across the whole pane.
+      const pane = new Shape();
+      const noseTop = (t: number) => [36 - 12 * t - 24 * t * t, 5 + 34 * t - 11 * t * t];
+      for (let i = 0; i <= 6; i++) {
+        const [x, y] = noseTop(0.44 + i * 0.05);
+        if (i === 0) pane.moveTo(x, y + 1.4);
+        else pane.lineTo(x, y + 1.4);
+      }
+      for (let i = 6; i >= 0; i--) {
+        const [x, y] = noseTop(0.44 + i * 0.05);
+        pane.lineTo(x, y);
+      }
+      pane.closePath();
+      g.add(k.extrude(k.paint(PANE), pane, 23, 18, DECK, 0, 0));
       g.add(k.box(k.paint(TOY.red), 104, 3, 32.4, 0.6, 0, DECK + 7, 0));
       g.add(k.ball(k.paint(LIT), 1.8, 53, DECK + 3.5, 0));
       g.add(windows(k, 60, 6, 6, DECK + 15, -20, 4));
@@ -342,16 +416,18 @@ const engines: Asset[] = [
         for (const z of [-14, 14]) g.add(k.cyl(k.metal, 0.9, 30, s * 35, DECK, z, 0.9, 10));
         g.add(k.ball(k.paint(LIT), 2, s * 36.6, DECK + 9, 0));
       }
-      g.add(k.box(green, 76, 3.5, 34, 1.6, 0, DECK + 30, 0));
+      g.add(coachRoof(k, green, 76, 34, 0, DECK + 30));
+      g.add(k.box(k.wood, 45, 3, 14, 1.4, 0, DECK + 33));
+      g.add(coachRoof(k, green, 49, 17, 0, DECK + 35));
       g.add(k.box(k.paint(TOY.black), 3, 6, 22, 0.6, 33, DECK + 33.5, 0));
       g.add(k.box(k.paint(TOY.yellow), 0.6, 4, 18, 0.2, 34.6, DECK + 34.5, 0));
       g.add(k.peg(TOY.blue, TOY.black, 29, DECK, 6));
       const pole = new Group();
       pole.name = "pole";
-      pole.position.set(-8, DECK + 34, 0);
+      pole.position.set(-8, DECK + 40, 0);
       pole.rotation.z = 1.1;
       pole.add(k.cyl(k.metal, 0.8, 40, 0, 0, 0, 0.8, 10), k.cylZ(k.paint(TOY.black), 2, 2.5, 0, 40, 0, 12));
-      g.add(k.cyl(k.paint(TOY.black), 3, 3, -8, DECK + 33, 0, 3, 14), pole);
+      g.add(k.cyl(k.paint(TOY.black), 3, 3, -8, DECK + 38, 0, 3, 14), pole);
       return g;
     },
     animate: (root, t) => {
@@ -377,7 +453,8 @@ const engines: Asset[] = [
       g.add(k.cyl(k.paint(TOY.black), 6.5, 32, 32, DECK, 0, 6.5, 20));
       g.add(hoop(k, k.paint(TOY.yellow), 6.7, 0.8, 32, DECK + 12));
       g.add(k.cyl(k.metal, 2.6, 8, 32, DECK + 32, 0, 3, 14));
-      g.add(k.box(k.paint(TOY.cream), 92, 3.5, 36, 1.6, 0, DECK + 30, 0));
+      g.add(coachRoof(k, k.paint(TOY.cream), 92, 36, 0, DECK + 30));
+      for (const x of [-29, -7, 15]) g.add(k.lathe(k.paint("#775743"), [[2.7, 0], [2.7, 2], [3.3, 2.2], [2.6, 3], [0, 3]], x, DECK + 34, 0, 16));
       g.add(k.peg(TOY.blue, TOY.black, 24, DECK, 9));
       g.add(puffs(k, 32, DECK + 42));
       return g;
@@ -393,13 +470,25 @@ const engines: Asset[] = [
     build: (k) => {
       const L = 70;
       const g = base(k, L, { inset: 16 });
-      g.add(k.box(k.paint(TOY.yellow), 60, 24, 30, 7, 0, DECK, 0));
-      g.add(k.box(k.paint(PANE), 0.8, 8, 20, 0.3, 30, DECK + 13, 0));
-      g.add(windows(k, 24, 1, 8, DECK + 13, 18, 8));
-      g.add(k.box(k.paint(TOY.grey), 26, 1.4, 18, 0.5, -10, DECK + 23.5, 0));
-      g.add(k.box(k.paint(TOY.red), 8, 0.8, 2, 0.2, -10, DECK + 24.9, 0), k.box(k.paint(TOY.red), 2, 0.8, 8, 0.2, -10, DECK + 24.9, 0));
-      g.add(k.cyl(k.paint(TOY.cream), 6, 3, 14, DECK + 23, 0, 6, 24));
-      const button = k.cyl(k.paint(TOY.red), 4.5, 3, 14, DECK + 26, 0, 4.2, 24);
+      // A low motor housing and a separate raised button console fit into a dark sill.
+      g.add(k.box(k.paint("#38454a"), 62, 5, 30, 1.8, 0, DECK, 0));
+      const motor = new Shape();
+      motor.moveTo(-29, 0);
+      motor.lineTo(4, 0);
+      motor.lineTo(4, 14);
+      motor.lineTo(-20, 14);
+      motor.quadraticCurveTo(-29, 14, -29, 6);
+      motor.closePath();
+      const yellow = k.paint(TOY.yellow);
+      g.add(k.extrude(yellow, motor, 26, 0, DECK + 5, 0, 1.3));
+      for (const z of [-13.2, 13.2]) {
+        g.add(k.extrude(k.paint("#403b35"), [[0, 0], [7, 5], [3, 5], [9, 10], [0, 5], [4, 5]], 0.7, -17, DECK + 7, z, 0));
+      }
+      g.add(k.box(yellow, 25, 23, 30, 3.5, 17, DECK + 5, 0));
+      g.add(k.box(k.paint(PANE), 0.8, 7, 20, 0.3, 29.5, DECK + 17, 0));
+      g.add(k.box(k.paint(PANE), 16, 7, 30.4, 0.6, 17, DECK + 17));
+      g.add(k.lathe(k.paint(TOY.cream), [[0, 0], [10, 0], [10, 2], [8.8, 3], [0, 3]], 17, DECK + 28, 0, 28));
+      const button = k.lathe(k.paint(TOY.red), [[7.7, 0], [7.7, 3], [7, 5], [5, 5.8], [0, 5.8]], 17, DECK + 30.5, 0, 28);
       button.name = "button";
       button.userData.y0 = button.position.y;
       g.add(button);
@@ -458,7 +547,8 @@ const engines: Asset[] = [
       for (const x of [-16, 12]) g.add(hoop(k, k.paint(TOY.white), 11.2, 1, x, DECK + 11));
       for (const x of [-18, 14]) g.add(k.box(k.paint(TOY.grey), 3, 25, 4, 0.6, x, DECK, 0));
       g.add(k.cylZ(k.wood, 7, 28, -38, DECK + 8, 0));
-      g.add(k.cylZ(k.paint(TOY.yellow), 7.6, 24, -38, DECK + 8, 0));
+      for (const z of [-12, 12]) g.add(k.cylZ(k.paint(TOY.yellow), 8.4, 2.5, -38, DECK + 8, z));
+      for (const z of [-8, -4, 0, 4, 8]) g.add(k.cylZ(k.paint("#424046"), 7.5, 3.4, -38, DECK + 8, z, 20));
       g.add(k.cyl(k.paint(TOY.yellow), 2.5, 3, 46.5, DECK + 10, 0, 2.5, 14));
       for (const [i, z] of [[0, -6], [1, 6]] as const) {
         g.add(lamp(k, i ? "lamp-b" : "lamp-a", "#5aa9ff", 2.6, 38, DECK + 30.5, z));
@@ -563,7 +653,7 @@ const wagons: Asset[] = [
       for (const x of [-34.5, 34.5]) g.add(k.box(green, 3, 14, 32, 1, x, DECK, 0));
       for (const z of [-15, 15]) for (const x of [-18, 0, 18]) g.add(k.box(k.paint(TOY.cream), 1.4, 12, 0.6, 0.2, x, DECK + 1, z + Math.sign(z) * 1.8));
       for (const [i, x] of [-22, -8, 7, 21].entries()) {
-        const sack = k.group(k.capsule(k.paint(TOY.cream), 4.5, 4, 0, 0, 0), k.ring(k.paint(TOY.brown), 2.6, 0.6, 0, 11.5, 0));
+        const sack = k.group(k.lathe(k.paint("#e6c99a"), [[0, 0], [4.8, 0.4], [6, 3], [6.2, 7], [4.8, 10], [2, 12], [2.8, 14], [0, 14.3]], 0, 0, 0, 18), k.ring(k.paint(TOY.brown), 2.1, 0.6, 0, 12, 0));
         sack.position.set(x, DECK + 2, i % 2 ? 5 : -5);
         sack.rotation.z = i % 2 ? 0.2 : -0.15;
         g.add(sack);
@@ -579,10 +669,12 @@ const wagons: Asset[] = [
     tags: ["tender", "coal", "water", "fuel", "steam"],
     notes: "A tender heaped with coal and with a water filler at the back. Coupled behind a steam engine it stretches how far the engine runs between coal stages.",
     build: (k) => {
-      const g = tender(k, 64, TOY.green, TOY.red);
+      const g = tender(k, 64, TOY.green, TOY.red, 16);
       g.add(k.cyl(k.paint(TOY.black), 4, 3, -24, DECK + 18, 0, 4, 16));
       g.add(k.cyl(k.paint(TOY.red), 4.6, 1.2, -24, DECK + 21, 0, 4.6, 16));
-      g.add(k.box(k.paint(TOY.cream), 1, 5, 6, 0.3, 0, DECK + 6, 16.3));
+      for (const z of [-16, 16]) {
+        g.add(k.box(k.paint(TOY.cream), 32, 1.8, 1, 0.3, 3, DECK + 11, z));
+      }
       return g;
     },
     animate: (root, t) => roll(root, t),
@@ -595,11 +687,11 @@ const wagons: Asset[] = [
     notes: "A sky-blue water tank with a dripping tap at one end. Brings water to a dry farm or refills a water tower far from any river.",
     build: (k) => {
       const { g, y, len } = tanker(k, 80, TOY.sky, TOY.blue);
-      const x = -len / 2 - 4;
-      g.add(k.cylX(k.metal, 1.4, 6, x, y - 6, 0, 10));
-      g.add(k.cyl(k.metal, 1.2, 3, x - 3, y - 9, 0, 1.2, 10));
-      g.add(k.cyl(k.paint(TOY.red), 2.2, 1, x - 3, y - 3.5, 0, 2.2, 12));
-      const drip = k.ball(k.water, 1, x - 3, y - 10.5, 0, 1.3);
+      const x = len / 2 + 4;
+      g.add(k.cylX(k.mats.nickel, 2.2, 6, x, y - 6, 0, 16));
+      g.add(k.cyl(k.mats.nickel, 1.7, 7, x + 3, y - 10, 0, 1.7, 16));
+      g.add(k.box(k.paint(TOY.red), 3, 2, 10, 0.8, x + 3, y - 3.5));
+      const drip = k.ball(k.water, 1, x + 3, y - 11.5, 0, 1.3);
       drip.name = "drip";
       drip.userData.y0 = drip.position.y;
       g.add(drip);
@@ -627,6 +719,11 @@ const wagons: Asset[] = [
       const deck = DECK + 2;
       g.add(k.box(k.wood, 22, 18, 22, 1, -24, deck, 0));
       g.add(k.box(k.cut, 2, 18.6, 22.6, 0.3, -24, deck - 0.3, 0), k.box(k.cut, 22.6, 2, 22.6, 0.3, -24, deck + 8, 0));
+      for (const z of [-11, 11]) {
+        const brace = k.box(k.cut, 23, 2.4, 1.5, 0.3, -24, deck + 8, z);
+        brace.rotation.z = 0.58;
+        g.add(brace);
+      }
       g.add(k.box(k.paint(TOY.red), 16, 14, 18, 1, 2, deck, 0));
       g.add(k.box(k.paint(TOY.yellow), 10, 9, 10, 1, 2, deck + 14, 1));
       g.add(k.box(k.cut, 16.6, 1.6, 18.6, 0.3, 2, deck + 6, 0));
@@ -647,11 +744,11 @@ const wagons: Asset[] = [
       const L = 84;
       const g = base(k, L);
       const brown = k.paint(TOY.brown);
-      g.add(k.box(k.cut, L - 12, 30, 26, 1, 0, DECK, 0));
+      g.add(k.box(k.wood, L - 12, 3, 28, 1, 0, DECK, 0));
       for (const x of [-38.5, 38.5]) g.add(k.box(brown, 3, 30, 32, 1, x, DECK, 0));
       for (let i = 0; i < 4; i++) for (const z of [-14.8, 14.8]) g.add(k.box(brown, L - 10, 4, 2.4, 0.8, 0, DECK + 1 + i * 6, z));
       for (const x of [-20, 0, 20]) for (const z of [-15.4, 15.4]) g.add(k.box(brown, 3, 30, 2, 0.6, x, DECK, z));
-      g.add(k.box(k.paint(TOY.white), L - 4, 3.5, 36, 1.6, 0, DECK + 30, 0));
+      g.add(coachRoof(k, k.paint(TOY.white), L - 4, 36, 0, DECK + 30));
       const hy = DECK + 26.5;
       const heads: Group[] = [];
       // Sheep: woolly head, black face.
@@ -670,6 +767,13 @@ const wagons: Asset[] = [
       // Pig: pink head and snout.
       const pig = k.group(k.ball(k.paint(TOY.pink), 3.4, 0, 0, 0), k.cylZ(k.paint(TOY.pink), 1.6, 2, 0, -0.6, 3.4, 12), k.cone(k.paint(TOY.pink), 1.1, 2.2, -2.2, 2.2, 0), k.cone(k.paint(TOY.pink), 1.1, 2.2, 2.2, 2.2, 0));
       heads.push(k.at(pig, 24, hy, 16.5));
+      // The stock stand inside the slatted van, with their shoulders just below the opening.
+      for (const [i, head] of heads.entries()) {
+        const hide = k.paint([TOY.white, TOY.white, TOY.pink][i]);
+        const body = k.ball(hide, 6, head.position.x, DECK + 17, Math.sign(head.position.z) * 8);
+        body.scale.set(0.94, 1.2, 1.35);
+        g.add(body);
+      }
       for (const h of heads) {
         h.name = "head";
         h.userData.y0 = h.position.y;
@@ -710,12 +814,18 @@ const wagons: Asset[] = [
       arm.position.set(-21, 25 + 6.6, 0);
       arm.rotation.z = -0.3;
       turret.add(arm);
+      turret.add(k.cylZ(k.paint(TOY.red), 4.3, 7, -42, 38, 0, 18));
+      turret.add(k.cylZ(k.mats.nickel, 1.7, 8.5, -42, 38, 0, 12));
       const hang = new Group();
       hang.position.set(-44, 25 + 13.2, 0);
       const rope = k.cyl(k.paint(TOY.black), 0.5, 1, 0, -1, 0, 0.5, 6);
       rope.name = "rope";
       const disc = k.group(k.cyl(k.metal, 6, 3, 0, -3, 0, 6, 24), k.cyl(k.paint(TOY.red), 2, 2, 0, 0, 0, 2, 12), k.box(k.paint(TOY.grey), 8, 2.5, 5, 0.5, 0, -5.5, 0));
       disc.name = "magdisc";
+      rope.geometry.translate(0, -0.5, 0);
+      rope.position.y = 0;
+      rope.scale.y = 14;
+      disc.position.y = -14;
       hang.add(rope, disc);
       turret.add(hang);
       g.add(turret);
@@ -745,8 +855,13 @@ const wagons: Asset[] = [
       const body = k.extrude(k.paint(TOY.yellow), [[-14, 0], [14, 0], [17, 16], [-17, 16]], 70, 0, 0, 15, 1);
       body.rotation.y = Math.PI / 2;
       skip.add(body);
-      skip.add(k.box(k.paint(TOY.orange), 72, 2, 35, 0.8, 0, 15.5, 15));
-      for (let i = 0; i < 10; i++) skip.add(k.ball(k.paint(TOY.grey), 4, -27 + i * 6, 17.5, 15 + ((i * 5) % 7) - 3, 0.6));
+      for (const z of [-2, 32]) skip.add(k.box(k.paint(TOY.orange), 72, 2.6, 2.5, 0.5, 0, 15.5, z));
+      skip.add(k.box(k.paint("#807970"), 66, 2, 31, 0.7, 0, 15.8, 15));
+      for (let i = 0; i < 12; i++) {
+        const rock = k.box(k.paint(i % 3 === 0 ? "#a79d8c" : "#938b80"), 9, 4, 7, 1.3,
+          -26 + Math.floor(i / 2) * 10, 16.5, 15 + (i % 2 ? 6 : -5));
+        skip.add(rock.rotateY(Math.sin(i) * 0.6));
+      }
       skip.add(k.cylX(k.metal, 1.5, 70, 0, 0, 0, 10));
       g.add(skip);
       return g;
@@ -773,12 +888,13 @@ const wagons: Asset[] = [
       g.add(k.box(k.cut, 24, 20, 0.5, 0, 0, DECK, 8.1));
       for (const [x, y, z] of [[-6, 0, 12], [0, 0, 12], [6, 0, 12], [-3, 3, 12], [3, 3, 12], [0, 6, 12], [-6, 0, 6], [6, 0, 6]] as const)
         g.add(k.box(gold, 5.5, 3, 4, 0.6, x, DECK + y, z));
-      g.add(k.box(k.paint(TOY.black), 80, 3, 36, 1.5, 0, DECK + 26, 0));
+      g.add(coachRoof(k, k.paint(TOY.black), 80, 36, 0, DECK + 26));
       for (let i = 0; i < 6; i++) for (const y of [4, 22]) for (const z of [-16.2, 16.2]) if (Math.abs(-34 + i * 13.6) > 14) g.add(k.ball(gold, 1, -34 + i * 13.6, DECK + y, z));
       const door = new Group();
       door.name = "door";
       door.position.set(-12, DECK, 16.8);
       door.add(k.box(green, 24, 20, 1.5, 0.6, 12, 0, 0));
+      for (const y of [3, 15]) door.add(k.box(k.cut, 8, 2.6, 2, 0.5, 4, y, 0.8));
       door.add(k.cylZ(gold, 2.4, 1, 18, 10, 1, 16), k.box(k.paint(TOY.black), 1, 3, 0.6, 0.2, 18, 8.5, 1.6));
       for (const x of [3, 21]) for (const y of [3, 17]) door.add(k.ball(gold, 1, x, y, 0.8));
       g.add(door);
@@ -806,7 +922,7 @@ const wagons: Asset[] = [
       tilt.rotation.z = -Math.PI / 2 + 0.25;
       const drum = new Group();
       drum.name = "drum";
-      drum.add(k.lathe(k.paint(TOY.orange), [[0, 0], [8, 0], [13, 7], [13, 22], [7, 34], [5, 38], [0, 38]], 0, 0, 0, 28));
+      drum.add(k.lathe(k.paint(TOY.orange), [[0, 0], [8, 0], [13, 7], [13, 22], [7, 34], [6, 37], [6, 39], [4.4, 39], [4.1, 34], [0, 32]], 0, 0, 0, 28));
       for (let i = 0; i < 4; i++) {
         const a = (i / 4) * Math.PI * 2;
         const fin = k.box(k.paint(TOY.white), 2.5, 13, 2.5, 0.6, 13 * Math.cos(a), 8, 13 * Math.sin(a));
@@ -846,7 +962,8 @@ const wagons: Asset[] = [
       boat.add(k.box(k.paint(TOY.red), 50, 2.5, 24.5, 0.5, -1, 3, 0));
       boat.add(k.box(k.wood, 54, 1.5, 22, 0.5, 0, 14, 0));
       boat.add(k.box(k.paint(TOY.cream), 20, 10, 16, 2, -6, 15.5, 0));
-      boat.add(k.box(k.paint(PANE), 16, 4, 16.6, 0.5, -6, 20, 0));
+      for (const x of [-11, -2]) boat.add(k.box(k.paint(PANE), 6.5, 5.5, 16.6, 0.4, x, 19, 0));
+      boat.add(k.box(k.paint(PANE), 0.8, 5.5, 11, 0.3, 4, 19));
       boat.add(k.box(k.paint(TOY.blue), 23, 2, 18, 0.8, -6, 25.5, 0));
       boat.add(k.cyl(k.wood, 1, 22, 8, 15.5, 0, 0.8, 8));
       boat.add(k.extrude(k.paint(TOY.red), [[0, 0], [7, 2.5], [0, 5]], 0.6, 8.8, 32, 0, 0.1));
@@ -875,13 +992,19 @@ const wagons: Asset[] = [
       g.add(k.box(k.paint(TOY.black), 10, 6, 6, 1, 0, DECK + 2, 13));
       const chute = new Group();
       chute.name = "chute";
+      chute.rotation.x = -1.3;
       chute.position.set(0, DECK + 5, 16);
       chute.add(k.box(k.paint(TOY.yellow), 8, 1.4, 18, 0.4, 0, 0, 9));
       for (const x of [-4.2, 4.2]) chute.add(k.box(k.paint(TOY.yellow), 1, 3, 18, 0.3, x, 0, 9));
       const lumps = new Group();
       lumps.name = "lumps";
       for (let i = 0; i < 3; i++) lumps.add(k.ball(k.coal, 1.8, (i - 1) * 2, 2.6, i * 6));
+      lumps.visible = false;
       chute.add(lumps);
+      g.add(k.cylX(k.mats.nickel, 2.3, 13, 0, DECK + 5, 16, 16));
+      for (const z of [-16.2, 16.2]) {
+        for (const x of [-24, 0, 24]) g.add(k.box(teal, 2.8, 10, 1.8, 0.5, x, DECK + 21, z));
+      }
       g.add(chute);
       return g;
     },
@@ -909,7 +1032,10 @@ const wagons: Asset[] = [
       for (const z of [-15, 15]) g.add(k.box(blue, L - 8, 9, 2, 0.6, 0, DECK + 2, z));
       for (const x of [-44, 44]) g.add(k.box(blue, 2, 9, 32, 0.6, x, DECK + 2, 0));
       for (const x of [-44, -15, 15, 44]) for (const z of [-15, 15]) g.add(k.cyl(k.wood, 1.2, 28, x, DECK + 2, z, 1.2, 10));
-      for (let i = 0; i < 6; i++) g.add(k.box(k.paint(i % 2 ? TOY.white : TOY.red), 92 / 6, 3, 38, i === 0 || i === 5 ? 1.2 : 0, -46 + (92 / 6) * (i + 0.5), DECK + 30, 0));
+      for (let i = 0; i < 6; i++) {
+        const x = -46 + (92 / 6) * (i + 0.5);
+        g.add(coachRoof(k, k.paint(i % 2 ? TOY.white : TOY.red), 92 / 6, 38, x, DECK + 30));
+      }
       g.add(k.box(k.wood, 84, 5, 5, 0.8, 0, DECK + 2, 0));
       const pegs = new Group();
       pegs.name = "pegs";

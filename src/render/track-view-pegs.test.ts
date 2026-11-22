@@ -1,4 +1,4 @@
-import { InstancedMesh, Matrix4, MeshBasicMaterial, Vector3 } from "three";
+import { InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
 import type { Materials } from "./materials";
@@ -49,6 +49,34 @@ describe("TrackView pegs", () => {
     // c's peg end is free (at x 0); the two holes at x 144 share one peg; the second piece's peg end is free too.
     expect(pegsOf(holesView).filter((p) => p.x === 144)).toEqual([{ x: 144, z: 0, piece: c }]);
     expect(pegsOf(holesView)).toHaveLength(3);
+  });
+
+  it("like ends switch the actual socket to the receiving board and restore it when parted", async () => {
+    await (await import("./carver")).loadCarver();
+    for (const malePair of [true, false]) {
+      const layout = new Layout();
+      const a = layout.addPiece("straight-144", malePair ? P(0, 0) : P(144, 0, Math.PI));
+      layout.addPiece("straight-144", malePair ? P(288, 0, Math.PI) : P(144, 0));
+      const view = new TrackView(layout, mats);
+      view.sync();
+      const woodAt = (x: number) => {
+        const ray = new Raycaster(new Vector3(x, 100, 0), new Vector3(0, -1, 0));
+        return view.group.children.some(o => {
+          if (!(o instanceof InstancedMesh) || !Array.isArray(o.material)) return false;
+          const board = new Mesh(o.geometry, mats.track);
+          for (let i = 0; i < o.count; i++) {
+            o.getMatrixAt(i, board.matrixWorld);
+            if (ray.intersectObject(board).length) return true;
+          }
+          return false;
+        });
+      };
+      expect([woodAt(130), woodAt(158)]).toEqual([true, false]);
+      layout.partFrom(new Set([a]));
+      view.jointsChanged();
+      expect([woodAt(130), woodAt(158)]).toEqual([malePair, malePair]);
+      view.dispose();
+    }
   });
 
   it("an end whose neighbour is lifted shows as free, and the pegs move with their piece", () => {

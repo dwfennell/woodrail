@@ -361,9 +361,15 @@ class Kit:
         # A pivot named "slab" (exported as its own node, `<model>|slab|<n>`): a kit piece drawing the model over real
         # track leaves it out (src/render/props/library.ts, isSlab).
         g = Node("slab")
-        g.add(self.box(self.wood, length, 12, 40, 1.5))
+        # Same routed section as the TypeScript Kit and the concept track boards.
+        section = [(-19.3, 0), (19.3, 0), (20, 0.7), (20, 10.6), (18.6, 12)]
+        for c in (13, -13):
+            section.extend([(c + 3.4, 12), (c + 2.6, 9.7), (c + 1.9, 9.1),
+                            (c - 1.9, 9.1), (c - 2.6, 9.7), (c - 3.4, 12)])
+        section.extend([(-18.6, 12), (-20, 10.6), (-20, 0.7)])
+        g.add(self.at(self.extrude(self.wood, section, length, bevel=0), 0, 0, 0, math.pi / 2))
         for gz in (-13, 13):
-            g.add(self.box(self.cut, length - 0.2, 0.6, 6, 0, 0, 11.6, gz))
+            g.add(self.box(self.cut, length - 1, 0.55, 3.6, 0, 0, 8.85, gz))
         return self.at(g, x, y, z)
 
     def feltDisc(self, r, mat="felt"):

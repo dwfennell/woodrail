@@ -436,11 +436,18 @@ def semi_detached(k, door=True):
         g.add(winX(k, 14, 23, zc - s * 14, 8, 8), winX(k, 14, 23, zc + s * 6, 10, 8))
     if door:
         g.add(semi_detached_entrance(k))
-    # A hipped roof over each half, joined along the ridge.
-    for z in (-30, 30):
-        g.add(hip(k, k.paint(BRICK), 44, 14, -4, 34, z))
-    g.add(k.box(k.paint(BRICK), 30, 6, 60, 2, -4, 34, 0))
-    g.add(chimney(k, -4, 40, 0, 9))
+    # A single sawn roof along the pair, with a beech edge and paired chimney pots at the party wall.
+    g.add(k.box(k.wood, 42, 2.4, 111, 0.9, -4, 33.5, 0))
+    roof = k.roof(k.paint(BRICK), 112, 43, 14, t=3)
+    g.add(k.at(roof, -4, 35.5, 0, math.pi / 2))
+    # A front-facing dormer on each half makes the two homes legible from the board camera.
+    for z in (-28, 28):
+        g.add(k.box(k.paint(TOY.cream), 11, 7.5, 13, 0.8, 6.5, 39, z))
+        g.add(winX(k, 12, 41, z, 6.5, 4))
+        g.add(k.roof(k.paint(BRICK), 14, 16, 5.8, 6.5, 46.2, z, 1.8))
+    g.add(k.box(k.paint(STONE), 7, 7.5, 10, 0.9, -4, 46, 0))
+    for z in (-2.5, 2.5):
+        g.add(k.lathe(k.paint(BRICK), [(1.8, 0), (1.7, 3), (2.1, 3.3), (2, 4.4), (0, 4.4)], -4, 53.2, z, 12))
     return g
 
 

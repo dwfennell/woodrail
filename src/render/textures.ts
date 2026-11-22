@@ -5,11 +5,11 @@ import { gpuOnlyEnabled } from "./gpu-only";
 export { rng };
 
 /** Tileable 2D value noise over a period (in lattice cells). */
-function makeNoise(seed: number, period: number): (x: number, y: number) => number {
+function makeNoise(seed: number, width: number, height = width): (x: number, y: number) => number {
   const r = rng(seed);
-  const table = new Float32Array(period * period);
+  const table = new Float32Array(width * height);
   for (let i = 0; i < table.length; i++) table[i] = r();
-  const at = (ix: number, iy: number) => table[(((iy % period) + period) % period) * period + (((ix % period) + period) % period)];
+  const at = (ix: number, iy: number) => table[(((iy % height) + height) % height) * width + (((ix % width) + width) % width)];
   return (x: number, y: number) => {
     const ix = Math.floor(x);
     const iy = Math.floor(y);
@@ -161,24 +161,24 @@ export function beechTextures(anisotropy: number): SurfaceTextures {
   const W = 1024;
   const H = 256;
   const c = canvases(W, H);
-  const n1 = makeNoise(11, 64);
-  const n2 = makeNoise(23, 128);
-  const n3 = makeNoise(37, 256);
-  const light = hex("#e9c896");
-  const dark = hex("#c08c55");
-  const fleck = hex("#a8743f");
-  fill(c, W, H, `beech-${W}x${H}`, (x, y) => {
+  // Each lattice spans exactly one tile. Slow colour changes read at play zoom;
+  // the short ray flecks and shallow pores show up when a piece is held close.
+  const figure = makeNoise(11, 3, 7);
+  const fibres = makeNoise(23, 12, 96);
+  const rays = makeNoise(37, 80, 128);
+  const light = hex("#eed4ac");
+  const honey = hex("#c99a6c");
+  const fleck = hex("#a87850");
+  fill(c, W, H, `beech-satin-${W}x${H}`, (x, y) => {
     const u = x / W;
     const v = y / H;
-    const warp = fbm(n1, u * 8, v * 4, 4) * 3.2;
-    const g = v * 22 + warp + fbm(n2, u * 3, v * 2, 3) * 1.5;
-    const ring = Math.abs(Math.sin(g * Math.PI));
-    const band = Math.pow(ring, 6);
-    const pores = Math.pow(n3(u * 256, v * 24), 6);
-    const flecks = Math.pow(clamp01(n2(u * 64, v * 128) * 1.6 - 0.6), 3);
-    let col = mix(light, dark, band * 0.55 + fbm(n1, u * 2, v * 2, 2) * 0.25);
-    col = mix(col, fleck, flecks * 0.5 + pores * 0.25);
-    return [col, 0.5 + band * 0.12 + pores * 0.2, 0.55 - band * 0.18 - pores * 0.3];
+    const sweep = figure(u * 3, v * 7);
+    const across = v + 0.022 * sweep;
+    const fibre = fibres(u * 12, across * 96);
+    const latewood = Math.pow(0.5 + 0.5 * Math.cos(2 * Math.PI * (across * 17 + sweep)), 5);
+    const pore = Math.pow(rays(u * 80, across * 128), 8);
+    const base = mix(light, honey, 0.34 * sweep + 0.24 * fibre + 0.26 * latewood);
+    return [mix(base, fleck, 0.65 * pore), 0.54 + 0.12 * fibre + 0.16 * pore, 0.54 - 0.11 * fibre - 0.22 * pore];
   });
   return toTextures(c, 1 / 512, 1 / 128, anisotropy);
 }

@@ -1,6 +1,7 @@
-import { Box3, Color, Group, MeshStandardMaterial, type Mesh, type Object3D } from "three";
+import { Box3, Color, Group, MeshStandardMaterial, Vector3, type Mesh, type Object3D } from "three";
 import { describe, expect, it } from "vitest";
-import { CAR_SPECS } from "../sim";
+import { CAR_SPECS, COUPLER_GAP } from "../sim";
+import { loadBlenderModels } from "./blender-models";
 import type { Materials } from "./materials";
 import { CRANE_HOOK, CRANE_ROPE, CRANE_TURRET } from "../catalogue/assets/breakdown-crane";
 import { AXLE_HEIGHT, buildCarModel, disposeObject, WHEEL_RADIUS } from "./train-models";
@@ -50,6 +51,37 @@ describe("the Kit-built cars", () => {
     };
     return new Proxy({ lacquer } as unknown as Materials, { get: (t, k) => (k in t ? t[k as keyof Materials] : m(String(k))) });
   }
+
+  it("the Kit tanker and Blender coach run at the same rail height and their magnet faces meet", async () => {
+    await loadBlenderModels();
+    const mats = stableMaterials();
+    const point = new Vector3();
+    for (const kind of ["passenger", "oiltank"] as const) {
+      const model = buildCarModel(kind, mats);
+      model.root.updateMatrixWorld(true);
+      for (const wheel of model.wheels) {
+        expect(new Box3().setFromObject(wheel, true).min.y).toBeCloseTo(AXLE_HEIGHT - WHEEL_RADIUS, 1);
+      }
+      for (const end of [-1, 1]) {
+        const face = new Box3();
+        const contactX = end * (CAR_SPECS[kind].length + COUPLER_GAP) / 2;
+        model.root.traverse((o) => {
+          const mesh = o as Mesh;
+          if (!mesh.isMesh || mesh.material !== mats.nickel) return;
+          const pos = mesh.geometry.getAttribute("position");
+          for (let i = 0; i < pos.count; i++) {
+            point.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+            if (Math.abs(point.x - contactX) < 0.02) face.expandByPoint(point);
+          }
+        });
+        expect(face.isEmpty()).toBe(false);
+        expect(face.getCenter(point).y).toBeCloseTo(19, 1);
+        expect(point.z).toBeCloseTo(0, 1);
+        expect(face.getSize(point).y).toBeGreaterThan(8);
+      }
+      disposeObject(model.root);
+    }
+  });
 
   it("are merged by material: a few meshes each, their wheels turning by axle, the copies sharing one geometry", () => {
     const mats = stableMaterials();
