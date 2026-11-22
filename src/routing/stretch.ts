@@ -256,9 +256,9 @@ function plainBlock(layout: Layout, ref: number): Int32Array | null {
 }
 
 /** A loop's other road costing up to this much more (mm) than the booked one is one it may take (the router's). */
-export const ROAD_SLACK = 2000;
+export const ROAD_SLACK = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ROAD_SLACK_MM ?? 2000);
 /** The most pieces a loop's other road runs before it joins the booked way again. */
-const ROAD_MAX = 24;
+const ROAD_MAX = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ROAD_MAX_N ?? 24);
 
 /** Train `s` along its booked way (`horizon`: its goal, stops ahead; `BOOKED`). */
 export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: ReadonlySet<number>): DTrain {
