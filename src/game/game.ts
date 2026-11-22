@@ -698,6 +698,8 @@ export class Game {
   }
 
   private aroundToken = 0;
+  /** The land around is being made ready, a slice at a time (`prepareAround`): its frames still to come, for `settled`. */
+  private aroundPreparing = false;
   /** How far preparing the land around has got, once every plot is ready: backdrop, felt (in steps), scenery. */
   private aroundStep = 0;
 
@@ -716,9 +718,11 @@ export class Game {
   private prepareAround(): void {
     const land = this.landscape;
     const token = ++this.aroundToken;
+    this.aroundPreparing = true;
     // One piece of work per slice: generate a plot, make its scenery, make the countryside beyond; then show them.
     const step = () => {
-      if (token !== this.aroundToken || land !== this.landscape) return;
+      if (token !== this.aroundToken) return;
+      if (land !== this.landscape) return void (this.aroundPreparing = false);
       const wanted = plotsAround(land);
       const next = wanted.find((p) => !hasLandForSale(land, p.px, p.pz));
       if (next) {
@@ -728,7 +732,7 @@ export class Game {
         return;
       }
       const around = this.aroundReady();
-      if (this.landscapeView.showsAround(around)) return;
+      if (this.landscapeView.showsAround(around)) return void (this.aroundPreparing = false);
       const unmade = around.find((a) => !this.landscapeView.aroundReady(a.px, a.pz));
       if (unmade) {
         this.landscapeView.prepareAround(unmade);
@@ -746,6 +750,7 @@ export class Game {
       }
       this.landscapeView.setAround(around);
       this.around = around;
+      this.aroundPreparing = false;
       this.syncRuins();
       this.invalidate();
     };
@@ -1133,8 +1138,9 @@ export class Game {
   /**
    * Resolves once the scene has been still (nothing drawn) for `ticks` ticks in a row, counted from now: for tests,
    * in place of waiting a fixed time for animations and camera moves to end. (Not while track pieces are still being
-   * carved: each lands with a frame. A slow load's carving outlasted five still ticks, and an idle check after it saw
-   * the frames.)
+   * carved, the land around is still being made ready, or models are still being fetched: each lands with a frame. A
+   * slow load's carving outlasted five still ticks, and an idle check after it saw the frames; so did a new game's land
+   * around and its props' models on a slow machine: e2e:saves' idle check saw 1 or 2.)
    */
   settled(ticks = 5): Promise<void> {
     return new Promise((done) => this.settling.push({ ticks, still: 0, done }));
@@ -1151,11 +1157,11 @@ export class Game {
   private settleWaiters(drew: boolean): void {
     const now = performance.now();
     if (drew) this.lastDrewAt = now;
-    // (A look at the carving only while someone waits: idle, nothing.)
-    const carving = this.settling.length > 0 && piecesWanted();
-    const quiet = !drew && !carving && now - this.lastDrewAt >= SETTLE_QUIET_MS;
+    // (Work still to land (carving, the land around, models): looked at only while someone waits: idle, nothing.)
+    const coming = this.settling.length > 0 && (piecesWanted() || this.aroundPreparing || this.propLibrary.loading > 0);
+    const quiet = !drew && !coming && now - this.lastDrewAt >= SETTLE_QUIET_MS;
     this.settling = this.settling.filter((w) => {
-      w.still = drew || carving ? 0 : w.still + 1;
+      w.still = drew || coming ? 0 : w.still + 1;
       if (w.still < w.ticks && !(quiet && w.still >= 1)) return true;
       w.done();
       return false;
