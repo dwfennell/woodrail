@@ -69,7 +69,7 @@ export function footprintCorners(fp: Footprint, pose: Pick<Pose, "x" | "z" | "he
 }
 
 /** Points covering the footprint, edges included (x, z pairs, world space). */
-function samples(fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">): number[] {
+export function footprintSamples(fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">): number[] {
   const c = Math.cos(pose.heading);
   const s = Math.sin(pose.heading);
   const nx = Math.max(1, Math.ceil((2 * fp.hw) / STEP));
@@ -167,7 +167,7 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
   const water = on === "water";
   const grid = ctx.land.grid;
   const hills = hillsOf(grid);
-  const pts = samples(fp, pose);
+  const pts = footprintSamples(fp, pose);
   let y = NaN;
   for (let i = 0; i < pts.length; i += 2) {
     const x = pts[i];

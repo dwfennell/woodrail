@@ -1,7 +1,8 @@
 import type { CargoKind } from "../economy/cargo";
 import { addInto, type Bag, kindsOf, total } from "../economy/goods";
-import type { Landscape, Town } from "../landscape";
-import { checkProp, TrackIndex, type Footprint } from "../props/placement";
+import { SURF_LANE, SURF_ROAD, type Landscape, type Town } from "../landscape";
+import { checkProp, footprintSamples, TrackIndex, type Footprint } from "../props/placement";
+import { footprintInYards, worldYards, type PlacedYard } from "./depot-footprint";
 import type { PropPose } from "../props/store";
 import { coinsShort } from "./research";
 import type { Progress } from "./progress";
@@ -467,10 +468,13 @@ export const SITE_REACH = 900;
 /**
  * Where a project's site can stand by town `town` (its whole footprint `fp`, every stage's: `unionFootprint`): clear,
  * level land in rings round the town's station, nearest first, along or across the map, by the props' own rule
- * (`checkProp`). Null if there's no room.
+ * (`checkProp`), out of every placed depot's and kit's yard (`worldYards`: their squares aren't marked on the map, so
+ * `checkProp` alone let a site onto a placed workshop's yard: report 2026-11-22) and off roads and lanes (`siteWhy`).
+ * Null if there's no room.
  */
-export function siteSpot(world: Pick<World, "landscape" | "layout" | "props" | "stations">, town: Town, fp: Footprint, footprint: (asset: string) => Footprint | undefined): PropPose | null {
+export function siteSpot(world: Pick<World, "landscape" | "layout" | "props" | "stations" | "depots">, town: Town, fp: Footprint, footprint: (asset: string) => Footprint | undefined): PropPose | null {
   const ctx = { land: world.landscape, track: new TrackIndex(world.layout), props: world.props, footprint };
+  const yards = worldYards(world);
   const station = world.layout.getPiece(world.stations.get(town.id) ?? -1)?.pose ?? town.centre;
   const reach = Math.hypot(fp.hw, fp.hd);
   // (Rings 36 mm apart, from just clear of the station out to the reach: a few hundred checks, on a tap.)
@@ -484,9 +488,27 @@ export function siteSpot(world: Pick<World, "landscape" | "layout" | "props" | "
       for (const heading of [0, Math.PI / 2]) {
         const pose = { x, z, heading };
         const c = checkProp(ctx, fp, pose, "land");
-        if (c.kind === "clear") return { ...pose, y: c.y };
+        if (c.kind === "clear" && !siteWhy(world.landscape, yards, fp, pose)) return { ...pose, y: c.y };
       }
     }
+  }
+  return null;
+}
+
+/**
+ * What a site at `pose` would stand on beyond `checkProp`'s rule: a placed depot's or kit's yard (`yards`: `worldYards`),
+ * or a road or lane; null if neither. (A prop dropped from the tray may stand by a lane; a project's site is a big
+ * fenced plot, and never covers a road.)
+ */
+export function siteWhy(land: Landscape, yards: readonly PlacedYard[], fp: Footprint, pose: Pick<PropPose, "x" | "z" | "heading">): "yard" | "road" | null {
+  if (footprintInYards(yards, fp, pose)) return "yard";
+  const grid = land.grid;
+  const pts = footprintSamples(fp, pose);
+  for (let i = 0; i < pts.length; i += 2) {
+    const cell = grid.cellAtWorld(pts[i], pts[i + 1]);
+    if (cell === -1) continue;
+    const surf = grid.surface[cell];
+    if (surf === SURF_ROAD || surf === SURF_LANE || grid.road[cell] !== 0) return "road";
   }
   return null;
 }
