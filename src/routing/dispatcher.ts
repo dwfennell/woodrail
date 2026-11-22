@@ -27,6 +27,9 @@ import { next, waysFrom } from "./graph";
 import { STAND_SHORT } from "../economy/sections";
 import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
+/** The give-back veto (`VETO_S`): on, unless VETO=0 (for comparing runs). */
+export const VETO = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).VETO !== "0" };
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -39,6 +42,13 @@ const GATE_SHORT_S = 2;
 const WEIGH_S = 20;
 /** A train asking, not decided this long (ticks), is decided again though nothing changed (2 s). */
 const RETRY_TICKS = 240;
+/**
+ * A grant given back (the train held short of it by the layout: a signal whose block has points, the router's points
+ * wait) isn't granted again for this long (s): its track freed meanwhile for the train it held up, which is what the
+ * signal or points were insisting on. Else it was granted again at once, its track taken again, and the two waited on
+ * each other (the first jam on dandelion, rowan-3 and own-01).
+ */
+const VETO_S = 10;
 /** A train asks for its next move this far (mm) before it would have to brake for its hold's end. */
 const ASK_LOOK = 200;
 
@@ -77,6 +87,9 @@ interface Hold {
   decided: number;
   /** Standing short of its hold's end since (tick; −1: not). */
   short: number;
+  /** A grant it gave back: the front piece it ran to, and till when (tick) it isn't granted past it again (`VETO_S`). */
+  vetoPiece: number;
+  vetoUntil: number;
 }
 
 const capAt: Cursor = { pieceId: -1, pathIndex: 0, reversed: false, s: 0 };
@@ -86,6 +99,8 @@ export class Dispatcher {
   decisions = 0;
   grants = 0;
   detours = 0;
+  /** Grants refused as given back lately (`VETO_S`). */
+  vetoed = 0;
   /** Holds by why: its move's way taken ("blocked"), or another goes first ("order"). */
   heldBlocked = 0;
   heldOrder = 0;
@@ -140,6 +155,11 @@ export class Dispatcher {
       if (h && t.speed === 0 && h.end !== h.t.at) {
         if (h.short < 0) h.short = sim.ticks;
         else if (sim.ticks - h.short >= GIVE_BACK_S * 120) {
+          if (VETO.on) {
+            const e = h.t.pos[h.end];
+            h.vetoPiece = e[e.length - 1];
+            h.vetoUntil = sim.ticks + VETO_S * 120;
+          }
           this.setHold(h, h.t.at, []);
           this.givenBack++;
           h.short = -1;
@@ -250,7 +270,7 @@ export class Dispatcher {
         if (w > t.at) end = w;
         this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
-        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
+        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1, vetoPiece: -1, vetoUntil: -Infinity };
         this.holdsBy.set(s.key, nh);
         this.setHold(nh, t.at, []);
       }
@@ -378,6 +398,15 @@ export class Dispatcher {
     if (to < 0 && r.first[0] >= 0) {
       h.passed++;
       if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - Math.min(...weights) && r.first[0] > 0) to = r.firstTo[0];
+    }
+    // (Given back lately, held short of it by the layout: not past there again till `VETO_S` is out.)
+    if (to >= 0 && h.vetoPiece >= 0 && this.host.sim.ticks < h.vetoUntil) {
+      const w = ways[k];
+      const path = this.pathTo(w === placed[k] ? ts[k] : { ...w, at: ts[k].at }, to);
+      if (path.some((i) => { const q = w.pos[i]; return q[q.length - 1] === h.vetoPiece; })) {
+        to = -1;
+        this.vetoed++;
+      }
     }
     this.decisions++;
     this.decisionMs.push(performance.now() - t0);
