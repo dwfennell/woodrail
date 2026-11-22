@@ -654,7 +654,7 @@ function exactWay(layout: Layout, t: DTrain): boolean {
   for (let i = t.at; i >= 0 && i <= until; i++) {
     const fp = t.pos[i][t.pos[i].length - 1];
     if (i > t.at && t.pos[i - 1][t.pos[i - 1].length - 1] === fp) continue;
-    if (waysFrom(layout, fp, t.frontEn[i], () => true).length > 1 && t.succ[i].length < 2 && (i === 0 || t.succ[i - 1].length < 2)) return false;
+    if (waysFrom(layout, fp, t.frontEn[i]).length > 1 && t.succ[i].length < 2 && (i === 0 || t.succ[i - 1].length < 2)) return false;
   }
   return true;
 }
