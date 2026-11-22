@@ -15,6 +15,7 @@ import {
   MultiplyBlending,
   Object3D,
   SphereGeometry,
+  type Frustum,
   type Material,
   GreaterDepth,
 } from "three";
@@ -950,6 +951,11 @@ const TRACK_TILE_DEPTH = PLOT_DEPTH;
 export class TrackView {
   readonly group = new Group();
   private meshes = new Map<string, { mesh: InstancedMesh; ids: number[]; far: BufferGeometry | null; isFar: boolean }>();
+  /**
+   * Plain pieces' shadow casters, a mesh for each kind of piece on a tile (`type|flipped|tile`): one for all its tile
+   * meshes, which its ends' sockets split (see `swappedEndsOf`), as its caster has none. Seen by the shadow camera only.
+   */
+  private casterMeshes = new Map<string, { mesh: InstancedMesh; ids: number[] }>();
   /** Where the camera was and its pixels at a unit distance, as last set (`setDetail`): sync's new meshes use it. */
   private readonly detailEye = new Vector3();
   private detailScale = 0;
@@ -1075,6 +1081,11 @@ export class TrackView {
       mesh.dispose();
     }
     this.meshes.clear();
+    for (const { mesh } of this.casterMeshes.values()) {
+      this.group.remove(mesh);
+      mesh.dispose();
+    }
+    this.casterMeshes.clear();
     if (this.bufferMesh) {
       this.group.remove(this.bufferMesh.mesh);
       this.bufferMesh.mesh.dispose();
@@ -1107,6 +1118,7 @@ export class TrackView {
 
     const m = new Matrix4();
     const bufferIds: number[] = [];
+    const casterIds = new Map<string, number[]>();
     for (const [key, ids] of groups) {
       const [type, flipped, levels] = key.split("|") as [PieceTypeId, string, string];
       const unseen = modelRails(type);
@@ -1125,17 +1137,15 @@ export class TrackView {
       mesh.computeBoundingSphere();
       mesh.userData.kind = "track";
       // Shadows from a plain block in each piece's place (half or less of its triangles; the shadow map draws every
-      // piece again): the same instances, seen by the shadow camera only.
+      // piece again), one mesh for the kind on its tile (below).
       const caster = Number(levels) === 0 && !unseen ? casterGeometry(type, flipped === "1") : null;
       if (caster) {
         mesh.castShadow = false;
-        const shadow = new InstancedMesh(caster, this.casterMaterial, ids.length);
-        shadow.instanceMatrix = mesh.instanceMatrix;
-        shadow.boundingSphere = mesh.boundingSphere;
-        shadow.castShadow = true;
-        shadow.layers.set(SHADOW_PROXY_LAYER);
-        shadow.raycast = () => {};
-        mesh.add(shadow);
+        const tile = key.split("|")[4];
+        const casterKey = `${type}|${flipped}|${tile}`;
+        const list = casterIds.get(casterKey);
+        if (list) list.push(...ids);
+        else casterIds.set(casterKey, [...ids]);
       }
       this.group.add(mesh);
       const entry = { mesh, ids, far, isFar: false };
@@ -1143,6 +1153,22 @@ export class TrackView {
       if (far && this.detailScale > 0) this.detailOf(key, entry);
       // (A kit's model draws its own buffer stops, where its roads end.)
       if (bufferBlock(type) && !kitOf(type)) bufferIds.push(...ids);
+    }
+
+    for (const [casterKey, ids] of casterIds) {
+      const [type, flipped] = casterKey.split("|");
+      const shadow = new InstancedMesh(casterGeometry(type as PieceTypeId, flipped === "1")!, this.casterMaterial, ids.length);
+      ids.forEach((id, i) => {
+        const p = this.layout.getPiece(id)!;
+        shadow.setMatrixAt(i, pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m));
+      });
+      shadow.instanceMatrix.needsUpdate = true;
+      shadow.computeBoundingSphere();
+      shadow.castShadow = true;
+      shadow.layers.set(SHADOW_PROXY_LAYER);
+      shadow.raycast = () => {};
+      this.group.add(shadow);
+      this.casterMeshes.set(casterKey, { mesh: shadow, ids });
     }
 
     if (bufferIds.length > 0) {
@@ -1410,17 +1436,29 @@ export class TrackView {
     mesh.computeBoundingSphere();
   }
 
-  /** Pieces carved in the background: those showing a stand-in take theirs (no rebuild of the rest). */
-  piecesBuilt(): void {
+  /**
+   * Pieces carved in the background: those showing a stand-in take theirs (no rebuild of the rest). What changed:
+   * `seen`, a tile mesh in `view` swapped (or a piece outlined: its outline is carved too), wants a frame; `unseen`,
+   * only ones out of it (their shadows may reach into view: redrawn with the next frame drawn). A first visit carves
+   * for minutes on a big map (every kind of piece, each way its ends' sockets lie), and a frame for each piece landing
+   * out of view drew a still scene, paused too.
+   */
+  piecesBuilt(view?: Frustum): { seen: boolean; unseen: boolean } {
+    let seen = false;
+    let unseen = false;
     for (const [key, { mesh, isFar }] of this.meshes) {
       if (isFar) continue;
       const g = carvedOfKey(key);
       if (mesh.geometry !== g) {
         mesh.geometry = g;
         mesh.computeBoundingSphere();
+        if (!view || view.intersectsObject(mesh)) seen = true;
+        else unseen = true;
       }
     }
     this.syncOutline();
+    if (this.highlighted.length > 0) seen = true;
+    return { seen, unseen };
   }
 
   /**
@@ -1890,7 +1928,7 @@ export class TrackView {
     for (const id of moved) {
       const p = this.layout.getPiece(id);
       if (!p) continue;
-      for (const entry of [...this.meshes.values(), ...(this.bufferMesh ? [this.bufferMesh] : [])]) {
+      for (const entry of [...this.meshes.values(), ...this.casterMeshes.values(), ...(this.bufferMesh ? [this.bufferMesh] : [])]) {
         const i = entry.ids.indexOf(id);
         if (i === -1) continue;
         entry.mesh.setMatrixAt(i, pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m));
@@ -1976,6 +2014,8 @@ export class TrackView {
   dispose(): void {
     for (const { mesh } of this.meshes.values()) mesh.dispose();
     this.meshes.clear();
+    for (const { mesh } of this.casterMeshes.values()) mesh.dispose();
+    this.casterMeshes.clear();
     this.bufferMesh?.mesh.dispose();
     this.bufferMesh = null;
     this.pegMesh?.dispose();

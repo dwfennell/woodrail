@@ -229,10 +229,9 @@ const built = await p.evaluate(async (cars) => {
   const seen = {};
   w.scene.traverse((o) => {
     const id = o.userData?.carId;
-    if (cars.includes(id) && o.material?.color) {
-      const hex = o.material.color.getHexString();
-      if (hex === "1f5aa6" || hex === "f3d27a") (seen[id] ??= new Set()).add(hex);
-    }
+    // (A car's lacquer colours are one vertex-coloured mesh, its colours listed: train-models.ts, mergeBlenderCar.)
+    const hexes = cars.includes(id) ? (o.userData.paintColors ? o.userData.paintColors.map((c) => c.replace("#", "").toLowerCase()) : o.material?.color ? [o.material.color.getHexString()] : []) : [];
+    for (const hex of hexes) if (hex === "1f5aa6" || hex === "f3d27a") (seen[id] ??= new Set()).add(hex);
   });
   return cars.map((c) => [...(seen[c] ?? [])].sort().join("+"));
 }, train);

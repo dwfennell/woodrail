@@ -401,9 +401,14 @@ export class Game {
     // as a stand-in for a moment if it's wanted before its turn).
     TrackView.prebuild([...new Set([...this.layout.pieceIds()].map((id) => this.layout.getPiece(id)!.type))]);
     // Pieces carved in the background swap in for their stand-ins.
+    // (A frame only for those in view: the rest's shadows are drawn with the next frame drawn, `carvedUnseen`.)
     onPiecesBuilt(() => {
-      this.trackView.piecesBuilt();
-      this.invalidate();
+      const c = this.camera;
+      c.updateMatrixWorld();
+      this.viewFrustum.setFromProjectionMatrix(this.viewMatrix.multiplyMatrices(c.projectionMatrix, c.matrixWorldInverse));
+      const { seen, unseen } = this.trackView.piecesBuilt(this.viewFrustum);
+      if (seen) this.invalidate();
+      if (unseen) this.carvedUnseen = true;
     });
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
@@ -1465,7 +1470,8 @@ export class Game {
     // they're cast by plain blocks either way.)
     const pixelsHigh = this.canvas.clientHeight * Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio);
     this.trackView.setDetail(this.camera.position, pixelsHigh / (2 * Math.tan((this.camera.fov * Math.PI) / 360)));
-    if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
+    if (shadowsMoved || once || refit || culled || this.carvedUnseen) this.renderer.shadowMap.needsUpdate = true;
+    this.carvedUnseen = false;
     // The very first frame draws no shadows (it's behind the loading screen), and the next one does: three draws the
     // shadow pass before it sets the frame's lights up, so on a scene's first frame its depth shaders were compiled for
     // no lights, and on the second all compiled again for the sun (7 programs twice, on the Sandbox perf map).
@@ -1871,6 +1877,8 @@ export class Game {
   /** Picks the drawing resolution (see `resolution.ts`). */
   private readonly resolution: ResolutionGovernor;
   private shadowsMoving = false;
+  /** Pieces out of view took their carved geometry: the shadow map is drawn again with the next frame drawn. */
+  private carvedUnseen = false;
   private readonly lastCamera = new Float64Array(12);
 
   /**
