@@ -3,8 +3,11 @@
 //  1. Larkfield a City ★ and the other towns smaller (deliveries written as trains would bring them: a setup shortcut,
 //     as e2e:civic). The Journal has an Achievements tab (🥇): the Great Exhibition, its reward said before it starts.
 //  2. The achievement's "Build it in" lists Larkfield (the player picks the city); its row opens Larkfield's card on
-//     Projects, the Exhibition's Start ringed: a tap on Start pays its coins, and its plot goes up on clear land by the
-//     city (a prop of the map). The tab says stage 1 of 4, in Larkfield.
+//     Projects, the Exhibition's Start ringed: a tap on Start puts its plot by the city as a draft (spec
+//     2026-11-22-grand-placement.md, step 2: not paid for, not saved), with a bar at the foot (⟳, Cancel, Build here ·
+//     🪙 400, 44 px) and the tray put away; ⟳ turns it; Cancel takes it away, nothing paid; Start again, a finger drags
+//     it (no rest) to a clear spot found by the game's own rules; Build here pays its coins and it's the project's plot
+//     there (a prop of the map). The tab says stage 1 of 4, in Larkfield. Steps 6–8 Build here where it's suggested.
 //  2b. The plot moved by a finger resting on it (spec 2026-11-22-grand-placement.md, step 1): held whole and green over a
 //     clear spot by the city, let go there; Undo and Redo; red and told why over the station, staying put; let go on
 //     the tray, back where it stood (never into the toy box). Kept after the reload (5).
@@ -180,34 +183,6 @@ const tileState = () => p.evaluate(() => [...(document.querySelector('.grand-til
 check("2. Larkfield's card offers the Great Exhibition", (await tileState()) === "build", String(await tileState()));
 await shot("2-card");
 const coins0 = await p.evaluate(() => window.woodrail.progress().coins);
-await tap('.grand-ticket[data-grand="exhibition"] .grand-start');
-await p.waitForFunction(() => window.woodrail.world.economy.grandPlans.has("exhibition"), null, { timeout: 30000 }).catch(() => {});
-const started = await p.evaluate(() => {
-  const w = window.woodrail;
-  const plan = w.world.economy.grandPlans.get("exhibition");
-  const prop = plan ? w.world.props.get(plan.prop) : null;
-  return { plan: plan ? { ...plan } : null, prop: prop ? { asset: prop.asset, x: prop.x, z: prop.z, scale: prop.scale } : null, coins: w.progress().coins };
-});
-check("2. Build: it's under way in Larkfield, its 400 coins paid", started.plan?.townId === town.id && started.plan?.stage === 0 && started.coins === coins0 - 400, JSON.stringify(started));
-check("2. its plot stands on the map by the city", started.prop?.asset === "grand-exhibition-0", JSON.stringify(started.prop));
-let site = { x: started.prop?.x ?? 0, z: started.prop?.z ?? 0 };
-await p.waitForTimeout(600);
-await shot("2-after-build");
-const card2 = await p.evaluate(() => ({ open: window.woodrail.hud.depotCardOpen, depot: window.woodrail.interaction.openDepotId, next: document.querySelector(".town-pane-projects .town-next")?.textContent ?? null, now: document.querySelector('.grand-ticket[data-grand="exhibition"] .grand-stages li.now')?.textContent ?? null }));
-check("2. the card says stage 1 of 4, the foundations under way", /stage 1 of 4/.test(card2.next ?? "") && /foundations/.test(card2.now ?? ""), JSON.stringify(card2));
-
-/** The camera on the site, from the south-east, a little above. */
-const lookAtSite = async (dist = 1100) => {
-  await p.evaluate(() => window.woodrail.hud.hideCards?.());
-  await p.evaluate(([v, dist]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, 0, v.z), dist, { duration: 0.2, phi: 0.95, theta: 0.7 }), [site, dist]);
-  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
-  await settle();
-  await p.waitForTimeout(1200);
-};
-await lookAtSite();
-await shot("3-stage-0");
-
-// ---- 2b. The site moved by a finger (spec 2026-11-22-grand-placement.md, step 1) ---------------------------------------
 const cdp = await ctx.newCDPSession(p);
 const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
 const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -233,15 +208,16 @@ await p.evaluate(() => {
 });
 const said = () => p.evaluate(() => window.__said.splice(0));
 /**
- * A finger put down on the site's middle, held still past the hold (to take hold), drawn towards the world point `to`
+ * A finger put down on the site's middle (`from`, else the project's), held still past the hold (`hold` ms: a site still
+ * being placed needs none), drawn towards the world point `to`
  * (or the screen point `toScreen`) in small steps, nudged by eye till the site held stands on `to`, and lifted. What
  * the interaction said while it was held (its mode, the site's rule set, blocked) comes back.
  */
-const siteDrag = async ({ to, toScreen }) => {
-  const from = await siteNow();
+const siteDrag = async ({ to, toScreen, from: start, hold = 700 }) => {
+  const from = start ?? (await siteNow());
   const [x0, y0] = await screenOf({ x: from.x, y: 10, z: from.z });
   await touch("touchStart", x0, y0);
-  await p.waitForTimeout(700);
+  await p.waitForTimeout(hold);
   await frames();
   let [fx, fy] = toScreen ?? (await screenOf({ x: to.x, z: to.z }));
   const steps = 16;
@@ -275,11 +251,12 @@ const undoButton = (which) => p.evaluate((which) => {
   return on;
 }, which);
 
-const site0 = await siteNow();
-// Where it can go: the nearest clear spot 150–500 mm away by the game's own rules (the props' rule, the yards, its
-// city's rule as the drag asks it: `Interaction.siteMove`), turned as it is; away from the station first (so it leaves
-// room there: Grand Central goes by the station in step 9).
-const target = await p.evaluate(async ([s, station]) => {
+/**
+ * Where a site can go: the nearest clear spot 150–500 mm away by the game's own rules (the props' rule, the yards, its
+ * city's rule as the drag asks it: `Interaction.siteMove`), turned as it is; away from the station first (so it leaves
+ * room there: Grand Central goes by the station in step 9).
+ */
+const clearSpotNear = (site) => p.evaluate(async ([s, station]) => {
   const w = window.woodrail;
   const { checkProp, TrackIndex } = await import("/src/props/placement.ts");
   const { footprintInYards, worldYards } = await import("/src/game/depot-footprint.ts");
@@ -297,7 +274,120 @@ const target = await p.evaluate(async ([s, station]) => {
       if (checkProp(ctx, rule.fp, pose, "land", s.prop).kind === "clear" && !footprintInYards(yards, rule.fp, pose) && !rule.why(pose)) return pose;
     }
   return null;
-}, [site0, town.station]);
+}, [site, town.station]);
+// Start: placing, before paying (spec 2026-11-22-grand-placement.md, step 2).
+await tap('.grand-ticket[data-grand="exhibition"] .grand-start');
+await p.waitForFunction(() => document.querySelector(".site-bar") && !document.querySelector(".site-bar").hidden, null, { timeout: 30000 }).catch(() => {});
+await settle();
+/** The site being placed (the interaction's pending prop), the bar and what's paid. */
+const siting = () => p.evaluate(async () => {
+  const w = window.woodrail;
+  const id = w.interaction.sitePending;
+  const q = w.world.props.get(id);
+  const box = (sel) => {
+    const r = document.querySelector(sel)?.getBoundingClientRect();
+    return r && r.width > 0 ? { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), h: Math.round(r.height) } : null;
+  };
+  const { serializeWorld } = await import("/src/persist/save.ts");
+  return {
+    prop: id,
+    at: q ? { x: q.x, z: q.z, heading: q.heading, asset: q.asset, draft: !!q.draft } : null,
+    saved: q ? serializeWorld(w.world).props.some((s) => s.id === id) : null,
+    plan: w.world.economy.grandPlans.has("exhibition"),
+    coins: w.progress().coins,
+    bar: !document.querySelector(".site-bar")?.hidden,
+    text: document.querySelector(".site-text")?.textContent ?? null,
+    build: document.querySelector(".site-build")?.textContent ?? null,
+    buttons: [box(".site-turn"), box(".site-cancel"), box(".site-build")],
+    tray: getComputedStyle(document.querySelector(".tray")).visibility,
+  };
+});
+const s0 = await siting();
+check("2. Start: the plot stands by the city as a draft, not paid for, not saved", s0.at?.asset === "grand-exhibition-0" && s0.at.draft && s0.saved === false && !s0.plan && s0.coins === coins0, JSON.stringify(s0));
+check("2. …a bar at the foot says to drag it, with ⟳, Cancel and Build here · 🪙 400, each 44 px, the tray put away", s0.bar && /Drag the Great Exhibition/.test(s0.text ?? "") && /Build here · 🪙 400/.test(s0.build ?? "") && s0.buttons.every((b) => b && b.h >= 44 && b.b <= 844) && s0.tray === "hidden", JSON.stringify(s0));
+await shot("2-siting");
+await said();
+await tap(".site-turn");
+await frames();
+const s1 = await siting();
+const turnSaid = await said();
+check("2. ⟳ turns it a quarter (or says why it can't there)", (Math.abs(Math.abs(s1.at.heading - s0.at.heading) - Math.PI / 2) < 0.01 && s1.at.x === s0.at.x) || turnSaid.length > 0, JSON.stringify({ s1: s1.at, turnSaid }));
+await tap(".site-cancel");
+await frames();
+const s2 = await p.evaluate((id) => ({ prop: !!window.woodrail.world.props.get(id), pending: window.woodrail.interaction.sitePending, plan: window.woodrail.world.economy.grandPlans.has("exhibition"), coins: window.woodrail.progress().coins, bar: !document.querySelector(".site-bar")?.hidden, tray: getComputedStyle(document.querySelector(".tray")).visibility }), s0.prop);
+check("2. Cancel: no plot, no coins paid, the bar gone and the tray back", !s2.prop && s2.pending === -1 && !s2.plan && s2.coins === coins0 && !s2.bar && s2.tray === "visible", JSON.stringify(s2));
+// Start again, and the plot dragged by a finger (no rest needed) to a clear spot, then Build here.
+await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot);
+await p.waitForFunction(() => document.querySelector(".town-tab")?.getBoundingClientRect().width > 0, null, { timeout: 20000 }).catch(() => {});
+if (await p.evaluate(() => document.querySelector(".town-card")?.dataset.tab !== "projects")) await tap('.town-tab[data-tab="projects"]');
+if (await p.evaluate(() => !document.querySelector('.grand-ticket[data-grand="exhibition"]'))) await tap('.grand-row[data-grand="exhibition"]');
+await tap('.grand-ticket[data-grand="exhibition"] .grand-start');
+await p.waitForFunction(() => document.querySelector(".site-bar") && !document.querySelector(".site-bar").hidden, null, { timeout: 30000 }).catch(() => {});
+await settle();
+const s3 = await siting();
+const draftSpot = await clearSpotNear({ prop: s3.prop, ...s3.at });
+check("2. there's a clear spot by Larkfield to drag it to", !!draftSpot, JSON.stringify(draftSpot));
+const between = { x: (s3.at.x + (draftSpot?.x ?? s3.at.x)) / 2, z: (s3.at.z + (draftSpot?.z ?? s3.at.z)) / 2 };
+await p.evaluate(([v]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, 0, v.z), 1500, { duration: 0.2, phi: 0.95, theta: 0.7 }), [between]);
+await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+await settle();
+const dragged = await siteDrag({ to: draftSpot, from: s3.at, hold: 60 });
+const s4 = await siting();
+check("2. a finger drags it straight away (no rest), whole and green", dragged.kind === "drag-prop" && dragged.site && dragged.blocked === null, JSON.stringify(dragged));
+check("2. …let go, it stands there, still a draft and unpaid", s4.prop === s3.prop && Math.hypot(s4.at.x - draftSpot.x, s4.at.z - draftSpot.z) < 10 && s4.at.draft && s4.coins === coins0, JSON.stringify({ s4, draftSpot }));
+await shot("2-siting-dragged");
+await tap(".site-build");
+await p.waitForFunction(() => window.woodrail.world.economy.grandPlans.has("exhibition"), null, { timeout: 30000 }).catch(() => {});
+const started = await p.evaluate(() => {
+  const w = window.woodrail;
+  const plan = w.world.economy.grandPlans.get("exhibition");
+  const prop = plan ? w.world.props.get(plan.prop) : null;
+  return { plan: plan ? { ...plan } : null, prop: prop ? { asset: prop.asset, x: prop.x, z: prop.z, scale: prop.scale } : null, coins: w.progress().coins };
+});
+check("2. Build: it's under way in Larkfield, its 400 coins paid", started.plan?.townId === town.id && started.plan?.stage === 0 && started.coins === coins0 - 400, JSON.stringify(started));
+check("2. its plot stands on the map by the city", started.prop?.asset === "grand-exhibition-0", JSON.stringify(started.prop));
+const builtAt = await p.evaluate(async () => {
+  const w = window.woodrail;
+  const plan = w.world.economy.grandPlans.get("exhibition");
+  const q = plan && w.world.props.get(plan.prop);
+  const { serializeWorld } = await import("/src/persist/save.ts");
+  return q ? { x: q.x, z: q.z, draft: !!q.draft, saved: serializeWorld(w.world).props.some((s) => s.id === q.id), bar: !document.querySelector(".site-bar")?.hidden, tray: getComputedStyle(document.querySelector(".tray")).visibility } : null;
+});
+// Trees: none left standing inside the plot's fence (they step aside from it as from track, or go).
+await p.waitForTimeout(1500);
+const treesIn = await p.evaluate(async () => {
+  const w = window.woodrail;
+  const { inFootprint } = await import("/src/props/placement.ts");
+  const plan = w.world.economy.grandPlans.get("exhibition");
+  const q = w.world.props.get(plan.prop);
+  const fp = w.interaction.siteMove(plan.prop)?.fp;
+  const a = w.landscapeView.treeAnim;
+  if (!fp || !a) return null;
+  const at = (t) => inFootprint(fp, q, t.x, t.z);
+  return { grew: a.to.length, inside: a.to.filter((t) => t.s > 0 && at(t)).length };
+});
+check("2. no tree stands inside the plot", treesIn && treesIn.inside === 0, JSON.stringify(treesIn));
+check("2. …where the finger left it, no longer a draft (saved), the bar gone and the tray back", builtAt && Math.hypot(builtAt.x - s4.at.x, builtAt.z - s4.at.z) < 1 && !builtAt.draft && builtAt.saved && !builtAt.bar && builtAt.tray === "visible", JSON.stringify(builtAt));
+let site = { x: started.prop?.x ?? 0, z: started.prop?.z ?? 0 };
+await p.waitForTimeout(600);
+await shot("2-after-build");
+const card2 = await p.evaluate(() => ({ open: window.woodrail.hud.depotCardOpen, depot: window.woodrail.interaction.openDepotId, next: document.querySelector(".town-pane-projects .town-next")?.textContent ?? null, now: document.querySelector('.grand-ticket[data-grand="exhibition"] .grand-stages li.now')?.textContent ?? null }));
+check("2. the card says stage 1 of 4, the foundations under way", /stage 1 of 4/.test(card2.next ?? "") && /foundations/.test(card2.now ?? ""), JSON.stringify(card2));
+
+/** The camera on the site, from the south-east, a little above. */
+const lookAtSite = async (dist = 1100) => {
+  await p.evaluate(() => window.woodrail.hud.hideCards?.());
+  await p.evaluate(([v, dist]) => window.woodrail.director.glideTo(new window.woodrail.controls.target.constructor(v.x, 0, v.z), dist, { duration: 0.2, phi: 0.95, theta: 0.7 }), [site, dist]);
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
+  await settle();
+  await p.waitForTimeout(1200);
+};
+await lookAtSite();
+await shot("3-stage-0");
+
+// ---- 2b. The site moved by a finger (spec 2026-11-22-grand-placement.md, step 1) ---------------------------------------
+const site0 = await siteNow();
+const target = await clearSpotNear(site0);
 check("2b. there's a clear spot by Larkfield to move the plot to", !!target, JSON.stringify(target));
 site = { x: (site0.x + (target?.x ?? site0.x)) / 2, z: (site0.z + (target?.z ?? site0.z)) / 2 };
 await lookAtSite(1500);
@@ -543,7 +633,10 @@ const buildByTrain = async (t, id, label) => {
     await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), t.depot);
     await p.waitForTimeout(700);
     await startOnCard(id);
-    // (Its models are fetched before its site is found: slow on a busy machine.)
+    // (Its models are fetched before its site is found: slow on a busy machine. Then it's placed where the game
+    // suggests, and Build here pays: spec 2026-11-22-grand-placement.md, step 2.)
+    const bar = await p.waitForFunction(() => document.querySelector(".site-bar") && !document.querySelector(".site-bar").hidden, null, { timeout: 90000 }).then(() => true, () => false);
+    if (bar) await tap(".site-build");
     const ok = await p.waitForFunction((id) => window.woodrail.world.economy.grandPlans.has(id), id, { timeout: 90000 }).then(() => true, () => false);
     if (ok) break;
   }

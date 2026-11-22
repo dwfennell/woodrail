@@ -71,33 +71,46 @@ own rules), let go there; Undo and Redo; held over the station (red, told why), 
 tray, back where it stood, told so. Then the suite's stages are built by train where it now stands, 0 idle frames,
 and the reload keeps it there.
 
-### Step 2: choose before paying (about two days on top of step 1)
+### Step 2: choose before paying (built, 2026-11-22, after step 1 landed)
 
-Start doesn't pay at once. It enters a placement mode (the drag machinery of step 1):
+Start doesn't pay at once. It enters a placement mode (the drag machinery of step 1). As built:
 
-1. The card closes and the camera frames the suggested spot (`siteSpot`) with the site's ghost and green outline on
-   it.
-2. The player drags the ghost (a finger anywhere on it), turns it (R / two fingers / a ⟳ button on the bar), or leaves
-   it where it is.
-3. A bar at the foot (44 px, thumb reach): **Build here · 🪙 (its price)** and **Cancel**. Build here is off (with the reason
-   under it) while the outline is red. Cancel or ✕ leaves no trace: no coins, no plot.
-4. On Build here: the coins are paid, the plot put up (the same `startGrand`, its `spot` the chosen pose), the toast
-   and News as today.
-5. No room anywhere by the city: Start says so at once, as today ("No room by Rookhurst …"), and nothing opens.
+1. The card closes, the site's stage-0 plot goes up at the suggested spot (`siteSpot`) as a **draft** (`Prop.draft`:
+   never saved, so a reload mid-placing leaves no trace and nothing paid), and the camera frames its corners.
+2. The player drags it: a finger anywhere on it moves it at once, no rest needed (`Interaction.sitePending`), green or
+   red with a reason as in step 1, by the same rule (`siteMoveRule`, the yards, `checkProp`). Let go where it fits, it
+   stands there; let go where it doesn't, it stays and the reason is said. These moves are no undo steps (Cancel takes
+   them all back). Turned by ⟳ on the bar, a quarter at a time, if it fits that way (`Interaction.siteFits`; else
+   told why), or by R and a second finger while held.
+3. A bar at the foot (`src/ui/site-bar.ts`, each button 44 px): "Drag the Great Exhibition where you'd like it by
+   Rookhurst", **⟳**, **Cancel** and **Build here · 🪙 (its price)**. The tray and the goals are put away while it's up
+   (`.hud.siting`), so the thumb is on the bar and the site in view above it. The draft only ever rests where it fits,
+   so Build here is never off; it checks again as it's tapped (something may have been put there since, by Undo).
+   Cancel leaves no trace: no coins, no plot. A new map, or another Start, cancels it too.
+4. On Build here: the coins are paid and the draft becomes the project's plot where it stands (the same `startGrand`,
+   its `spot` the chosen pose), the toast and News as before.
+5. No room anywhere by the city: Start says so at once, as before ("No room by Rookhurst …"), and nothing opens.
 
-Phone first: the bar sits under the sheet line so the ghost is never under the thumb; the camera keeps the site in the
-top two-thirds at 390×844 and the left two-thirds on its side. Nothing is drawn while the player isn't touching it.
+Nothing is drawn while the player isn't touching it: the bar is written when it opens, the draft is an ordinary prop.
+
+Tests: `save.test.ts`, "leave out a grand project's site still being placed"; e2e:grand step 2 by touch: Start, the
+draft unpaid and unsaved, the bar (44 px, the tray hidden), ⟳, Cancel (nothing paid, the tray back), Start again, a
+drag with no rest to a clear spot found by the game's rules, Build here (paid, saved there, no tree inside the fence).
 
 Why not put it on the tray as an industry (as Grand Central's kit is)? The tray is the toy box: things the player owns
 and can take back. A project belongs to its city and has a fixed price at Start. A tray tile would need a "started but
 not placed" state in the save, a tile that only fits by one city, and a way back if it's never placed. Grand Central
 needs that because it joins track; a site doesn't.
 
-## Not in this
+## Trees
 
-- The map's own trees under a site. Trees step aside for track (`treesAside`), never for props, so a site (as any
-  prop) can stand over them: they show inside its fence (`docs/agents/shots/grand-site-moved.jpg`). This was so before
-  this spec too. A follow-up: trees step aside from a grand site's footprint as they do from track, or the site
-  search prefers a spot without them.
+The map's trees stepped aside for track (`treesAside`), never for props, so a site stood over them, showing inside
+its fence (`docs/agents/shots/grand-site-moved.jpg`, before). Now they keep off every site's plot, its whole footprint,
+as they do a yard (`TreeClearance.setAreas`; `Game.siteAreas` from main, read on each props change and keyed by the
+plots' poses in `LandscapeView.setTreeAreas`, so they're worked out again only when a plot is put up, moved, turned
+or taken away). A tree by the fence hops out; one in the middle, with nowhere near to go, is taken away; they come
+back when a draft is cancelled. Tests: `trees-areas.test.ts`; e2e:grand step 2 counts none inside the fence.
+
+## Not in this
 - Moving a site to another city. It stays its city's.
 - Any change to Grand Central (its kit is already placed by the player from the tray).

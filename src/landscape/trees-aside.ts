@@ -59,9 +59,17 @@ export interface YardRect {
 /** A piece type's yard beside its track (a depot's buildings and piles, a kit's platform), or null: none. */
 export type YardsOf = (type: PieceTypeId) => readonly YardRect[] | null;
 
+/** Ground trees keep off as they do a yard, beside the track's own: a grand project's fenced plot (`setAreas`). */
+export interface KeepOff {
+  readonly pose: Pose;
+  readonly rects: readonly YardRect[];
+}
+
 /** `treesAside` for one map, keeping the placed track's sample points between calls (while a piece is held). */
 export class TreeClearance {
   private track = new Map<number, number[]>();
+  private layout: Layout | null = null;
+  private areas: readonly KeepOff[] = [];
   /**
    * Where the trees stand with no piece held, kept until the layout or the land changes: first (`initial`) each
    * tree where it grew, or null if track is too close, then (`final`) where each such tree stepped to. A piece held
@@ -83,7 +91,9 @@ export class TreeClearance {
 
   /** Call when the layout changes. */
   setLayout(layout: Layout): void {
+    this.layout = layout;
     this.track = trackPoints(layout);
+    for (const a of this.areas) addYardPoints(this.track, a.rects, a.pose);
     if (this.yards)
       for (const id of layout.pieceIds()) {
         if (layout.isLifted(id)) continue;
@@ -91,6 +101,15 @@ export class TreeClearance {
         addYardPoints(this.track, this.yards(p.type), p.pose);
       }
     this.base = null;
+  }
+
+  /**
+   * Ground the trees keep off beside the track (grand sites' plots: spec 2026-11-22-grand-placement.md). Call when they
+   * change; the points are worked out again with the layout's (a few hundred a plot).
+   */
+  setAreas(areas: readonly KeepOff[]): void {
+    this.areas = areas;
+    if (this.layout) this.setLayout(this.layout);
   }
 
   /**
