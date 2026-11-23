@@ -27,6 +27,8 @@ const DELETED_MAX = 50;
 
 export const NO_ROOM = "No room for another game on this device: delete one in Your games first";
 export const UNREADABLE = "That game couldn't be read";
+/** What a game this build couldn't open is renamed to begin with, parked in Your games (`keepUnreadable`). */
+export const UNREADABLE_PREFIX = "Couldn't open: ";
 
 export interface GameEntry {
   id: string;
@@ -356,6 +358,47 @@ export class SlotStore {
     this.set1(this.keys.session, withTag(null, { id, name: clean }));
     if (!this.writeIndex(i)) return err(NO_ROOM);
     return ok(id);
+  }
+
+  /**
+   * The open game's save couldn't be loaded by this build: it's parked as it is (read back to check), named "Couldn't
+   * open: …", and the live keys let go, so nothing the page makes instead is saved over it. Open it again from Your
+   * games to try once more (an update may read it). Its name, or null when there was nothing to keep or no room to
+   * keep it (then the live keys stay as they are: the page mustn't save over them).
+   */
+  async keepUnreadable(): Promise<string | null> {
+    const i0 = this.index();
+    let id = i0.open;
+    const raw = this.get(this.keys.save);
+    if (raw === null) return null;
+    if (id === null) {
+      // (A save no game is open for: it becomes one first.)
+      this.startUp();
+      id = this.index().open;
+      if (id === null) return null;
+    }
+    const i1 = this.index();
+    const e = i1.games.find((g) => g.id === id);
+    const base = e?.name ?? (tagOfSession(this.get(this.keys.session))?.name || nameOfSave(raw));
+    const name = base.startsWith(UNREADABLE_PREFIX) ? base : cleanName(UNREADABLE_PREFIX + base);
+    if (e) e.name = name;
+    else {
+      const t = this.now();
+      i1.games.push({ id, name, created: t, played: t, playMs: 0, ...this.factsOf((k) => this.get(k)) });
+    }
+    if (!this.writeIndex(i1)) return null;
+    if (!(await this.park())) return null;
+    const i = this.index();
+    i.open = null;
+    if (!this.writeIndex(i)) return null;
+    for (const k of this.keys.live) this.remove1(k);
+    return name;
+  }
+
+  /** The open game loaded after all: "Couldn't open: " taken off its name again. */
+  noteReadable(): void {
+    const e = this.openEntry();
+    if (e && e.name.startsWith(UNREADABLE_PREFIX)) this.rename(e.id, e.name.slice(UNREADABLE_PREFIX.length) || "A railway");
   }
 
   /** A copy of a game, parked beside it ("… (copy)"), its picture too. Its id, or why not (nothing changed). */
