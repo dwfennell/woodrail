@@ -26,7 +26,7 @@ import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, i
 import { next, waysFrom } from "./graph";
 import { isPoints } from "./router";
 import { STAND_SHORT } from "../economy/sections";
-import { blockerOf, bodyOf, buildTrain, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
+import { blockerOf, bodyOf, buildTrain, PLAN_FROM_ROAD, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
 /** §13.5 step 2, the dispatcher owning the points on its grants: on, unless OWNER=0 (for comparing runs). */
 export const OWNER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).OWNER !== "0" };
@@ -304,7 +304,9 @@ export class Dispatcher {
         const moved = onPath !== undefined ? (onPath === h.t.at ? h.t : { ...h.t, at: onPath }) : relocate(h.t, body);
         // (Moved along to the end of its way as last built, with nowhere on (it ran its way out, its route the same): its
         // way built afresh. Kept, it was never granted anything again: rowan-1's Pepper, "held up" by nobody, 60 s.)
-        if (moved && moved.succ[moved.at].length > 0) {
+        // (Its front on points, its way out by a road its axles aren't on: built afresh, from the road it's on
+        // (`buildTrain`; complex-1: kept, it stood at the signal on its own road for 20 minutes).)
+        if (moved && moved.succ[moved.at].length > 0 && !(PLAN_FROM_ROAD.on && this.pinnedFront(moved) === null)) {
           h.t = moved;
           const k = h.path.indexOf(moved.at);
           if (k > 0) {
