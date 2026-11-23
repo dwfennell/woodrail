@@ -63,6 +63,7 @@ export const RESERVE = { on: ((globalThis as { process?: { env: Record<string, s
 /** §13.6's safety check over the stretch (`safeOrder`): off unless SAFE=1 (a prototype under measure). */
 export const SAFE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SAFE === "1" };
 /** A train granted a loop road or detour keeps it when its way is built again (`trainsOf`): off unless KEEP_DETOUR=1 (own-10 jams 21 → 7 a seed, but complex-1 −9, rowan-1 −9, user-2026-11-21 a jam at 1647 s). */
+const KEEP_MODE = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_MODE ?? "";
 export const KEEP_DETOUR = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_DETOUR === "1" };
 /**
  * `headOnAhead`'s admission check on the leg after a move's stop: off unless ADMIT2=1 (measured: own-08, own-10,
@@ -373,7 +374,7 @@ export class Dispatcher {
       // (Granted a detour and still on it: built again round what it avoided, so the grant stays on the detour's road
       // (own-10: Logs two, granted loop 2's free road as it left the sawmill, was built afresh as its route moved on,
       // its way the booked road with Planks two on it; it stood on the loop's points for good).)
-      const onDetour = KEEP_DETOUR.on && !!h && !!h.t.avoid && h.path.some((n) => h.t.detour[n] === 1);
+      const onDetour = KEEP_DETOUR.on && KEEP_MODE !== "roads" && !!h && !!h.t.avoid && h.path.some((n) => h.t.detour[n] === 1);
       const t = onDetour ? buildTrain(layout, s, undefined, h!.t.avoid) : buildTrain(layout, s);
       if (!s.stops || !s.lever) return t;
       const trainId = sim.findCar(s.key)?.train.id ?? -1;
@@ -396,7 +397,7 @@ export class Dispatcher {
         const seq = [t.at];
         for (let i = t.at; refs.has(t.frontRef[i]) && seq.length <= t.pos.length; ) {
           let nx = -1;
-          if (KEEP_DETOUR.on) {
+          if (KEEP_DETOUR.on && KEEP_MODE !== "detours") {
             for (const j of t.succ[i]) if ((j === i + 1 || j >= t.main) && (t.detour[j] === 0 || onDetour) && refs.has(t.frontRef[j])) {
               nx = j;
               if (j === i + 1) break;
