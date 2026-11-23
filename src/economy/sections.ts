@@ -1465,15 +1465,6 @@ export class Sections {
         const into = prev?.pieceId === loop.a ? loop.into[0] : prev?.pieceId === loop.b ? loop.into[1] : loop.roads;
         // (A train on no line goes the way the points lie: only that road.)
         let roads = loose ? [slot] : calls !== undefined ? [calls] : s.road === 0 ? loop.roads : [loop.roads[1], loop.roads[0]];
-        // (Standing on the facing points itself: they never move under it, so the road they lie for is the only one it
-        // can take, its stop's or not, and whoever's in it is who it waits for. Asked only for its stop's road, every
-        // road was passed over and the way came back full naming no train: it stood on the points waiting for train −1
-        // (an invariant break in e2e:depot-tracks; depot-tracks.test.ts "a train standing on the points into them": a
-        // front axle on the split into a mill's second track, its stop the mill's own track, another train in the second).)
-        if (prev && under.has(prev.pieceId)) {
-          roads = [slot];
-          calls = slot;
-        }
         // (A train on no line about: the road it would come onto at the far end, the way those points rest, last. They
         // pass there, each on its own road.)
         if (!loose && roads.length === 2 && info.loose.length > 0 && this.restRoad(topo, loop, outBy) === roads[0]) roads = [roads[1], roads[0]];
@@ -1514,6 +1505,16 @@ export class Sections {
             prev.path = w.path;
           }
           return { steps, sections, through, dest: r, outBy, blockedBy: -1 };
+        }
+        // (Standing on the facing points itself, every road passed over (its stop's not the one they lie for, and they
+        // never move under it) and nobody named: the road they lie for is the only one it can take, its stop's or not,
+        // and whoever's in it is who it waits for. Before, the way came back full naming no train, and it stood on the
+        // points waiting for train −1 (an invariant break in e2e:depot-tracks; depot-tracks.test.ts "a train standing on
+        // the points into them": a front axle on the split into a mill's second track, its stop the mill's own track,
+        // another train in the second).)
+        if (blockedBy === -1 && prev && under.has(prev.pieceId) && !roads.includes(slot)) {
+          const u = this.slotUser(info, slot, st.engine, outBy);
+          return u === -1 ? { steps, sections, through, dest: slot, outBy, blockedBy: -1 } : { steps, sections, through, dest: -1, outBy, blockedBy: u };
         }
         return { steps, sections, through, dest: -1, outBy, blockedBy };
       }
