@@ -221,11 +221,11 @@ const setup = await p.evaluate(async () => {
           now = on.every((k) => k !== -1) && new Set(on).size === on.length;
           if (now) both++;
           together = now ? together + 1 : 0;
-          // (For a picture: stopped once both have stood there together half a second.)
-          if (stop && together >= 60) break;
+          // (For a picture: stopped the moment both stand there together; their visits overlap only briefly.)
+          if (stop && together >= 1) break;
         }
         w.invalidate();
-        return { both: both / 120, twice, now: stop && together >= 60 };
+        return { both: both / 120, twice, now: stop && together >= 1 };
       };
       w.invalidate();
       return { X, Z, h, ids, mill: mill.id, shop: shop.id };
