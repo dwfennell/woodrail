@@ -608,3 +608,50 @@ Real railways solve this with tokens or tablets: a single line between two passi
 2. The book and the refusal, behind `RESERVE=1`; measured on own-08, own-10 and complex-3, with rowan-2 and dandelion as guards.
 3. The full seeded bar.
 4. Retire what it replaces.
+
+#### 13.6.3 The reservation book, measured and parked
+
+The book is on main, off unless `RESERVE=1`: passing places by junction cluster (`blocks.ts`), the refusal (`reservedBy`), a 10 s timeout, and the "go first when the holder waits on you" rule.
+
+Two agreed rounds, all 22 maps × 3 seeds, dispatcher on at main, without and with the book:
+
+| Map | Book off | Round 0 (312d2619) | Round 1 (f1e756e0) |
+|---|---|---|---|
+| complex-3 | 509 | 539 | 539 |
+| own-08 | 35 | 59 | 61 |
+| own-12 | 75 | 91 | 93 |
+| complex-1 | 487 | 486 | 493 |
+| wren | 556 | 566 | 562 |
+| own-06 | 86 | 40 | 55 |
+| own-05 | 86 | 50 | 52 |
+| own-11 | 255 | 210 | 235 |
+| user-2026-11-22-two-train | 177 | 168 | 168 |
+| complex-2 | 488 | 474 | 480 |
+| own-03 | 49 | 45 | 45 |
+| **Net** | | **−67** | **−25** |
+
+- No new breaks; p98 ≤ 1.24 ms.
+- The other maps are within 4 stops.
+
+Round 2 varied what another train holds (seed 1, `RESERVE=1`). The columns are:
+- **held only:** what it stands on and is granted;
+- **ahead 8 / 16:** that, and 8 or 16 pieces of its way on;
+- **round 1:** its whole way to its next passing place.
+
+| Map | Off | Round 1 | Held only | Ahead 8 | Ahead 16 |
+|---|---|---|---|---|---|
+| own-11 | 255 | 236 | 255 | 208 | 201 |
+| two-train | 177 | 168 | 178 | 169 | 169 |
+| own-05 | 86 | 63 | 87 | 63 | 63 |
+| own-06 | 86 | 43 | 82 | 43 | 43 |
+| own-08 | 35 | 58 | 35 | 41 | 63 |
+| complex-3 | 491 | 542 | 491 | 543 | 543 |
+| complex-2 | 490 | 480 | 490 | 480 | 479 |
+
+**Why parked:**
+- The losses come from real head-ons within 8 pieces, near the line ends both trains turn at (own-05/06), on one-way rings (own-11), and on the two-train map.
+- complex-3's gain comes from refusals at that same range, and own-08's needs more.
+- How far a claim reaches can't tell the helpful refusals from the harmful ones.
+- The plain dispatcher copes on double track by letting such pairs meet and sorting them out after. Why that works there and not on own-08 is the open question before the book is worth taking further.
+
+`blocks.ts` (passing places, junction clusters) stays: it's a model of "where a train can wait" with uses beyond the book.
