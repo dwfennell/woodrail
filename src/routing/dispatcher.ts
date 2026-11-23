@@ -340,9 +340,12 @@ export class Dispatcher {
         for (let i = t.at; i + 1 < t.main && t.succ[i].includes(i + 1) && refs.has(t.frontRef[i]); i++) end = i + 1;
         // (Back to the last waiting point on it, if there's one: the new way's waits aren't the old one's (no longer its
         // stop; inside a path signal's block), and a hold ending between them left it standing where it may not wait.)
+        // (None between: back to the last place clear of points, not on them (user-2026-11-21: kept to its front on points, a decision from there
+        // ran it on into a train standing on the road the points lay for).)
         let w = end;
         while (w > t.at && !t.wait[w]) w--;
         if (w > t.at) end = w;
+        else while (end > t.at && !t.rest[end]) end--;
         this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
         const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
