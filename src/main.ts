@@ -4387,7 +4387,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       join.textContent = second
         ? runsOn
           ? "Join the second track to the line (lit on the map) with points of your own: a Split on the line at each end of it, and trains load there too"
-          : "Join the second track to the line: drag a Split from the Switch shelf onto the line at each end of the yard (the track's lit on the map), and trains load there too"
+          : "Join the second track to the line: drag a Split from the Switch shelf onto the line at each end of the yard (the track's lit on the map), and trains load there too. A train longer than the yard needs room: lay a straight or two on each end of the track first, and the Splits beyond them"
         : "Join the third track (lit on the map): a Split at each end, its legs on the second and third tracks, with the line's Splits a straight further out to meet it";
       box.append(join);
     }

@@ -134,7 +134,11 @@ describe("crane: front train first", () => {
     expect(leftWith).toBe(full);
   });
 
-  /** A second track laid as the mill's card does, joined to the line by a pair of splits (as a player would). */
+  /**
+   * A second track laid as the mill's card does (one straight beside the yard), lengthened by a straight on each end
+   * for these trains, longer than the yard, and joined to the line beyond them by a pair of splits (as the card says a
+   * player does).
+   */
   function twoTracks(w: W): number {
     const plan = planTracks(w, w.mill, () => null);
     if (typeof plan === "string") throw new Error(plan);
@@ -143,6 +147,7 @@ describe("crane: front train first", () => {
     const after = tracksAfter(plan, ids);
     w.economy.setTracks(w.mill as DepotState, after.roads, after.ends, after.ladder);
     const mx = w.millAt * 216;
+    for (const x of [mx - 216, mx + 216]) w.layout.addPiece("straight-216", { x, z: -72, heading: 0 });
     w.layout.removePiece(w.ids[w.millAt - 2]);
     w.layout.removePiece(w.ids[w.millAt + 2]);
     w.layout.addPiece("split", { x: mx - 432, z: 0, heading: 0 }, 0, true);

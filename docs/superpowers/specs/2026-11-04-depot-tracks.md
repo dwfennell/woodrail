@@ -16,7 +16,10 @@ track beside it, on the side away from its yard, a double track (72 mm, one squa
 left open (since 2026-11-22, the owner: "really we just need to add the one in the middle"; till then the second ran
 on a straight past each end of the yard). The player joins it, with points from the tray: a **Split** dragged from
 the Switch shelf onto the line takes the place of the straight there (points splice into a line as a depot does,
-also 2026-11-16) and, dropped right at an end of the yard, its link meets the end of the new track. The card says how (the track lit on the map) until a train can reach it, and until then it's no track of the
+also 2026-11-16) and, dropped right at an end of the yard, its link meets the end of the new track. A train longer
+than the yard (most: an engine and two wagons is 256 mm) would stand over those Splits, so the card says to lay a
+straight or two on each end of the track first and put the Splits beyond them (the owner's choice, 2026-11-23: the
+player lengthens it, the card lays one piece). The card says how (the track lit on the map) until a train can reach it, and until then it's no track of the
 industry to routes. Track, record and price are **one undo step** (undone, the goods go back to the workshop). The
 yard's **one crane** becomes a gantry over every track and **serves each track's train in turn**, a load at a time.
 To routes, goals and counts the industry is still one stop. A routed train goes to the **first free track** it can
@@ -147,7 +150,8 @@ only when the track, the land or the workshop's stock change.
   and a third track beside it, the ladder kept. A save round trip, an old save with one track; the gantry's span.
 - `npm run e2e:depot-tracks` (about 6 min): by taps on a phone: the card, Second track (only the track, one straight:
   planks taken, its ends open, the card saying how to join it, lit), Undo (track and planks back), again; a Split dragged by touch
-  from the Switch shelf onto the line at each end of the yard, spliced in and joining it (the pointer move's cost); two trains routed by taps standing at
+  from the Switch shelf onto the line at each end of the yard, spliced in and joining it; Undo twice, a straight
+  dragged from the tray onto each end of the second track and the Splits beyond them, for trains longer than the yard (the pointer move's cost); two trains routed by taps standing at
   the mill at once on their own tracks, the crane never moving two loads at once, both trains' grain unloaded; Third
   track (planks and stone, the card saying how to join it), the gantry over 2 and 3; after a reload three tracks still; 0 idle frames.
 

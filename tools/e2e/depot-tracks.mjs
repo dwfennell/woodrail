@@ -11,6 +11,9 @@
 //      the yard (turned and flipped as held) splices in there, in place of the line's straight next to the yard, and
 //      joins the new track's end; the pointer move's cost while held;
 //      the card no longer asks, nothing lit.
+//   3b. These trains are longer than the yard (an engine and two hoppers), so the player makes room, as the card says:
+//      Undo twice (the top bar) takes the Splits back (the line's straights back, the planks back); a straight dragged by
+//      touch from the tray onto each open end of the second track joins it; a Split on the line beyond each, joined.
 //   4. Each train given a route by taps (Plan a route, the mill, the workshop, Done) and set going: they stand at the
 //      mill on two tracks at once, the one crane serving each in turn (never two loads at once), and both trains'
 //      grain lands on the mill's pile (the payoff).
@@ -323,6 +326,89 @@ if (!setup.error) {
   await shot("3-two-tracks-joined");
   await p.keyboard.press("Escape");
   await p.waitForTimeout(1200);
+
+  // 3b. Room for these trains (longer than the yard, so standing on one straight they'd foul the Splits): Undo twice,
+  // a straight from the tray on each end of the second track, and the Splits on the line beyond them.
+  for (let k = 0; k < 2; k++) {
+    await tapButton('button[aria-label="Undo (Ctrl+Z)"]');
+    await p.waitForTimeout(600);
+  }
+  s = await state();
+  const splitsLeft = await p.evaluate((ids) => ids.filter((id) => !!window.woodrail.layout.getPiece(id)).length, laid.map((r) => r.id));
+  check("3b. Undo twice: the Splits taken back, their planks back, the track not joined", splitsLeft === 0 && s.planks === 22 && s.tracks === 2 && s.roads[0].open, JSON.stringify({ splitsLeft, s }));
+  const trayItem = async (key) => {
+    const find = () => p.evaluate((key) => { const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`); if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; }, key);
+    for (let k = 0; k < 24; k++) {
+      const r = await find();
+      if (r) return r;
+      if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await tapButton(".scroller .tray-back");
+      const shelves = await p.evaluate(() => document.querySelectorAll(".scroller .tray-group").length);
+      if (k >= shelves) return null;
+      const box = await p.evaluate((k) => { const e = document.querySelectorAll(".scroller .tray-group")[k]; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; }, k);
+      await tapped(() => p.touchscreen.tap(box[0], box[1]));
+    }
+    return null;
+  };
+  const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  const lengthened = [];
+  // (Each straight's middle: 108 on past each end of the second track, at l −72.)
+  for (const along of [-108, 324]) {
+    await showing({ depot: mill, along, across: -72 }, 700, { phi: 0.9 });
+    await settle();
+    const item = await trayItem("piece:straight-216");
+    if (!item) {
+      check("3b. a Long straight on the tray", false);
+      break;
+    }
+    const mid = await worldAt({ depot: mill, along, across: -72 });
+    const [tx, ty] = await screen(mid.x, mid.y, mid.z);
+    const before = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    let t = Date.now() / 1000;
+    // (Dragged by touch from the tray; a held piece rides a little above the finger: aimed below it.)
+    await touch("touchStart", item[0], item[1], t);
+    for (let k = 1; k <= 16; k++) await touch("touchMove", item[0] + ((tx - item[0]) * k) / 16, item[1] + ((ty + 56 - item[1]) * k) / 16, (t += 0.04));
+    await p.waitForTimeout(400);
+    await frames();
+    await touch("touchEnd", 0, 0, (t += 0.05));
+    await frames();
+    await p.waitForTimeout(800);
+    await settle();
+    lengthened.push(await p.evaluate((before) => [...window.woodrail.layout.pieceIds()].find((i) => !before.includes(i) && window.woodrail.layout.getPiece(i).type === "straight-216") ?? -1, before));
+  }
+  const ends = await p.evaluate(() => {
+    const w = window.woodrail;
+    const road = w.economy.roadsOf(window.__mill)[0].pieceId;
+    return [0, 1].map((i) => w.layout.joinedConnector(road * 8 + i) >> 3);
+  });
+  check("3b. a straight dragged from the tray onto each end of the second track joins it there", lengthened.length === 2 && lengthened.every((id) => id !== -1) && [...ends].sort().join() === [...lengthened].sort().join(), JSON.stringify({ lengthened, ends }));
+  const beyond = await p.evaluate(() => {
+    const w = window.woodrail;
+    const m = w.layout.getPiece(w.economy.depot(window.__mill).pieceId).pose;
+    const c = Math.cos(m.heading);
+    const sn = Math.sin(m.heading);
+    const at = (t, turn) => ({ x: m.x + t * c, z: m.z + t * sn, heading: m.heading + turn });
+    return [
+      { type: "split", pose: at(-432, 0), flipped: true },
+      { type: "split", pose: at(648, Math.PI), flipped: false },
+    ];
+  });
+  const laid2 = [];
+  for (const [k, wnt] of beyond.entries()) {
+    await showing({ depot: mill, along: k === 0 ? -324 : 540, across: 0 }, 700, { phi: 0.9 });
+    await settle();
+    const r = await dragPointsOnto(p, cdp, screen, wnt);
+    laid2.push(r);
+    check(`3b. a Split on the line beyond the ${k === 0 ? "near" : "far"} straight splices in there`, r.id !== -1 && r.why === null, JSON.stringify(r));
+  }
+  const joined2 = await p.evaluate((ids) => {
+    const w = window.woodrail;
+    return ids.map((id) => (w.layout.getPiece(id) ? [0, 1, 2].map((i) => w.layout.joinedConnector(id * 8 + i) !== -1) : null));
+  }, laid2.map((r) => r.id));
+  s = await state();
+  check("3b. …each joined at all three ends; the track the industry's again, 648 clear of the points; 5 planks each", joined2.every((j) => j && j.every(Boolean)) && !s.roads[0].open && s.planks === 12, JSON.stringify({ joined2, planks: s.planks }));
+  await showing({ depot: mill, across: -40 }, 1250, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
+  await settle();
+  await shot("3b-two-tracks-lengthened");
 
   // 4. Two trains, each routed by taps to the mill and on to the workshop: served at once, the crane in turn.
   const trains = await p.evaluate(async () => {

@@ -274,10 +274,10 @@ describe("depot tracks: a second track on another line", () => {
     const road = roadOf(w, 0);
     expect(w.economy.unjoinedTracks(w.mill)).toEqual([road]);
     // (Another line along the second track, the player's own: straights on from both its open ends, a farm at the east.)
-    const ends = w.economy.tracksOf(w.mill.id)!.ends.map((id) => w.layout.getPiece(id)!.pose);
-    const z = ends[0].z;
-    const west = Math.min(...ends.map((e) => e.x));
-    const east = Math.max(...ends.map((e) => e.x));
+    const rp = w.layout.getPiece(road)!.pose;
+    const z = rp.z;
+    const [west, east] = [rp.x - 216, rp.x + 216];
+    for (const x of [west, east]) w.layout.addPiece("straight-216", { x, z, heading: 0 });
     const before = [1, 2].map((k) => w.layout.addPiece("straight-216", { x: west - 216 * k, z, heading: 0 }));
     w.layout.addPiece("straight-216", { x: east + 216, z, heading: 0 });
     const farm2 = w.economy.addDepot("farm", w.layout.addPiece("depot-farm", { x: east + 432, z, heading: 0 }));
