@@ -540,3 +540,71 @@ The search scores one goal a train ("of N"), so a state where two trains each re
   - Turns at line ends mean a leg can double back. A leg that turns claims the dead end until it's out again (§2.2a).
   - Hand-run and parked trains are fixed claims.
 - **Size:** about 2–3 days, behind a switch, on the usual seeded bar. The first targets are own-08, own-10 and complex-3; the guard is rowan-2 and dandelion, which were the over-refusal canaries every time.
+
+#### 13.6.1 The one-sided check, parked
+
+`safeOrder` is on `claude/dispatch-safe-17` (36d4482f), off unless `SAFE=1`. Before a grant it moves the stretch's trains a leg at a time, round trains coming the other way. It refuses the grant if a train could no longer reach its stop after next, and only where the asking train can wait.
+
+Seed 1, `SAFE=1` against without:
+
+| Map | With the check | Without |
+|---|---|---|
+| own-08 | 27 | 35 |
+| own-10 | 49 | 57 |
+| complex-3 | 497 | 509 |
+| complex-1 | 503 | 481 |
+| rowan-2 | 670 | 687 |
+| dandelion | 791 | 814 |
+
+p98 reaches 1.56 ms. Why it falls short:
+- **It moves one train at a time.** Trains really move together, so a train following another, or a loop where the train it would pass hasn't yet arrived, reads wrong.
+- **It holds back only the asking side.** The trains it would meet aren't held, and walk into the same knot.
+- **own-08 needs an order between two trains,** which a one-sided check can't express: the shuttle waits at its stop until a particular train has come out of the dead end.
+
+#### 13.6.2 Design: two-sided reservation (single-line working)
+
+Real railways solve this with tokens or tablets: a single line between two passing places is one train's at a time, booked whole, and the train coming the other way waits at the passing place. The rule is two-sided because both directions ask the same book. The model:
+
+**Track model** (per layout revision, from the topology already built):
+- **Sections:** the plain-track runs between points (`singleOf`'s segments; dead ends included).
+- **Passing places:**
+  - each road of a passing loop (two or more sections joining the same pair of points);
+  - a yard's track (the depot second-track roads);
+  - a stop's section, when another train can stand clear of it;
+  - a long enough plain section that doesn't block a junction.
+  A passing place has room for one train per road; the place's capacity is its number of roads.
+- **Blocks:** the runs of non-passing sections (and the points between them) from one passing place to the next. A block holds one direction at a time.
+
+**The book:** each block holds a queue of claims. A claim is a train, the direction it runs the block, and the time asked.
+- Same-direction claims share a block: they follow, and the sim's spacing keeps them apart.
+- Opposite claims exclude each other: the first in the queue holds it, and the rest wait their turn.
+- Passing places count the roads booked into them.
+
+**The rule** (one refusal, `reservedBy`, beside the others in `decide`):
+- A move that enters a block must hold it, which means being first of its direction with no opposite claim ahead.
+- It must also hold a free road in the passing place at the block's far end.
+- Otherwise the train waits where it is, which the hold rules already keep clear of points.
+- Claims are made when a train asks for the move (two legs ahead at most, as far as its next stop or turn), and freed as its tail leaves each block.
+- A train that turns in a dead end holds that dead end's block until it has come back out past the points (§2.2a).
+
+**Why it's two-sided:** the train coming the other way asks the same book, finds the block held, and waits at its own passing place. Neither side can walk into the knot.
+
+**Order:** the longest waiter first (`stood`), as single lines already work. A claim that can't be honoured within `RESERVE_TIMEOUT_S` (a hand-run train in the way, say) is dropped and asked again, so no claim lasts for ever.
+
+**What it replaces:** if it works, `singleLineBy`, `deadEndBy` and most of `headOnAhead`'s special cases are this, done once.
+
+**Cost:**
+- The topology is built per layout revision: blocks and passing places from `singleOf` and the loops.
+- Claims update on grants and tail-leaves. The refusal check is a lookup per block on the move: O(blocks on the move), microseconds.
+- The search is unchanged. p98 should not move.
+
+**Risks:**
+- Capacity: a block taken whole slows a busy line (one direction at a time). This is §2.2a's stated price, and the cards say why.
+- Passing-place detection must not miss real ones. A loop too short for a train isn't a passing place for that train: the room rule, by length.
+- Trains off their booked ways (detours, hand-run) claim what they stand on.
+
+**Milestones:**
+1. Topology (blocks, passing places) with tests on the own maps' known shapes.
+2. The book and the refusal, behind `RESERVE=1`; measured on own-08, own-10 and complex-3, with rowan-2 and dandelion as guards.
+3. The full seeded bar.
+4. Retire what it replaces.
