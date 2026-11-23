@@ -24,6 +24,8 @@ import { plan, ROUTE_COSTS } from "../routing/plan";
 import { stubRule } from "../routing/stubs";
 import { addTo } from "./goods";
 
+/** The dispatcher plans a train into the depot track it's sent to (`trackFor`), not the depot's own piece; `YARD_TRACKS=0` off, to measure. */
+export const TRACKS_IN_DISPATCH = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).YARD_TRACKS !== "0" };
 const NONE = 0;
 const CRAWLING = 1;
 const HALTED = 2;
@@ -2863,7 +2865,16 @@ export class Economy {
         route: (e) => {
           const route = this.routeOf(e);
           if (!route || route.stops.length === 0) return null;
-          const stops = route.stops.map((x) => this.depot(x.depotId)?.pieceId ?? -1);
+          // (A depot of several tracks: its next stop is the track it's sent to (`trackFor`, as the router and sections
+          // steer for), or stands on; as its own piece, own-10's Logs one was planned onto the sawmill's track a Planks
+          // train stood on, with its second track free, and the four trains knotted in 10 s.)
+          const i = route.next % route.stops.length;
+          const stops = route.stops.map((x, k) => {
+            const d = this.depots[x.depotId];
+            if (!d || !this.onMap(d)) return -1;
+            if (k !== i || !TRACKS_IN_DISPATCH.on || !this.tracks.has(d.id)) return d.pieceId;
+            return route.at ? this.trackAt(e, d) : this.trackFor(e, d);
+          });
           return stops.every((p) => p >= 0) ? { stops, next: route.next, at: !!route.at } : null;
         },
         // (Busy: the depot or a kit's stop holds it (working, its dwell), or it's turning back: it asks for nothing.)

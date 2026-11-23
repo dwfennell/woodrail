@@ -89,6 +89,9 @@ export interface Snap {
   speed: number;
 }
 
+/** `buildTrain` plans a way on again from a turned train's front where the plan's own way out can't be taken; `REPLAN_TURN=0` off, to measure. */
+export const REPLAN_TURN = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).REPLAN_TURN !== "0" };
+
 /** A routed train's stops (pieces) and where it is on them; null: hand-run. */
 export type RouteView = (engine: number) => { stops: number[]; next: number; at: boolean } | null;
 
@@ -166,6 +169,8 @@ export interface DTrain {
   main: number;
   /** A stuck train's detour (§2.2 step 4): nodes of another way to its next stop, off the booked way's track. */
   detour: Uint8Array;
+  /** What its detour was planned round (the pieces it avoids), if it has one: for building it again (`trainsOf`). */
+  avoid?: ReadonlySet<number>;
   /**
    * Part pieces: a close-up node (its front piece only part way) and each main node's close-up (−1: none); how much of
    * its tail piece a node covers (mm, from that piece's far end) and the connector it runs onto it by; its front's.
@@ -359,7 +364,28 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
       const p = plan(layout, state, target, ROUTE_COSTS);
       if (!p) break;
       let ok = true;
-      for (const st of p.steps) if (!(ok = apply(st))) break;
+      // (Its way after a turn planned again from its front as it runs then: the plan turns a point, so a train turned at
+      // a buffer with its tail still back over points (own-10: the forest's second track, turned at the main's buffer
+      // beyond the split) is planned out by the points' other road, a way its train can't take; unbuilt, it stood held
+      // for good.)
+      let steps = p.steps;
+      let replans = 0;
+      let sinceTurn = false;
+      for (let q = 0; q < steps.length; q++) {
+        if ((ok = apply(steps[q]))) {
+          if (steps[q].reverse) sinceTurn = true;
+          continue;
+        }
+        if (!REPLAN_TURN.on || !sinceTurn || replans++ >= 2) break;
+        const f = lane[lane.length - 1];
+        const again = plan(layout, { pieceId: f.p, entry: f.en, lead: true }, target, ROUTE_COSTS);
+        if (!again) break;
+        steps = again.steps;
+        q = -1;
+        sinceTurn = false;
+        state = { pieceId: f.p, entry: f.en, lead: true };
+        ok = true;
+      }
       if (!ok) break;
       // (Onto the stop's piece: arrived. The way through it, the next leg's.)
       const f = lane[lane.length - 1];
@@ -595,6 +621,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
   return {
     key: s.key,
     length: L,
+    ...(avoid && extra.length > 0 ? { avoid } : {}),
     fixed: fixed || goal < 0,
     pos: pos.map((ps) => Int32Array.from(ps)),
     succ: succ.map((x) => Int32Array.from(x)),

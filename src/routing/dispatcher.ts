@@ -62,6 +62,8 @@ const RESERVE_TIMEOUT_S = Number(((globalThis as { process?: { env: Record<strin
 export const RESERVE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).RESERVE === "1" };
 /** §13.6's safety check over the stretch (`safeOrder`): off unless SAFE=1 (a prototype under measure). */
 export const SAFE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SAFE === "1" };
+/** A train granted a loop road or detour keeps it when its way is built again (`trainsOf`): off unless KEEP_DETOUR=1 (own-10 jams 21 → 7 a seed, but complex-1 −9, rowan-1 −9, user-2026-11-21 a jam at 1647 s). */
+export const KEEP_DETOUR = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_DETOUR === "1" };
 /**
  * `headOnAhead`'s admission check on the leg after a move's stop: off unless ADMIT2=1 (measured: own-08, own-10,
  * complex-3 no better, rowan-2 −56, own-03 −5; dispatcher spec §13, the deeper lookahead).
@@ -368,7 +370,11 @@ export class Dispatcher {
           return moved;
         }
       }
-      const t = buildTrain(layout, s);
+      // (Granted a detour and still on it: built again round what it avoided, so the grant stays on the detour's road
+      // (own-10: Logs two, granted loop 2's free road as it left the sawmill, was built afresh as its route moved on,
+      // its way the booked road with Planks two on it; it stood on the loop's points for good).)
+      const onDetour = KEEP_DETOUR.on && !!h && !!h.t.avoid && h.path.some((n) => h.t.detour[n] === 1);
+      const t = onDetour ? buildTrain(layout, s, undefined, h!.t.avoid) : buildTrain(layout, s);
       if (!s.stops || !s.lever) return t;
       const trainId = sim.findCar(s.key)?.train.id ?? -1;
       if (h) {
@@ -384,22 +390,38 @@ export class Dispatcher {
         const refs = new Set<number>();
         // (The joints it was granted past: each node's but the last's, its hold's end.)
         for (let k = 0; k + 1 < oldPath.length; k++) if (oldT.frontRef[oldPath[k]] >= 0) refs.add(oldT.frontRef[oldPath[k]]);
-        let end = t.at;
-        for (let i = t.at; i + 1 < t.main && t.succ[i].includes(i + 1) && refs.has(t.frontRef[i]); i++) end = i + 1;
+        // (The kept way's nodes from where it stands, by the road it was granted where roads part: a loop's other road
+        // or a detour's, as well as the booked one (own-10: Logs two, granted loop 2's free road as it left the
+        // sawmill, kept only along its booked road, the one Planks two stood on: it stood on the loop's points for good).)
+        const seq = [t.at];
+        for (let i = t.at; refs.has(t.frontRef[i]) && seq.length <= t.pos.length; ) {
+          let nx = -1;
+          if (KEEP_DETOUR.on) {
+            for (const j of t.succ[i]) if ((j === i + 1 || j >= t.main) && (t.detour[j] === 0 || onDetour) && refs.has(t.frontRef[j])) {
+              nx = j;
+              if (j === i + 1) break;
+            }
+          }
+          if (nx < 0 && i + 1 < t.main && t.succ[i].includes(i + 1)) nx = i + 1;
+          if (nx < 0) break;
+          seq.push(nx);
+          i = nx;
+        }
+        let end = seq[seq.length - 1];
         // (Back to the last waiting point on it, if there's one: the new way's waits aren't the old one's (no longer its
         // stop; inside a path signal's block), and a hold ending between them left it standing where it may not wait.)
         // (None between: back to the last place clear of points, not on them (user-2026-11-21: kept to its front on points, a decision from there
         // ran it on into a train standing on the road the points lay for).)
-        let w = end;
-        while (w > t.at && !t.wait[w]) w--;
-        if (w > t.at) end = w;
+        let w = seq.length - 1;
+        while (w > 0 && !t.wait[seq[w]]) w--;
+        if (w > 0) end = seq[w];
         else {
           // (Back to its last place clear of points. None, and it stands on points itself (a line end too short to turn
           // clear of them: it turns over them, as it must): the grant's end as kept, not where it stands (own-03: held
           // on points 5 on its way to turn at the buffer, it stood there for good).)
-          let e = end;
-          while (e > t.at && !t.rest[e]) e--;
-          if (e > t.at || t.rest[t.at]) end = e;
+          let e = seq.length - 1;
+          while (e > 0 && !t.rest[seq[e]]) e--;
+          if (e > 0 || t.rest[t.at]) end = seq[e];
         }
         this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
