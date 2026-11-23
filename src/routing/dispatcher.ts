@@ -35,15 +35,21 @@ export const OWNER = { on: ((globalThis as { process?: { env: Record<string, str
 export const HEAD_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HEAD_AHEAD !== "0" };
 
 /** Single lines booked whole (§13.5 step 3, the spec's §2.2a one at a time): on, unless SINGLE=0. */
+/** A train waits in a dead end of its own while the one it turns in is busy (`deadEndBy`, own-08); DEAD=0: not. */
+export const DEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD !== "0" };
 export const SINGLE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SINGLE !== "0" };
 /** The most pieces a single line runs (a longer run, or a ring of plain track with no points: not booked). */
 const SINGLE_MAX = 400;
 
 /** `headOnAhead`'s ways, per booked way (its `pos`, shared by the copies `relocate` makes) and node. */
+/** `deadTarget` per booked way and node. */
+const deadCache = new WeakMap<Int32Array[], Map<number, number>>();
 const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>();
 
 /** A stuck train searches for a detour at most this often (s). */
 const DETOUR_EVERY_S = 6;
+/** How long a train waits at a dead end of its own for another heading into the one it turns in (`deadEndBy`). */
+const DEAD_PATIENCE_S = 20;
 
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
@@ -502,6 +508,7 @@ export class Dispatcher {
       const w = ways[k];
       const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
       singleBy = this.singleLineBy(engine, tt, this.pathTo(tt, to));
+      if (singleBy < 0 && DEAD.on) singleBy = this.deadEndBy(engine, tt, ts);
       if (singleBy >= 0) to = -1;
     }
     // (Points on the move the router has locked for another train, or another train is on: not granted; it waits on that
@@ -876,6 +883,104 @@ export class Dispatcher {
       if (!nx || seg.get(nx.pieceId) !== s) return connectorRef(cur, out);
       cur = nx.pieceId;
       out = nx.entry === 0 ? 1 : 0;
+    }
+    return -1;
+  }
+
+  /** Whether single line `s` is a dead end: one of its ends runs onto a buffer, or onto nothing; per layout revision. */
+  private deadEnd(s: number): boolean {
+    const layout = this.host.layout;
+    if (this.deadRev !== layout.revision) {
+      this.deads.clear();
+      this.deadRev = layout.revision;
+    }
+    const hit = this.deads.get(s);
+    if (hit !== undefined) return hit;
+    const seg = this.singleOf();
+    let out = false;
+    for (const [p, id] of seg) {
+      if (id !== s) continue;
+      for (let c = 0; c < 2 && !out; c++) {
+        const ref = this.singleEnd(seg, p, c);
+        if (ref < 0) continue;
+        const n = next(layout, pieceOfRef(ref), indexOfRef(ref));
+        const np = n ? layout.getPiece(n.pieceId) : undefined;
+        if (!n || !np || getPieceDef(np.type, np.flipped).connectors.length < 2) out = true;
+      }
+      break;
+    }
+    this.deads.set(s, out);
+    return out;
+  }
+  private readonly deads = new Map<number, boolean>();
+  private deadRev = -1;
+
+  /**
+   * The dead end (its single line) `t`'s way from node `from` next stops or turns in, before any other stop or turn
+   * (−1: none). Cached per booked way and node.
+   */
+  private deadTarget(t: DTrain, from: number, turnOnly = false): number {
+    let byAt = deadCache.get(t.pos);
+    if (!byAt) deadCache.set(t.pos, (byAt = new Map()));
+    const ck = from * 2 + (turnOnly ? 1 : 0);
+    const hit = byAt.get(ck);
+    if (hit !== undefined) return hit;
+    const stops = t.arrivals.filter((a) => t.order[a] > t.order[from]);
+    const stop = stops.length > 0 ? stops[0] : -1;
+    let out = -1;
+    for (let i = t.succ[from][0] ?? -1, n = 0; i >= 0 && n < 400; n++) {
+      if (t.turned[i] || i === stop) {
+        const s = this.singleOf().get(t.pos[i][t.pos[i].length - 1]);
+        if (s !== undefined && s >= 0 && this.deadEnd(s) && (!turnOnly || i !== stop)) out = s;
+        break;
+      }
+      i = t.succ[i][0] ?? -1;
+    }
+    byAt.set(ck, out);
+    return out;
+  }
+
+  /**
+   * A train in a dead end of its own whose way next turns in another dead end (no stop of its own there) isn't moved
+   * out while another train is on that one, granted onto it, or heading there to stop or turn (−1: none; else that
+   * train's engine): it waits where it is, out of everyone's way, not on the way in (own-08: the shuttle, let off its
+   * stop on the branch toward the forest's buffer where it turns, as another went in there to its stop, stood in the
+   * loop's last road). Of two waiting on each other, the one that asked first waits.
+   */
+  private deadEndBy(engine: number, t: DTrain, ts: readonly DTrain[]): number {
+    if (!t.rest[t.at]) return -1;
+    // (Only a train that turns there, with no stop of its own in it: one going to its stop there waits at the line
+    // before as on any single line, and to hold it back at its last stop till the far end is clear runs a line with
+    // passing loops one train at a time (own-01).)
+    const s = this.deadTarget(t, t.at, true);
+    if (s < 0) return -1;
+    const seg = this.singleOf();
+    // (In it already: it turns there and comes out.)
+    if (t.pos[t.at].some((p) => seg.get(p) === s)) return -1;
+    // (Only from a dead end of its own, out of everyone's way: one standing on a line elsewhere, at a stop or not, may
+    // be in the way of the train coming out (own-01: the farm, on the line between two loops).)
+    const inDead = t.pos[t.at].some((p) => {
+      const q = seg.get(p);
+      return q !== undefined && q >= 0 && this.deadEnd(q);
+    });
+    if (!inDead) return -1;
+    const self = this.host.sim.findCar(engine)?.train;
+    for (const o of this.host.sim.trains()) {
+      if (o === self || o.derailed) continue;
+      const key = (o.cars.find((c) => c.kind === "engine") ?? o.cars[0]).id;
+      if (this.holdsBy.get(key)?.singleWait === engine) continue;
+      if (o.bogies.some((b) => seg.get(b.pieceId) === s)) return key;
+      const h = this.holdsBy.get(key);
+      if (h && h.path.some((i) => h.t.pos[i].some((p) => seg.get(p) === s))) return key;
+    }
+    // (Heading for it, not yet on it: waited for `DEAD_PATIENCE_S` at most; that one may be stuck on this one in turn
+    // (own-08: Through one in the far loop, waiting on a train that waits on the shuttle).)
+    const st = this.holdsBy.get(engine)?.stood ?? -1;
+    if (st >= 0 && this.host.sim.ticks - st >= DEAD_PATIENCE_S * 120) return -1;
+    for (const o of ts) {
+      if (o.key === engine || o.fixed) continue;
+      if (this.holdsBy.get(o.key)?.singleWait === engine) continue;
+      if (this.deadTarget(o, o.at) === s) return o.key;
     }
     return -1;
   }
