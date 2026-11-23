@@ -122,7 +122,7 @@ export interface Recipe {
   readonly gives: readonly CargoKind[];
   /**
    * One cycle every `seconds` (at rate 1): uses `uses` from its piles, adds `makes` to them. Runs while it has what it
-   * uses and room for at least one good it makes; a good with no room isn't made that cycle (a mine full of ore still
+   * uses and room for at least one good it makes; a good is made only up to its pile's cap (a mine full of ore still
    * brings up coal). `eats`: uses one of whatever it has of `takes` (a town using up its goods).
    */
   readonly cycle?: { readonly uses: Bag; readonly makes: Bag; readonly seconds: number; readonly eats?: boolean };
@@ -191,7 +191,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // Stone cut from a hillside (Game mode's quarries).
   quarry: { takes: [], gives: ["stone"], cycle: { uses: {}, makes: { stone: 1 }, seconds: 14 } },
   // Mining and iron (Phase C): a mine in the hills brings up coal and ore; a foundry makes iron of them.
-  mine: { takes: [], gives: ["coal", "ore"], cycle: { uses: {}, makes: { coal: 1, ore: 1 }, seconds: 18 } },
+  // Coal 2 a cycle (it feeds foundries, brickworks, glassworks and power stations), ore 1: a foundry's iron is still
+  // ore-bound as before, and there's coal to spare.
+  mine: { takes: [], gives: ["coal", "ore"], cycle: { uses: {}, makes: { coal: 2, ore: 1 }, seconds: 18 } },
   foundry: { takes: ["coal", "ore"], gives: ["iron"], cycle: { uses: { coal: 1, ore: 1 }, makes: { iron: 1 }, seconds: 10 } },
   // A brickworks fires bricks of a quarry's stone and a mine's coal (the next nodes, 2026-11-02).
   brickworks: { takes: ["stone", "coal"], gives: ["bricks"], cycle: { uses: { stone: 1, coal: 1 }, makes: { bricks: 1 }, seconds: 12 } },
@@ -262,9 +264,9 @@ export const SHED_CAP = 12;
 export const MAX_SHEDS = 3;
 
 /** How much each pile of this depot holds: its kind's, and its dock sheds' (a harbour's). */
-/** Has this depot's pile of `kind` room for `n` more (a cycle's make)? */
-export function hasRoomFor(d: DepotState, kind: CargoKind, n: number): boolean {
-  return d.piles[CARGO[kind].index] + n <= capAt(d);
+/** How many of a cycle's `n` of `kind` fit on this depot's pile: all, the rest up to the cap, or none. */
+export function roomFor(d: DepotState, kind: CargoKind, n: number): number {
+  return Math.max(0, Math.min(n, capAt(d) - d.piles[CARGO[kind].index]));
 }
 
 export function capAt(d: DepotState): number {
@@ -1971,8 +1973,8 @@ export class Economy {
 
   /**
    * Is this depot making (or using) something now: it has what its cycle uses and room for at least one of the goods
-   * it makes? (A mine whose ore is full goes on bringing up coal; `hasRoomFor` says which it makes.) A sawmill's saw
-   * spins while true.
+   * it makes? (A mine whose ore is full goes on bringing up coal; `roomFor` says how much of each it makes.) A
+   * sawmill's saw spins while true.
    */
   working(d: DepotState): boolean {
     const cycle = RECIPES[d.role].cycle;
@@ -1982,7 +1984,7 @@ export class Economy {
     let made = false;
     for (const k in cycle.makes) {
       made = true;
-      if (hasRoomFor(d, k as CargoKind, cycle.makes[k as CargoKind]!)) return true;
+      if (roomFor(d, k as CargoKind, cycle.makes[k as CargoKind]!) > 0) return true;
     }
     // (A cycle that makes nothing, as a power station's, runs on its inputs alone.)
     return !made;
@@ -3424,10 +3426,11 @@ export class Economy {
         continue;
       }
       for (const k in cycle.uses) d.piles[CARGO[k as CargoKind].index] -= cycle.uses[k as CargoKind]!;
-      // Only the goods with room are made: a full pile's share of the cycle isn't (a mine full of ore makes coal).
+      // Only what fits is made: a full pile's share of the cycle isn't (a mine full of ore makes coal), and a pile
+      // with room for less than the cycle makes is topped up to its cap.
       for (const k in cycle.makes) {
-        const n = cycle.makes[k as CargoKind]!;
-        if (!hasRoomFor(d, k as CargoKind, n)) continue;
+        const n = roomFor(d, k as CargoKind, cycle.makes[k as CargoKind]!);
+        if (n === 0) continue;
         d.piles[CARGO[k as CargoKind].index] += n;
         this.made[CARGO[k as CargoKind].index] += n;
       }

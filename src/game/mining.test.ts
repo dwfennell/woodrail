@@ -50,14 +50,23 @@ describe("mining and iron", () => {
     const run = (seconds: number) => {
       for (let i = 0; i < seconds * SIM_HZ; i++) economy.tick();
     };
-    // Ore piled to the cap (no train takes it): coal still comes up, a lump a cycle, and no ore past the cap.
+    // A cycle brings up two coal and one ore.
+    run(18 + 1);
+    expect([m.piles[CARGO.coal.index], m.piles[CARGO.ore.index]]).toEqual([2, 1]);
+    // Ore piled to the cap (no train takes it): coal still comes up, two a cycle, and no ore past the cap.
+    m.piles[CARGO.coal.index] = 0;
     m.piles[CARGO.ore.index] = capAt(m);
     expect(economy.working(m)).toBe(true);
-    run(18 * 3 + 1);
-    expect(m.piles[CARGO.coal.index]).toBe(3);
+    run(18 * 3);
+    expect(m.piles[CARGO.coal.index]).toBe(6);
     expect(m.piles[CARGO.ore.index]).toBe(capAt(m));
-    expect(economy.made[CARGO.coal.index]).toBe(3);
-    expect(economy.made[CARGO.ore.index]).toBe(0);
+    expect(economy.made[CARGO.coal.index]).toBe(2 + 6);
+    expect(economy.made[CARGO.ore.index]).toBe(1);
+    // Room for one coal only: the pile is topped up to its cap.
+    m.piles[CARGO.ore.index] = 0;
+    m.piles[CARGO.coal.index] = capAt(m) - 1;
+    run(18);
+    expect([m.piles[CARGO.coal.index], m.piles[CARGO.ore.index]]).toEqual([capAt(m), 1]);
     // The same the other way round.
     m.piles[CARGO.ore.index] = 0;
     m.piles[CARGO.coal.index] = capAt(m);
