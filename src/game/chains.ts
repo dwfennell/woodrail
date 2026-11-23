@@ -87,7 +87,7 @@ export interface ChainView {
   readonly outputs: readonly ChainLink[];
   /** An industry that makes something: how it's doing (null for a town, a loader, a sink). */
   readonly state: ChainState | null;
-  /** The goods it's waiting for (state "waiting"), or full of (state "full"). */
+  /** The goods it's waiting for (state "waiting"), or full of (state "full", or "working" with others still made). */
   readonly short: readonly CargoKind[];
 }
 
@@ -135,8 +135,9 @@ export function chainOf(d: DepotState, all: readonly DepotState[], placeOf: Plac
     const full = makes.filter((k) => d.piles[CARGO[k].index] >= cap);
     const lacking = uses.filter((k) => d.piles[CARGO[k].index] < (r.cycle!.uses[k] ?? 0));
     if (lacking.length > 0) [state, short] = ["waiting", lacking];
-    else if (full.length > 0) [state, short] = ["full", full];
-    else state = "working";
+    // (Full only once every good it makes is: a mine full of ore still brings up coal, working, its ore named.)
+    else if (full.length === makes.length) [state, short] = ["full", full];
+    else [state, short] = ["working", full];
   }
   return { inputs, outputs, state, short };
 }
@@ -150,7 +151,7 @@ export function goodsList(kinds: readonly CargoKind[]): string {
 export function stateWords(view: ChainView): string {
   switch (view.state) {
     case "working":
-      return "Working";
+      return view.short.length === 0 ? "Working" : `Working. Full of ${goodsList(view.short)}: a train can take ${view.short.length > 1 || plural(view.short[0]) ? "them" : "it"}`;
     case "waiting":
       return `Waiting for ${goodsList(view.short)}`;
     case "full":
