@@ -62,8 +62,8 @@ const RESERVE_TIMEOUT_S = Number(((globalThis as { process?: { env: Record<strin
 export const RESERVE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).RESERVE === "1" };
 /** §13.6's safety check over the stretch (`safeOrder`): off unless SAFE=1 (a prototype under measure). */
 export const SAFE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SAFE === "1" };
-/** A train granted a detour keeps it when its way is built again (`trainsOf`); `KEEP_DETOUR=0` off, to measure. */
-export const KEEP_DETOUR = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_DETOUR !== "0" };
+/** A train granted a loop road or detour keeps it when its way is built again (`trainsOf`): off unless KEEP_DETOUR=1 (own-10 jams 21 → 7 a seed, but complex-1 −9, rowan-1 −9, user-2026-11-21 a jam at 1647 s). */
+export const KEEP_DETOUR = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_DETOUR === "1" };
 /**
  * `headOnAhead`'s admission check on the leg after a move's stop: off unless ADMIT2=1 (measured: own-08, own-10,
  * complex-3 no better, rowan-2 −56, own-03 −5; dispatcher spec §13, the deeper lookahead).
