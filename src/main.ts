@@ -5851,7 +5851,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const cars = found.train.cars;
     const line = engineId !== -1 ? lineOf(game.economy, engineId) : undefined;
-    const key = `${mode}:${engineId}:${carId}:${game.economy.loadsVersion}:${game.economy.carGoodsVersion}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
+    const key = `${mode}:${engineId}:${carId}:${game.economy.loadsVersion}:${game.economy.carGoodsVersion}:${game.economy.wagonCapacity}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
     if (key === summaryKey) return;
     summaryKey = key;
     if (engineId !== -1) {
