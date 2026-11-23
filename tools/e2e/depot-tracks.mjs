@@ -398,12 +398,26 @@ if (!setup.error) {
     for (let k = 1; k <= 16; k++) await touch("touchMove", item[0] + ((tx - item[0]) * k) / 16, item[1] + ((ty + 56 - item[1]) * k) / 16, (t += 0.04));
     await p.waitForTimeout(400);
     await frames();
-    const heldNow = await p.evaluate(() => {
-      const m = window.woodrail.interaction.mode;
-      if (m?.kind !== "drag-piece") return { mode: m?.kind ?? null };
-      const s = m.snap?.kind === "snapped" ? m.snap.pose : null;
-      return { type: m.type, blocked: m.blocked ?? null, snap: s && { x: Math.round(s.x), z: Math.round(s.z) }, loose: m.pose && { x: Math.round(m.pose.x), z: Math.round(m.pose.z) } };
-    });
+    // Steered till it snaps on the track's end (as a player nudges it): the held piece's middle on screen brought to
+    // the spot, a few moves (a held piece rides above the finger by a distance that depends on the view).
+    const heldState = () =>
+      p.evaluate(() => {
+        const m = window.woodrail.interaction.mode;
+        if (m?.kind !== "drag-piece") return { mode: m?.kind ?? null };
+        const s = m.snap?.kind === "snapped" ? m.snap.pose : null;
+        const q = s ?? m.pose;
+        return { type: m.type, blocked: m.blocked ?? null, snapped: !!s, mid: q && { x: q.x + Math.cos(q.heading) * 108, z: q.z + Math.sin(q.heading) * 108 } };
+      });
+    let finger = [tx, ty + 56];
+    let heldNow = await heldState();
+    for (let k = 0; k < 8 && heldNow.mid && !(heldNow.snapped && !heldNow.blocked && Math.hypot(heldNow.mid.x - mid.x, heldNow.mid.z - mid.z) < 30); k++) {
+      const [hx, hy] = await screen(heldNow.mid.x, mid.y, heldNow.mid.z);
+      finger = [finger[0] + (tx - hx), finger[1] + (ty - hy)];
+      await touch("touchMove", finger[0], finger[1], (t += 0.04));
+      await frames();
+      await p.waitForTimeout(150);
+      heldNow = await heldState();
+    }
     await touch("touchEnd", 0, 0, (t += 0.05));
     await frames();
     await p.waitForTimeout(800);
