@@ -6,6 +6,7 @@
  */
 import type { CarKind } from "../../sim";
 import { planTracks, tracksAfter } from "../../game/depot-tracks";
+import { transformPose } from "../../track";
 import { rulesFor } from "../rules";
 import { Build, passingLoop, type Step } from "./build";
 
@@ -317,9 +318,10 @@ function hill(): Build {
 
 /**
  * A second track for depot `depotPiece`, as its card adds one (`planTracks`, then `tracksAfter` and
- * `Economy.setTracks`), joined to the line by a Split from the tray at each end, dropped in place of the straight two
- * out from each end of the yard (as depot-tracks.test.ts's player does). The line runs straight through the yard, two
- * straights each side at least.
+ * `Economy.setTracks`), a straight laid on at each of its ends (a player's, for a longer train to stand clear of the
+ * points: these maps were made when the card laid those too), and joined to the line by a Split from the tray at each
+ * end, dropped in place of the straight two out from each end of the yard. The line runs straight through the yard,
+ * two straights each side at least.
  */
 function secondTrack(b: Build, depotPiece: number): void {
   const w = b.w;
@@ -331,6 +333,13 @@ function secondTrack(b: Build, depotPiece: number): void {
   const ids = plan.pieces.map((p) => b.editor.place(p.type, p.pose, p.y, p.flipped));
   const after = tracksAfter(plan, ids);
   w.economy.setTracks(d, after.roads, after.ends, after.ladder);
+  const road = w.layout.getPiece(ids[0])!;
+  const on = (t: number) => transformPose(road.pose, { x: t, z: 0, heading: 0 }, { x: 0, z: 0, heading: 0 });
+  for (const t of [-216, 216]) {
+    const why = rulesFor(w)("straight-216", false, on(t), road.y, -1);
+    if (why) throw new Error(`a straight on the second track: ${why}`);
+    b.editor.place("straight-216", on(t), road.y, false);
+  }
   // (In the yard's own frame: the straights at −432 and +432 along it, each taken up for a Split, its link to the track.)
   const dp = w.layout.getPiece(depotPiece)!;
   const h = dp.pose.heading;

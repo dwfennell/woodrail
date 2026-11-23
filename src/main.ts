@@ -4431,13 +4431,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const join = document.createElement("div");
       join.className = "station-waiting depot-tracks-join";
       const second = unjoined.includes(roads[0]);
-      // (Laid short at an end by what was there: a Split on the line won't meet that end by itself.)
-      const whole = [...ends].filter((e) => game.layout.getPiece(e)?.type === "straight-216").length >= 2;
+      // (An older save's second track ran on past the yard's ends: the line's Splits go a straight further out.)
+      const runsOn = [...ends].length > 0;
       join.textContent = second
-        ? whole
-          ? "Join the second track to the line: drag a Split from the Switch shelf onto the line at each end of it (lit on the map), and trains load there too"
-          : "Join the second track to the line (lit on the map) with points of your own: a Split on the line, and a straight on to meet the track where it stops short. Trains load there too"
-        : "Join the third track: drag a Split from the Switch shelf onto each end of the second track, beside it (lit on the map)";
+        ? runsOn
+          ? "Join the second track to the line (lit on the map) with points of your own: a Split on the line at each end of it, and trains load there too"
+          : "Join the second track to the line: drag a Split from the Switch shelf onto the line at each end of the yard (the track's lit on the map), and trains load there too. A train longer than the yard needs room: lay a straight or two on each end of the track first, and the Splits beyond them"
+        : "Join the third track (lit on the map): a Split at each end, its legs on the second and third tracks, with the line's Splits a straight further out to meet it";
       box.append(join);
     }
     if (n < MAX_TRACKS) {
@@ -4458,12 +4458,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const why = document.createElement("div");
         why.className = "station-waiting depot-tracks-why";
         why.textContent = plan;
-        box.append(why);
-      } else if (plan.short) {
-        // Laid shorter at an end than it would be, by what's there: said, so a Split there isn't a surprise.
-        const why = document.createElement("div");
-        why.className = "station-waiting depot-tracks-why";
-        why.textContent = plan.short;
         box.append(why);
       }
     }
