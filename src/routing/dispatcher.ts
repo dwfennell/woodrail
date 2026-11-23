@@ -50,6 +50,8 @@ const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>()
 
 /** A stuck train searches for a detour at most this often (s). */
 const DETOUR_EVERY_S = 6;
+/** Back-ups (§13.5 step 4): on, unless BACKUPS=0. */
+export const BACKUPS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).BACKUPS !== "0" };
 /** How long a train waits at a dead end of its own for another heading into the one it turns in (`deadEndBy`). */
 const DEAD_PATIENCE_S = 20;
 
@@ -652,7 +654,7 @@ export class Dispatcher {
     // (Back-up (§2.1 step 5): stuck `REROUTE_AFTER_S`, no order keeps them all going, and the best order with one
     // back-up a train keeps more going with one of its own: it backs up, at most its length, to rest clear of points.
     // Once a jam (`BACK_AGAIN_S`).)
-    if (to < 0 && r.plain < r.of && now - h.backedAt >= BACK_AGAIN_S * 120 && h.stood >= 0 && now - h.stood >= REROUTE_AFTER_S * 120) {
+    if (BACKUPS.on && to < 0 && r.plain < r.of && now - h.backedAt >= BACK_AGAIN_S * 120 && h.stood >= 0 && now - h.stood >= REROUTE_AFTER_S * 120) {
       const rb = search(placed, members, { cap: DISPATCH_STATES, backUps: true, order, taken, weights, oneWay: this.oneWay });
       // (Its own back-up anywhere in that order: taken now if the track it backs onto is free now (`startBack`), so the
       // moves before it aren't what makes room for it.)
