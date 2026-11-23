@@ -6,7 +6,8 @@
 // points, with a train or a signal on the straights, saying why. A Long straight laid on under a bridge already
 // standing digs one too, and so does Draw, across a line from a ramp's top. On a hilltop (cut into the hill); refused
 // across a road, and a road refused across one; Draw on the ground under a standing bridge. Off a hill's edge (the
-// underpass's block on a plinth down to the felt), with a Bridge and a Curved bridge; refused into a hillside.
+// underpass's block on a plinth down to the felt), with a Bridge and a Curved bridge; refused into a hillside. Then a
+// reload: every underpass still open (the felt's holes, the hills' cuts) and its bridge a girder span.
 //
 // Groups (`-- --list`, E2E_ONLY=hill-edge,…: scripts/e2e/lib/groups.mjs, docs/agents/e2e.md): one page, each group
 // building its own place to work (road-over and costs put down an underpass first when run alone).
@@ -70,7 +71,11 @@ async function openSandbox() {
   await settle();
   await p.keyboard.press("Escape");
   await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
-  // What the game says: toasts and refusals.
+  await listen();
+}
+
+/** What the game says, toasts and refusals, kept in `window.__said` (again after a reload). */
+async function listen() {
   await p.evaluate(() => {
     const h = window.woodrail.hud;
     window.__said = [];
@@ -903,6 +908,61 @@ suite.add("draw-under", async () => {
     await look(at.X + 756, at.Z, [0.7, 0.9, 0.9], 640, 10);
     await snap("low-bridge-2-drawn-under.jpg");
   }
+});
+
+// 14. Reloaded (QA 2026-11-22: "after reloading a save the underpass is filled in"): the game continued from its
+// autosave keeps every underpass, on the felt and on a hill, open: the same pieces, the felt's holes cut for the ground
+// ones (a fresh landscape view had none until the next track edit, so the felt covered the dip), the hills cut the same
+// under the hilltop ones, the bridges over them still girder spans.
+const groundCuts = () =>
+  p.evaluate(async () => {
+    const w = window.woodrail;
+    const { underpassHoles } = await import("/src/track/underpass.ts");
+    const { hillsOf } = await import("/src/landscape/hill-shape.ts");
+    const hills = hillsOf(w.landscape.grid);
+    const pieces = [...w.layout.pieceIds()].map((i) => ({ id: i, ...w.layout.getPiece(i) }));
+    const under = pieces
+      .filter((q) => q.type === "underpass")
+      .map((q) => {
+        const mx = q.pose.x + 144 * Math.cos(q.pose.heading);
+        const mz = q.pose.z + 144 * Math.sin(q.pose.heading);
+        return `${q.id}@${q.pose.x.toFixed(1)},${q.pose.z.toFixed(1)},${q.y.toFixed(1)} ground ${hills.groundAt(mx, mz).toFixed(1)}`;
+      });
+    const spans = pieces.filter((q) => q.type.startsWith("bridge") && JSON.stringify(w.archFloorsOf(q)) === "[-1]").map((q) => q.id);
+    return {
+      under,
+      onFelt: pieces.filter((q) => q.type === "underpass" && q.y <= 0.5).length,
+      holes: w.landscapeView.feltHoles.length,
+      wanted: underpassHoles(w.layout).length,
+      spans,
+      count: pieces.length,
+    };
+  });
+suite.add("reload", async () => {
+  // (Run alone: a line through an underpass on the felt, put down by the editor.)
+  if ((await groundCuts()).onFelt === 0) await build([...LINE.slice(0, 1), { type: "underpass", pose: { x: 216, z: 0, heading: 0 } }, LINE[3]], { type: "ramp", pose: { x: 900, z: -400, heading: 0 } });
+  const was = await groundCuts();
+  check("reload: before, the felt has a hole for each underpass on it", was.onFelt > 0 && was.holes === was.wanted && was.holes >= was.onFelt, JSON.stringify(was));
+  const at = await p.evaluate(() => {
+    const w = window.woodrail;
+    const q = [...w.layout.pieceIds()].map((i) => w.layout.getPiece(i)).find((q) => q.type === "underpass" && q.y <= 0.5);
+    return { x: q.pose.x + 144 * Math.cos(q.pose.heading), z: q.pose.z + 144 * Math.sin(q.pose.heading) };
+  });
+  // Reloaded: saved on the way out (pagehide), continued from the title.
+  await p.reload();
+  await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 240000 });
+  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click());
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  await settle();
+  await p.keyboard.press("Escape");
+  await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip")?.click());
+  await listen();
+  const now = await groundCuts();
+  check("reload: the same track, the same underpasses", now.count === was.count && JSON.stringify(now.under) === JSON.stringify(was.under), JSON.stringify({ was: was.under, now: now.under }));
+  check("reload: the felt still has a hole for each underpass on it (not felted over)", now.holes === now.wanted && now.holes === was.holes, JSON.stringify({ was: was.holes, now: now.holes, wanted: now.wanted }));
+  check("reload: the bridges over them still girder spans", JSON.stringify(now.spans) === JSON.stringify(was.spans), JSON.stringify({ was: was.spans, now: now.spans }));
+  await look(at.x, at.z, [0.7, 0.9, 0.9], 640, 10);
+  await snap("low-bridge-4-after-reload.jpg");
 });
 
 // Costs: the plan worked out on a pointer move over a line (fresh each spot), and the felt sheet cut again for the
