@@ -37,7 +37,7 @@ import { Buses } from "./game/buses";
 import { TownCars } from "./game/town-cars";
 import { plotPrice } from "./game/towns";
 import { hasBank, PLACES, type Place } from "./game/places";
-import type { Town } from "./landscape";
+import type { KeepOff, Town } from "./landscape";
 import { firstFoodNews } from "./game/food-text";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { atSchool, landmarkOf, schoolTakesFor, schoolHowTo, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
@@ -106,13 +106,14 @@ import { drawLedger, type NextUpView, type TownTabView } from "./ui/town-ledger"
 import { nextUp, type NextUp, type TownTab } from "./game/town-next";
 import { attachWater, type WaterControls } from "./ui/water-controls";
 import { attachSecrets, type SecretControls } from "./ui/secret-controls";
+import { SiteBar } from "./ui/site-bar";
 import { secretOfStop } from "./game/secrets";
 import { isSecretKit } from "./track";
 import { drawPlaceRows } from "./ui/places-row";
 import { paintable } from "./render/train-models";
 import { ownColoursOpen, paint, paintOpen, paintOwn, paintPots } from "./game/paint-shop";
 import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
-import { achievements, advanceGrands, centralPiece, centralWhy, countRider, fairTown, moveCentralKit, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, siteAsset, siteMoveRule, siteSpot, startGrand, unionFootprint, type GrandId, type GrandTile } from "./game/grand";
+import { achievements, advanceGrands, centralPiece, centralWhy, countRider, fairTown, moveCentralKit, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, grandState, siteAsset, siteMoveRule, siteSpot, startGrand, unionFootprint, type GrandId, type GrandTile } from "./game/grand";
 import { defaultPick, drawGrandRow } from "./ui/grand-row";
 import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
@@ -479,6 +480,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let interaction: Interaction;
   /** River barges on screen (made once the HUD and interaction are: `attachWater`). */
   let water: WaterControls | null = null;
+  /** A grand project's site being placed, before it's paid for (Start, then Build here or Cancel), or null. */
+  let siting: { id: GrandId; town: Town; prop: number } | null = null;
   let secrets: SecretControls | null = null;
   const audio = new ToyAudio();
   let muted = loadMuted();
@@ -1419,6 +1422,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A drawn line lifted just before, waiting a frame to go down: down on the map it was drawn on.)
     interaction?.flushDraw();
     setExpanding(false);
+    // (A grand site still being placed was the old map's: gone with it, never paid for.)
+    if (siting) endSiting(false);
     game.setWorld(world);
     water?.reset();
     shownDelivered = new Map();
@@ -3712,6 +3717,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(`🚉 Grand Central is in your toy box (Industries tab, Stations): put it on a line by ${town.name}, and lay track to its three roads`, true, 6000);
       return;
     }
+    if (siting) endSiting(true);
     try {
       await grandModels(id);
     } catch {
@@ -3719,28 +3725,119 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return;
     }
     const level = statusOf(game.world, town.id).level;
-    const fps = Array.from({ length: g.stages.length + 1 }, (_, i) => game.propLibrary.footprint(siteAsset(g, i)));
-    const fp = unionFootprint(fps, g.scale);
-    const r = startGrand(
-      game.world,
-      progress,
-      town,
-      level,
-      id,
-      () => (fp ? siteSpot(game.world, town, fp, game.propLibrary.footprint) : null),
-      (asset, pose, scale) => {
-        const prop = game.props.add(asset, pose, undefined, { scale }).id;
-        game.propsChanged();
-        return prop;
-      },
-    );
-    if (r === "no-room") {
+    if (grandState(game.world, progress, town, level, g) !== "build") return audio.refuse();
+    const fp = siteFootprint(id);
+    const pose = fp ? siteSpot(game.world, town, fp, game.propLibrary.footprint) : null;
+    if (!pose || !fp) {
       hud.toast(`No room by ${town.name} for the ${g.name}: it needs a big clear, level space near the station`, false, 4200);
       audio.refuse();
       return;
     }
-    if (r === "not-now") return audio.refuse();
-    grandStarted(town, id);
+    // Not paid yet: the site stands where the game suggests, a draft (never saved), for the player to drag where they
+    // like it, turn, and then Build here or Cancel (spec 2026-11-22-grand-placement.md, step 2).
+    const prop = game.props.add(siteAsset(g, 0), pose, undefined, { scale: g.scale });
+    prop.draft = true;
+    siting = { id, town, prop: prop.id };
+    interaction.sitePending = prop.id;
+    game.propsChanged();
+    hud.hideCards();
+    siteBar.show(g.icon, g.name, town.name, g.coins);
+    frameSite(prop.id, fp);
+    audio.tap();
+  }
+
+  /** Every stage's footprint of a project together, as its site needs room for (only the loaded models'). */
+  function siteFootprint(id: GrandId) {
+    const g = grandOf(id)!;
+    return unionFootprint(Array.from({ length: g.stages.length + 1 }, (_, i) => game.propLibrary.footprint(siteAsset(g, i))), g.scale);
+  }
+
+  /** The camera on a site: its corners framed, room left for the bar. */
+  function frameSite(propId: number, fp: { cx: number; cz: number; hw: number; hd: number }): void {
+    const p = game.props.get(propId);
+    if (!p) return;
+    const c = Math.cos(p.heading);
+    const sn = Math.sin(p.heading);
+    const points = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => {
+      const lx = fp.cx + a * fp.hw;
+      const lz = fp.cz + b * fp.hd;
+      return { x: p.x + lx * c - lz * sn, z: p.z + lx * sn + lz * c };
+    });
+    flyTo({ x: p.x, z: p.z, points });
+  }
+
+  const siteBar = new SiteBar(hud.root, {
+    build: () => siteBuild(),
+    cancel: () => {
+      if (!siting) return;
+      endSiting(true);
+      audio.tap();
+    },
+    turn: () => {
+      const s = siting;
+      const p = s && game.props.get(s.prop);
+      if (!s || !p) return;
+      const fit = interaction.siteFits(s.prop, (p.heading + Math.PI / 2) % (Math.PI * 2));
+      if (typeof fit === "string") {
+        hud.toast(fit);
+        audio.refuse();
+        return;
+      }
+      game.props.move(s.prop, fit);
+      game.propsChanged();
+      game.invalidate();
+      audio.tap();
+    },
+  });
+  interaction.onSiteMoved = () => game.invalidate();
+
+  /** Placing's over: the bar down; `remove`, its draft site taken away too (Cancel, or another Start). */
+  function endSiting(remove: boolean): void {
+    const s = siting;
+    siting = null;
+    interaction.sitePending = -1;
+    siteBar.hide();
+    if (s && remove) {
+      game.props.remove(s.prop);
+      game.propsChanged();
+    }
+    game.invalidate();
+  }
+
+  /** Build here: the coins paid, the draft site made the project's, where it stands now (if it still fits there). */
+  function siteBuild(): void {
+    const s = siting;
+    const p = s && game.props.get(s.prop);
+    if (!s || !p) return;
+    const g = grandOf(s.id)!;
+    const fit = interaction.siteFits(s.prop, p.heading);
+    if (typeof fit === "string") {
+      hud.toast(fit);
+      audio.refuse();
+      return;
+    }
+    const level = statusOf(game.world, s.town.id).level;
+    const r = startGrand(game.world, progress, s.town, level, s.id, () => fit, (_asset, pose) => {
+      game.props.move(s.prop, pose);
+      delete p.draft;
+      return s.prop;
+    });
+    if (r !== "started") {
+      hud.toast(progress.coins < g.coins ? `The ${g.name} needs ${g.coins} 🪙` : `The ${g.name} can't be started just now`, false, 3200);
+      audio.refuse();
+      return;
+    }
+    endSiting(false);
+    game.propsChanged();
+    grandStarted(s.town, s.id);
+    // (The city's card again, on its project: stage 1 under way, the goods it needs.)
+    const station = game.stations.get(s.town.id);
+    const depot = station === undefined ? undefined : game.economy.depotAtPiece(station);
+    if (depot) {
+      townView.want = { depot: depot.id, tab: "projects", pick: s.id };
+      townView.depot = -1;
+      interaction.openDepotCard(depot.id);
+    }
   }
 
   /** A grand project started in `town`: coins shown, the toast and News, saved. */
@@ -3885,6 +3982,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const siteModelsAsked = new Set<GrandId>();
   interaction.siteTown = (propId) => {
     if (mode !== "game") return -1;
+    if (siting && propId === siting.prop) return siting.town.id;
     for (const [key, plan] of game.economy.grandPlans)
       if (plan.prop === propId) {
         const id = key as GrandId;
@@ -3897,8 +3995,33 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }
     return -1;
   };
+  // Trees step aside from every site's plot, its whole footprint (spec 2026-11-22-grand-placement.md), as from track.
+  game.siteAreas = () => {
+    if (mode !== "game") return [];
+    const out: KeepOff[] = [];
+    const add = (id: GrandId, propId: number) => {
+      const p = game.props.get(propId);
+      if (!p) return;
+      const fp = siteFootprint(id);
+      // (Its stages' models not all loaded yet, as on a load: asked for, and the trees moved again once they are.)
+      if (!siteModelsAsked.has(id)) {
+        siteModelsAsked.add(id);
+        grandModels(id).then(() => game.syncSiteTrees(), () => siteModelsAsked.delete(id));
+      }
+      if (fp) out.push({ pose: { x: p.x, z: p.z, heading: p.heading }, rects: [fp] });
+    };
+    for (const [id, plan] of game.economy.grandPlans) if (plan.prop >= 0) add(id as GrandId, plan.prop);
+    if (siting) add(siting.id, siting.prop);
+    return out;
+  };
+  game.syncSiteTrees();
   interaction.siteMove = (propId) => {
     if (mode !== "game") return null;
+    if (siting && propId === siting.prop) {
+      const g = grandOf(siting.id)!;
+      const fp = siteFootprint(siting.id);
+      return fp ? siteMoveRule(game.landscape, siting.town, g, fp) : null;
+    }
     for (const [id, plan] of game.economy.grandPlans) {
       if (plan.prop !== propId) continue;
       const g = grandOf(id);

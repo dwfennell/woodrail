@@ -200,7 +200,8 @@ export function serializeWorld(world: World): SaveData {
     ...(lines.length > 0 ? { lines } : {}),
     ...boatsOf(world, renumbered),
     ...yardsOf(world, renumbered),
-    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
+    // (A grand project's site still being placed isn't saved: it isn't paid for yet.)
+    props: [...world.props.all()].filter((p) => !p.draft).map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
 }
 

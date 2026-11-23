@@ -18,6 +18,11 @@ export interface Prop {
   scale?: number;
   /** A town house's storeys more than its model (Game mode: its town grew; see `props/storeys.ts`). None: 0. */
   storeys?: number;
+  /**
+   * Not saved: a grand project's site still being placed, before its coins are paid (spec 2026-11-22-grand-placement.md,
+   * step 2). Build here clears it; Cancel removes the prop.
+   */
+  draft?: boolean;
 }
 
 /** What a prop is part of, beyond its pose. */
