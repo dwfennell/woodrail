@@ -398,10 +398,18 @@ if (!setup.error) {
     for (let k = 1; k <= 16; k++) await touch("touchMove", item[0] + ((tx - item[0]) * k) / 16, item[1] + ((ty + 56 - item[1]) * k) / 16, (t += 0.04));
     await p.waitForTimeout(400);
     await frames();
+    const heldNow = await p.evaluate(() => {
+      const m = window.woodrail.interaction.mode;
+      if (m?.kind !== "drag-piece") return { mode: m?.kind ?? null };
+      const s = m.snap?.kind === "snapped" ? m.snap.pose : null;
+      return { type: m.type, blocked: m.blocked ?? null, snap: s && { x: Math.round(s.x), z: Math.round(s.z) }, loose: m.pose && { x: Math.round(m.pose.x), z: Math.round(m.pose.z) } };
+    });
     await touch("touchEnd", 0, 0, (t += 0.05));
     await frames();
     await p.waitForTimeout(800);
     await settle();
+    const toast = await p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "));
+    console.log(`(a straight held at ${along}: ${JSON.stringify(heldNow)}, aimed at ${Math.round(mid.x)},${Math.round(mid.z)}; toasts: ${toast})`);
     lengthened.push(await p.evaluate((before) => [...window.woodrail.layout.pieceIds()].find((i) => !before.includes(i) && window.woodrail.layout.getPiece(i).type === "straight-216") ?? -1, before));
   }
   const ends = await p.evaluate(() => {
