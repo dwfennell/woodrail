@@ -75,6 +75,15 @@ export const KEEP_DETOUR = { on: ((globalThis as { process?: { env: Record<strin
  * complex-3 no better, rowan-2 −56, own-03 −5; dispatcher spec §13, the deeper lookahead).
  */
 export const ADMIT2 = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ADMIT2 === "1" };
+/**
+ * `headOnAhead` timed (§13.6, `clearsFirst`): a move it would refuse goes if it clears the crossing before the other
+ * train could come to it. Off unless TIMED=1 (measuring). Its ratio of the other's distance, margin (mm), and the gap
+ * (mm) of track not crossed that ends the crossing stretch.
+ */
+export const TIMED = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED === "1" };
+const TIMED_RATIO = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED_RATIO ?? 0.6);
+const TIMED_MARGIN_MM = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED_MARGIN_MM ?? 500);
+const TIMED_GAP_MM = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED_GAP_MM ?? 2000);
 /** `headOnAhead`: another's way runs on through the stop its hold ends at (NEXT_LEG=0: not). */
 export const NEXT_LEG = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NEXT_LEG !== "0" };
 /** How long a train waits at a dead end of its own for another heading into the one it turns in (`deadEndBy`). */
@@ -177,6 +186,8 @@ export class Dispatcher {
   decisions = 0;
   grants = 0;
   detours = 0;
+  /** Moves let go by `clearsFirst` that `headOnAhead` would have refused. */
+  timedGo = 0;
   /** Grants refused by the reservation book (§13.6.2). */
   reservedRefused = 0;
   /** Grants refused by the safety check (§13.6). */
@@ -1241,7 +1252,16 @@ export class Dispatcher {
       // (And it stands on our way on, or its hold runs onto it, with no other road round it: a loop's other road
       // free, they pass there (own-07: refused onto the line into a loop as the other stood in the loop's main road).)
       const stand = placed[m].pos[placed[m].at];
-      if ((o.pos[o.at].some((p) => myAhead.has(p)) || stand.some((p) => myAhead.has(p))) && !this.wayRound(t, to, new Set([...o.pos[o.at], ...stand]))) return o.key;
+      if ((o.pos[o.at].some((p) => myAhead.has(p)) || stand.some((p) => myAhead.has(p))) && !this.wayRound(t, to, new Set([...o.pos[o.at], ...stand]))) {
+        // (Timed (§13.6, complex-1: Bluebell held 20 s at a time at the school for trains half the map away): it goes
+        // if it clears where their ways cross before the other could come to it, and the other's grant doesn't reach
+        // there yet; once it's on that stretch, the other's next decision finds it on its way and waits.)
+        if (TIMED.on && this.clearsFirst(t, o, myAhead, fresh, oWay)) {
+          this.timedGo++;
+          continue;
+        }
+        return o.key;
+      }
     }
     // (Admission two stops on: a move ending at its stop, and the leg after it, from there to its next stop or turn,
     // taken (stood on, or granted onto) by trains coming the other way along it with no road round them all: not
@@ -1272,6 +1292,41 @@ export class Dispatcher {
       if (first >= 0 && !this.wayRound(t, to, union)) return first;
     }
     return -1;
+  }
+
+  /**
+   * `headOnAhead`, timed: whether `t` clears every piece where its way and `o`'s cross the other way before `o` could
+   * come to the first of them (`TIMED_RATIO` of its distance, less `TIMED_MARGIN_MM`), and `o`'s grant reaches none.
+   */
+  private clearsFirst(t: DTrain, o: DTrain, myAhead: ReadonlyMap<number, number>, fresh: ReadonlyMap<number, number>, oWay: ReadonlyMap<number, number>): boolean {
+    const cross = new Set<number>();
+    for (const m of [fresh, myAhead]) for (const [p, en] of m) {
+      const oen = oWay.get(p);
+      if (oen !== undefined && oen !== en) cross.add(p);
+    }
+    if (cross.size === 0) return false;
+    const oh = this.holdsBy.get(o.key);
+    if (oh && oh.t.pos === o.pos) for (const i of oh.path) if (o.pos[i].some((p) => cross.has(p))) return false;
+    for (const p of o.pos[o.at]) if (cross.has(p)) return false;
+    // (Along a way's main nodes from where it stands (mm, across turns): to the last crossing piece (ours), the first (theirs).)
+    const walk = (x: DTrain, last: boolean): number => {
+      let run = 0;
+      let found = -1;
+      for (let i = x.at, prev = x.at, n = 0; i >= 0 && n < 600; n++) {
+        if (i !== prev) run += x.seg[i] === x.seg[prev] ? Math.abs(x.dist[i] - x.dist[prev]) : 0;
+        if (cross.has(x.pos[i][x.pos[i].length - 1])) {
+          found = run;
+          if (!last) return run;
+        } else if (last && found >= 0 && run - found > TIMED_GAP_MM) break;
+        prev = i;
+        i = x.succ[i][0] ?? -1;
+      }
+      return found;
+    };
+    const mine = walk(t, true);
+    const theirs = walk(o, false);
+    if (mine < 0 || theirs < 0) return false;
+    return mine + t.length + TIMED_MARGIN_MM < theirs * TIMED_RATIO;
   }
 
   /**
