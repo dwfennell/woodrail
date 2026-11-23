@@ -440,7 +440,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    no room (their margins cancel their height and the gap after them), then the title on its own strip of panel. The
    title sticks at the card's top edge (`top` is the padding's: -12px). Focus scrolls clear of it. */
 .card.depot-card { scroll-padding-top: 56px; }
-.card.depot-card > .close { position: sticky; top: -12px; z-index: 2; order: -4; align-self: flex-end; margin: -12px -14px -54px 0; }
+.card.depot-card > .close { position: sticky; top: -12px; right: auto; z-index: 2; order: -4; align-self: flex-end; margin: -12px -14px -54px 0; }
 .card.depot-card > .wiki-link { position: sticky; top: -12px; z-index: 2; order: -3; align-self: flex-start; margin: 0 0 -54px -14px; }
 .card.depot-card > .card-title { position: sticky; top: -12px; z-index: 1; order: -2; align-self: stretch; margin: 0 -14px; padding-top: 12px; padding-bottom: 6px; text-align: center; background: var(--wood-panel); box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
 /* The workshop's lines (Lines here, New route from here) before its long making list, not under it. */

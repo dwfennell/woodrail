@@ -80,7 +80,7 @@ for (const size of SIZES) {
         const b = e.getBoundingClientRect();
         return b.width > 0 && !e.closest("[hidden]") && (b.height < 43.5 || b.width < 43.5);
       }).map((e) => `${(e.textContent || e.getAttribute("aria-label") || "").trim().slice(0, 18)} ${Math.round(e.getBoundingClientRect().width)}×${Math.round(e.getBoundingClientRect().height)}`);
-      return { card: r(card), title: r(title), close: r(close), hudTop, tray, scrolls: card.scrollHeight > card.clientHeight + 1, small };
+      return { sb: card.offsetWidth - card.clientWidth, card: r(card), title: r(title), close: r(close), hudTop, tray, scrolls: card.scrollHeight > card.clientHeight + 1, small };
     });
     await p.screenshot({ path: `${OUT}/${size}-${name}.png` });
     if (!m) {
@@ -90,6 +90,7 @@ for (const size of SIZES) {
     const overlaps = (a, b) => a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
     check(`${size} ${name}: inside the window`, m.card.top >= 0 && m.card.bottom <= H, JSON.stringify(m.card));
     check(`${size} ${name}: title and ✕ in view in the card`, m.title && m.close && m.title.top >= m.card.top - 1 && m.close.top >= m.card.top - 1, JSON.stringify({ t: m.title, c: m.close }));
+    check(`${size} ${name}: ✕ in the card's top right corner (beside a scrollbar)`, m.close && m.close.top - m.card.top <= 4 && m.card.right - m.close.right <= m.sb + 4, JSON.stringify({ top: m.close && m.close.top - m.card.top, right: m.close && m.card.right - m.close.right }));
     // (Over the tray is fine only on a phone on its side, where the card docks at the right and comes down over it.)
     if (!(H < 520)) check(`${size} ${name}: clear of the tray`, !m.tray || m.card.bottom <= m.tray.top + 1, `${Math.round(m.card.bottom)} vs ${m.tray && Math.round(m.tray.top)}`);
     // (On a phone on its side the card is over the goals bar by design, QA 667×375: the top bar's buttons only.)
