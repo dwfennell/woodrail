@@ -22,6 +22,7 @@ import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
 import type { CreditsSheet } from "./credits-sheet";
 import type { ExplainerSheet } from "./explainer-sheet";
+import { loadCreditsSheet, loadExplainerSheet } from "./lazy-chunks";
 import { EXPLAINER_TITLES, explainerIdFor, type ExplainerId } from "./explainer-keys";
 import { WIKI_URL } from "./wiki-link";
 
@@ -700,7 +701,7 @@ export class Hud {
         this.menu.hidden = true;
         // (Its code is loaded the first time it opens.)
         if (this.credits) this.credits.show();
-        else void import("./credits-sheet").then(({ CreditsSheet }) => (this.credits ??= new CreditsSheet(this.root)).show());
+        else void loadCreditsSheet().then(({ CreditsSheet }) => (this.credits ??= new CreditsSheet(this.root)).show());
       }, "menu-item credits-item-btn"),
       sep(),
       button("Title screen", "Save and go back to the title screen", () => {
@@ -2977,7 +2978,7 @@ export class Hud {
     const open = (sheet: ExplainerSheet) => sheet.show(id, onClose ?? (() => {}));
     if (this.explainers) return open(this.explainers);
     // (Its words, pictures and code are loaded the first time: nothing of them before.)
-    void import("./explainer-sheet").then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
+    void loadExplainerSheet().then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
   }
 
   /** The explainer open now, or null (for tests). */

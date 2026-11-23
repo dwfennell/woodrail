@@ -37,6 +37,7 @@ export const SUITES = {
   lift: { script: "e2e:lift" },
   loop: { script: "e2e:loop" },
   research: { script: "e2e:research", minutes: 3 },
+  prefetch: { script: "e2e:prefetch", groups: true, minutes: 1 },
   growth: { script: "e2e:growth" },
   "copy-map": { script: "e2e:copy-map", minutes: 2 },
   "town-drag": { script: "e2e:town-drag", minutes: 4 },
@@ -257,6 +258,8 @@ export const RULES = [
   ["src/ui/prefs.ts", ["sandbox-chains"]],
   [["src/ui/explainers.ts", "src/ui/explainer-sheet.ts", "src/ui/hud.ts", "src/style.css"], ["learn-more", "situation-loops"]],
   [["src/ui/blueprint-board.ts", "src/ui/cost-tag.ts", "src/ui/wiki-link.ts"], ["research", "locked"]],
+  // The idle prefetch of lazily loaded sheets, and the loaders it shares with their opens (runs on the build).
+  [["src/lib/prefetch.ts", "src/lib/lazy.ts", "src/ui/lazy-chunks.ts", "tools/e2e/prefetch.mjs"], ["prefetch", "learn-more"]],
   ["src/ui/feedback-sheet.ts", ["touch:feedback", "click:feedback"]],
   [["src/ui/controls-tutorial.ts", "src/ui/title.ts"], ["tutorial"]],
   ["src/ui/focus-ring.ts", ["focus-ring"]],
