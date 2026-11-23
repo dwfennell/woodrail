@@ -64,9 +64,10 @@ export const RESERVE = { on: ((globalThis as { process?: { env: Record<string, s
 export const SAFE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SAFE === "1" };
 /**
  * A train granted a loop's other road keeps it when its way is built again (`trainsOf`), as far as the old grant ran
- * and no further than a decision would grant (not onto a single line another is on): KEEP_ROADS=0 off, to measure.
+ * and no further than a decision would grant (not onto a single line another is on): off unless KEEP_ROADS=1 (own-10
+ * +5 stops, jams 18 → 8; own-03 +4; user-2026-11-21 −14 and a jam at 1342 s in seed 1, §13.6's one-stop-too-early knot).
  */
-export const KEEP_ROADS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_ROADS !== "0" };
+export const KEEP_ROADS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_ROADS === "1" };
 /** …and a detour's, built again round what it avoided: off unless KEEP_DETOUR=1 (complex-1 −9, rowan-1 −9, user-2026-11-21 a jam). */
 export const KEEP_DETOUR = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_DETOUR === "1" };
 /**
