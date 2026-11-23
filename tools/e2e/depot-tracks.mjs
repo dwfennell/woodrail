@@ -432,6 +432,10 @@ if (!setup.error) {
     return [0, 1].map((i) => w.layout.joinedConnector(road * 8 + i) >> 3);
   });
   check("3b. a straight dragged from the tray onto each end of the second track joins it there", lengthened.length === 2 && lengthened.every((id) => id !== -1) && [...ends].sort().join() === [...lengthened].sort().join(), JSON.stringify({ lengthened, ends }));
+  // (Done laying straights: the piece waiting at the end let go, as the toast says, by a tap away from it.)
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(400);
+  console.log(`(after the straights: interaction ${await p.evaluate(() => window.woodrail.interaction.mode?.kind ?? null)})`);
   // (Back to the Track tab's shelves, so the Switch shelf is there to open.)
   await tapButton('.tray .tab[data-tab="track"]');
   await p.waitForTimeout(400);
@@ -507,6 +511,7 @@ if (!setup.error) {
   });
   await showing({ depot: mill, across: -60 }, 760, { phi: 0.9, theta: Math.PI - 0.55 });
   await settle();
+  console.log(`(the picture: interaction ${await p.evaluate(() => window.woodrail.interaction.mode?.kind ?? null)}, trains at ${await p.evaluate(() => JSON.stringify([...window.woodrail.sim.trainIds()].map((id) => { const c = window.woodrail.sim.getTrain(id).world?.[0]; return c && [Math.round(c.x), Math.round(c.z)]; })))}, mill at ${await p.evaluate(() => { const q = window.woodrail.layout.getPiece(window.woodrail.economy.depot(window.__mill).pieceId).pose; return [Math.round(q.x), Math.round(q.z)]; })})`);
   await shot("4-two-trains-served");
   await showing({ depot: mill, across: -72 }, 2000, { phi: 0.4, theta: Math.PI / 2 });
   await settle();

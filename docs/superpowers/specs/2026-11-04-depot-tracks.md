@@ -38,9 +38,9 @@ pieces': laying one straight for the second instead of three left it at 10 plank
 straight at each end, 7½ for the third: real layouts often didn't have it. Those laid keep working, and a third track
 added to one goes beside the second, the ladder kept.)
 
-Pictures (390×844, from `npm run e2e:depot-tracks`; copies in `docs/agents/shots/depot-tracks-*.jpg`: `1-card`, `2-card`, `split-spliced`, `joined`, `two-trains`, `overview`, `3-card`): `1-one-track`, `2-two-tracks-unjoined`
+Pictures (390×844, from `npm run e2e:depot-tracks`; copies in `docs/agents/shots/depot-tracks-*.jpg`: `1-card`, `2-card`, `split-spliced`, `joined`, `lengthened`, `two-trains`, `overview`, `3-card`): `1-one-track`, `2-two-tracks-unjoined`
 (the new track lit, the card saying how to join it), `3-split-spliced` (the first Split dropped on the line),
-`3-two-tracks-joined`, `4-two-trains-served`, `5-overview`, `6-three-tracks`.
+`3-two-tracks-joined`, `3b-two-tracks-lengthened`, `4-two-trains-served`, `5-overview`, `6-three-tracks`.
 
 ## 2. The track
 
