@@ -501,3 +501,10 @@ At 664f4efe: 25 (23–29), dispatcher on. Main with it off, seeded: 93 (89–100
   | user-2026-11-21 | | | 1.54 | 0.81 |
 
   Wren gains stops but its first jam comes sooner (833 s against 988 s). The extra back-up search takes p98 over the 1.5 ms bar.
+
+**Parked with own-08: own-10.** own-10 has four freight trains on one line with two passing loops, and its sawmill is a two-track yard. Trains turn only at the line's two ends, so each train runs the whole line. At about 6 s, both Logs trains are in loop 1, one in each road, heading east. Planks one is at the sawmill and must go west through that loop to the forest's end to turn.
+- Asking `headOnAhead` for a way round all the oncoming trains at once (`claude/dispatch-own10-14`) only moves the knot. Planks one is held east of the sawmill, and the Logs trains then wait on it. That version also broke rowan-2 once in 3 seeds.
+- Letting a train go when the train coming at it already waits on it doesn't free own-10 either. It cost rowan-2 its p98 (1.74 ms).
+- What's needed is the same as own-08: whether a grant is safe depends on legs past each train's next stop.
+
+Dispatcher on, at d60f8283: 57 (57–58) stops; first jam at 48 s. Main off, seeded: 100; first jam at 302 s.
