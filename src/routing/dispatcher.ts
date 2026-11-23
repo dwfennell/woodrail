@@ -438,10 +438,18 @@ export class Dispatcher {
     // (A train with its front on points goes the way they lie: they can't be thrown under it. Its moves out by another
     // road aren't moves (own-01: granted off points lying the other way, it stood at the signal on their other exit for
     // good; refused instead, rowan-2's train stood on them for good).)
+    // (Ones whose booked way can't be followed from there at all (keys): as before, granted it, they go the way they
+    // must and the router books them again (rowan-1: turned at its stop with its tail on points lying the other way).)
+    let offWay: Set<number> | null = null;
     if (OWNER.on) {
       let copy: DTrain[] | null = null;
       for (let i = 0; i < ts.length; i++) {
         const pt = this.pinnedFront(ts[i]);
+        if (pt === null) {
+          offWay ??= new Set();
+          offWay.add(ts[i].key);
+          continue;
+        }
         if (pt === ts[i]) continue;
         copy ??= ts.slice();
         copy[i] = pt;
@@ -597,7 +605,7 @@ export class Dispatcher {
         let ex = -1;
         for (const w of waysFrom(this.host.layout, fp, tt.frontEn[tt.at], () => false)) if (next(this.host.layout, fp, w.exit)?.pieceId === nf) ex = w.exit;
         const under = ex >= 0 && waysFrom(this.host.layout, fp, tt.frontEn[tt.at]).length > 1 ? this.exitsUnder(engine, fp, tt.frontEn[tt.at]) : null;
-        if (under && !under.has(ex)) to = -1;
+        if (under && !under.has(ex) && !offWay?.has(engine)) to = -1;
         break;
       }
     }
@@ -666,11 +674,9 @@ export class Dispatcher {
     const len = pathLength(getPieceDef(piece.type, piece.flipped).paths[c.pathIndex].geom);
     // (`s` runs the cursor's own way: what's left of the piece is the rest of it.)
     let gap = len - c.s + rem;
-    // (Points ahead on its way not lying for it yet (the router sets them as it comes): it stands short of them.)
-    for (const q of h.points) {
-      // (Ahead of its front piece: its run to the hold's end from its near end is no more than the front piece's beyond.)
-      if (q.from <= rem + 1 && q.p !== c.pieceId && !this.liesFor(q.p, q.en, q.ex)) gap = Math.min(gap, len - c.s + rem - q.from);
-    }
+    // (Not short of points ahead that don't lie for it yet: the router sets them as it comes, and standing short of
+    // them (when `liesFor` saw every road: it saw one before, and never did this) cost wren ~60 stops a run and broke
+    // it twice in three: unset grants overruled 221.)
     // (Held where it stands (no move granted), another train on the piece just beyond its front: it stops now, not at
     // its front piece's end against that one (own-01: turned at its line's end, it ran on nose to nose: netActed).)
     if (h.end === h.t.at && OWNER.on) {
@@ -710,8 +716,11 @@ export class Dispatcher {
     return out;
   }
 
-  /** `t` with the moves off the points its front stands on by a road they don't lie for taken out (`t` if none). */
-  private pinnedFront(t: DTrain): DTrain {
+  /**
+   * `t` with the moves off the points its front stands on by a road its bogies aren't on taken out (`t` if none; null:
+   * none left, its booked way can't be followed from there).
+   */
+  private pinnedFront(t: DTrain): DTrain | null {
     if (t.fixed) return t;
     const layout = this.host.layout;
     const front = (i: number) => t.pos[i][t.pos[i].length - 1];
@@ -723,6 +732,7 @@ export class Dispatcher {
     const out = this.exitsUnder(t.key, fp, en);
     if (!out) return t;
     let succ: Int32Array[] | null = null;
+    let kept = 0;
     const seen = new Set<number>([t.at]);
     const todo = [t.at];
     while (todo.length > 0) {
@@ -741,6 +751,7 @@ export class Dispatcher {
           keep ??= Array.from(ss.subarray(0, q));
           continue;
         }
+        kept++;
         keep?.push(s);
       }
       if (keep) {
@@ -748,6 +759,7 @@ export class Dispatcher {
         succ[i] = Int32Array.from(keep);
       }
     }
+    if (succ && kept === 0) return null;
     return succ ? { ...t, succ } : t;
   }
 
