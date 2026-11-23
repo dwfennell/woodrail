@@ -428,12 +428,34 @@ export class Dispatcher {
     }
   }
 
-  private decide(ts: DTrain[], snaps: Snap[], engine: number): void {
+  private decide(tsIn: DTrain[], snaps: Snap[], engine: number): void {
+    let ts = tsIn;
     const h = this.holdsBy.get(engine);
     const k = ts.findIndex((t) => t.key === engine);
     if (!h || k < 0 || ts[k].fixed) return;
     h.decided = this.host.sim.ticks;
     const t0 = performance.now();
+    // (A train with its front on points goes the way they lie: they can't be thrown under it. Its moves out by another
+    // road aren't moves (own-01: granted off points lying the other way, it stood at the signal on their other exit for
+    // good; refused instead, rowan-2's train stood on them for good).)
+    // (Ones whose booked way can't be followed from there at all (keys): as before, granted it, they go the way they
+    // must and the router books them again (rowan-1: turned at its stop with its tail on points lying the other way).)
+    let offWay: Set<number> | null = null;
+    if (OWNER.on) {
+      let copy: DTrain[] | null = null;
+      for (let i = 0; i < ts.length; i++) {
+        const pt = this.pinnedFront(ts[i]);
+        if (pt === null) {
+          offWay ??= new Set();
+          offWay.add(ts[i].key);
+          continue;
+        }
+        if (pt === ts[i]) continue;
+        copy ??= ts.slice();
+        copy[i] = pt;
+      }
+      if (copy) ts = copy;
+    }
     // (Each held train where its hold ends: it'll get there. The track up to there is its own: taken.)
     const placed = ts.map((t) => {
       const o = this.holdsBy.get(t.key);
@@ -576,9 +598,14 @@ export class Dispatcher {
       for (let q = 1; q < path.length; q++) {
         const i = path[q];
         if (tt.pos[i][tt.pos[i].length - 1] === fp) continue;
-        // (The first node whose front is past it: the way it left the points by.)
-        const out = tt.frontRef[path[q - 1]];
-        if (out >= 0 && waysFrom(this.host.layout, fp, tt.frontEn[tt.at]).length > 1 && !this.liesFor(fp, tt.frontEn[tt.at], indexOfRef(out))) to = -1;
+        // (The first node whose front is past it: the way it leaves the points by, toward that node's front piece (at a
+        // branch not the node's own joint, the booked way's: own-01, granted off points lying the other way, it stood at
+        // the signal on their other exit for good).)
+        const nf = tt.pos[i][tt.pos[i].length - 1];
+        let ex = -1;
+        for (const w of waysFrom(this.host.layout, fp, tt.frontEn[tt.at], () => false)) if (next(this.host.layout, fp, w.exit)?.pieceId === nf) ex = w.exit;
+        const under = ex >= 0 && waysFrom(this.host.layout, fp, tt.frontEn[tt.at]).length > 1 ? this.exitsUnder(engine, fp, tt.frontEn[tt.at]) : null;
+        if (under && !under.has(ex) && !offWay?.has(engine)) to = -1;
         break;
       }
     }
@@ -647,11 +674,9 @@ export class Dispatcher {
     const len = pathLength(getPieceDef(piece.type, piece.flipped).paths[c.pathIndex].geom);
     // (`s` runs the cursor's own way: what's left of the piece is the rest of it.)
     let gap = len - c.s + rem;
-    // (Points ahead on its way not lying for it yet (the router sets them as it comes): it stands short of them.)
-    for (const q of h.points) {
-      // (Ahead of its front piece: its run to the hold's end from its near end is no more than the front piece's beyond.)
-      if (q.from <= rem + 1 && q.p !== c.pieceId && !this.liesFor(q.p, q.en, q.ex)) gap = Math.min(gap, len - c.s + rem - q.from);
-    }
+    // (Not short of points ahead that don't lie for it yet: the router sets them as it comes, and standing short of
+    // them (when `liesFor` saw every road: it saw one before, and never did this) cost wren ~60 stops a run and broke
+    // it twice in three: unset grants overruled 221.)
     // (Held where it stands (no move granted), another train on the piece just beyond its front: it stops now, not at
     // its front piece's end against that one (own-01: turned at its line's end, it ran on nose to nose: netActed).)
     if (h.end === h.t.at && OWNER.on) {
@@ -669,8 +694,78 @@ export class Dispatcher {
   }
 
   /** Do these points lie for a run in by `en` and out by `ex`? */
+  /**
+   * The exits from end `en` of points `fp` that `engine`'s train's bogies on them run to (null: none of its bogies on
+   * them that way). A bogie on a piece keeps to its path: a train on points leaves by that, not by how they lie (rowan-2:
+   * in trailing through points lying the other way, turned at the line's end, out the way it came).
+   */
+  private exitsUnder(engine: number, fp: number, en: number): Set<number> | null {
+    const train = this.host.sim.findCar(engine)?.train;
+    const bp = this.host.layout.getPiece(fp);
+    if (!train || !bp) return null;
+    const paths = getPieceDef(bp.type, bp.flipped).paths;
+    let out: Set<number> | null = null;
+    for (const b of train.bogies) {
+      if (b.pieceId !== fp) continue;
+      const p = paths[b.pathIndex];
+      if (!p) continue;
+      const ex = p.from === en ? p.to : p.to === en ? p.from : undefined;
+      if (ex === undefined || ex === null || ex < 0) continue;
+      (out ??= new Set()).add(ex);
+    }
+    return out;
+  }
+
+  /**
+   * `t` with the moves off the points its front stands on by a road its bogies aren't on taken out (`t` if none; null:
+   * none left, its booked way can't be followed from there).
+   */
+  private pinnedFront(t: DTrain): DTrain | null {
+    if (t.fixed) return t;
+    const layout = this.host.layout;
+    const front = (i: number) => t.pos[i][t.pos[i].length - 1];
+    const fp = front(t.at);
+    if (!isPoints(layout, fp)) return t;
+    const en = t.frontEn[t.at];
+    const ways = waysFrom(layout, fp, en, () => false);
+    if (ways.length < 2) return t;
+    const out = this.exitsUnder(t.key, fp, en);
+    if (!out) return t;
+    let succ: Int32Array[] | null = null;
+    let kept = 0;
+    const seen = new Set<number>([t.at]);
+    const todo = [t.at];
+    while (todo.length > 0) {
+      const i = todo.pop()!;
+      const ss = t.succ[i];
+      let keep: number[] | null = null;
+      for (let q = 0; q < ss.length; q++) {
+        const s = ss[q];
+        const sf = front(s);
+        if (sf === fp) {
+          if (!seen.has(s)) (seen.add(s), todo.push(s));
+          continue;
+        }
+        const w = ways.find((x) => next(layout, fp, x.exit)?.pieceId === sf);
+        if (w && !out.has(w.exit)) {
+          keep ??= Array.from(ss.subarray(0, q));
+          continue;
+        }
+        kept++;
+        keep?.push(s);
+      }
+      if (keep) {
+        succ ??= t.succ.slice();
+        succ[i] = Int32Array.from(keep);
+      }
+    }
+    if (succ && kept === 0) return null;
+    return succ ? { ...t, succ } : t;
+  }
+
   private liesFor(p: number, en: number, ex: number): boolean {
-    const ways = waysFrom(this.host.layout, p, en, () => true);
+    // (Every road from that end, pinned or not: asked as pinned there'd be just the set one, and any exit would "lie".)
+    const ways = waysFrom(this.host.layout, p, en, () => false);
     if (ways.length < 2) return true;
     const set = ways[pointsWayFrom(this.host.layout, p, en, ways.length)];
     return !!set && set.exit === ex;
