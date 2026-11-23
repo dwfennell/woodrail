@@ -348,6 +348,8 @@ if (!setup.error) {
       return [q.x + q.width / 2, q.y + q.height / 2];
     }, key);
     await p.keyboard.press("Escape");
+    // (Past a card's closing, and the click shield after it.)
+    await p.waitForTimeout(1200);
     if (await find()) return find();
     if (await p.evaluate(() => document.querySelector(".tray")?.classList.contains("in-group"))) {
       const back = await p.evaluate(() => {
@@ -380,7 +382,8 @@ if (!setup.error) {
     await settle();
     const item = await trayItem("piece:straight-216");
     if (!item) {
-      check("3b. a Long straight on the tray", false);
+      const tray = await p.evaluate(() => ({ inGroup: document.querySelector(".tray")?.classList.contains("in-group"), groups: [...document.querySelectorAll(".scroller .tray-group")].map((g) => g.querySelector(".label")?.textContent), items: [...document.querySelectorAll(".scroller .tray-item")].map((e) => e.dataset.key) }));
+      check("3b. a Long straight on the tray", false, JSON.stringify(tray));
       break;
     }
     const mid = await worldAt({ depot: mill, along, across: -72 });
