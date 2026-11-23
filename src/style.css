@@ -549,12 +549,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 149px); }
   /* An open card is over the goals bar (QA, 667×375: the bar lay over the card's title); the bar's back when it closes. */
   .card { z-index: 1; }
-  /* Short screens (a phone on its side): Automatic stays on a slim footer while the ledger scrolls; the pay rule is for
-     the upright card. */
+  /* Short screens (a phone on its side): Automatic stays on a slim footer while the ledger scrolls. (The pay rule
+     shows here too: the "Full pay for these too" line under it says nothing without it.) */
   .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 4px 0 6px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
   .depot-card:has(.depot-extra.ledger) > .card-row .chip { min-height: 40px; padding-top: 0; padding-bottom: 0; }
   .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 56px; }
-  .depot-extra.ledger .ledger-pay { display: none; }
   /* The workshop's plank choice moves up under the title (the short card is full with its pile and switches, and the
      choice would be under the fold); its hint is for a taller card. */
   .depot-card > .card-title { order: -2; }

@@ -88,7 +88,7 @@ describe("Post office: the blueprint, its things and its goods", () => {
     expect(LUXURIES.has("post")).toBe(true);
     expect(payFor("post", townStatus({}))).toBe(PRICES.post);
     for (let level = 0; level < 6; level++) expect(townStatus({}).wants.post ?? 0).toBe(0);
-    expect(buysText(new Set([POST_TECH]))).toBe("Always buys 📮 post at full pay");
+    expect(buysText(new Set([POST_TECH]))).toBe("Full pay for these too: 📮 post");
   });
 
   it("bigger towns post more often; post vans come with post, two at most", () => {

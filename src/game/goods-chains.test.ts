@@ -82,8 +82,8 @@ describe("the goods chains' goods", () => {
   it("the News says the first of each, and the town card lists the learned ones", () => {
     expect(firstFoodNews("jam", 1, 1, "Ashby")).toBe("First jam! 🫙 Ashby buys it at full pay");
     expect(firstFoodNews("toys", 2, 2, "Ashby")).toBe("First toys! 🧸 Ashby buys them at full pay");
-    expect(buysText(new Set(["sugar", "jam"]))).toBe("Always buys 🍬 sugar and 🫙 jam at full pay");
-    expect(buysText(new Set(["paint"]))).toBe("Always buys 🌷 flowers and 🎨 paint at full pay");
+    expect(buysText(new Set(["sugar", "jam"]))).toBe("Full pay for these too: 🍬 sugar and 🫙 jam");
+    expect(buysText(new Set(["paint"]))).toBe("Full pay for these too: 🌷 flowers and 🎨 paint");
   });
 });
 
