@@ -488,3 +488,123 @@ is in the forest's dead end, and one is behind the loop.
   stop. Either costs decision time; measure it against the 1.5 ms p98.
 
 At 664f4efe: 25 (23–29), dispatcher on. Main with it off, seeded: 93 (89–100).
+
+**Parked: back-ups (step 4).** Ported from `dispatch-delivered` onto ae745eda (`claude/dispatch-backup-10`, `BACKUPS=0` to switch them off). A train backs at most its length onto free track, rests clear of points, and then goes on its way with its levers back, once a jam. Its card says "Backing up to let X by".
+- **They can't free the complex maps' saved starts.** On complex-1, Bluebell and Wren start nose to nose with one piece between them. Bluebell's way runs back over all of the track Wren came by. The search's back-up moves find nothing (2 states), as §12 found for saves 1 and 2: the trains there are truly locked. These starts jam at the same time with the dispatcher off (36–37 s on, 37–42 s off).
+- **Elsewhere they fire 0–3 times a map and don't pay.**
+
+  | Map, seed 1 | Stops with back-ups | Stops without | p98 with (ms) | p98 without (ms) |
+  |---|---|---|---|---|
+  | rowan-2 | 641 | 696 | 1.40 | 0.80 |
+  | wren | 510 | 499 | | |
+  | rowan-1 | | | 1.70 | 0.96 |
+  | user-2026-11-21 | | | 1.54 | 0.81 |
+
+  Wren gains stops but its first jam comes sooner (833 s against 988 s). The extra back-up search takes p98 over the 1.5 ms bar.
+
+**Parked with own-08: own-10.** own-10 has four freight trains on one line with two passing loops, and its sawmill is a two-track yard. Trains turn only at the line's two ends, so each train runs the whole line. At about 6 s, both Logs trains are in loop 1, one in each road, heading east. Planks one is at the sawmill and must go west through that loop to the forest's end to turn.
+- Asking `headOnAhead` for a way round all the oncoming trains at once (`claude/dispatch-own10-14`) only moves the knot. Planks one is held east of the sawmill, and the Logs trains then wait on it. That version also broke rowan-2 once in 3 seeds.
+- Letting a train go when the train coming at it already waits on it doesn't free own-10 either. It cost rowan-2 its p98 (1.74 ms).
+- What's needed is the same as own-08: whether a grant is safe depends on legs past each train's next stop.
+
+Dispatcher on, at d60f8283: 57 (57–58) stops; first jam at 48 s. Main off, seeded: 100; first jam at 302 s.
+
+### 13.6 Deeper lookahead (proposal)
+
+**The problem it's for.** Each of these was a grant that let a train reach its goal and doomed the leg after:
+- own-08 (35 against main off's 93);
+- own-10 (57 against 100);
+- complex-3 (509 against 546), and complex-1's knot at 500 s;
+- user-2026-11-21's first jam (fixed by the rebuild rules).
+
+The search scores one goal a train ("of N"), so a state where two trains each reach their stop facing each other on the only way on scores as well as a good one. Each knot so far is two or three trains on single-track legs between passing places, decided one stop too early.
+
+**Local rules tried** (the moving train's own way is in `headOnAhead`; "another's" is the way of a train coming the other way):
+
+| Rule | Result |
+|---|---|
+| Another's way followed through its stop and turn (all trains) | rowan-2 −198 with a deadlock; own-01 and dandelion lower |
+| Another's way to the leg after its stop, only when its hold ends there (`NEXT_LEG`, landed) | complex-1 +76, complex-2 +63 |
+| A way round all coming trains at once (`ALL_AGAINST`) | moved own-10's knot; a rowan-2 deadlock |
+| Go first when the train coming the other way already waits on this one | no own-10 gain; rowan-2 p98 1.74 ms |
+| Admission two stops on (`ADMIT2`, off) | own-08, own-10 and complex-3 no better; rowan-2 −56 |
+
+**The proposal: a safety check over track as resources, after the search, not a deeper search.**
+- **Resources:** a stretch's sections, taken from the topology already built (`singleOf`, loops, yards, dead ends). Each single line is a resource of 1 per direction-conflict. Each passing loop counts its roads, and each yard its tracks.
+- **Claims:** each held train claims its next two legs, as the sections it must hold at once to get past each conflict, using the booked ways already in hand.
+- **The check:** before a grant, test that a safe order exists, as in the banker's algorithm. Find a train whose remaining claims fit what's free, let it finish its two legs, free its sections, and repeat. If any train can't finish, the grant isn't safe, and the train waits where it is (it rests now, by the hold rules).
+- **Cost:** O(trains² × sections) per decision; on the big maps that's about 10 trains × 60 sections, well under 0.1 ms. It runs only for decisions that would grant, not for every retry. The search and its 500-state cap are unchanged, so p98 should move by under 0.1 ms.
+- **Fit:** it sits where `singleLineBy`, `deadEndBy` and `headOnAhead` refuse today, as one more refusal (`unsafeBy`), and its card can name the train it waits for. Over time it could replace the patchwork of `headOnAhead`'s special cases.
+- **Risks:**
+  - The claims use booked ways. A train that would get by on a road its booked way doesn't have reads as stuck (§13.2's lesson), so loop roads must count as capacity, not as fixed roads.
+  - Turns at line ends mean a leg can double back. A leg that turns claims the dead end until it's out again (§2.2a).
+  - Hand-run and parked trains are fixed claims.
+- **Size:** about 2–3 days, behind a switch, on the usual seeded bar. The first targets are own-08, own-10 and complex-3; the guard is rowan-2 and dandelion, which were the over-refusal canaries every time.
+
+#### 13.6.1 The one-sided check, parked
+
+`safeOrder` is on `claude/dispatch-safe-17` (36d4482f), off unless `SAFE=1`. Before a grant it moves the stretch's trains a leg at a time, round trains coming the other way. It refuses the grant if a train could no longer reach its stop after next, and only where the asking train can wait.
+
+Seed 1, `SAFE=1` against without:
+
+| Map | With the check | Without |
+|---|---|---|
+| own-08 | 27 | 35 |
+| own-10 | 49 | 57 |
+| complex-3 | 497 | 509 |
+| complex-1 | 503 | 481 |
+| rowan-2 | 670 | 687 |
+| dandelion | 791 | 814 |
+
+p98 reaches 1.56 ms. Why it falls short:
+- **It moves one train at a time.** Trains really move together, so a train following another, or a loop where the train it would pass hasn't yet arrived, reads wrong.
+- **It holds back only the asking side.** The trains it would meet aren't held, and walk into the same knot.
+- **own-08 needs an order between two trains,** which a one-sided check can't express: the shuttle waits at its stop until a particular train has come out of the dead end.
+
+#### 13.6.2 Design: two-sided reservation (single-line working)
+
+Real railways solve this with tokens or tablets: a single line between two passing places is one train's at a time, booked whole, and the train coming the other way waits at the passing place. The rule is two-sided because both directions ask the same book. The model:
+
+**Track model** (per layout revision, from the topology already built):
+- **Sections:** the plain-track runs between points (`singleOf`'s segments; dead ends included).
+- **Passing places:**
+  - each road of a passing loop (two or more sections joining the same pair of points);
+  - a yard's track (the depot second-track roads);
+  - a stop's section, when another train can stand clear of it;
+  - a long enough plain section that doesn't block a junction.
+  A passing place has room for one train per road; the place's capacity is its number of roads.
+- **Blocks:** the runs of non-passing sections (and the points between them) from one passing place to the next. A block holds one direction at a time.
+
+**The book:** each block holds a queue of claims. A claim is a train, the direction it runs the block, and the time asked.
+- Same-direction claims share a block: they follow, and the sim's spacing keeps them apart.
+- Opposite claims exclude each other: the first in the queue holds it, and the rest wait their turn.
+- Passing places count the roads booked into them.
+
+**The rule** (one refusal, `reservedBy`, beside the others in `decide`):
+- A move that enters a block must hold it, which means being first of its direction with no opposite claim ahead.
+- It must also hold a free road in the passing place at the block's far end.
+- Otherwise the train waits where it is, which the hold rules already keep clear of points.
+- Claims are made when a train asks for the move (two legs ahead at most, as far as its next stop or turn), and freed as its tail leaves each block.
+- A train that turns in a dead end holds that dead end's block until it has come back out past the points (§2.2a).
+
+**Why it's two-sided:** the train coming the other way asks the same book, finds the block held, and waits at its own passing place. Neither side can walk into the knot.
+
+**Order:** the longest waiter first (`stood`), as single lines already work. A claim that can't be honoured within `RESERVE_TIMEOUT_S` (a hand-run train in the way, say) is dropped and asked again, so no claim lasts for ever.
+
+**What it replaces:** if it works, `singleLineBy`, `deadEndBy` and most of `headOnAhead`'s special cases are this, done once.
+
+**Cost:**
+- The topology is built per layout revision: blocks and passing places from `singleOf` and the loops.
+- Claims update on grants and tail-leaves. The refusal check is a lookup per block on the move: O(blocks on the move), microseconds.
+- The search is unchanged. p98 should not move.
+
+**Risks:**
+- Capacity: a block taken whole slows a busy line (one direction at a time). This is §2.2a's stated price, and the cards say why.
+- Passing-place detection must not miss real ones. A loop too short for a train isn't a passing place for that train: the room rule, by length.
+- Trains off their booked ways (detours, hand-run) claim what they stand on.
+
+**Milestones:**
+1. Topology (blocks, passing places) with tests on the own maps' known shapes.
+2. The book and the refusal, behind `RESERVE=1`; measured on own-08, own-10 and complex-3, with rowan-2 and dandelion as guards.
+3. The full seeded bar.
+4. Retire what it replaces.

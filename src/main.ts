@@ -15,9 +15,9 @@ import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, resto
 import { connectedPairs, mapSettingsOf, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { mapCode, parseMapCode, type MapSettings } from "./landscape/water";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { loadLinkedMap, mapText } from "./persist/bug-map";
+import { loadLinkedMap, mapText, readMapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
-import { GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
+import { deserializeWorld, GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, lockSaves, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
@@ -149,7 +149,7 @@ import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
-import { nameOfLand, PICTURE_MAX_CHARS, SlotStore } from "./persist/slots";
+import { nameOfLand, PICTURE_MAX_CHARS, SlotStore, UNREADABLE_PREFIX } from "./persist/slots";
 import { GamesSheet, smallPicture } from "./ui/games-sheet";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
@@ -235,14 +235,44 @@ function linkedSeed(): MapSettings | null {
 /** The autosave was from an older version of the game (turned away: a fresh map instead). The game says so. */
 let olderSave = false;
 
-function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fromSave: boolean } {
+/**
+ * The open game's save couldn't be loaded at start-up (a limit this build checks that it didn't, a bug): what the
+ * game says, once, as it's entered. It's never saved over (`keepUnreadableGame`).
+ */
+let unreadableNote: string | null = null;
+
+/**
+ * At start-up, before anything is made or saved: the open Game save loaded once. One this build can't read is parked
+ * in Your games as it is ("Couldn't open: …", to try again after an update), and Game mode starts with no game open;
+ * with no room to park it, it's left in place and Game mode's saves are locked for this page, so the map made instead
+ * never overwrites it. (A save that fails to load is never written over: 2026-11-23, a player's game lost so.)
+ */
+async function keepUnreadableGame(): Promise<ReturnType<typeof loadFromStorage>> {
+  const saved = loadFromStorage("game");
+  if (!saved || saved.ok) {
+    if (saved?.ok) slots.noteReadable();
+    return saved;
+  }
+  console.warn(`Woodrail: the game's save couldn't be loaded (${saved.error}): kept, not overwritten`);
+  const name = await slots.keepUnreadable();
+  if (name !== null) {
+    unreadableNote = `“${name.slice(UNREADABLE_PREFIX.length)}” couldn't be opened by this version of the game. It's kept safe in ☰ Your games: open it there to try again after an update.`;
+    return null;
+  }
+  lockSaves("game");
+  unreadableNote = "Your game couldn't be opened by this version of the game. It's kept as it was and this one won't be saved over it: please tell us (☰ Report a bug).";
+  return saved;
+}
+
+function initialWorld(game: ReturnType<typeof loadFromStorage> | undefined = undefined): { world: GameWorld; mode: GameMode; linked: boolean; fromSave: boolean } {
   const link = linkedSeed();
   const mode = link !== null ? "sandbox" : loadLastMode();
-  // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title.
-  const resumed = takeResume() === mode;
-  const saved = loadFromStorage(mode);
+  // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title (not when
+  // the game's save couldn't be opened: the title, and the note why).
+  const resumed = takeResume() === mode && unreadableNote === null;
+  const saved = mode === "game" && game !== undefined ? game : loadFromStorage(mode);
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
-  if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
+  if (saved && !saved.ok && saved.error === OLDER_SAVE && unreadableNote === null) olderSave = true;
   if (link !== null) {
     const was = saved?.ok ? saved.value.landscape : null;
     const same = !!was && !was.starter && mapCode(mapSettingsOf(was)) === mapCode(link);
@@ -1769,6 +1799,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     remove: (id) => {
       slots.remove(id);
       if (title.shown) showTitleCards();
+    },
+    addFromText: async (text) => {
+      const copy = await readMapText(text);
+      if (!copy) return { ok: false, say: "That isn't a copied map: paste the whole text, from woodrail-map:1: to its end." };
+      if (copy.mode !== "game") return { ok: false, say: "That's a Sandbox map: only Game maps can be added to Your games." };
+      const raw = copy.keys[GAME_SLOT_KEYS.save];
+      let loads: string | null = "it has no railway";
+      if (raw !== undefined)
+        try {
+          const r = deserializeWorld(JSON.parse(raw), { sandbox: false });
+          loads = r.ok ? null : r.error;
+        } catch {
+          loads = "it isn't valid";
+        }
+      if (loads !== null) return { ok: false, say: `This version of the game can't open that map (${loads}).` };
+      const r = await slots.add(copy.keys);
+      if (!r.ok) return { ok: false, say: r.error };
+      if (title.shown) showTitleCards();
+      return { ok: true, say: `Added “${r.value.name}”. Open it to play.` };
     },
     closed: () => {
       if (playing) game.paused = gamesPaused;
@@ -7413,7 +7462,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     } else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
-      if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
+      // (A Game save that won't load is never saved over: start-up parks one, so this is only a save that came since.)
+      if (saved && !saved.ok && next === "game") {
+        lockSaves("game");
+        hud.toast("That game couldn't be opened by this version of the game. It's kept as it was, and this map won't be saved over it.", false, 10000);
+      } else if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
       setWorld(saved?.ok ? saved.value : buildStarterWorld(next === "game"));
       restoreSession(next, !!saved?.ok);
     }
@@ -7457,6 +7510,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (note) {
       delete cloudNotes[next];
       hud.toast(CLOUD_NOTES[note], false, 7000);
+    }
+    if (unreadableNote !== null) {
+      hud.toast(unreadableNote, false, 12000);
+      unreadableNote = null;
     }
     if (olderSave) {
       olderSave = false;
@@ -8133,6 +8190,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       openingView();
     } else showTitleOverOpening();
     if (!overOpening) dismissLoading();
+    // The game's save couldn't be opened (kept in Your games): said there, over the title, with the game in view.
+    if (!opening.linked && unreadableNote !== null) {
+      openGames(unreadableNote);
+      unreadableNote = null;
+    }
   });
 }
 
@@ -8310,7 +8372,7 @@ requestAnimationFrame(() =>
       }
       // (The cloud's check and a pasted map may have written the game's keys: Your games mended to match.)
       slots.startUp();
-      const opening = initialWorld();
+      const opening = initialWorld(await keepUnreadableGame());
       const wanted = [...new Set([TITLE_ART_PIECE, ...[...opening.world.layout.pieceIds()].map((id) => opening.world.layout.getPiece(id)!.type)])];
       let ready = 0;
       await Promise.all(wanted.map((t) => TrackView.whenBuilt(t).then(() => loadBar.set("pieces", ++ready / wanted.length))));

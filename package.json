@@ -75,6 +75,7 @@
     "e2e:dispatcher": "node scripts/e2e/lib/run.mjs tools/e2e/dispatcher.mjs",
     "e2e:new-game": "node scripts/e2e/lib/run.mjs tools/e2e/new-game.mjs",
     "e2e:saves": "node scripts/e2e/lib/run.mjs tools/e2e/saves.mjs",
+    "e2e:lost-save": "node scripts/e2e/lib/run.mjs tools/e2e/lost-save.mjs",
     "e2e:civic": "node scripts/e2e/lib/run.mjs tools/e2e/civic.mjs",
     "e2e:paint-picker": "node scripts/e2e/lib/run.mjs tools/e2e/paint-picker.mjs",
     "e2e:stickers": "node scripts/e2e/lib/run.mjs tools/e2e/stickers.mjs",

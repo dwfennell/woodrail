@@ -25,6 +25,7 @@ import { ACCELERATION } from "../sim/brakes";
 import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, indexOfRef, pointsWayFrom, type Layout } from "../track";
 import { next, waysFrom } from "./graph";
 import { isPoints } from "./router";
+import { passingOf } from "./blocks";
 import { STAND_SHORT } from "../economy/sections";
 import { blockerOf, bodyOf, buildTrain, PLAN_FROM_ROAD, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
@@ -48,6 +49,17 @@ const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>()
 
 /** A stuck train searches for a detour at most this often (s). */
 const DETOUR_EVERY_S = 6;
+/** §13.6.2's reservation book (`reservedBy`): off unless RESERVE=1 (a prototype under measure). */
+export const RESERVE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).RESERVE === "1" };
+/** §13.6's safety check over the stretch (`safeOrder`): off unless SAFE=1 (a prototype under measure). */
+export const SAFE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SAFE === "1" };
+/**
+ * `headOnAhead`'s admission check on the leg after a move's stop: off unless ADMIT2=1 (measured: own-08, own-10,
+ * complex-3 no better, rowan-2 −56, own-03 −5; dispatcher spec §13, the deeper lookahead).
+ */
+export const ADMIT2 = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ADMIT2 === "1" };
+/** `headOnAhead`: another's way runs on through the stop its hold ends at (NEXT_LEG=0: not). */
+export const NEXT_LEG = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NEXT_LEG !== "0" };
 /** How long a train waits at a dead end of its own for another heading into the one it turns in (`deadEndBy`). */
 const DEAD_PATIENCE_S = 20;
 
@@ -118,6 +130,29 @@ interface Hold {
   singleWait?: number;
 }
 
+/** §13.6: a train's way (piece → the end its front comes onto it by) along its booked way from node `from`, its next two legs. */
+const way2Cache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>();
+function way2(x: DTrain, from: number): Map<number, number> {
+  let byAt = way2Cache.get(x.pos);
+  if (!byAt) way2Cache.set(x.pos, (byAt = new Map()));
+  const hit = byAt.get(from);
+  if (hit) return hit;
+  const out = new Map<number, number>();
+  byAt.set(from, out);
+  const stops = x.arrivals.filter((a) => x.order[a] > x.order[from]);
+  let s = 0;
+  let left = 2;
+  for (let i = from, n = 0; i >= 0 && n < 600; n++) {
+    for (const p of x.pos[i]) if (!out.has(p)) out.set(p, x.frontEn[i]);
+    if (i === (s < stops.length ? stops[s] : x.main - 1) || (i !== from && x.turned[i])) {
+      if (--left <= 0 || i === x.main - 1) break;
+      if (s < stops.length && i === stops[s]) s++;
+    }
+    i = x.succ[i][0] ?? -1;
+  }
+  return out;
+}
+
 const capAt: Cursor = { pieceId: -1, pathIndex: 0, reversed: false, s: 0 };
 
 export class Dispatcher {
@@ -125,6 +160,10 @@ export class Dispatcher {
   decisions = 0;
   grants = 0;
   detours = 0;
+  /** Grants refused by the reservation book (§13.6.2). */
+  reservedRefused = 0;
+  /** Grants refused by the safety check (§13.6). */
+  unsafeRefused = 0;
   /** Grants refused as ending nose to nose with another train. */
   noseRefused = 0;
   /**
@@ -340,9 +379,19 @@ export class Dispatcher {
         for (let i = t.at; i + 1 < t.main && t.succ[i].includes(i + 1) && refs.has(t.frontRef[i]); i++) end = i + 1;
         // (Back to the last waiting point on it, if there's one: the new way's waits aren't the old one's (no longer its
         // stop; inside a path signal's block), and a hold ending between them left it standing where it may not wait.)
+        // (None between: back to the last place clear of points, not on them (user-2026-11-21: kept to its front on points, a decision from there
+        // ran it on into a train standing on the road the points lay for).)
         let w = end;
         while (w > t.at && !t.wait[w]) w--;
         if (w > t.at) end = w;
+        else {
+          // (Back to its last place clear of points. None, and it stands on points itself (a line end too short to turn
+          // clear of them: it turns over them, as it must): the grant's end as kept, not where it stands (own-03: held
+          // on points 5 on its way to turn at the buffer, it stood there for good).)
+          let e = end;
+          while (e > t.at && !t.rest[e]) e--;
+          if (e > t.at || t.rest[t.at]) end = e;
+        }
         this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
         const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
@@ -618,6 +667,35 @@ export class Dispatcher {
         break;
       }
     }
+    // (§13.6.2, single-line working: a move whose claim (its way from where it stands to its next passing place, a road
+    // of a loop or a yard) meets another train's claim the other way on any piece, or finds no road free there, isn't
+    // granted. Both ways ask the same book: the train coming the other way waits at its own passing place.)
+    let reservedBy = -1;
+    if (to >= 0 && RESERVE.on) {
+      reservedBy = this.reservedBy(engine, ts, ways, k, to);
+      if (reservedBy >= 0) {
+        to = -1;
+        this.reservedRefused++;
+      }
+    }
+    // (§13.6, the safety check: a grant that leaves no order in which each of the stretch's trains reaches its stop
+    // after next isn't granted, unless the stretch had none before it either (it makes nothing worse).)
+    let unsafeBy = -1;
+    if (to >= 0 && SAFE.on) {
+      // (Only where it can wait: safe with it standing where it is till the others are through; refused where it must
+      // go first, its waiting helps nobody (rowan-2: refused alone, the trains it would meet came on to it anyway).)
+      const before = this.safeOrder(ways, members, -1, -1, k);
+      if (before < 0) {
+        const after = this.safeOrder(ways, members, k, to);
+        if (after >= 0) {
+          unsafeBy = after;
+          to = -1;
+          this.unsafeRefused++;
+        }
+      }
+    }
+    if (unsafeBy >= 0) headBy = unsafeBy;
+    if (reservedBy >= 0) headBy = reservedBy;
     this.decisions++;
     this.decisionMs.push(performance.now() - t0);
     h.singleWait = singleBy >= 0 ? singleBy : headBy;
@@ -1060,21 +1138,26 @@ export class Dispatcher {
    * node `to`. Each other train by its booked way from where it stands (`ts`), to its next stop or a turn.
    */
   private headOnAhead(engine: number, ts: readonly DTrain[], placed: readonly DTrain[], t: DTrain, to: number): number {
-    const wayOf = (x: DTrain, from: number): Map<number, number> => {
+    const wayOf = (x: DTrain, from: number, legs = 1): Map<number, number> => {
       // (Piece → the end its front comes onto it by, along its main way from `from`, to its next stop after or a turn.
       // Cached per booked way and node: a train's way is asked of in many decisions while it stands.)
       let byAt = aheadCache.get(x.pos);
       if (!byAt) aheadCache.set(x.pos, (byAt = new Map()));
-      const hit = byAt.get(from);
+      const ck = from * 4 + legs;
+      const hit = byAt.get(ck);
       if (hit) return hit;
       const out = new Map<number, number>();
-      byAt.set(from, out);
+      byAt.set(ck, out);
       const stops = x.arrivals.filter((a) => x.order[a] > x.order[from]);
-      const until = stops.length > 0 ? stops[0] : x.main - 1;
-      for (let i = from, n = 0; i >= 0 && n < 200; n++) {
+      let s = 0;
+      let left = legs;
+      for (let i = from, n = 0; i >= 0 && n < 400; n++) {
         const fp = x.pos[i][x.pos[i].length - 1];
         if (!out.has(fp)) out.set(fp, x.frontEn[i]);
-        if (i === until || (i !== from && x.turned[i])) break;
+        if (i === (s < stops.length ? stops[s] : x.main - 1) || (i !== from && x.turned[i])) {
+          if (--left <= 0 || i === x.main - 1) break;
+          if (s < stops.length && i === stops[s]) s++;
+        }
         i = x.succ[i][0] ?? -1;
       }
       return out;
@@ -1091,7 +1174,10 @@ export class Dispatcher {
     for (let m = 0; m < ts.length; m++) {
       const o = ts[m];
       if (o.key === engine || o.fixed) continue;
-      const oWay = wayOf(o, o.at);
+      // (Its hold ending at its stop: its way on is the leg after it too, it goes on from there next (complex-1: Willow
+      // granted into a single stretch toward a stop another was granted into, its next leg back through that stretch).)
+      const oEnd = placed[m].at;
+      const oWay = wayOf(o, o.at, NEXT_LEG.on && oEnd !== o.at && o.arrivals.includes(oEnd) ? 2 : 1);
       // (This one already on its way: not refused here.)
       if ([...here].some((p) => oWay.has(p))) continue;
       // (Onto its way, the other way over a piece: its front onto it by another end than ours.)
@@ -1108,6 +1194,34 @@ export class Dispatcher {
       // free, they pass there (own-07: refused onto the line into a loop as the other stood in the loop's main road).)
       const stand = placed[m].pos[placed[m].at];
       if ((o.pos[o.at].some((p) => myAhead.has(p)) || stand.some((p) => myAhead.has(p))) && !this.wayRound(t, to, new Set([...o.pos[o.at], ...stand]))) return o.key;
+    }
+    // (Admission two stops on: a move ending at its stop, and the leg after it, from there to its next stop or turn,
+    // taken (stood on, or granted onto) by trains coming the other way along it with no road round them all: not
+    // granted. Once in, it could only meet them there (own-08, own-10, complex-3: let into a stretch toward its stop,
+    // the train it would meet on the leg after already on it, the two held each other for good).)
+    if (ADMIT2.on && t.arrivals.includes(to)) {
+      const union = new Set<number>();
+      let first = -1;
+      for (const o of ts) {
+        if (o.key === engine || o.fixed) continue;
+        const oh = this.holdsBy.get(o.key);
+        const pieces = new Set<number>(o.pos[o.at]);
+        if (oh && oh.t.pos === o.pos) for (const i of oh.path) for (const p of oh.t.pos[i]) pieces.add(p);
+        if (![...pieces].some((p) => myAhead.has(p))) continue;
+        const oWay = wayOf(o, o.at);
+        let opp = false;
+        for (const [p, en] of oWay) {
+          const mine = myAhead.get(p);
+          if (mine !== undefined && mine !== en) {
+            opp = true;
+            break;
+          }
+        }
+        if (!opp) continue;
+        for (const p of pieces) union.add(p);
+        if (first < 0) first = o.key;
+      }
+      if (first >= 0 && !this.wayRound(t, to, union)) return first;
     }
     return -1;
   }
@@ -1131,6 +1245,164 @@ export class Dispatcher {
       }
     }
     return false;
+  }
+
+  /** One road through (no points, crossing or deck). */
+  private plainPiece(p: number): boolean {
+    const piece = this.host.layout.getPiece(p);
+    if (!piece) return false;
+    const def = getPieceDef(piece.type, piece.flipped);
+    return def.paths.length === 1 && def.connectors.length === 2;
+  }
+
+  /** §13.6.2: the passing place (its road's group) node `i` of `t` stands wholly on, or −1. */
+  private placeOf(t: DTrain, i: number): number {
+    const { group } = passingOf(this.host.layout);
+    const g = group.get(t.pos[i][0]);
+    return g !== undefined && t.pos[i].every((p) => group.get(p) === g) ? g : -1;
+  }
+
+  /**
+   * §13.6.2: the claim of `t` from node `from`: each piece of its booked way after the passing place it stands on (if
+   * it does), to the first node it stands wholly on a passing place's road again (the piece → the end its front comes
+   * onto it by; that place, −1: none within reach).
+   */
+  private claimOf(t: DTrain, from: number): { way: Map<number, number>; place: number } {
+    const way = new Map<number, number>();
+    const start = this.placeOf(t, from);
+    let out = start < 0;
+    for (let i = from, n = 0; i >= 0 && n < 600; n++) {
+      const g = this.placeOf(t, i);
+      if (!out && g !== start) out = true;
+      if (out) {
+        if (i !== from && g >= 0 && way.size > 0) return { way, place: g };
+        for (const p of t.pos[i]) if (!way.has(p)) way.set(p, t.frontEn[i]);
+      }
+      i = t.succ[i][0] ?? -1;
+    }
+    return { way, place: -1 };
+  }
+
+  /**
+   * §13.6.2: the train (its key) whose hold on a block a move of member `k` to node `to` out of the passing place it
+   * stands on would meet, or that has the last road of the place it heads for; −1: none (or it isn't leaving one: in a
+   * block already, refusing it helps nobody).
+   */
+  private reservedBy(engine: number, ts: readonly DTrain[], ways: readonly DTrain[], k: number, to: number): number {
+    const t = ways[k];
+    const start = this.placeOf(t, t.at);
+    if (start < 0 || this.placeOf(t, to) === start) return -1;
+    const mine = this.claimOf(t, t.at);
+    // (No passing place within reach on: no block to book (rowan-2's network: a claim of 45 pieces met everyone).)
+    if (mine.way.size === 0 || mine.place < 0) return -1;
+    const { roads } = passingOf(this.host.layout);
+    const roadUsed = new Set<number>();
+    let heading = 0;
+    let firstOnPlace = -1;
+    for (const o of ts) {
+      if (o.key === engine) continue;
+      const here = o.pos[o.at];
+      if (mine.place >= 0)
+        roads[mine.place].forEach((r, ri) => {
+          if (r.some((p) => here.includes(p))) {
+            roadUsed.add(ri);
+            if (firstOnPlace < 0) firstOnPlace = o.key;
+          }
+        });
+      if (o.fixed) {
+        // (A train that never moves: its pieces taken both ways.)
+        if (here.some((p) => mine.way.has(p))) return o.key;
+        continue;
+      }
+      // (Holding a block: in one, or granted out of its passing place into one.)
+      const og = this.placeOf(o, o.at);
+      if (og >= 0) {
+        const oh = this.holdsBy.get(o.key);
+        if (!oh || oh.t.pos !== o.pos || this.placeOf(o, oh.end) === og) continue;
+      }
+      // (Head-on on plain track: crossing the same points the other way, one after the other, isn't meeting.)
+      const oc = this.claimOf(o, o.at);
+      for (const [p, en] of oc.way) {
+        const me = mine.way.get(p);
+        if (me !== undefined && me !== en && !isPoints(this.host.layout, p) && this.plainPiece(p)) return o.key;
+      }
+      if (mine.place >= 0 && oc.place === mine.place && og !== mine.place) heading++;
+    }
+    if (mine.place >= 0 && roadUsed.size + heading >= roads[mine.place].length) return firstOnPlace >= 0 ? firstOnPlace : -1;
+    return -1;
+  }
+
+  /**
+   * §13.6: whether there's an order in which each train of the stretch (`members` of `ways`, standing where `ways` has
+   * them, member `k` moved to node `to` if `k` ≥ 0) reaches its stop after next: repeatedly, any train with a way there
+   * by any road round the others still standing is taken off. −1: all were (safe); else a train (its key) left that
+   * can't (the one to name). Hand-run, parked and other trains stand throughout.
+   */
+  private safeOrder(ways: readonly DTrain[], members: readonly number[], k: number, to: number, last = -1): number {
+    // (Each train moves on a leg at a time, to its next stop (or a turn, or its booked way's end), when it has a way
+    // there round the others where they stand; two legs and it's off the board (it runs on). Safe: all were.)
+    const pos = ways.map((w, i) => (i === k ? to : w.at));
+    // (The stops its move passes count as legs done: before and after the move, the same stops ahead are asked of.)
+    const legs = ways.map((w, i) => (i === k && to >= 0 && to < w.main ? w.arrivals.filter((a) => w.order[a] > w.order[w.at] && w.order[a] <= w.order[to]).length : 0));
+    if (k >= 0 && legs[k] >= 2) return -1;
+    const left = members.filter((i) => !ways[i].fixed);
+    const gone = new Set<number>();
+    for (let round = 0, changed = true; changed && gone.size < left.length && round < 3 * left.length; round++) {
+      changed = false;
+      for (const i of left) {
+        if (gone.has(i)) continue;
+        // (`last`: it stays where it is till every other one is off the board.)
+        if (i === last && left.some((j) => j !== i && !gone.has(j))) continue;
+        // (In its way: trains standing on its next two legs whose own way runs over them the other way, and trains that
+        // never move; one going its way moves on ahead of it.)
+        const mine = way2(ways[i], pos[i]);
+        const avoid = new Set<number>();
+        for (let j = 0; j < ways.length; j++) {
+          if (j === i || gone.has(j)) continue;
+          const here = ways[j].pos[pos[j]];
+          if (!here.some((p) => mine.has(p))) continue;
+          let against = ways[j].fixed;
+          if (!against) for (const [p, en] of way2(ways[j], pos[j])) if (mine.has(p) && mine.get(p) !== en) { against = true; break; }
+          if (against) for (const p of here) avoid.add(p);
+        }
+        for (const p of ways[i].pos[pos[i]]) avoid.delete(p);
+        const got = this.legTo(ways[i], pos[i], avoid);
+        if (got < 0) {
+          // (No leg on empty track either (its booked way ends, a close-up node): nothing known; not stuck.)
+          if (avoid.size > 0 && this.legTo(ways[i], pos[i], new Set()) >= 0) continue;
+          gone.add(i);
+          changed = true;
+          continue;
+        }
+        pos[i] = got;
+        changed = true;
+        if (++legs[i] >= 2 || got >= ways[i].main - 1) gone.add(i);
+      }
+    }
+    for (const i of left) if (!gone.has(i)) return ways[i].key;
+    return -1;
+  }
+
+  /**
+   * Where `t` from node `from` gets to on its next leg (its next stop, a turn, or its booked way's end) by any road
+   * over none of `avoid`'s pieces (the main node there), or −1.
+   */
+  private legTo(t: DTrain, from: number, avoid: ReadonlySet<number>): number {
+    const stops = t.arrivals.filter((a) => t.order[a] > t.order[from]);
+    const until = stops.length > 0 ? stops[0] : t.main - 1;
+    if (from === until) return until;
+    const seen = new Set<number>([from]);
+    const todo = [from];
+    while (todo.length > 0 && seen.size < 1200) {
+      const i = todo.pop()!;
+      if (i !== from && i < t.main && (i === until || t.order[i] >= t.order[until] || (t.turned[i] && t.order[i] > t.order[from]))) return i;
+      for (const j of t.succ[i]) {
+        if (seen.has(j) || t.pos[j].some((p) => avoid.has(p))) continue;
+        seen.add(j);
+        todo.push(j);
+      }
+    }
+    return -1;
   }
 
   /** The train a held train waits for to clear a single line (its card), or −1. */

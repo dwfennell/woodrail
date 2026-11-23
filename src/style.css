@@ -813,6 +813,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .games-list { display: flex; flex-direction: column; gap: 12px; }
 .games-note { margin: 0; padding: 9px 8px; border-radius: 4px; text-align: center; font-weight: 800; font-size: 14px; line-height: 1.35; color: var(--stamp-red); background: var(--mottle); box-shadow: inset 0 0 0 2px var(--stamp-red); }
 .games-note[hidden] { display: none; }
+.games-note.good { color: var(--green); box-shadow: inset 0 0 0 2px var(--green); }
+.games-load { display: flex; flex-direction: column; gap: 8px; }
+.games-load > .chip { min-height: 44px; justify-content: center; }
+.games-load-help { margin: 0; font-size: 14px; line-height: 1.35; color: #5c4632; }
+.games-load-text { width: 100%; min-height: 96px; padding: 8px 10px; border: none; border-radius: 8px; font: inherit; font-size: 14px; color: var(--wood-ink); background: #fffaf0; box-shadow: inset 0 0 0 3px var(--maple-cut); resize: vertical; word-break: break-all; -webkit-user-select: text; user-select: text; }
+.games-load-text:focus { outline: none; box-shadow: inset 0 0 0 3px var(--green); }
 .games-empty { margin: 24px 0; text-align: center; color: #5c4632; }
 .games-row { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-radius: 10px; background: var(--maple); box-shadow: var(--groove-sh), inset 0 0 0 2px var(--maple-cut); }
 .games-top { display: flex; gap: 12px; align-items: center; min-width: 0; }
