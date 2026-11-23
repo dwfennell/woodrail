@@ -1327,6 +1327,10 @@ export class Dispatcher {
         const oh = this.holdsBy.get(o.key);
         if (!oh || oh.t.pos !== o.pos || this.placeOf(o, oh.end) === og) continue;
       }
+      // (Standing, held, waiting on this one: it isn't coming; this one goes first (own-05: the train leaving a line end
+      // refused for one held short of it, waiting for it to leave).)
+      const ohw = this.holdsBy.get(o.key);
+      if (ohw && ohw.end === ohw.t.at && ohw.waitsOn === engine) continue;
       // (Head-on on plain track: crossing the same points the other way, one after the other, isn't meeting.)
       const oc = this.claimOf(o, o.at);
       for (const [p, en] of oc.way) {
