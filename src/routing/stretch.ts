@@ -812,9 +812,11 @@ function branchesOf(t: DTrain, i: number): Branch[] {
         // (Out of a close-up, its front piece is shared till then: still to be had.)
         const had = t.half[before] ? t.pos[before].subarray(0, t.pos[before].length - 1) : t.pos[before];
         for (const p of t.pos[nd]) if (!had.includes(p)) flat.push(p);
-        // (On past a plain signal: its whole block must be free too.)
+        // (On past a plain signal: its whole block must be free too. Only through the joint it stands at: off points by
+        // their other exit, that signal's block (the road beyond it) isn't the way (own-03: into a loop's free road, it
+        // asked the other road's too, where a train stood, and the two stood nose to nose for good).)
         const blk = t.blockAfter?.[before];
-        if (blk && t.frontRef[before] !== t.frontRef[nd]) for (const p of blk) if (!had.includes(p)) flat.push(p);
+        if (blk && t.frontRef[before] !== t.frontRef[nd] && t.pos[nd].some((p) => blk.includes(p))) for (const p of blk) if (!had.includes(p)) flat.push(p);
         before = nd;
       });
       off[path.length] = flat.length;

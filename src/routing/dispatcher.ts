@@ -1102,11 +1102,33 @@ export class Dispatcher {
         }
       }
       if (!against) continue;
-      // (And it stands on our way on, or its hold runs onto it.)
+      // (And it stands on our way on, or its hold runs onto it, with no other road round it: a loop's other road
+      // free, they pass there (own-07: refused onto the line into a loop as the other stood in the loop's main road).)
       const stand = placed[m].pos[placed[m].at];
-      if (o.pos[o.at].some((p) => myAhead.has(p)) || stand.some((p) => myAhead.has(p))) return o.key;
+      if ((o.pos[o.at].some((p) => myAhead.has(p)) || stand.some((p) => myAhead.has(p))) && !this.wayRound(t, to, new Set([...o.pos[o.at], ...stand]))) return o.key;
     }
     return -1;
+  }
+
+  /**
+   * Whether `t`, from node `to`, has a way by any road (its booked way's or a loop's other) to its next stop or a turn
+   * that runs over none of `avoid`'s pieces.
+   */
+  private wayRound(t: DTrain, to: number, avoid: ReadonlySet<number>): boolean {
+    const stops = t.arrivals.filter((a) => t.order[a] > t.order[to]);
+    const until = stops.length > 0 ? stops[0] : t.main - 1;
+    const seen = new Set<number>([to]);
+    const todo = [to];
+    while (todo.length > 0 && seen.size < 800) {
+      const i = todo.pop()!;
+      if (i !== to && (i === until || t.turned[i] || (i < t.main && t.order[i] >= t.order[until]))) return true;
+      for (const j of t.succ[i]) {
+        if (seen.has(j) || t.pos[j].some((p) => avoid.has(p))) continue;
+        seen.add(j);
+        todo.push(j);
+      }
+    }
+    return false;
   }
 
   /** The train a held train waits for to clear a single line (its card), or −1. */

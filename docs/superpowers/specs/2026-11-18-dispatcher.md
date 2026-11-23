@@ -472,3 +472,19 @@ Rough steps, each behind the ☰ switch, each judged on the seeded bar:
 - netActed and wrongRoad: grants and points must never disagree, even for a tick. The invariants already watch both.
 - Cost: points with every grant adds work to each decision. p98 is about 1 ms on the big maps today, against a bar of
   1.5 ms.
+
+**Parked: own-08 needs deeper lookahead.** own-08 has four trains on two passing loops and three dead ends, and its
+shuttle can only turn at the forest's buffer (points 33 give the branch no way east to the farm). The search looks one
+stop ahead per train ("of 4": a goal each), so it can't see a gridlock that forms after those goals. By 41 s, the
+shuttle is in loop 1's last free road on its way to turn. The other road holds a train going the other way. One train
+is in the forest's dead end, and one is behind the loop.
+- **Local rules tried:**
+  - Following another train's way past its next stop in `headOnAhead` over-refused: rowan-2 fell to 489 with a
+    deadlock, and own-01 and dandelion dropped too.
+  - Booking a dead end whole, whichever way a train heads, cost own-01 (52 → 13) and did nothing for own-08.
+- **Kept:** a train in a dead end of its own waits there while the one it turns in is busy (`deadEndBy`, 4917a290).
+  It took own-08 from 25 to 29, but the gridlock comes back one loop further on.
+- **Needed:** a horizon of two stops a train, or a check that a granted state still lets every train reach its next
+  stop. Either costs decision time; measure it against the 1.5 ms p98.
+
+At 664f4efe: 25 (23–29), dispatcher on. Main with it off, seeded: 93 (89–100).
