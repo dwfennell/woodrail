@@ -2012,7 +2012,7 @@ export class Sim {
     if (owns !== null) return { free: owns && !this.isHeld(g) };
     const gated = this.gatedFor(g);
     if (gated === train.id || (!g.junction && gated !== -1)) return { free: false };
-    if (!g.junction) return { free: !this.isHeld(g) && (this.blockBy.get(g.key) ?? -1) === -1 };
+    if (!g.junction) return { free: !this.isHeld(g) && ((this.blockBy.get(g.key) ?? -1) === -1 || this.ownBlock(train, g)) };
     const r = this.pathFor(train, g, false);
     return { free: r.clear };
   }
@@ -2190,6 +2190,17 @@ export class Sim {
   }
 
   /** The first train (its id) on a signal's block other than `self`, or −1. On double track only the block's road counts. */
+  /**
+   * Is plain signal `g` red only for `train` itself: its block's one train is the one coming to it (not held, not
+   * gated)? A ring with one signal is all one block, so a train on it has its own tail in the block ahead and was held
+   * there for good (the user's Acorn, 2026-11-22: "Waiting at a red signal: the train on the Red line 3 is in the block
+   * ahead", its own line's one train, after a warehouse's second track closed its line into a ring). It goes on: no
+   * other train is in the block, and any other coming to it is held at red by this one.
+   */
+  private ownBlock(train: Train, g: SignalAt): boolean {
+    return this.blockBy.get(g.key) === train.id && !this.isHeld(g) && this.gatedFor(g) === -1 && this.blockOccupant(g, train.id) === -1;
+  }
+
   private blockOccupant(g: SignalAt, self: number): number {
     for (const [id, ways] of g.block) {
       const o = this.onPieces.get(id);
@@ -2362,7 +2373,7 @@ export class Sim {
       this.comingTo(g.key, false, dist);
       return { by: -1 };
     }
-    if (!g.junction) return (this.blockClear.get(g.key) ?? this.aspects.get(g.key)) === false ? { by: this.blockBy.get(g.key) ?? -1 } : null;
+    if (!g.junction) return (this.blockClear.get(g.key) ?? this.aspects.get(g.key)) === false && !this.ownBlock(train, g) ? { by: this.blockBy.get(g.key) ?? -1 } : null;
     const r = this.pathFor(train, g, true, Math.max(0, dist));
     this.comingTo(g.key, r.clear, dist);
     return r.clear ? null : { by: r.by };

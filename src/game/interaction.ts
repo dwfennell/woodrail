@@ -2243,6 +2243,8 @@ export class Interaction {
       case "prop":
         // (A town's house or a grand project's site in Game mode is never selected: a finger rests on it to pick it up,
         // a mouse drags it.)
+        // (A site still being placed, before it's paid for: any drag on it moves it, a finger needn't rest.)
+        if (press.propId === this.sitePending) return true;
         if (this.townHouse(press.propId) || this.grandSite(press.propId)) return pointerType === "mouse";
         return dragMoves("prop", press.propId === this.selectedProp, pointerType);
       case "road":
@@ -3099,6 +3101,8 @@ export class Interaction {
       return;
     }
     if (p.kind === "prop") {
+      // (A site still being placed: a tap on it does nothing, its bar says what to do.)
+      if (p.propId === this.sitePending) return;
       // (A town's house in Game mode isn't selected: a tap there opens its town's card.)
       if (this.townHouse(p.propId) || this.grandSite(p.propId)) {
         const station = this.townStation(p.propId);
@@ -4011,6 +4015,31 @@ export class Interaction {
    * Such a site is the city's: never lifted or taken up, and a tap opens its city's card.
    */
   siteTown: ((propId: number) => number) | null = null;
+
+  /**
+   * The prop of a grand project's site still being placed (Start, before Build here: spec 2026-11-22-grand-placement.md,
+   * step 2), or −1. A drag on it moves it at once; its moves are no undo steps (Cancel takes it all back).
+   */
+  sitePending = -1;
+  /** The pending site was let go somewhere it fits (main: the bar, the camera). */
+  onSiteMoved: (() => void) | null = null;
+
+  /**
+   * Would grand site `propId` fit where it stands, turned to `heading`? The same rule as a drag's (`checkProp`, the
+   * yards, its city's `siteMove`). Its pose there, or why not.
+   */
+  siteFits(propId: number, heading: number): PropPose | string {
+    const g = this.game;
+    const p = g.props.get(propId);
+    const site = p ? this.siteMove?.(propId) : null;
+    if (!p || !site) return PROP_MESSAGES.site;
+    const pose = { x: p.x, z: p.z, heading };
+    const c = checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, site.fp, pose, placeOn(p.asset), propId);
+    if (c.kind !== "clear") return this.propMessage(c.reason);
+    if (this.propInYard(site.fp, pose)) return this.propMessage("yard");
+    const why = site.why(pose);
+    return why ?? { ...pose, y: c.y };
+  }
 
   /** Is this prop a grand project's site in Game mode? */
   private grandSite(propId: number): boolean {
@@ -6074,6 +6103,16 @@ export class Interaction {
     this.mode = { kind: "idle" };
     g.scene.remove(m.ghost);
     this.propOutline.hide();
+    if (m.propId !== -1 && m.propId === this.sitePending && !m.overTray) {
+      // A site still being placed: moved where it fits (no undo step: Cancel takes it all back), or told why not.
+      if (m.blocked) {
+        this.hud.toast(this.propMessage(m.blocked));
+        this.onRefused?.();
+      } else g.props.move(m.propId, { ...m.pose });
+      g.propsChanged(-1);
+      this.onSiteMoved?.();
+      return;
+    }
     if (m.overTray && m.site) {
       // A grand project's site is its city's, not the toy box's: back where it stood.
       g.propsChanged(-1);

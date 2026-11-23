@@ -1,4 +1,5 @@
 import type { CardState, ResearchCardView } from "../game/research-text";
+import { uiIcon } from "./icons";
 import { researchWikiUrl } from "./wiki-link";
 
 /** One blueprint, as a tag on the board's web. */
@@ -318,7 +319,7 @@ export class BlueprintBoard {
    * while the board is open.
    */
   private detailsOpen = false;
-  /** The ⓘ that shows what the colours mean. */
+  /** The ⓘ (an SVG, `uiIcon("info")`) that shows what the colours mean. */
   private readonly legendBox: HTMLDetailsElement;
   /**
    * Where the body (and the web's pane, on a wide screen) is scrolled to, kept from their scroll events, for `render`
@@ -332,7 +333,7 @@ export class BlueprintBoard {
     this.root.hidden = true;
     const head = document.createElement("div");
     head.className = "board-head";
-    head.innerHTML = `<h2>Research</h2><span class="board-sub">Pick one, or line up a few; trains bring the goods to your school</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary></details>`;
+    head.innerHTML = `<h2>Research</h2><span class="board-sub">Pick one, or line up a few; trains bring the goods to your school</span><details class="bp-legend-box"><summary aria-label="What the colours mean">${uiIcon("info")}</summary></details>`;
     // What the colours mean: a strip under the head while the ⓘ is open, pushing the list down, not a pop-up over its
     // first row; each key kept with its word (QA 2026-11-03: at 390 px "Researching ◯" ended a line, "Next up" began
     // the next).

@@ -43,6 +43,7 @@ import {
   TreeClearance,
   extentOf,
   type HeldPiece,
+  type KeepOff,
   type Landscape,
   type OuterBlock,
   type OuterHouse,
@@ -608,6 +609,7 @@ export class LandscapeView {
     this.treeHop?.dispose();
     const trees = treePlacements(this.land);
     this.clearance = new TreeClearance(this.land.grid, trees, yardParts);
+    this.clearance.setAreas(this.treeAreas);
     const spot = (t: TreePlacement): Required<TreeAt> => ({ x: t.x, z: t.z, y: t.y, s: 1 });
     this.treeAnim = { shown: trees.map(spot), from: trees.map(spot), to: trees.map(spot), progress: new Float32Array(trees.length).fill(1) };
     // Tiles whose trees haven't changed (all but those of new plots) are kept, moved over from the old group.
@@ -749,6 +751,24 @@ export class LandscapeView {
     this.clearance.setLayout(layout);
     this.cuts.sync(heldCut(this.land, this.held));
     return this.retarget(this.clearance.spots(this.held ?? undefined), animate);
+  }
+
+  /** Ground the trees keep off beside the track (`setTreeAreas`). */
+  private treeAreas: readonly KeepOff[] = [];
+  private treeAreasKey = "";
+
+  /**
+   * Trees step aside from these plots (grand projects' sites) as they do from track, hopping there; call when they
+   * change. Returns the hop to run, if one has to start.
+   */
+  setTreeAreas(areas: readonly KeepOff[]): Flourish | null {
+    // (Called with every props change: nothing done unless a plot moved.)
+    const key = areas.map((a) => `${a.pose.x},${a.pose.z},${a.pose.heading};${a.rects.map((r) => `${r.cx},${r.cz},${r.hw},${r.hd}`).join(";")}`).join("|");
+    if (key === this.treeAreasKey) return null;
+    this.treeAreasKey = key;
+    this.treeAreas = areas;
+    this.clearance.setAreas(areas);
+    return this.retarget(this.clearance.spots(this.held ?? undefined), true);
   }
 
   /** Points along the track as last synced (`syncTrees`), bucketed (see `trackPoints`). */

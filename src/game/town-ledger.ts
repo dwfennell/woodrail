@@ -63,7 +63,7 @@ export interface TownLedger {
   lines: { id: number; name: string; colour: string; trains: number }[];
   /**
    * The everyday food it always buys at full pay, of what's learned (`FOODS`: milk once Dairy farm is, bread once
-   * Bakery is, fruit once Orchards is): "Always buys 🥛 milk and 🥖 bread at full pay", or null.
+   * Bakery is, fruit once Orchards is): "Full pay for these too: 🥛 milk and 🥖 bread", or null.
    */
   buys: string | null;
   /** Its post (once Post office is learned): "2 ✉️ mail to send · a post van on its streets", or null. */
@@ -109,11 +109,14 @@ const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
   ["post", "post-office"],
 ];
 
-/** "Always buys 🥛 milk, 🥖 bread and 🍎 fruit at full pay" for the foods whose blueprint is learned, or null. */
+/**
+ * "Full pay for these too: 🥛 milk, 🥖 bread and 🍎 fruit" for the foods whose blueprint is learned, or null. Under the
+ * card's "Buys any good: …" line: read alone, "Always buys 🧱 bricks …" said the town bought only bricks (player report).
+ */
 export function buysText(learned: ReadonlySet<string>): string | null {
   const foods = FOOD_TECH.filter(([k, tech]) => FULL_PAY.has(k) && learned.has(tech)).map(([k]) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`);
   if (foods.length === 0) return null;
-  return `Always buys ${listed(foods)} at full pay`;
+  return `Full pay for these too: ${listed(foods)}`;
 }
 const makerOf = (kind: CargoKind): Exclude<DepotRole, "town"> | undefined => MAKERS.find((r) => RECIPES[r].gives.includes(kind));
 

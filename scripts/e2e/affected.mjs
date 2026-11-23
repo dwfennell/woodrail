@@ -52,6 +52,7 @@ export const SUITES = {
   dispatcher: { script: "e2e:dispatcher", minutes: 10 },
   "new-game": { script: "e2e:new-game", minutes: 8 },
   saves: { script: "e2e:saves", minutes: 6 },
+  "lost-save": { script: "e2e:lost-save", minutes: 3 },
   civic: { script: "e2e:civic", minutes: 5 },
   "paint-picker": { script: "e2e:paint-picker", minutes: 4 },
   stickers: { script: "e2e:stickers" },
@@ -344,7 +345,7 @@ export const RULES = [
   [["src/game/airports.ts", "src/game/passengers.ts", "src/render/planes-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airport"]],
   // Grand projects as achievements (spec 2026-11-05-character-and-goals.md): the projects, the city's card, the
   // Journal's Achievements tab, the stage models, rewards toward growth, and the site's prop.
-  [["src/game/grand.ts", "src/ui/grand-row.ts", "src/ui/goals-panel.ts", "src/catalogue/assets/grand.ts", "src/catalogue/build-parts.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/game/stickers.ts", "src/game/interaction.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/economy/economy.ts", "src/main.ts"], ["grand"]],
+  [["src/game/grand.ts", "src/ui/grand-row.ts", "src/ui/site-bar.ts", "src/ui/goals-panel.ts", "src/catalogue/assets/grand.ts", "src/catalogue/build-parts.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/game/stickers.ts", "src/game/interaction.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/economy/economy.ts", "src/main.ts"], ["grand"]],
   // The touring circus (late-game spec K1).
   [["src/game/circus.ts", "src/game/passengers.ts", "src/game/rewards.ts", "src/game/progress.ts", "src/catalogue/assets/circus-cage.ts", "src/main.ts"], ["circus"]],
   // Time control (late-game spec, Clockmaker CA).
@@ -361,6 +362,7 @@ export const RULES = [
   [["src/ui/new-game.ts", "src/landscape/hills.ts", "src/landscape/water.ts", "src/landscape/edges.ts", "src/landscape/generate.ts", "src/ui/title.ts", "src/ui/hud.ts", "src/persist/landscape-data.ts", "src/persist/landscape-schema.ts"], ["new-game", "tutorial"]],
   // Your games: several Game-mode games side by side (the slots, the list, the title's and ☰'s ways in, the cloud's).
   [["src/persist/slots.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/persist/cloud.ts", "src/ui/title.ts", "src/ui/new-game.ts", "src/ui/hud.ts", "src/main.ts"], ["saves"]],
+  [["src/persist/slots.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/persist/save-limits.ts", "src/persist/bug-map.ts", "src/main.ts", "tools/e2e/lost-save.mjs"], ["lost-save"]],
   [["src/persist/slots.ts", "src/persist/cloud.ts"], ["cloud", "new-game", "stats"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).
   ["src/test-setup.ts", []],

@@ -69,7 +69,7 @@ import { RuinsView, type ShownRuin } from "../render/ruins-view";
 import { SecretsView, type ShownSecret } from "../render/secrets-view";
 import type { RuinOnMap } from "./map-markers";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { inTunnel, setTunnels, tunnelsOn, archOpenings, bridgeLevels, plinthLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
+import { inTunnel, setTunnels, tunnelsOn, archOpenings, bridgeLevels, plinthLevels, findCrossings, styleCrossings, FEAT_NONE, SURF_GRASS, SURF_LANE, syncCuttings, type HeldPiece, type KeepOff, type LevelCrossing, PLOT_DEPTH, type Landscape, type Town } from "../landscape";
 import type { Prop, PropPose } from "../props/store";
 import type { PropSource } from "../render/props/props-view";
 import { setHazeLand, setHazeReach } from "../render/haze";
@@ -431,7 +431,7 @@ export class Game {
       },
     });
     this.scene.add(this.stationTouches.group);
-    syncCuttings(this.landscape, this.layout);
+    this.syncGroundCuts();
     this.landscapeView.syncTrees(this.layout);
     this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf, this.archFloorsOf);
     this.trackView.onRoad = this.onRoad;
@@ -586,8 +586,10 @@ export class Game {
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
     this.wireClocks();
-    syncCuttings(this.landscape, this.layout);
+    // (A fresh landscape view: its felt has no trenches until told, so a saved underpass would be felted over.)
+    this.syncGroundCuts();
     this.landscapeView.syncTrees(this.layout);
+    this.syncSiteTrees();
     this.scene.remove(this.trackView.group);
     this.trackView.dispose();
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf, this.archFloorsOf);
@@ -860,14 +862,24 @@ export class Game {
     this.invalidate();
   }
 
+  /**
+   * The track's cuts in the ground: ramps and hilltop underpasses cut into the hills (`syncCuttings`), and the felt's
+   * holes for the trenches of underpasses and tunnel mouths on the felt (`underpassHoles`). On every layout edit, and
+   * whenever a world is put in (a new landscape view starts with no holes: QA 2026-11-22, an underpass felted over
+   * after a reload; a tunnel mouth's cutting the same). The felt sheet is cut again only when the holes change.
+   */
+  private syncGroundCuts(): void {
+    syncCuttings(this.landscape, this.layout);
+    this.landscapeView.setFeltHoles(underpassHoles(this.layout));
+  }
+
   /** Call after any layout edit. */
   trackChanged(): void {
     this.trackVersion++;
     this.invalidate();
     // Ramps cut into the hills, before anything asks the ground: the track's arches (how far down a bridge reaches),
     // trees.
-    syncCuttings(this.landscape, this.layout);
-    this.landscapeView.setFeltHoles(underpassHoles(this.layout));
+    this.syncGroundCuts();
     this.tunnelsView.sync(this.layout, this.landscape);
     this.trackView.setTunnelPieces(this.tunnelsView.found.pieces);
     this.trackView.sync();
@@ -1770,9 +1782,22 @@ export class Game {
     this.invalidate();
   }
 
+  /**
+   * The ground trees keep off beside the track: grand projects' plots (Game mode, set by main: spec
+   * 2026-11-22-grand-placement.md). Read with every props change; the trees move only when a plot did.
+   */
+  siteAreas: (() => readonly KeepOff[]) | null = null;
+
+  /** Trees step aside from the plots (`siteAreas`) as they stand now, hopping there. */
+  syncSiteTrees(): void {
+    const hop = this.landscapeView.setTreeAreas(this.siteAreas?.() ?? []);
+    if (hop) this.flourishes.add(hop);
+  }
+
   /** Props were added, moved or removed (or one is being held: `hidden`, −1 for none): redraw them. */
   propsChanged(hidden = this.hiddenProp): void {
     this.hiddenProp = hidden;
+    this.syncSiteTrees();
     this.clockView.sync(this.props, hidden);
     this.turbinesView.sync(this.props, hidden);
     // Crossing props style the crossings they're on (one in the hand doesn't, for now).

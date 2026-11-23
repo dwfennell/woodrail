@@ -89,7 +89,7 @@ describe("goods towns always buy at full pay", () => {
   it("the News says the first of each, and the town card lists the learned ones", () => {
     expect(firstFoodNews("juice", 2, 2, "Ashby")).toBe("First juice! 🧃 Ashby buys it at full pay");
     expect(firstFoodNews("juice", 2, 5, "Ashby")).toBeNull();
-    expect(buysText(new Set(["orchard", "juice"]))).toBe("Always buys 🍎 fruit and 🧃 juice at full pay");
+    expect(buysText(new Set(["orchard", "juice"]))).toBe("Full pay for these too: 🍎 fruit and 🧃 juice");
   });
 });
 
@@ -170,7 +170,7 @@ describe("Brickworks", () => {
     expect(CAR_KINDS.filter((k) => canCarry(k, "bricks"))).toEqual(["timber"]);
     // Bricks aren't food, but towns buy them the same way, and the card says so once learned.
     expect(FULL_PAY.has("bricks")).toBe(true);
-    expect(buysText(new Set(["brickworks"]))).toBe("Always buys 🧱 bricks at full pay");
+    expect(buysText(new Set(["brickworks"]))).toBe("Full pay for these too: 🧱 bricks");
   });
 
   it("(stone + coal) → bricks: hoppers bring both from a quarry and a mine, flatbeds take the bricks to town", () => {
@@ -205,7 +205,7 @@ describe("Car factory", () => {
     expect(CAR_KINDS.filter((k) => canCarry(k, "autos"))).toEqual(["carrier"]);
     expect(FULL_PAY.has("autos")).toBe(true);
     expect(Math.max(...CARGO_KINDS.map((k) => PRICES[k] ?? 0))).toBe(PRICES.autos);
-    expect(buysText(new Set(["car-factory"]))).toBe("Always buys 🚗 cars at full pay");
+    expect(buysText(new Set(["car-factory"]))).toBe("Full pay for these too: 🚗 cars");
     expect(firstFoodNews("autos", 1, 1, "Ashby")).toBe("First cars! 🚗 Ashby buys them at full pay");
   });
 
@@ -236,7 +236,7 @@ describe("Fishing boats", () => {
     expect(bp("fishing")).toMatchObject({ needs: ["harbours"], tier: 3, research: { goods: { planks: 8 }, coins: 160 } });
     expect(CAR_KINDS.filter((k) => canCarry(k, "fish"))).toEqual(["van", "reefer"]);
     expect(FULL_PAY.has("fish")).toBe(true);
-    expect(buysText(new Set(["fishing"]))).toBe("Always buys 🐟 fish at full pay");
+    expect(buysText(new Set(["fishing"]))).toBe("Full pay for these too: 🐟 fish");
   });
 
   it("each boat in lands a catch of fish on the quay, once it's learned, and the boats don't take it back", () => {

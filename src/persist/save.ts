@@ -200,7 +200,8 @@ export function serializeWorld(world: World): SaveData {
     ...(lines.length > 0 ? { lines } : {}),
     ...boatsOf(world, renumbered),
     ...yardsOf(world, renumbered),
-    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
+    // (A grand project's site still being placed isn't saved: it isn't paid for yet.)
+    props: [...world.props.all()].filter((p) => !p.draft).map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}), ...(p.storeys ? { storeys: p.storeys } : {}) })),
   };
 }
 
@@ -296,6 +297,24 @@ function relaxBroughtBack(layout: Layout, made: readonly number[], pinned: (id: 
   return saved.size > 0;
 }
 
+/**
+ * A save whose every problem is a whole number over its limit, with those numbers brought down to their limits (a
+ * copy: the data itself is untouched), or null when anything else is wrong too.
+ */
+export function mendTooBig(data: unknown, issues: readonly { code: string; path: readonly PropertyKey[]; maximum?: unknown; origin?: unknown; inclusive?: unknown }[]): unknown {
+  if (issues.length === 0 || !issues.every((i) => i.code === "too_big" && i.origin === "number" && (typeof i.maximum === "number" || typeof i.maximum === "bigint") && i.path.length > 0)) return null;
+  const copy: unknown = structuredClone(data);
+  for (const i of issues) {
+    let at: unknown = copy;
+    for (const k of i.path.slice(0, -1)) at = (at as Record<PropertyKey, unknown> | null)?.[k as string];
+    const last = i.path[i.path.length - 1] as string;
+    if (!at || typeof at !== "object" || typeof (at as Record<string, unknown>)[last] !== "number") return null;
+    const max = Number(i.maximum);
+    (at as Record<string, unknown>)[last] = i.inclusive === false ? Math.ceil(max) - 1 : Math.floor(max);
+  }
+  return copy;
+}
+
 /** Rebuild a world from saved data. Never throws on bad input. */
 export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}): Result<World, string> {
   // An older save: turned away (not migrated); a v12 one is read as it is (the same shape).
@@ -303,7 +322,19 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   if (typeof version === "number" && version < MIGRATES_FROM) return err(OLDER_SAVE);
   const oldStoreys = typeof version === "number" && version < TOWN_STOREYS_FROM;
   if (typeof version === "number" && version < SAVE_VERSION) data = { ...(data as object), version: SAVE_VERSION };
-  const parsed = saveSchemas().saveSchema.safeParse(data);
+  let parsed = saveSchemas().saveSchema.safeParse(data);
+  if (!parsed.success) {
+    // Only numbers over a limit (a count an upgrade took past what the schema allows: 2026-11-23, a stacked
+    // warehouse's 72 planks against 40)? Brought down to the limit, and the save loads, rather than all of it lost.
+    const mended = mendTooBig(data, parsed.error.issues);
+    if (mended !== null) {
+      const again = saveSchemas().saveSchema.safeParse(mended);
+      if (again.success) {
+        console.warn(`Woodrail: save mended: ${parsed.error.issues.map((i) => `${i.path.join(".")} → ${(i as { maximum?: unknown }).maximum}`).join(", ")}`);
+        parsed = again;
+      }
+    }
+  }
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     return err(`invalid save: ${issue.path.join(".")} — ${issue.message}`);
@@ -600,7 +631,21 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
  */
 const STORAGE_KEYS: Record<GameMode, string> = { sandbox: "woodrail.autosave.v3", game: "woodrail.game.v2" };
 
+/**
+ * Modes whose save mustn't be written: one there couldn't be loaded and couldn't be kept aside (no room), so the map
+ * the page made instead is played but never saved over it (`lockSaves`).
+ */
+const locked = new Set<GameMode>();
+
+/** Never write this mode's save (its keys: the railway, session, goals, progress) again this page. */
+export function lockSaves(mode: GameMode): void {
+  locked.add(mode);
+}
+
+export const savesLocked = (mode: GameMode): boolean => locked.has(mode);
+
 export function saveToStorage(world: World, mode: GameMode = "sandbox"): boolean {
+  if (locked.has(mode)) return false;
   try {
     localStorage.setItem(STORAGE_KEYS[mode], JSON.stringify(serializeWorld(world)));
     return true;
@@ -657,22 +702,43 @@ export function loadFromStorage(mode: GameMode = "sandbox"): Result<World, strin
     return err("autosave is not valid JSON");
   }
   const loaded = deserializeWorld(data, { sandbox: mode === "sandbox" });
-  // An older save, turned away: kept under a key of its own, so the fresh map's autosave doesn't overwrite it.
-  if (!loaded.ok && loaded.error === OLDER_SAVE) {
-    const version = (data as { version: number }).version;
-    try {
-      if (localStorage.getItem(backupKey(mode, version)) === null) localStorage.setItem(backupKey(mode, version), raw);
-    } catch {
-      // No room to keep it: it goes, as before.
-    }
-  }
+  // A save turned away (an older one, or one this build can't read): kept under a key of its own, so the fresh map's
+  // autosave doesn't overwrite it. (Game mode also parks it in Your games: `SlotStore.keepUnreadable`.)
+  if (!loaded.ok) keepAside(raw, loaded.error === OLDER_SAVE ? backupKey(mode, (data as { version: number }).version) : unreadableKey(mode, raw));
   return loaded;
+}
+
+/** Where a save this build couldn't read is kept, by a hash of it (so a second, different one doesn't replace it). */
+export const unreadableKey = (mode: GameMode, raw: string): string => `${STORAGE_KEYS[mode]}.unreadable-${hashOf(raw)}`;
+
+/** A short hash of a text (FNV-1a, hex). */
+function hashOf(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16);
+}
+
+/** A save kept under `key` (once: one already there stays). False when there was no room. */
+function keepAside(raw: string, key: string): boolean {
+  try {
+    if (localStorage.getItem(key) === null) localStorage.setItem(key, raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Is there a save under this mode's key that this build can't load (any reason, an older version too)? */
+export function unreadableSave(mode: GameMode): string | null {
+  const r = loadFromStorage(mode);
+  return r && !r.ok ? r.error : null;
 }
 
 /** Game mode: the ids of the goals done, kept beside the game's autosave. */
 const GOALS_KEY = "woodrail.game.goals.v1";
 
 export function saveGoals(ids: readonly string[]): void {
+  if (locked.has("game")) return;
   try {
     localStorage.setItem(GOALS_KEY, JSON.stringify(ids));
   } catch {
@@ -693,6 +759,7 @@ export function loadGoals(): string[] {
 const STICKERS_KEY = "woodrail.game.stickers.v1";
 
 export function saveStickers(ids: readonly string[]): void {
+  if (locked.has("game")) return;
   try {
     localStorage.setItem(STICKERS_KEY, JSON.stringify(ids));
   } catch {
@@ -713,6 +780,7 @@ export function loadStickers(): string[] {
 const STICKERS_SEEN_KEY = "woodrail.game.stickers.seen.v1";
 
 export function saveStickersSeen(ids: readonly string[]): void {
+  if (locked.has("game")) return;
   try {
     localStorage.setItem(STICKERS_SEEN_KEY, JSON.stringify(ids));
   } catch {
@@ -733,6 +801,7 @@ export function loadStickersSeen(): string[] {
 const TIPS_KEY = "woodrail.game.tips.v1";
 
 export function saveTips(tips: { done: readonly string[]; shown: readonly string[] }): void {
+  if (locked.has("game")) return;
   try {
     localStorage.setItem(TIPS_KEY, JSON.stringify(tips));
   } catch {
@@ -754,6 +823,7 @@ export function loadTips(): { done: string[]; shown: string[] } {
 const PROGRESS_KEY = "woodrail.game.progress.v1";
 
 export function saveProgress(data: unknown): void {
+  if (locked.has("game")) return;
   try {
     localStorage.setItem(PROGRESS_KEY, JSON.stringify(data));
   } catch {
@@ -776,6 +846,7 @@ export type { SessionData } from "./save-schema";
 const sessionKey = (mode: GameMode): string => `${STORAGE_KEYS[mode]}.session`;
 
 export function saveSession(mode: GameMode, data: SessionData): void {
+  if (locked.has(mode)) return;
   try {
     localStorage.setItem(sessionKey(mode), JSON.stringify(data));
   } catch {

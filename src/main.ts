@@ -15,9 +15,9 @@ import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, resto
 import { connectedPairs, mapSettingsOf, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { mapCode, parseMapCode, type MapSettings } from "./landscape/water";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { loadLinkedMap, mapText } from "./persist/bug-map";
+import { loadLinkedMap, mapText, readMapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
-import { GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
+import { deserializeWorld, GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, lockSaves, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
@@ -37,7 +37,7 @@ import { Buses } from "./game/buses";
 import { TownCars } from "./game/town-cars";
 import { plotPrice } from "./game/towns";
 import { hasBank, PLACES, type Place } from "./game/places";
-import type { Town } from "./landscape";
+import type { KeepOff, Town } from "./landscape";
 import { firstFoodNews } from "./game/food-text";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { atSchool, landmarkOf, schoolTakesFor, schoolHowTo, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
@@ -57,7 +57,7 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
-import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, legStop, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
 import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui/line-sheet";
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
@@ -106,13 +106,14 @@ import { drawLedger, type NextUpView, type TownTabView } from "./ui/town-ledger"
 import { nextUp, type NextUp, type TownTab } from "./game/town-next";
 import { attachWater, type WaterControls } from "./ui/water-controls";
 import { attachSecrets, type SecretControls } from "./ui/secret-controls";
+import { SiteBar } from "./ui/site-bar";
 import { secretOfStop } from "./game/secrets";
 import { isSecretKit } from "./track";
 import { drawPlaceRows } from "./ui/places-row";
 import { paintable } from "./render/train-models";
 import { ownColoursOpen, paint, paintOpen, paintOwn, paintPots } from "./game/paint-shop";
 import { buyTreat, placeRow, placeRowKey, startPlace, stopPlace } from "./game/place-row";
-import { achievements, advanceGrands, centralPiece, centralWhy, countRider, fairTown, moveCentralKit, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, siteAsset, siteMoveRule, siteSpot, startGrand, unionFootprint, type GrandId, type GrandTile } from "./game/grand";
+import { achievements, advanceGrands, centralPiece, centralWhy, countRider, fairTown, moveCentralKit, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, ROYAL_GIFT, wheelTickets, grandRow, grandRowKey, grandState, siteAsset, siteMoveRule, siteSpot, startGrand, unionFootprint, type GrandId, type GrandTile } from "./game/grand";
 import { defaultPick, drawGrandRow } from "./ui/grand-row";
 import { retireStyles } from "./props/storeys";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
@@ -148,7 +149,7 @@ import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
-import { nameOfLand, PICTURE_MAX_CHARS, SlotStore } from "./persist/slots";
+import { nameOfLand, PICTURE_MAX_CHARS, SlotStore, UNREADABLE_PREFIX } from "./persist/slots";
 import { GamesSheet, smallPicture } from "./ui/games-sheet";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
@@ -234,14 +235,44 @@ function linkedSeed(): MapSettings | null {
 /** The autosave was from an older version of the game (turned away: a fresh map instead). The game says so. */
 let olderSave = false;
 
-function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fromSave: boolean } {
+/**
+ * The open game's save couldn't be loaded at start-up (a limit this build checks that it didn't, a bug): what the
+ * game says, once, as it's entered. It's never saved over (`keepUnreadableGame`).
+ */
+let unreadableNote: string | null = null;
+
+/**
+ * At start-up, before anything is made or saved: the open Game save loaded once. One this build can't read is parked
+ * in Your games as it is ("Couldn't open: …", to try again after an update), and Game mode starts with no game open;
+ * with no room to park it, it's left in place and Game mode's saves are locked for this page, so the map made instead
+ * never overwrites it. (A save that fails to load is never written over: 2026-11-23, a player's game lost so.)
+ */
+async function keepUnreadableGame(): Promise<ReturnType<typeof loadFromStorage>> {
+  const saved = loadFromStorage("game");
+  if (!saved || saved.ok) {
+    if (saved?.ok) slots.noteReadable();
+    return saved;
+  }
+  console.warn(`Woodrail: the game's save couldn't be loaded (${saved.error}): kept, not overwritten`);
+  const name = await slots.keepUnreadable();
+  if (name !== null) {
+    unreadableNote = `“${name.slice(UNREADABLE_PREFIX.length)}” couldn't be opened by this version of the game. It's kept safe in ☰ Your games: open it there to try again after an update.`;
+    return null;
+  }
+  lockSaves("game");
+  unreadableNote = "Your game couldn't be opened by this version of the game. It's kept as it was and this one won't be saved over it: please tell us (☰ Report a bug).";
+  return saved;
+}
+
+function initialWorld(game: ReturnType<typeof loadFromStorage> | undefined = undefined): { world: GameWorld; mode: GameMode; linked: boolean; fromSave: boolean } {
   const link = linkedSeed();
   const mode = link !== null ? "sandbox" : loadLastMode();
-  // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title.
-  const resumed = takeResume() === mode;
-  const saved = loadFromStorage(mode);
+  // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title (not when
+  // the game's save couldn't be opened: the title, and the note why).
+  const resumed = takeResume() === mode && unreadableNote === null;
+  const saved = mode === "game" && game !== undefined ? game : loadFromStorage(mode);
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
-  if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
+  if (saved && !saved.ok && saved.error === OLDER_SAVE && unreadableNote === null) olderSave = true;
   if (link !== null) {
     const was = saved?.ok ? saved.value.landscape : null;
     const same = !!was && !was.starter && mapCode(mapSettingsOf(was)) === mapCode(link);
@@ -479,6 +510,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let interaction: Interaction;
   /** River barges on screen (made once the HUD and interaction are: `attachWater`). */
   let water: WaterControls | null = null;
+  /** A grand project's site being placed, before it's paid for (Start, then Build here or Cancel), or null. */
+  let siting: { id: GrandId; town: Town; prop: number } | null = null;
   let secrets: SecretControls | null = null;
   const audio = new ToyAudio();
   let muted = loadMuted();
@@ -1419,6 +1452,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (A drawn line lifted just before, waiting a frame to go down: down on the map it was drawn on.)
     interaction?.flushDraw();
     setExpanding(false);
+    // (A grand site still being placed was the old map's: gone with it, never paid for.)
+    if (siting) endSiting(false);
     game.setWorld(world);
     water?.reset();
     shownDelivered = new Map();
@@ -1764,6 +1799,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     remove: (id) => {
       slots.remove(id);
       if (title.shown) showTitleCards();
+    },
+    addFromText: async (text) => {
+      const copy = await readMapText(text);
+      if (!copy) return { ok: false, say: "That isn't a copied map: paste the whole text, from woodrail-map:1: to its end." };
+      if (copy.mode !== "game") return { ok: false, say: "That's a Sandbox map: only Game maps can be added to Your games." };
+      const raw = copy.keys[GAME_SLOT_KEYS.save];
+      let loads: string | null = "it has no railway";
+      if (raw !== undefined)
+        try {
+          const r = deserializeWorld(JSON.parse(raw), { sandbox: false });
+          loads = r.ok ? null : r.error;
+        } catch {
+          loads = "it isn't valid";
+        }
+      if (loads !== null) return { ok: false, say: `This version of the game can't open that map (${loads}).` };
+      const r = await slots.add(copy.keys);
+      if (!r.ok) return { ok: false, say: r.error };
+      if (title.shown) showTitleCards();
+      return { ok: true, say: `Added “${r.value.name}”. Open it to play.` };
     },
     closed: () => {
       if (playing) game.paused = gamesPaused;
@@ -3712,6 +3766,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(`🚉 Grand Central is in your toy box (Industries tab, Stations): put it on a line by ${town.name}, and lay track to its three roads`, true, 6000);
       return;
     }
+    if (siting) endSiting(true);
     try {
       await grandModels(id);
     } catch {
@@ -3719,28 +3774,119 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return;
     }
     const level = statusOf(game.world, town.id).level;
-    const fps = Array.from({ length: g.stages.length + 1 }, (_, i) => game.propLibrary.footprint(siteAsset(g, i)));
-    const fp = unionFootprint(fps, g.scale);
-    const r = startGrand(
-      game.world,
-      progress,
-      town,
-      level,
-      id,
-      () => (fp ? siteSpot(game.world, town, fp, game.propLibrary.footprint) : null),
-      (asset, pose, scale) => {
-        const prop = game.props.add(asset, pose, undefined, { scale }).id;
-        game.propsChanged();
-        return prop;
-      },
-    );
-    if (r === "no-room") {
+    if (grandState(game.world, progress, town, level, g) !== "build") return audio.refuse();
+    const fp = siteFootprint(id);
+    const pose = fp ? siteSpot(game.world, town, fp, game.propLibrary.footprint) : null;
+    if (!pose || !fp) {
       hud.toast(`No room by ${town.name} for the ${g.name}: it needs a big clear, level space near the station`, false, 4200);
       audio.refuse();
       return;
     }
-    if (r === "not-now") return audio.refuse();
-    grandStarted(town, id);
+    // Not paid yet: the site stands where the game suggests, a draft (never saved), for the player to drag where they
+    // like it, turn, and then Build here or Cancel (spec 2026-11-22-grand-placement.md, step 2).
+    const prop = game.props.add(siteAsset(g, 0), pose, undefined, { scale: g.scale });
+    prop.draft = true;
+    siting = { id, town, prop: prop.id };
+    interaction.sitePending = prop.id;
+    game.propsChanged();
+    hud.hideCards();
+    siteBar.show(g.icon, g.name, town.name, g.coins);
+    frameSite(prop.id, fp);
+    audio.tap();
+  }
+
+  /** Every stage's footprint of a project together, as its site needs room for (only the loaded models'). */
+  function siteFootprint(id: GrandId) {
+    const g = grandOf(id)!;
+    return unionFootprint(Array.from({ length: g.stages.length + 1 }, (_, i) => game.propLibrary.footprint(siteAsset(g, i))), g.scale);
+  }
+
+  /** The camera on a site: its corners framed, room left for the bar. */
+  function frameSite(propId: number, fp: { cx: number; cz: number; hw: number; hd: number }): void {
+    const p = game.props.get(propId);
+    if (!p) return;
+    const c = Math.cos(p.heading);
+    const sn = Math.sin(p.heading);
+    const points = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => {
+      const lx = fp.cx + a * fp.hw;
+      const lz = fp.cz + b * fp.hd;
+      return { x: p.x + lx * c - lz * sn, z: p.z + lx * sn + lz * c };
+    });
+    flyTo({ x: p.x, z: p.z, points });
+  }
+
+  const siteBar = new SiteBar(hud.root, {
+    build: () => siteBuild(),
+    cancel: () => {
+      if (!siting) return;
+      endSiting(true);
+      audio.tap();
+    },
+    turn: () => {
+      const s = siting;
+      const p = s && game.props.get(s.prop);
+      if (!s || !p) return;
+      const fit = interaction.siteFits(s.prop, (p.heading + Math.PI / 2) % (Math.PI * 2));
+      if (typeof fit === "string") {
+        hud.toast(fit);
+        audio.refuse();
+        return;
+      }
+      game.props.move(s.prop, fit);
+      game.propsChanged();
+      game.invalidate();
+      audio.tap();
+    },
+  });
+  interaction.onSiteMoved = () => game.invalidate();
+
+  /** Placing's over: the bar down; `remove`, its draft site taken away too (Cancel, or another Start). */
+  function endSiting(remove: boolean): void {
+    const s = siting;
+    siting = null;
+    interaction.sitePending = -1;
+    siteBar.hide();
+    if (s && remove) {
+      game.props.remove(s.prop);
+      game.propsChanged();
+    }
+    game.invalidate();
+  }
+
+  /** Build here: the coins paid, the draft site made the project's, where it stands now (if it still fits there). */
+  function siteBuild(): void {
+    const s = siting;
+    const p = s && game.props.get(s.prop);
+    if (!s || !p) return;
+    const g = grandOf(s.id)!;
+    const fit = interaction.siteFits(s.prop, p.heading);
+    if (typeof fit === "string") {
+      hud.toast(fit);
+      audio.refuse();
+      return;
+    }
+    const level = statusOf(game.world, s.town.id).level;
+    const r = startGrand(game.world, progress, s.town, level, s.id, () => fit, (_asset, pose) => {
+      game.props.move(s.prop, pose);
+      delete p.draft;
+      return s.prop;
+    });
+    if (r !== "started") {
+      hud.toast(progress.coins < g.coins ? `The ${g.name} needs ${g.coins} 🪙` : `The ${g.name} can't be started just now`, false, 3200);
+      audio.refuse();
+      return;
+    }
+    endSiting(false);
+    game.propsChanged();
+    grandStarted(s.town, s.id);
+    // (The city's card again, on its project: stage 1 under way, the goods it needs.)
+    const station = game.stations.get(s.town.id);
+    const depot = station === undefined ? undefined : game.economy.depotAtPiece(station);
+    if (depot) {
+      townView.want = { depot: depot.id, tab: "projects", pick: s.id };
+      townView.depot = -1;
+      interaction.openDepotCard(depot.id);
+    }
   }
 
   /** A grand project started in `town`: coins shown, the toast and News, saved. */
@@ -3885,6 +4031,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const siteModelsAsked = new Set<GrandId>();
   interaction.siteTown = (propId) => {
     if (mode !== "game") return -1;
+    if (siting && propId === siting.prop) return siting.town.id;
     for (const [key, plan] of game.economy.grandPlans)
       if (plan.prop === propId) {
         const id = key as GrandId;
@@ -3897,8 +4044,33 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }
     return -1;
   };
+  // Trees step aside from every site's plot, its whole footprint (spec 2026-11-22-grand-placement.md), as from track.
+  game.siteAreas = () => {
+    if (mode !== "game") return [];
+    const out: KeepOff[] = [];
+    const add = (id: GrandId, propId: number) => {
+      const p = game.props.get(propId);
+      if (!p) return;
+      const fp = siteFootprint(id);
+      // (Its stages' models not all loaded yet, as on a load: asked for, and the trees moved again once they are.)
+      if (!siteModelsAsked.has(id)) {
+        siteModelsAsked.add(id);
+        grandModels(id).then(() => game.syncSiteTrees(), () => siteModelsAsked.delete(id));
+      }
+      if (fp) out.push({ pose: { x: p.x, z: p.z, heading: p.heading }, rects: [fp] });
+    };
+    for (const [id, plan] of game.economy.grandPlans) if (plan.prop >= 0) add(id as GrandId, plan.prop);
+    if (siting) add(siting.id, siting.prop);
+    return out;
+  };
+  game.syncSiteTrees();
   interaction.siteMove = (propId) => {
     if (mode !== "game") return null;
+    if (siting && propId === siting.prop) {
+      const g = grandOf(siting.id)!;
+      const fp = siteFootprint(siting.id);
+      return fp ? siteMoveRule(game.landscape, siting.town, g, fp) : null;
+    }
     for (const [id, plan] of game.economy.grandPlans) {
       if (plan.prop !== propId) continue;
       const g = grandOf(id);
@@ -5113,7 +5285,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function freeFor(id: number, most = 3): number[] {
     const line = game.economy.lines.get(id);
     if (!line) return [];
-    const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1).filter((p) => p !== -1);
+    // (Any track of a depot of several: a second track on another line is reached from that line.)
+    const pieces = line.stops.flatMap((st) => {
+      const d = game.economy.liveDepot(st.depotId);
+      return d ? game.economy.reachableTracks(d) : [];
+    });
     return freeTrains((e) => {
       const front = trainFront(e);
       return !!front && pieces.some((p) => legFromCursor(game.layout, front, p) !== null);
@@ -5349,7 +5525,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return true;
     }
     const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1);
-    const legs = viaLegs(game.layout, line.stops.flatMap((st, k) => (pieces[k] === -1 ? [] : [{ piece: pieces[k], via: st.via }])), undefined, game.economy.router.ways.of(line.id));
+    const legs = viaLegs(game.layout, line.stops.flatMap((st, k) => (pieces[k] === -1 ? [] : [legStop(game.economy, game.economy.depot(st.depotId)!, st.via)])), undefined, game.economy.router.ways.of(line.id));
     const ribbons: RibbonSpec[] = legs.flatMap((leg) => (leg ? [{ runs: leg, colour: line.colour }] : []));
     const discs = new Map<number, DiscSpec>();
     line.stops.forEach((st, k) => {
@@ -5847,7 +6023,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const cars = found.train.cars;
     const line = engineId !== -1 ? lineOf(game.economy, engineId) : undefined;
-    const key = `${mode}:${engineId}:${carId}:${game.economy.loadsVersion}:${game.economy.carGoodsVersion}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
+    const key = `${mode}:${engineId}:${carId}:${game.economy.loadsVersion}:${game.economy.carGoodsVersion}:${game.economy.wagonCapacity}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
     if (key === summaryKey) return;
     summaryKey = key;
     if (engineId !== -1) {
@@ -6607,7 +6783,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const aim = game.economy.aimOf(carId);
       const toNext = aim === -1 ? null : legFromCursor(game.layout, front, aim, undefined, keep);
       // (The legs on from the next stop follow the way the train comes into it: it runs on round a loop past it.)
-      const legs = viaLegs(game.layout, line.stops.map((st, k) => ({ piece: pieces[k], via: st.via })), { k: next, done: r.at ? Infinity : viaDone(r, next), leg: toNext }, keep);
+      // (A depot of several tracks: the way into it to whichever of them it reaches, on from the one it came to.)
+      const legStops = line.stops.map((st, k) => {
+        const d = game.economy.depot(st.depotId);
+        return d && pieces[k] !== -1 ? legStop(game.economy, d, st.via) : { piece: pieces[k], via: st.via };
+      });
+      const legs = viaLegs(game.layout, legStops, { k: next, done: r.at ? Infinity : viaDone(r, next), leg: toNext }, keep);
       // The way changed under a track edit (the stops and the stop it's heading for as they were, the legs not, and
       // every leg still has a way: one with none says "Can't reach" instead): the ribbon flashes once and the card says
       // so a few seconds (audit F14: a train went somewhere new, no one said why).
@@ -6869,9 +7050,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!d) return;
     const piece = d.pieceId;
     const spot = pieceSpot(piece);
+    const tracks = game.economy.reachableTracks(d);
     const engine = freeTrains((e) => {
       const front = trainFront(e);
-      return !!front && legFromCursor(game.layout, front, piece) !== null;
+      return !!front && tracks.some((p) => legFromCursor(game.layout, front, p) !== null);
     }, spot ? [spot] : [])[0];
     // (No free train can reach it: a line of its own, starting here, to put a train on later.)
     if (engine === undefined) {
@@ -7000,8 +7182,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     for (const l of lines) {
       // (By its via points, and the ways its trains keep.)
       const stops = l.stops.flatMap((st) => {
-        const piece = game.economy.depot(st.depotId)?.pieceId ?? -1;
-        return piece === -1 ? [] : [{ piece, via: st.via }];
+        const d = game.economy.depot(st.depotId);
+        return d ? [legStop(game.economy, d, st.via)] : [];
       });
       for (const leg of viaLegs(game.layout, stops, undefined, game.economy.router.ways.of(l.id))) if (leg) ribbons.push({ runs: leg, colour: l.colour });
     }
@@ -7286,7 +7468,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     } else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
-      if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
+      // (A Game save that won't load is never saved over: start-up parks one, so this is only a save that came since.)
+      if (saved && !saved.ok && next === "game") {
+        lockSaves("game");
+        hud.toast("That game couldn't be opened by this version of the game. It's kept as it was, and this map won't be saved over it.", false, 10000);
+      } else if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
       setWorld(saved?.ok ? saved.value : buildStarterWorld(next === "game"));
       restoreSession(next, !!saved?.ok);
     }
@@ -7330,6 +7516,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (note) {
       delete cloudNotes[next];
       hud.toast(CLOUD_NOTES[note], false, 7000);
+    }
+    if (unreadableNote !== null) {
+      hud.toast(unreadableNote, false, 12000);
+      unreadableNote = null;
     }
     if (olderSave) {
       olderSave = false;
@@ -8006,6 +8196,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       openingView();
     } else showTitleOverOpening();
     if (!overOpening) dismissLoading();
+    // The game's save couldn't be opened (kept in Your games): said there, over the title, with the game in view.
+    if (!opening.linked && unreadableNote !== null) {
+      openGames(unreadableNote);
+      unreadableNote = null;
+    }
   });
 }
 
@@ -8183,7 +8378,7 @@ requestAnimationFrame(() =>
       }
       // (The cloud's check and a pasted map may have written the game's keys: Your games mended to match.)
       slots.startUp();
-      const opening = initialWorld();
+      const opening = initialWorld(await keepUnreadableGame());
       const wanted = [...new Set([TITLE_ART_PIECE, ...[...opening.world.layout.pieceIds()].map((id) => opening.world.layout.getPiece(id)!.type)])];
       let ready = 0;
       await Promise.all(wanted.map((t) => TrackView.whenBuilt(t).then(() => loadBar.set("pieces", ++ready / wanted.length))));

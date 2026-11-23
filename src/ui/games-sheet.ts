@@ -17,6 +17,11 @@ export interface GamesHandlers {
   rename(id: string, name: string): void;
   copy(id: string): Promise<string | void>;
   remove(id: string): void;
+  /**
+   * A "Copy map for a bug report" text pasted, to add as a game beside the others (never over one). What to say:
+   * `ok` true when it was added.
+   */
+  addFromText?(text: string): Promise<{ ok: boolean; say: string }>;
   /** The sheet closed. */
   closed?(): void;
 }
@@ -69,6 +74,8 @@ export class GamesSheet {
   readonly root = el("div", "games-sheet");
   private readonly listEl = el("div", "games-list");
   private readonly noteEl = el("p", "games-note");
+  /** "Load a map from text": a button, or the box to paste into (`pasting`). */
+  private readonly loadEl = el("div", "games-load");
 
   constructor(parent: HTMLElement, private readonly h: GamesHandlers) {
     const r = this.root;
@@ -89,6 +96,7 @@ export class GamesSheet {
     this.noteEl.hidden = true;
     const body = el("div", "games-body");
     body.append(this.noteEl, this.listEl);
+    if (h.addFromText) body.append(this.loadEl);
     r.append(head, body);
     parent.append(r);
   }
@@ -100,6 +108,7 @@ export class GamesSheet {
   open(): void {
     this.say("");
     this.draw();
+    this.loadClosed();
     this.root.hidden = false;
     this.root.querySelector<HTMLElement>(".games-back")?.focus({ preventScroll: true });
   }
@@ -112,9 +121,45 @@ export class GamesSheet {
   }
 
   /** A note over the list (why something couldn't be done), or none. */
-  say(text: string): void {
+  say(text: string, good = false): void {
     this.noteEl.textContent = text;
     this.noteEl.hidden = !text;
+    this.noteEl.classList.toggle("good", good);
+  }
+
+  /** "Load a map from text", folded: one button. */
+  private loadClosed(): void {
+    this.loadEl.replaceChildren(chip("Load a map from text…", "games-load-open", () => this.pasting()));
+  }
+
+  /** The box to paste a copied map into, with Add to Your games and Cancel. */
+  private pasting(): void {
+    const box = el("textarea", "games-load-text");
+    box.setAttribute("aria-label", "Map text");
+    box.placeholder = "Paste a map copied with ☰ Copy map for a bug report (woodrail-map:1:…)";
+    box.rows = 4;
+    box.spellcheck = false;
+    box.addEventListener("keydown", (e) => e.stopPropagation());
+    const add: HTMLButtonElement = chip("Add to Your games", "primary games-load-add", async () => {
+      add.disabled = true;
+      let r: { ok: boolean; say: string };
+      try {
+        r = await this.h.addFromText!(box.value);
+      } finally {
+        add.disabled = false;
+      }
+      if (this.root.hidden) return;
+      if (r.ok) {
+        this.draw();
+        this.loadClosed();
+      }
+      this.say(r.say, r.ok);
+      this.root.querySelector(".games-body")?.scrollTo({ top: 0 });
+    });
+    const buttons = el("div", "games-buttons");
+    buttons.append(add, chip("Cancel", "games-load-cancel", () => this.loadClosed()));
+    this.loadEl.replaceChildren(el("p", "games-load-help", "A game copied as text, from this device or another, is added here as a new game. Nothing is replaced."), box, buttons);
+    box.focus();
   }
 
   /** The list drawn again from the store. */

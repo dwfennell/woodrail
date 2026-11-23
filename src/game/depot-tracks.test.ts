@@ -8,6 +8,8 @@ import { buildStarterWorld, INDUSTRY_ROLE, type World } from "./world";
 import { trackBlock } from "./track-rules";
 import { BLOCK_MESSAGES } from "../landscape/clearance";
 import { loadBugMap } from "../play/bugmap";
+import { legStop } from "./lines";
+import { viaLegs } from "./route-path";
 import WORKSHOP_MAP from "../play/bugmaps/reports/2026-11-17-workshop-second-track.txt?raw";
 
 /**
@@ -249,6 +251,51 @@ describe("depot tracks: the track beside it", () => {
     for (let i = 0; i < sec(60); i++) w.step();
     expect(t.derailed).toBe(false);
     expect(t.cars.some((c) => w.economy.cargoOf(c.id).kind === "flour")).toBe(true);
+  });
+});
+
+describe("depot tracks: a second track on another line", () => {
+  // The user, 2026-11-22 (src/play/bugmaps/teal-warehouse.test.ts): a warehouse's second track joined to a line of its
+  // own, not to the yard's first track: "I should be able to stop at the warehouse on the second track here right?"
+  it("is the industry's to routes: a train on that line is aimed at it and loads there; the yard's own line's at its own", () => {
+    const w = line(6, 4);
+    const plan = planTracks(w, w.mill, open);
+    if (typeof plan === "string") throw new Error(plan);
+    apply(w, w.mill, plan);
+    const road = roadOf(w, 0);
+    expect(w.economy.unjoinedTracks(w.mill)).toEqual([road]);
+    // (Another line along the second track, the player's own: straights on from both its open ends, a farm at the east.)
+    const ends = w.economy.tracksOf(w.mill.id)!.ends.map((id) => w.layout.getPiece(id)!.pose);
+    const z = ends[0].z;
+    const west = Math.min(...ends.map((e) => e.x));
+    const east = Math.max(...ends.map((e) => e.x));
+    const before = [1, 2].map((k) => w.layout.addPiece("straight-216", { x: west - 216 * k, z, heading: 0 }));
+    w.layout.addPiece("straight-216", { x: east + 216, z, heading: 0 });
+    const farm2 = w.economy.addDepot("farm", w.layout.addPiece("depot-farm", { x: east + 432, z, heading: 0 }));
+    const farm1 = w.economy.addDepot("farm", w.layout.addPiece("depot-farm", { x: w.ids.length * 216, z: 0, heading: 0 }));
+    expect(w.economy.reachableTracks(w.mill)).toEqual([w.mill.pieceId, road]);
+    expect(w.economy.unjoinedTracks(w.mill)).toEqual([]);
+    w.mill.piles[CARGO.flour.index] = 12;
+    const other = put(w, before[0], ["engine", "van", "van"], 200);
+    const own = put(w, w.ids[2], ["engine", "van", "van"], 200);
+    w.economy.setRoute(other.cars[0].id, { stops: [{ depotId: w.mill.id, action: "pick" }, { depotId: farm2.id, action: "auto" }], next: 0 });
+    w.economy.setRoute(own.cars[0].id, { stops: [{ depotId: w.mill.id, action: "pick" }, { depotId: farm1.id, action: "auto" }], next: 0 });
+    // (The map's way from the far line's farm back into the mill: to the second track, the one on its line.)
+    const legs = viaLegs(w.layout, [legStop(w.economy, farm2), legStop(w.economy, w.mill)]);
+    expect(legStop(w.economy, w.mill).tracks).toEqual([w.mill.pieceId, road]);
+    expect(legs[0]?.at(-1)?.pieceId).toBe(road);
+    const aims = [new Set<number>(), new Set<number>()];
+    for (let i = 0; i < sec(40); i++) {
+      w.step();
+      [other, own].forEach((t, k) => {
+        const r = w.economy.routeOf(t.cars[0].id)!;
+        if (r.next % 2 === 0 && !r.at) aims[k].add(w.economy.aimOf(t.cars[0].id));
+      });
+      expect(other.derailed || own.derailed).toBe(false);
+    }
+    expect([...aims[0]]).toEqual([road]);
+    expect([...aims[1]]).toEqual([w.mill.pieceId]);
+    for (const t of [other, own]) expect(t.cars.some((c) => w.economy.cargoOf(c.id).kind === "flour")).toBe(true);
   });
 });
 
