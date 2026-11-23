@@ -21,30 +21,30 @@
     "seconds": 1800
   },
   "dandelion.txt": {
-    "jams": 8,
-    "arrivals": 673,
-    "longestStand": 146,
-    "firstBreak": "greenHeld: train 70 stood 5 s at signal -7, which shows clear (piece 48)",
+    "jams": 18,
+    "arrivals": 554,
+    "longestStand": 155,
+    "firstBreak": null,
     "seconds": 1800
   },
   "rowan-1.txt": {
-    "jams": 30,
-    "arrivals": 419,
+    "jams": 29,
+    "arrivals": 425,
     "longestStand": 192,
     "firstBreak": "greenHeld: train 170 stood 5 s at signal -85, which shows clear (piece 329)",
     "seconds": 1800
   },
   "rowan-2.txt": {
-    "jams": 23,
-    "arrivals": 582,
-    "longestStand": 177,
+    "jams": 21,
+    "arrivals": 577,
+    "longestStand": 190,
     "firstBreak": "greenHeld: train 109 stood 5 s at signal -81, which shows clear (piece 329)",
     "seconds": 1800
   },
   "rowan-3.txt": {
-    "jams": 10,
-    "arrivals": 635,
-    "longestStand": 190,
+    "jams": 7,
+    "arrivals": 688,
+    "longestStand": 146,
     "firstBreak": null,
     "seconds": 1800
   },
