@@ -351,7 +351,9 @@ if (!setup.error) {
     // (Past a card's closing, and the click shield after it.)
     await p.waitForTimeout(1200);
     if (await find()) return find();
-    if (await p.evaluate(() => document.querySelector(".tray")?.classList.contains("in-group"))) {
+    // (An Undo's toast can lie over the tray's foot: gone first, as a player would wait.)
+    await p.waitForFunction(() => !document.querySelector(".toast.show"), null, { timeout: 20000 }).catch(() => {});
+    for (let k = 0; k < 3 && (await p.evaluate(() => document.querySelector(".tray")?.classList.contains("in-group"))); k++) {
       const back = await p.evaluate(() => {
         const r = document.querySelector(".scroller .tray-back")?.getBoundingClientRect();
         return r ? [r.x + r.width / 2, r.y + r.height / 2] : null;
@@ -382,7 +384,7 @@ if (!setup.error) {
     await settle();
     const item = await trayItem("piece:straight-216");
     if (!item) {
-      const tray = await p.evaluate(() => ({ inGroup: document.querySelector(".tray")?.classList.contains("in-group"), groups: [...document.querySelectorAll(".scroller .tray-group")].map((g) => g.querySelector(".label")?.textContent), items: [...document.querySelectorAll(".scroller .tray-item")].map((e) => e.dataset.key) }));
+      const tray = await p.evaluate(() => ({ inGroup: document.querySelector(".tray")?.classList.contains("in-group"), groups: [...document.querySelectorAll(".scroller .tray-group")].map((g) => g.querySelector(".label")?.textContent), items: [...document.querySelectorAll(".scroller .tray-item")].map((e) => e.dataset.key), atBack: (() => { const r = document.querySelector(".scroller .tray-back")?.getBoundingClientRect(); const e = r && document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e ? `${e.tagName}.${e.className}` : null; })() }));
       check("3b. a Long straight on the tray", false, JSON.stringify(tray));
       break;
     }
