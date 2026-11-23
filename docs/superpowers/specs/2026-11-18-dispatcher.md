@@ -488,3 +488,16 @@ is in the forest's dead end, and one is behind the loop.
   stop. Either costs decision time; measure it against the 1.5 ms p98.
 
 At 664f4efe: 25 (23–29), dispatcher on. Main with it off, seeded: 93 (89–100).
+
+**Parked: back-ups (step 4).** Ported from `dispatch-delivered` onto ae745eda (`claude/dispatch-backup-10`, `BACKUPS=0` to switch them off). A train backs at most its length onto free track, rests clear of points, and then goes on its way with its levers back, once a jam. Its card says "Backing up to let X by".
+- **They can't free the complex maps' saved starts.** On complex-1, Bluebell and Wren start nose to nose with one piece between them. Bluebell's way runs back over all of the track Wren came by. The search's back-up moves find nothing (2 states), as §12 found for saves 1 and 2: the trains there are truly locked. These starts jam at the same time with the dispatcher off (36–37 s on, 37–42 s off).
+- **Elsewhere they fire 0–3 times a map and don't pay.**
+
+  | Map, seed 1 | Stops with back-ups | Stops without | p98 with (ms) | p98 without (ms) |
+  |---|---|---|---|---|
+  | rowan-2 | 641 | 696 | 1.40 | 0.80 |
+  | wren | 510 | 499 | | |
+  | rowan-1 | | | 1.70 | 0.96 |
+  | user-2026-11-21 | | | 1.54 | 0.81 |
+
+  Wren gains stops but its first jam comes sooner (833 s against 988 s). The extra back-up search takes p98 over the 1.5 ms bar.
