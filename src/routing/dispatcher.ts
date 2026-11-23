@@ -666,7 +666,9 @@ export class Dispatcher {
     // after next isn't granted, unless the stretch had none before it either (it makes nothing worse).)
     let unsafeBy = -1;
     if (to >= 0 && SAFE.on) {
-      const before = this.safeOrder(ways, members, -1, -1);
+      // (Only where it can wait: safe with it standing where it is till the others are through; refused where it must
+      // go first, its waiting helps nobody (rowan-2: refused alone, the trains it would meet came on to it anyway).)
+      const before = this.safeOrder(ways, members, -1, -1, k);
       if (before < 0) {
         const after = this.safeOrder(ways, members, k, to);
         if (after >= 0) {
@@ -1234,7 +1236,7 @@ export class Dispatcher {
    * by any road round the others still standing is taken off. −1: all were (safe); else a train (its key) left that
    * can't (the one to name). Hand-run, parked and other trains stand throughout.
    */
-  private safeOrder(ways: readonly DTrain[], members: readonly number[], k: number, to: number): number {
+  private safeOrder(ways: readonly DTrain[], members: readonly number[], k: number, to: number, last = -1): number {
     // (Each train moves on a leg at a time, to its next stop (or a turn, or its booked way's end), when it has a way
     // there round the others where they stand; two legs and it's off the board (it runs on). Safe: all were.)
     const pos = ways.map((w, i) => (i === k ? to : w.at));
@@ -1247,6 +1249,8 @@ export class Dispatcher {
       changed = false;
       for (const i of left) {
         if (gone.has(i)) continue;
+        // (`last`: it stays where it is till every other one is off the board.)
+        if (i === last && left.some((j) => j !== i && !gone.has(j))) continue;
         // (In its way: trains standing on its next two legs whose own way runs over them the other way, and trains that
         // never move; one going its way moves on ahead of it.)
         const mine = way2(ways[i], pos[i]);
