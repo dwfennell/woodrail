@@ -48,6 +48,8 @@ const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>()
 
 /** A stuck train searches for a detour at most this often (s). */
 const DETOUR_EVERY_S = 6;
+/** `headOnAhead` asks for a way round all the trains coming the other way at once (ALL_AGAINST=0: one at a time). */
+export const ALL_AGAINST = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ALL_AGAINST !== "0" };
 /** `headOnAhead`: another's way runs on through the stop its hold ends at (NEXT_LEG=0: not). */
 export const NEXT_LEG = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NEXT_LEG !== "0" };
 /** How long a train waits at a dead end of its own for another heading into the one it turns in (`deadEndBy`). */
@@ -1105,6 +1107,8 @@ export class Dispatcher {
       if (!here.has(fp) && !fresh.has(fp)) fresh.set(fp, t.frontEn[i]);
     }
     if (fresh.size === 0) return -1;
+    const against_ = new Set<number>();
+    let firstAgainst: number | undefined;
     for (let m = 0; m < ts.length; m++) {
       const o = ts[m];
       if (o.key === engine || o.fixed) continue;
@@ -1128,7 +1132,15 @@ export class Dispatcher {
       // free, they pass there (own-07: refused onto the line into a loop as the other stood in the loop's main road).)
       const stand = placed[m].pos[placed[m].at];
       if ((o.pos[o.at].some((p) => myAhead.has(p)) || stand.some((p) => myAhead.has(p))) && !this.wayRound(t, to, new Set([...o.pos[o.at], ...stand]))) return o.key;
+      // (Every train coming the other way, together: one road round each isn't a way round them all (own-10: a loop's
+      // two roads, one coming train in each).)
+      if (ALL_AGAINST.on) {
+        for (const p of o.pos[o.at]) against_.add(p);
+        for (const p of stand) against_.add(p);
+        firstAgainst ??= o.key;
+      }
     }
+    if (firstAgainst !== undefined && !this.wayRound(t, to, against_)) return firstAgainst;
     return -1;
   }
 
