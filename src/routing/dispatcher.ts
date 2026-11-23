@@ -347,7 +347,15 @@ export class Dispatcher {
         let w = end;
         while (w > t.at && !t.wait[w]) w--;
         if (w > t.at) end = w;
-        else while (end > t.at && !t.rest[end]) end--;
+        else if (t.rest[t.at]) while (end > t.at && !t.rest[end]) end--;
+        else {
+          // (Standing on points itself: on to its first place clear of them within the old grant, else the grant's end
+          // as kept (a line end too short to turn clear of points: it turns over them, as it must), not where it stands
+          // (own-03: held on points 5 on its way to turn at the buffer, it stood there for good).)
+          let f = t.at + 1;
+          while (f <= end && !t.rest[f]) f++;
+          if (f <= end) end = f;
+        }
         this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
         const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
