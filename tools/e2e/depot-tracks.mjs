@@ -337,8 +337,8 @@ if (!setup.error) {
   const splitsLeft = await p.evaluate((ids) => ids.filter((id) => !!window.woodrail.layout.getPiece(id)).length, laid.map((r) => r.id));
   // (Undone, points go back in the toy box, not back to planks: laid again from there, they cost nothing more.)
   check("3b. Undo twice: the Splits taken back into the box, the track not joined", splitsLeft === 0 && s.planks === 12 && s.tracks === 2 && s.roads[0].open, JSON.stringify({ splitsLeft, s }));
-  // (The Long straight: on the Track tab's Straight shelf, opened by taps as a player does: Back out of the Switch
-  // shelf the Splits came from, then the Straight shelf; as points-onto-line.mjs goes to the Switch shelf.)
+  // (The Long straight: on the Track tab's Straight shelf, opened by taps as a player does: the Track tab, then the
+  // Straight shelf.)
   const trayItem = async (key) => {
     const find = () => p.evaluate((key) => {
       const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`);
@@ -353,15 +353,9 @@ if (!setup.error) {
     if (await find()) return find();
     // (An Undo's toast can lie over the tray's foot: gone first, as a player would wait.)
     await p.waitForFunction(() => !document.querySelector(".toast.show"), null, { timeout: 20000 }).catch(() => {});
-    for (let k = 0; k < 3 && (await p.evaluate(() => document.querySelector(".tray")?.classList.contains("in-group"))); k++) {
-      const back = await p.evaluate(() => {
-        const r = document.querySelector(".scroller .tray-back")?.getBoundingClientRect();
-        return r ? [r.x + r.width / 2, r.y + r.height / 2] : null;
-      });
-      if (back) await p.touchscreen.tap(back[0], back[1]);
-      await frames();
-      await p.waitForTimeout(250);
-    }
+    // The Track tab tapped (even open, a tab tapped goes back to its shelves), then the Straight shelf.
+    await tapButton('.tray .tab[data-tab="track"]');
+    await p.waitForTimeout(250);
     const shelf = await p.evaluate(() => {
       const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Straight");
       if (!g) return null;
