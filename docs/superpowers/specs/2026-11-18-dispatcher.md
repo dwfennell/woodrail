@@ -508,3 +508,35 @@ At 664f4efe: 25 (23–29), dispatcher on. Main with it off, seeded: 93 (89–100
 - What's needed is the same as own-08: whether a grant is safe depends on legs past each train's next stop.
 
 Dispatcher on, at d60f8283: 57 (57–58) stops; first jam at 48 s. Main off, seeded: 100; first jam at 302 s.
+
+### 13.6 Deeper lookahead (proposal)
+
+**The problem it's for.** Each of these was a grant that let a train reach its goal and doomed the leg after:
+- own-08 (35 against main off's 93);
+- own-10 (57 against 100);
+- complex-3 (509 against 546), and complex-1's knot at 500 s;
+- user-2026-11-21's first jam (fixed by the rebuild rules).
+
+The search scores one goal a train ("of N"), so a state where two trains each reach their stop facing each other on the only way on scores as well as a good one. Each knot so far is two or three trains on single-track legs between passing places, decided one stop too early.
+
+**Local rules tried** (the moving train's own way is in `headOnAhead`; "another's" is the way of a train coming the other way):
+
+| Rule | Result |
+|---|---|
+| Another's way followed through its stop and turn (all trains) | rowan-2 −198 with a deadlock; own-01 and dandelion lower |
+| Another's way to the leg after its stop, only when its hold ends there (`NEXT_LEG`, landed) | complex-1 +76, complex-2 +63 |
+| A way round all coming trains at once (`ALL_AGAINST`) | moved own-10's knot; a rowan-2 deadlock |
+| Go first when the train coming the other way already waits on this one | no own-10 gain; rowan-2 p98 1.74 ms |
+| Admission two stops on (`ADMIT2`, off) | own-08, own-10 and complex-3 no better; rowan-2 −56 |
+
+**The proposal: a safety check over track as resources, after the search, not a deeper search.**
+- **Resources:** a stretch's sections, taken from the topology already built (`singleOf`, loops, yards, dead ends). Each single line is a resource of 1 per direction-conflict. Each passing loop counts its roads, and each yard its tracks.
+- **Claims:** each held train claims its next two legs, as the sections it must hold at once to get past each conflict, using the booked ways already in hand.
+- **The check:** before a grant, test that a safe order exists, as in the banker's algorithm. Find a train whose remaining claims fit what's free, let it finish its two legs, free its sections, and repeat. If any train can't finish, the grant isn't safe, and the train waits where it is (it rests now, by the hold rules).
+- **Cost:** O(trains² × sections) per decision; on the big maps that's about 10 trains × 60 sections, well under 0.1 ms. It runs only for decisions that would grant, not for every retry. The search and its 500-state cap are unchanged, so p98 should move by under 0.1 ms.
+- **Fit:** it sits where `singleLineBy`, `deadEndBy` and `headOnAhead` refuse today, as one more refusal (`unsafeBy`), and its card can name the train it waits for. Over time it could replace the patchwork of `headOnAhead`'s special cases.
+- **Risks:**
+  - The claims use booked ways. A train that would get by on a road its booked way doesn't have reads as stuck (§13.2's lesson), so loop roads must count as capacity, not as fixed roads.
+  - Turns at line ends mean a leg can double back. A leg that turns claims the dead end until it's out again (§2.2a).
+  - Hand-run and parked trains are fixed claims.
+- **Size:** about 2–3 days, behind a switch, on the usual seeded bar. The first targets are own-08, own-10 and complex-3; the guard is rowan-2 and dandelion, which were the over-refusal canaries every time.
