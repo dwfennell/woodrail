@@ -63,18 +63,35 @@ export function pileSlot(kind: CargoKind, k: number, across: number, rows = 1): 
   return { x: (row - (rows - 1) / 2) * (size.x + 0.6), y: size.y / 2 + layer * size.y, z: (col - (across - 1) / 2) * pitch };
 }
 
-/** Where the k-th unit rides on a timber wagon's deck, relative to the deck's centre. */
-export function wagonSlot(kind: CargoKind, k: number): Slot {
+/**
+ * Where the k-th unit (from 0) of `count` on board rides on a timber wagon's deck, relative to the deck's centre
+ * (`count` defaults to k + 1: the top unit, where a crane sets or lifts it). Up to 3 (a plain wagon's room) as ever; a
+ * heavy wagon's 4 and 5 (Smithy) laid out anew, within the stakes and over the deck (the user, 2026-11-23: "five logs on
+ * the flatbed looks a bit odd": the 4th and 5th rode along the top, hanging off the wagon's ends, and bundles stood in
+ * a column five high): logs two by two between the stakes, the 5th in the groove on top; bundles two across, the 5th
+ * on top in the middle.
+ */
+export function wagonSlot(kind: CargoKind, k: number, count = k + 1): Slot {
   if (kind === "log") {
+    const side = (k % 2 === 0 ? -1 : 1) * (LOG_RADIUS + 0.3);
+    if (count > 3) {
+      // Two pairs, one on the other, the 5th in the top pair's groove.
+      if (k < 4) return { x: 0, y: LOG_RADIUS + (k < 2 ? 0 : LOG_RADIUS * 2), z: side };
+      return { x: 0, y: LOG_RADIUS * 3 + LOG_RADIUS * 1.75, z: 0 };
+    }
     // Two side by side, the third resting in the groove on top.
-    if (k < 2) return { x: 0, y: LOG_RADIUS, z: (k === 0 ? -1 : 1) * (LOG_RADIUS + 0.3) };
-    if (k === 2) return { x: 0, y: LOG_RADIUS + LOG_RADIUS * 1.75, z: 0 };
-    // A heavy wagon's fourth and fifth: on top, either side of the third.
-    return { x: (k === 3 ? -1 : 1) * (LOG_LENGTH / 4), y: LOG_RADIUS + LOG_RADIUS * 3.5, z: 0 };
+    if (k < 2) return { x: 0, y: LOG_RADIUS, z: side };
+    return { x: 0, y: LOG_RADIUS + LOG_RADIUS * 1.75, z: 0 };
   }
-  if (kind === "planks") return { x: 0, y: BUNDLE_HEIGHT / 2 + k * BUNDLE_HEIGHT, z: 0 };
-  // Iron bundles stack like planks.
-  if (kind === "iron") return { x: 0, y: 7.5 / 2 + k * 7.5, z: 0 };
+  if (kind === "planks" || kind === "iron") {
+    // (Iron bundles stack like planks.)
+    const h = kind === "planks" ? BUNDLE_HEIGHT : 7.5;
+    if (count <= 3) return { x: 0, y: h / 2 + k * h, z: 0 };
+    // Two across; an odd one on top in the middle.
+    const layer = Math.floor(k / 2);
+    const alone = k === count - 1 && count % 2 === 1;
+    return { x: 0, y: h / 2 + layer * h, z: alone ? 0 : (k % 2 === 0 ? -1 : 1) * (BUNDLE_WIDTH / 2 + 0.3) };
+  }
   // Cars on a car carrier: three along the lower deck, a heavy wagon's fourth and fifth on the upper deck.
   if (kind === "autos") return k < 3 ? { x: (k - 1) * AUTO_PITCH, y: AUTO_HEIGHT / 2, z: 0 } : { x: (k - 3.5) * AUTO_PITCH, y: CARRIER_UPPER + AUTO_HEIGHT / 2, z: 0 };
   // Sacks: in a row along the wagon; a heavy wagon's fourth and fifth on top.

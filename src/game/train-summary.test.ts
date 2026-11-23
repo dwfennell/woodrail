@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { badgeEms } from "../ui/cost-tag";
+import { GOODS_ICON } from "../economy/cargo";
 import { ENGINES } from "./engines";
 import { carLoadWords, loadWords, speedWord, trainSummary, type SummaryCar } from "./train-summary";
 
@@ -49,5 +50,14 @@ describe("train summary (#9)", () => {
     expect(carLoadWords(wagon("log", 2), 3)).toBe("🪵 Logs: 2 of 3");
     expect(carLoadWords(wagon(null), 3, ["grain", "stone"])).toBe("Empty (carries grain, stone)");
     expect(carLoadWords({ kind: "coach", count: 3 }, 6)).toBe("🧑 3 of 6 seats");
+  });
+
+  it("a heavy wagon (Smithy: room 5) says why it holds 5; a plain one says nothing more (the user, 2026-11-23)", () => {
+    expect(carLoadWords(wagon("planks", 5), 5)).toBe(`${GOODS_ICON.planks} Planks: 5 of 5 · heavy wagon (Smithy)`);
+    expect(carLoadWords(wagon(null), 5, ["log", "planks"])).toBe("Empty (carries logs, planks), holds 5 · heavy wagon (Smithy)");
+    expect(carLoadWords(wagon(null), 5)).toBe("Empty, holds 5 · heavy wagon (Smithy)");
+    expect(carLoadWords(wagon("planks", 3), 3)).not.toContain("Smithy");
+    // A coach's seats aren't wagons' room.
+    expect(carLoadWords({ kind: "coach", count: 3 }, 6)).not.toContain("Smithy");
   });
 });

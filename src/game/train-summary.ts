@@ -1,4 +1,5 @@
 import { CARGO, CARGO_KINDS, GOODS_ICON, type CargoKind } from "../economy/cargo";
+import { WAGON_CAPACITY } from "../economy/constants";
 
 /** People on a coach, beside goods in a train's load. */
 export const RIDER_ICON = "🧑";
@@ -69,12 +70,21 @@ export function loadWords(cars: readonly SummaryCar[]): string {
   return `${parts.slice(0, LOAD_KINDS_SHOWN - 1).join(" · ")} · +${parts.length - LOAD_KINDS_SHOWN + 1} more`;
 }
 
-/** A wagon's card: "🪵 Logs: 6 of 8", "Empty (carries logs, planks, iron)"; a coach: "🧑 3 of 6 seats". */
+/** Said on a wagon's card when it holds more than a plain wagon's 3: why (Smithy's heavy wagons). */
+export const HEAVY_WAGON_NOTE = "heavy wagon (Smithy)";
+
+/**
+ * A wagon's card: "🪵 Logs: 2 of 3", "Empty (carries logs, planks, iron)"; a coach: "🧑 3 of 6 seats". A wagon whose
+ * room is over `WAGON_CAPACITY` (Smithy learned) says why: "🪵 Planks: 5 of 5 · heavy wagon (Smithy)", "Empty, holds 5
+ * · heavy wagon (Smithy)" (the user, 2026-11-23: a flatbed "has decided it has capacity for 5 things", unexplained).
+ */
 export function carLoadWords(car: SummaryCar, room: number, carries: readonly CargoKind[] = []): string {
   if (car.kind === "coach") return `${RIDER_ICON} ${car.count ?? 0} of ${room} seats${car.to ? ` · to ${car.to}` : ""}`;
+  const heavy = room > WAGON_CAPACITY ? ` · ${HEAVY_WAGON_NOTE}` : "";
   if (!car.cargo || !car.count) {
     const what = carries.map((k) => CARGO[k].label.toLowerCase());
-    return what.length ? `Empty (carries ${what.join(", ")})` : "Empty";
+    const holds = heavy ? `, holds ${room}` : "";
+    return (what.length ? `Empty (carries ${what.join(", ")})${holds}` : `Empty${holds}`) + heavy;
   }
-  return `${GOODS_ICON[car.cargo]} ${CARGO[car.cargo].label}: ${car.count} of ${room}`;
+  return `${GOODS_ICON[car.cargo]} ${CARGO[car.cargo].label}: ${car.count} of ${room}${heavy}`;
 }
