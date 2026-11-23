@@ -166,6 +166,8 @@ export interface DTrain {
   main: number;
   /** A stuck train's detour (§2.2 step 4): nodes of another way to its next stop, off the booked way's track. */
   detour: Uint8Array;
+  /** What its detour was planned round (the pieces it avoids), if it has one: for building it again (`trainsOf`). */
+  avoid?: ReadonlySet<number>;
   /**
    * Part pieces: a close-up node (its front piece only part way) and each main node's close-up (−1: none); how much of
    * its tail piece a node covers (mm, from that piece's far end) and the connector it runs onto it by; its front's.
@@ -595,6 +597,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
   return {
     key: s.key,
     length: L,
+    ...(avoid && extra.length > 0 ? { avoid } : {}),
     fixed: fixed || goal < 0,
     pos: pos.map((ps) => Int32Array.from(ps)),
     succ: succ.map((x) => Int32Array.from(x)),
