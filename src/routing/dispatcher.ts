@@ -49,6 +49,8 @@ const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>()
 
 /** A stuck train searches for a detour at most this often (s). */
 const DETOUR_EVERY_S = 6;
+/** How long a train stands refused by the reservation book before it goes anyway (§13.6.2). */
+const RESERVE_TIMEOUT_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).RESERVE_TIMEOUT_S ?? 10);
 /** §13.6.2's reservation book (`reservedBy`): off unless RESERVE=1 (a prototype under measure). */
 export const RESERVE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).RESERVE === "1" };
 /** §13.6's safety check over the stretch (`safeOrder`): off unless SAFE=1 (a prototype under measure). */
@@ -671,7 +673,9 @@ export class Dispatcher {
     // of a loop or a yard) meets another train's claim the other way on any piece, or finds no road free there, isn't
     // granted. Both ways ask the same book: the train coming the other way waits at its own passing place.)
     let reservedBy = -1;
-    if (to >= 0 && RESERVE.on) {
+    // (Not for ever: refused `RESERVE_TIMEOUT_S` standing, it goes (a train holding the block may itself be held: at
+    // its stop, at a signal; complex-2's refusals read as jams).)
+    if (to >= 0 && RESERVE.on && !(h.stood >= 0 && this.host.sim.ticks - h.stood >= RESERVE_TIMEOUT_S * 120)) {
       reservedBy = this.reservedBy(engine, ts, ways, k, to);
       if (reservedBy >= 0) {
         to = -1;
