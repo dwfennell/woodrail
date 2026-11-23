@@ -2133,7 +2133,8 @@ export class Economy {
    * passed its sawmill empty with nothing said). Each good the stop's place gives, in its order; the first with a reason:
    * - "no-room": a later stop takes it, but none has room for more than the train has on board now (`roomAhead`):
    *   `taker` is the first later stop that would take it, `takerFull` whether it's full (else it doesn't need any yet);
-   * - "no-wagon": a later stop takes it, but no wagon of the train carries it (or each is set to Off for it);
+   * - "no-wagon": a later stop takes it, but no wagon of the train carries it, and its wagons move nothing else on the
+   *   line (`movesGoods`: a line carrying other goods isn't for this one);
    * - "none": it would load it, but the place has none (and isn't making any).
    * Not said: goods no later stop takes (the line isn't for them), a stop set to Only drop, wagons already full, and at
    * a store (a warehouse) goods it holds none of.
@@ -2172,7 +2173,11 @@ export class Economy {
       if (carriers.length === 0) {
         // (No wagon could take it: said only where none carries it at all, not where its wagons are set to Off for it,
         // and only to a goods train: an engine alone, or coaches, aren't for goods.)
-        if (!train.cars.some((c) => canCarry(c.kind, kind)) && train.cars.some((c) => canCarry(c.kind))) return { depot: d, kind, why: "no-wagon" };
+        // (And only to a train whose wagons move nothing on its line: one that carries goods from stop to stop has had
+        // its goods chosen by its wagons, and a good it has no wagon for isn't this line's. The user, 2026-11-23: a line
+        // carrying furniture and tools was told "Not loading planks at the warehouse 1: they go on a flatbed", for the
+        // workshop further on, though planks were never meant to go on it.)
+        if (!train.cars.some((c) => canCarry(c.kind, kind)) && train.cars.some((c) => canCarry(c.kind)) && !this.movesGoods(train, stops)) return { depot: d, kind, why: "no-wagon" };
         continue;
       }
       if (stop.action !== "pick" && !this.roomAhead(stops, i, kind, train)) {
@@ -2182,6 +2187,32 @@ export class Economy {
       if (!r.endless && d.piles[CARGO[kind].index] <= 0 && !this.working(d)) return { depot: d, kind, why: "none" };
     }
     return null;
+  }
+
+  /**
+   * Do this train's wagons move some good along its line: goods on board, loads its line set down lately, or a good a
+   * stop may pick up (a store: one it holds) that a wagon carries and a later stop takes? Then the line is for those goods, and a good it has no wagon for isn't missed
+   * (`notLoadingAtStop`'s "no-wagon"). Asked only when there's a no-wagon to say: stops × goods × cars.
+   */
+  private movesGoods(train: Train, stops: readonly RouteStopDef[]): boolean {
+    // (Goods on board, or loads its line set down lately: a warehouse run dry for now is still on a line for its goods.)
+    if (train.cars.some((c) => this.cargoOf(c.id).count > 0)) return true;
+    const lineId = this.lineOfTrain(train);
+    if (lineId !== -1 && this.lineLoadsLately(lineId) > 0) return true;
+    for (let j = 0; j < stops.length; j++) {
+      const s = stops[j];
+      const d = this.liveDepot(s.depotId);
+      if (!d || !d.auto || s.action === "drop") continue;
+      const r = RECIPES[d.role];
+      const later = this.laterOf(stops, j);
+      for (const kind of r.gives) {
+        const bit = 1 << CARGO[kind].index;
+        if (!storeLetsOut(d, kind) || !((r.routedOnly ? later.uses : later.takes) & bit)) continue;
+        if (r.routedOnly && d.piles[CARGO[kind].index] <= 0) continue;
+        if (train.cars.some((c) => canCarry(c.kind, kind))) return true;
+      }
+    }
+    return false;
   }
 
   /** The first stop after stop `i` (round the line) that takes `kind` at all, as its kind of place does, or undefined. */
