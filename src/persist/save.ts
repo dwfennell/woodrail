@@ -297,6 +297,24 @@ function relaxBroughtBack(layout: Layout, made: readonly number[], pinned: (id: 
   return saved.size > 0;
 }
 
+/**
+ * A save whose every problem is a whole number over its limit, with those numbers brought down to their limits (a
+ * copy: the data itself is untouched), or null when anything else is wrong too.
+ */
+export function mendTooBig(data: unknown, issues: readonly { code: string; path: readonly PropertyKey[]; maximum?: unknown; origin?: unknown; inclusive?: unknown }[]): unknown {
+  if (issues.length === 0 || !issues.every((i) => i.code === "too_big" && i.origin === "number" && (typeof i.maximum === "number" || typeof i.maximum === "bigint") && i.path.length > 0)) return null;
+  const copy: unknown = structuredClone(data);
+  for (const i of issues) {
+    let at: unknown = copy;
+    for (const k of i.path.slice(0, -1)) at = (at as Record<PropertyKey, unknown> | null)?.[k as string];
+    const last = i.path[i.path.length - 1] as string;
+    if (!at || typeof at !== "object" || typeof (at as Record<string, unknown>)[last] !== "number") return null;
+    const max = Number(i.maximum);
+    (at as Record<string, unknown>)[last] = i.inclusive === false ? Math.ceil(max) - 1 : Math.floor(max);
+  }
+  return copy;
+}
+
 /** Rebuild a world from saved data. Never throws on bad input. */
 export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}): Result<World, string> {
   // An older save: turned away (not migrated); a v12 one is read as it is (the same shape).
@@ -304,7 +322,19 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   if (typeof version === "number" && version < MIGRATES_FROM) return err(OLDER_SAVE);
   const oldStoreys = typeof version === "number" && version < TOWN_STOREYS_FROM;
   if (typeof version === "number" && version < SAVE_VERSION) data = { ...(data as object), version: SAVE_VERSION };
-  const parsed = saveSchemas().saveSchema.safeParse(data);
+  let parsed = saveSchemas().saveSchema.safeParse(data);
+  if (!parsed.success) {
+    // Only numbers over a limit (a count an upgrade took past what the schema allows: 2026-11-23, a stacked
+    // warehouse's 72 planks against 40)? Brought down to the limit, and the save loads, rather than all of it lost.
+    const mended = mendTooBig(data, parsed.error.issues);
+    if (mended !== null) {
+      const again = saveSchemas().saveSchema.safeParse(mended);
+      if (again.success) {
+        console.warn(`Woodrail: save mended: ${parsed.error.issues.map((i) => `${i.path.join(".")} → ${(i as { maximum?: unknown }).maximum}`).join(", ")}`);
+        parsed = again;
+      }
+    }
+  }
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     return err(`invalid save: ${issue.path.join(".")} — ${issue.message}`);

@@ -1,7 +1,7 @@
 // End-to-end: a Game save this build can't open is never written over, and a copied map gets a game back
 // (`npm run e2e:lost-save [-- <out dir>]`; 2026-11-23: a player's game turned away on a reload and a starter map saved
 // over it), on a 390×844 phone, by taps:
-//   1. a phone whose Game save won't load (the player's lost game, a warehouse pile past any limit), reloaded from play
+//   1. a phone whose Game save won't load (the player's lost game, a warehouse pile below nothing), reloaded from play
 //      (straight back into Game mode, as the "Couldn't fetch…" toast's reload does): the title, not a starter map in
 //      play; Your games open over it saying the game is kept; the save parked byte for byte as "Couldn't open: …";
 //      no game's keys written in its place;
@@ -26,10 +26,10 @@ const TEXT = readFileSync(`${ROOT}/src/persist/fixtures/2026-11-23-lift-warehous
 const COPY = JSON.parse(gunzipSync(Buffer.from(TEXT.slice("woodrail-map:1:".length).replace(/-/g, "+").replace(/_/g, "/"), "base64")).toString());
 const SAVE = "woodrail.game.v2";
 const PIECES = JSON.parse(COPY.keys[SAVE]).pieces.length;
-// The lost game made unreadable by any build: a warehouse pile far past every limit.
+// The lost game made unreadable by any build: a warehouse pile below nothing.
 const badSave = (() => {
   const d = JSON.parse(COPY.keys[SAVE]);
-  d.depots.find((x) => x.role === "warehouse").piles[0] = 999999;
+  d.depots.find((x) => x.role === "warehouse").piles[0] = -1;
   return JSON.stringify(d);
 })();
 

@@ -148,3 +148,23 @@ describe("Your games: a map pasted as text", () => {
     expect(store.isParked("e2zlzkgb")).toBe(true);
   });
 });
+
+describe("a save with only numbers over their limits", () => {
+  it("loads with them brought down to the limits (the data itself untouched)", async () => {
+    const copy = await readMapText(lostGame);
+    const data = JSON.parse(copy!.keys[K.save]) as { depots: { role: string; piles: number[] }[] };
+    const w = data.depots.find((d) => d.role === "warehouse")!;
+    w.piles[0] = 999999;
+    const r = deserializeWorld(data, { sandbox: false });
+    expect(r.ok ? "ok" : r.error).toBe("ok");
+    expect(w.piles[0]).toBe(999999);
+  });
+
+  it("anything else wrong as well: still turned away", async () => {
+    const copy = await readMapText(lostGame);
+    const data = JSON.parse(copy!.keys[K.save]) as { depots: { role: string; piles: number[] }[]; pieces: unknown };
+    data.depots.find((d) => d.role === "warehouse")!.piles[0] = 999999;
+    data.pieces = "no";
+    expect(deserializeWorld(data, { sandbox: false }).ok).toBe(false);
+  });
+});
