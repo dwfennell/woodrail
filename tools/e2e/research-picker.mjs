@@ -174,6 +174,11 @@ check("with a school and nothing picked, the pill says Pick research", (await pi
 
 // 2. Back with the goals done up to Research switches (a reload: Continue): right after placing the school (spec §4).
 await p.evaluate(() => localStorage.setItem("woodrail.game.goals.v1", JSON.stringify(["join-two", "place-train", "get-moving", "station-stop", "timber-train", "load-logs", "deliver-planks", "grow-town", "place-school"])));
+// (2b's refusal starts here, before the reload: the idle prefetch (src/lib/prefetch.ts) would otherwise have fetched
+// the picker's code by the time of the tap, and it would open. 2b is a tab that never got it.)
+const boardRoute = "**/src/ui/blueprint-board.ts*";
+let boardRefused = 0;
+await p.route(boardRoute, (r) => (boardRefused++, r.abort("internetdisconnected")));
 await p.reload();
 await enterGame();
 await p.waitForTimeout(600);
@@ -202,16 +207,14 @@ await shot("01-pill-pick-research");
 // with a tap to reload, and after the reload it opens. (It once did nothing at all till a reload, saying nothing: the
 // loading flag stayed up. Chromium keeps a failed import() failed for the page's life, so a tap can't simply try again.)
 {
-  let refused = 0;
-  const route = "**/src/ui/blueprint-board.ts*";
+  const route = boardRoute;
   const toast = () => p.evaluate(() => (document.querySelector(".toast:not([hidden])")?.getBoundingClientRect().height ? document.querySelector(".toast").textContent : ""));
-  await p.route(route, (r) => (refused++, r.abort("internetdisconnected")));
   await tap(".research-pill");
   await p.waitForTimeout(800);
   const said = await toast();
   const shut = await p.evaluate(() => !document.querySelector(".board-open"));
   await p.unroute(route);
-  check("the picker's code not fetched: the tap says so, with a tap to reload, and it stays shut", refused > 0 && shut && /Couldn't fetch .*reload/.test(said), JSON.stringify({ refused, shut, said }));
+  check("the picker's code not fetched: the tap says so, with a tap to reload, and it stays shut", boardRefused > 0 && shut && /Couldn't fetch .*reload/.test(said), JSON.stringify({ refused: boardRefused, shut, said }));
   await p.waitForFunction(() => !document.querySelector(".toast")?.getBoundingClientRect().height, null, { timeout: 15000 }).catch(() => null);
   await tap(".research-pill");
   await p.waitForTimeout(800);
