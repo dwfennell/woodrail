@@ -203,6 +203,7 @@ const setup = await p.evaluate(async () => {
       window.__run = (secs, watch) => {
         let both = 0;
         let twice = 0;
+        let now = false;
         const move = { kind: "log", toPile: false, carId: -1, phase: 0 };
         for (let i = 0; i < secs * 120; i++) {
           w.sim.tick();
@@ -216,10 +217,11 @@ const setup = await p.evaluate(async () => {
             const tr = w.sim.findCar(e)?.train;
             return tr ? tracks.findIndex((piece) => tr.bogies.some((b) => b.pieceId === piece)) : -1;
           });
-          if (on.every((k) => k !== -1) && new Set(on).size === on.length) both++;
+          now = on.every((k) => k !== -1) && new Set(on).size === on.length;
+          if (now) both++;
         }
         w.invalidate();
-        return { both: both / 120, twice };
+        return { both: both / 120, twice, now };
       };
       w.invalidate();
       return { X, Z, h, ids, mill: mill.id, shop: shop.id };
@@ -501,7 +503,8 @@ if (!setup.error) {
     const r = await p.evaluate(([a, b]) => ({ ...window.__run(0.25, [a, b]), phase: window.woodrail.economy.cranePhase(window.__mill) }), [trains.a, trains.b]);
     run.both += r.both;
     run.twice += r.twice;
-    if (r.both > 0 && r.phase > 0.3) break;
+    // (For the picture: both there now, the crane mid-move if it comes to that within a second or so.)
+    if (r.now && (r.phase > 0.3 || run.both > 1)) break;
   }
   check("both trains stand at the mill at once, each on its own track", run.both > 0, JSON.stringify(run));
   // The picture: both at the mill, the crane mid-move.
