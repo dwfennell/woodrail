@@ -30,6 +30,32 @@ export function passingOf(layout: Layout): Passing {
     const def = getPieceDef(piece.type, piece.flipped);
     return def.paths.length === 1 && def.connectors.length === 2 && !isPoints(layout, p);
   };
+  // (Junction clusters: non-plain pieces (points, crossings, slips) joined directly, by id; −1 for a plain piece.)
+  const clusters = new Map<number, number>();
+  const clusterOf = (p: number): number => {
+    const c = clusters.get(p);
+    if (c !== undefined) return c;
+    const piece = layout.getPiece(p);
+    if (!piece || plain(p) || piece.type.startsWith("buffer")) return -1;
+    const id = clusters.size === 0 ? 0 : Math.max(...clusters.values()) + 1;
+    const todo = [p];
+    clusters.set(p, id);
+    while (todo.length > 0) {
+      const q = todo.pop()!;
+      const qp = layout.getPiece(q);
+      if (!qp) continue;
+      const n = getPieceDef(qp.type, qp.flipped).connectors.length;
+      for (let c = 0; c < n; c++) {
+        const nx = next(layout, q, c);
+        if (!nx || clusters.has(nx.pieceId)) continue;
+        const np = layout.getPiece(nx.pieceId);
+        if (!np || plain(nx.pieceId) || np.type.startsWith("buffer")) continue;
+        clusters.set(nx.pieceId, id);
+        todo.push(nx.pieceId);
+      }
+    }
+    return id;
+  };
   const seen = new Set<number>();
   const byEnds = new Map<string, number[][]>();
   for (const p of layout.pieceIds()) {
@@ -62,10 +88,13 @@ export function passingOf(layout: Layout): Passing {
       }
       if (ends.length === c) ends.push(-2);
     }
-    // (A road joins two points (or one twice, a balloon: not a road); a dead end, a ring, a buffer: not.)
-    const [a, b] = ends;
+    // (A road joins two junctions (or one twice, a balloon: not a road); a dead end, a ring, a buffer: not. A junction
+    // is a cluster of points, crossings and slips joined end to end: a station's throat, a ladder.)
+    const [ea, eb] = ends;
+    if (ea < 0 || eb < 0) continue;
+    const a = clusterOf(ea);
+    const b = clusterOf(eb);
     if (a < 0 || b < 0 || a === b) continue;
-    if (!isPoints(layout, a) || !isPoints(layout, b)) continue;
     const key = a < b ? `${a}.${b}` : `${b}.${a}`;
     const list = byEnds.get(key) ?? [];
     list.push(run);

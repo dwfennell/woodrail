@@ -4,6 +4,7 @@ import { passingOf } from "./blocks";
 import own01 from "../play/bugmaps/reference/own-01-single-loops.txt?raw";
 import own10 from "../play/bugmaps/reference/own-10-depots.txt?raw";
 import own08 from "../play/bugmaps/reference/own-08-branch.txt?raw";
+import c1 from "../play/bugmaps/reference/complex-1.txt?raw";
 
 const roadsOf = async (m: string) => {
   const { world } = await loadBugMap(m);
@@ -21,6 +22,10 @@ describe("passing places (§13.6.2)", () => {
     const roads = await roadsOf(own08);
     expect(roads.length).toBe(2);
     expect(roads.flat(2)).not.toContain(85);
+  });
+  it("complex-1: a station's throat of several points is one junction: its roads are found", async () => {
+    const roads = await roadsOf(c1);
+    expect(roads.length).toBeGreaterThanOrEqual(6);
   });
   it("own-10: two loops and the two yards' second tracks", async () => {
     const roads = await roadsOf(own10);
