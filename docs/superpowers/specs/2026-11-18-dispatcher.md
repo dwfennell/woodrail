@@ -608,3 +608,25 @@ Real railways solve this with tokens or tablets: a single line between two passi
 2. The book and the refusal, behind `RESERVE=1`; measured on own-08, own-10 and complex-3, with rowan-2 and dandelion as guards.
 3. The full seeded bar.
 4. Retire what it replaces.
+
+### 13.7 Two way-building faults (own-10, own-03)
+
+Found on own-10. Both are on by default, behind switches for measuring.
+
+- **A depot of several tracks** (`YARD_TRACKS=0` turns it off). The route view now gives a train's next stop as the track the economy sends it to (`trackFor`, as the router and sections use), or the track it stands on. Before, it was the depot's own piece. Logs one was planned onto the sawmill track Planks one stood on, with track 2 free, and all four trains were stuck within 10 s.
+- **A turned train's way is planned again from its front** (`REPLAN_TURN=0` turns it off). The planner treats a train as a point. So a train that turns at a buffer with its tail still back over points was routed out by the points' other road, which it can't take. `buildTrain` left it unbuilt (`fixed`), and the dispatcher held it for good: own-10's deadlock on the forest's second track. own-03's terminus trains turn the same way.
+
+3 seeds × 22 maps, dispatcher on, against today's (`de7c6f0a`):
+
+| Map | Stops | Jams | First jam |
+|---|---|---|---|
+| own-03 | 49 → 80 (off: 66) | 19.7 → 28.3 | 60 s (same) |
+| own-10 | 57 → 67 (off: 100) | 20.7 → 18.3 | 48 → 74 s |
+| own-12 | 75 → 82 | | 162 → 136 s (off: 87) |
+
+- The 19 other maps are unchanged.
+- No new breaks; p98 ≤ 1.20 ms. `jams --check` with the dispatcher off is unchanged.
+
+**Measured, not taken: keeping a granted loop road or detour when a train's way is rebuilt** (`KEEP_DETOUR=1`). On own-10 it cuts jams from 21 to 7 a seed, but it costs complex-1 9 stops and rowan-1 9 stops, and gives user-2026-11-21 a jam at 1647 s.
+
+**own-07** loses to the dispatcher-off run through the bar's own clearing. Its anticlockwise train is put back at its line's first stop, between two clockwise trains with no loop between them. The same knot then comes back every 98 s, and only a back-up longer than a train would free it.
