@@ -200,10 +200,11 @@ const setup = await p.evaluate(async () => {
       window.__mill = mill.id;
       window.__shop = shop.id;
       window.__ids = ids;
-      window.__run = (secs, watch) => {
+      window.__run = (secs, watch, stop = false) => {
         let both = 0;
         let twice = 0;
         let now = false;
+        let together = 0;
         const move = { kind: "log", toPile: false, carId: -1, phase: 0 };
         for (let i = 0; i < secs * 120; i++) {
           w.sim.tick();
@@ -219,9 +220,12 @@ const setup = await p.evaluate(async () => {
           });
           now = on.every((k) => k !== -1) && new Set(on).size === on.length;
           if (now) both++;
+          together = now ? together + 1 : 0;
+          // (For a picture: stopped once both have stood there together half a second.)
+          if (stop && together >= 60) break;
         }
         w.invalidate();
-        return { both: both / 120, twice, now };
+        return { both: both / 120, twice, now: stop && together >= 60 };
       };
       w.invalidate();
       return { X, Z, h, ids, mill: mill.id, shop: shop.id };
@@ -497,14 +501,14 @@ if (!setup.error) {
     window.woodrail.sim.setLever(a, 1);
     window.woodrail.sim.setLever(b, 1);
   }, [trains.a, trains.b]);
-  // Run on, a quarter second at a time, till both stand at the mill, each on its own track, the crane mid-move.
+  // Run on, a quarter second at a time, till both stand at the mill, each on its own track (half a second together).
   const run = { both: 0, twice: 0 };
   for (let k = 0; k < 240; k++) {
-    const r = await p.evaluate(([a, b]) => ({ ...window.__run(0.25, [a, b]), phase: window.woodrail.economy.cranePhase(window.__mill) }), [trains.a, trains.b]);
+    const r = await p.evaluate(([a, b]) => ({ ...window.__run(0.25, [a, b], true), phase: window.woodrail.economy.cranePhase(window.__mill) }), [trains.a, trains.b]);
     run.both += r.both;
     run.twice += r.twice;
-    // (For the picture: both there now, the crane mid-move if it comes to that within a second or so.)
-    if (r.now && (r.phase > 0.3 || run.both > 1)) break;
+    // (For the picture: both there together now.)
+    if (r.now) break;
   }
   check("both trains stand at the mill at once, each on its own track", run.both > 0, JSON.stringify(run));
   // The picture: both at the mill, the crane mid-move.
