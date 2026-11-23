@@ -40,8 +40,10 @@ export interface JamsRun {
   stuckBefore: number;
   /** The first invariant broken, as "name: what" (null: none). */
   firstBreak: string | null;
-  /** Stops come to, by engine. */
+  /** Stops come to, by engine id (a train cleared from a jam and put back is a new engine; names are reused). */
   byEngine: Record<number, number>;
+  /** Each engine's name as it ran (labels only: `byEngine` is keyed by id). */
+  names: Record<number, string>;
   /** Each jam: when (s), the train cleared, its line, and the stall's kind. */
   log: { at: number; engine: number; line: number; kind: string }[];
   seconds: number;
@@ -97,6 +99,7 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
   const lastStuck = new Map<number, number>();
   const log: JamsRun["log"] = [];
   let stuckBefore = 0;
+  const names = new Map<number, string>();
   const r = replayBugMap(world, {
     seed,
     seconds,
@@ -118,6 +121,7 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
           }
         }
       hooks.second?.(now);
+      for (const e of economy.lineIdOf.keys()) if (!names.has(e)) names.set(e, sim.nameOf(e) || String(e));
       // (Put back, where there's room: at its line's first stop, on its line, set going.)
       for (let k = pending.length - 1; k >= 0; k--) {
         const q = pending[k];
@@ -185,5 +189,5 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
   for (const n of r.arrivals.values()) arrivals += n;
   let longest = 0;
   for (const s of r.longestStand.values()) longest = Math.max(longest, s);
-  return { jams: log.length, arrivals, byEngine: Object.fromEntries(r.arrivals), longestStand: longest, firstJam: log.length > 0 ? log[0].at : seconds, stuckBefore, firstBreak: r.first ? `${r.first.invariant}: ${r.first.what}` : null, log, seconds };
+  return { jams: log.length, arrivals, byEngine: Object.fromEntries(r.arrivals), names: Object.fromEntries([...r.arrivals.keys()].map((e) => [e, names.get(e) ?? (sim.nameOf(e) || String(e))])), longestStand: longest, firstJam: log.length > 0 ? log[0].at : seconds, stuckBefore, firstBreak: r.first ? `${r.first.invariant}: ${r.first.what}` : null, log, seconds };
 }

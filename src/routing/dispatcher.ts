@@ -15,7 +15,9 @@
  * What it replaces while on: sections' cap, steering hint and signal gate (`Economy.capFor`, the router's `granted`,
  * `Sim.signalGate`). What stays: the depot's and kit stops' caps, the router's points waits and the sim's signal blocks
  * (a safety net), stall detection, line ends turning. Hand-run and parked trains are never held or steered (§4.4): they
- * stand in the search as track that's taken. Back-ups are not acted on yet.
+ * stand in the search as track that's taken.
+ * - **Back-ups** (§2.1 step 5): a train stuck, whose own back-up the search finds keeps more going, backs up: its levers
+ *   set the other way (the sim runs it tail first), held along its way back to where it rests, then its levers back.
  *
  * Event-driven: it looks every `LOOK_TICKS` for a change in what it reads, and decides only then; `cap` is a lookup. A
  * paused or idle game costs a signature compare a look.
@@ -26,7 +28,7 @@ import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, i
 import { next, waysFrom } from "./graph";
 import { isPoints } from "./router";
 import { STAND_SHORT } from "../economy/sections";
-import { blockerOf, bodyOf, buildTrain, PLAN_FROM_ROAD, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
+import { blockerOf, bodyOf, buildTrain, PLAN_FROM_ROAD, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, reversedSnap, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
 /** §13.5 step 2, the dispatcher owning the points on its grants: on, unless OWNER=0 (for comparing runs). */
 export const OWNER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).OWNER !== "0" };
@@ -63,6 +65,8 @@ const GATE_SHORT_S = 2;
 const WEIGH_S = 20;
 /** A train asking, not decided this long (ticks), is decided again though nothing changed (2 s). */
 const RETRY_TICKS = 240;
+/** A train that backed up doesn't back up again for this long (s): once a jam (§2.1 step 5). */
+const BACK_AGAIN_S = 60;
 /** A train asks for its next move this far (mm) before it would have to brake for its hold's end. */
 const ASK_LOOK = 200;
 
@@ -116,6 +120,13 @@ interface Hold {
   refsVer?: number;
   /** The train it waits for to clear a single line it's not granted onto (−1: none), for its card. */
   singleWait?: number;
+  /**
+   * Backing up (§2.1 step 5): its levers as they were (set the other way while it backs, the sim running it tail
+   * first), and the train it lets by. Its hold is then along its way back (`reversedSnap`) to where it rests.
+   */
+  back: { levers: [number, -1 | 1][]; by: number } | null;
+  /** When it last finished backing up (tick). */
+  backedAt: number;
 }
 
 const capAt: Cursor = { pieceId: -1, pathIndex: 0, reversed: false, s: 0 };
@@ -132,6 +143,8 @@ export class Dispatcher {
    * seen): where the layout's own guards and the dispatcher disagree (§13.5 step 1).
    */
   readonly overruled = new Map<string, number>();
+  /** Back-ups started. */
+  backUps = 0;
   /** Holds by why: its move's way taken ("blocked"), or another goes first ("order"). */
   heldBlocked = 0;
   heldOrder = 0;
@@ -297,6 +310,24 @@ export class Dispatcher {
     return snaps.map((s) => {
       const sig = `${s.stops?.join(",") ?? "-"}.${s.next}.${s.at ? 1 : 0}.${s.lever ? 1 : 0}`;
       const h = this.holdsBy.get(s.key);
+      // (Backing up: along its way back, till it rests at its hold's end; then its levers back, and it's booked on as
+      // before from there.)
+      if (h?.back) {
+        const body = bodyOf(layout, s);
+        const onPath = h.path.find((n) => h.t.pos[n].length === body.length && body.every((p, q) => h.t.pos[n][q] === p));
+        const moved = onPath !== undefined ? (onPath === h.t.at ? h.t : { ...h.t, at: onPath }) : relocate(h.t, body);
+        if (moved && moved !== h.t) {
+          h.t = moved;
+          const k = h.path.indexOf(moved.at);
+          if (k > 0) {
+            h.path = h.path.slice(k);
+            this.holdVer++;
+          }
+        }
+        const train = sim.findCar(s.key)?.train;
+        if (h.t.at === h.end && (!train || train.speed === 0)) this.endBack(h);
+        return h.t;
+      }
       if (h && h.sig === sig) {
         // (Along its granted way first: a detour and its booked way can stand alike where they part.)
         const body = bodyOf(layout, s);
@@ -345,7 +376,7 @@ export class Dispatcher {
         if (w > t.at) end = w;
         this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
-        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
+        const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1, back: null, backedAt: -Infinity };
         this.holdsBy.set(s.key, nh);
         this.setHold(nh, t.at, []);
       }
@@ -440,7 +471,7 @@ export class Dispatcher {
     let ts = tsIn;
     const h = this.holdsBy.get(engine);
     const k = ts.findIndex((t) => t.key === engine);
-    if (!h || k < 0 || ts[k].fixed) return;
+    if (!h || k < 0 || ts[k].fixed || h.back) return;
     h.decided = this.host.sim.ticks;
     const t0 = performance.now();
     // (A train with its front on points goes the way they lie: they can't be thrown under it. Its moves out by another
@@ -618,6 +649,24 @@ export class Dispatcher {
         break;
       }
     }
+    // (Back-up (§2.1 step 5): stuck `REROUTE_AFTER_S`, no order keeps them all going, and the best order with one
+    // back-up a train keeps more going with one of its own: it backs up, at most its length, to rest clear of points.
+    // Once a jam (`BACK_AGAIN_S`).)
+    if (to < 0 && r.plain < r.of && now - h.backedAt >= BACK_AGAIN_S * 120 && h.stood >= 0 && now - h.stood >= REROUTE_AFTER_S * 120) {
+      const rb = search(placed, members, { cap: DISPATCH_STATES, backUps: true, order, taken, weights, oneWay: this.oneWay });
+      // (Its own back-up anywhere in that order: taken now if the track it backs onto is free now (`startBack`), so the
+      // moves before it aren't what makes room for it.)
+      const m = rb.order.find((x) => x.k === 0);
+      const by = rb.order.find((x) => x.k !== 0);
+      if (rb.value > r.plain && m?.back && this.startBack(h, ts[k], m.to, snaps, by ? placed[members[by.k]].key : -1)) {
+        this.backUps++;
+        this.decisions++;
+        this.decisionMs.push(performance.now() - t0);
+        h.waitsOn = -1;
+        h.passed = 0;
+        return;
+      }
+    }
     this.decisions++;
     this.decisionMs.push(performance.now() - t0);
     h.singleWait = singleBy >= 0 ? singleBy : headBy;
@@ -643,6 +692,59 @@ export class Dispatcher {
     const path = this.pathTo(t, to);
     if (path.length > 0) this.setHold(h, to, path);
     this.host.granted?.(engine);
+  }
+
+  /**
+   * Back the train up to node `to` behind it on its way (`t`'s, the search's back-up move), letting `by` by: its way
+   * back booked (`reversedSnap`, to its tail's piece there, standing as it would there turned end for end), its hold
+   * along it, its levers set the other way (the sim runs it tail first). False (nothing done) if there's no such way.
+   */
+  private startBack(h: Hold, t: DTrain, to: number, snaps: readonly Snap[], by: number): boolean {
+    const { layout, sim } = this.host;
+    const s = snaps.find((x) => x.key === t.key);
+    const train = sim.findCar(t.key)?.train;
+    if (!s || !train || train.speed !== 0) return false;
+    const want = [...t.pos[to]].reverse();
+    const target = want[want.length - 1];
+    const bt = buildTrain(layout, reversedSnap(layout, s, target));
+    if (bt.fixed) return false;
+    let e = -1;
+    for (let i = bt.at; i < bt.main && e < 0; i++) if (bt.pos[i].length === want.length && want.every((p, q) => bt.pos[i][q] === p)) e = i;
+    if (e < 0) return false;
+    const path = this.pathTo(bt, e);
+    // (The track it backs onto free now: no other train on it.)
+    const onto = new Set<number>();
+    for (const n of path) for (const p of bt.pos[n]) onto.add(p);
+    for (const p of t.pos[t.at]) onto.delete(p);
+    for (const o of sim.trains()) if (o.id !== train.id && o.bogies.some((b) => onto.has(b.pieceId))) return false;
+    if (path.length < 2) return false;
+    const levers: [number, -1 | 1][] = [];
+    for (const c of train.cars) if (c.lever !== 0 && CAR_SPECS[c.kind].powered) levers.push([c.id, c.lever]);
+    if (levers.length === 0) return false;
+    h.back = { levers, by };
+    h.t = bt;
+    h.sig = "back";
+    this.setHold(h, e, path);
+    for (const [id, l] of levers) sim.setLever(id, l === 1 ? -1 : 1);
+    if (this.debug && this.notes.length < 400) this.notes.push(`${(sim.ticks / 120).toFixed(0)}s train ${t.key} backs up ${path.length - 1} nodes to let ${by} by`);
+    this.host.granted?.(t.key);
+    return true;
+  }
+
+  /** Backed up: its levers as they were (the sim runs it its own way again), held where it stands; booked afresh next look. */
+  private endBack(h: Hold): void {
+    if (!h.back) return;
+    for (const [id, l] of h.back.levers) this.host.sim.setLever(id, l);
+    h.back = null;
+    h.backedAt = this.host.sim.ticks;
+    h.sig = "";
+    h.stood = -1;
+    this.setHold(h, h.t.at, []);
+  }
+
+  /** The train a train backing up lets by (its engine), or −1: not backing up. */
+  backingFor(engine: number): number {
+    return this.holdsBy.get(engine)?.back?.by ?? -1;
   }
 
   /** The train in a held train's way: on its next move's track as it stands, where its hold ends, or on its way there. */
