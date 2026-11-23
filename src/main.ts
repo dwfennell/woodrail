@@ -47,6 +47,7 @@ import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
+import { swapChoices, swapEngine, swappedWords, swapRefusal, SWAP_WHY, type SwapRules } from "./game/swap-engine";
 import { costText, isFree, isGift, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltTown, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
@@ -611,6 +612,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
+      swapEngine: () => {
+        const id = interaction.openEngineCarId;
+        if (id === -1) return;
+        const why = swapRefusal(game.world, id, null, swapRules());
+        if (why) return hud.toast(SWAP_WHY[why] || "Can't swap this engine now", false, 2500);
+        engineSheet.use((s) => s.show(id));
+      },
       continueOn: () => continueTrain(),
       leaveNow: () => leaveNow(),
       decouple: () => decouple(),
@@ -5523,6 +5531,56 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     onChange();
   }
 
+  /**
+   * Swap engine's rules (game/swap-engine.ts): Game mode's, an engine's look locked till its blueprint's learned (by the
+   * blueprint's name); Sandbox's, none.
+   */
+  function swapRules(): SwapRules | null {
+    if (mode !== "game") return null;
+    return {
+      locked: (look) => {
+        const tech = LOOK_TECH[look];
+        return tech && !progress.learned.has(tech) ? (techOf(tech)?.label ?? tech) : null;
+      },
+    };
+  }
+
+  /**
+   * Swap engine (the engine card's Engine, then a row of its sheet): the engine becomes `look` in place, the same car,
+   * so its train keeps its line, place on it, cars, loads, name and paint. One undo step (the look back, if the engine's
+   * still on the track); saved.
+   */
+  function swapEngineTo(carId: number, look: CarLook): boolean {
+    const rules = swapRules();
+    const why = swapRefusal(game.world, carId, look, rules);
+    if (why !== null) {
+      if (SWAP_WHY[why]) hud.toast(SWAP_WHY[why], false, 2500);
+      audio.refuse();
+      return false;
+    }
+    const was = swapEngine(game.world, carId, look, rules);
+    if (was === null) return false;
+    const put = (l: CarLook) => {
+      if (game.sim.findCar(carId)) game.sim.setLook(carId, l);
+      scheduleSave();
+    };
+    editor.recordRoutes({ undo: () => put(was), redo: () => put(look) });
+    hud.setHistory(editor.canUndo, editor.canRedo);
+    audio.magnet(0.6, 0);
+    hud.toast(swappedWords(game.sim.nameOf(carId), look), false, 2500);
+    showSummary();
+    game.invalidate();
+    scheduleSave();
+    return true;
+  }
+
+  // Swap engine's sheet (ui/engine-sheet.ts). (Its code is loaded the first time it opens.)
+  const engineSheet = lazy(async () => new (await import("./ui/engine-sheet")).EngineSheet({
+    choices: (carId) => swapChoices(game.world, carId, swapRules()),
+    nameOf: (carId) => game.sim.nameOf(carId),
+    swap: (carId, look) => swapEngineTo(carId, look),
+  }), lazyFailed);
+
   /** Continue (the engine card, at the end of the track): it turns round now and runs on to its next stop. */
   function continueTrain(): void {
     const carId = interaction.openEngineCarId;
@@ -5943,10 +6001,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const swap = engineId !== -1 ? game.sim.runAroundRefusal(engineId) : null;
     const dec = game.sim.decoupleRefusal(carId);
-    const key = `${carId}:${swap}:${dec}`;
+    // (Engine: greyed with why while moving, or a crane has it, or it's the metro's or the Royal Train's.)
+    const engine = engineId !== -1 ? swapRefusal(game.world, engineId, null, null) : null;
+    const key = `${carId}:${swap}:${dec}:${engine}`;
     if (key === refusalsKey) return;
     refusalsKey = key;
-    hud.setCardRefusals(swap ? REFUSED_WHY[swap] : "", dec ? REFUSED_WHY[dec] : "");
+    hud.setCardRefusals(swap ? REFUSED_WHY[swap] : "", dec ? REFUSED_WHY[dec] : "", engine ? SWAP_WHY[engine] : "");
   }
 
   /**
@@ -5974,7 +6034,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const cars = found.train.cars;
     const line = engineId !== -1 ? lineOf(game.economy, engineId) : undefined;
-    const key = `${mode}:${engineId}:${carId}:${game.economy.loadsVersion}:${game.economy.carGoodsVersion}:${game.economy.wagonCapacity}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
+    const key = `${mode}:${engineId}:${carId}:${game.sim.looksVersion}:${game.economy.loadsVersion}:${game.economy.carGoodsVersion}:${game.economy.wagonCapacity}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
     if (key === summaryKey) return;
     summaryKey = key;
     if (engineId !== -1) {
@@ -7637,6 +7697,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     if (e.key === "Escape" && mapView.open) closeMap(true, true);
     if (e.key === "Escape" && board.open) setBoardOpen(false);
+    if (e.key === "Escape" && engineSheet.now?.open) engineSheet.now.close();
     // (A line sheet with no train's card under it: Esc closes it, as it closes a card. A train's planning ends as its
     // card closes.)
     if (e.key === "Escape" && planning && sheetEngine === -1) setPlanning(false);
