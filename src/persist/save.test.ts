@@ -7,7 +7,7 @@ import { SIM_DT, SIM_HZ } from "../sim";
 import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, MIGRATES_FROM, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
 import { Journal } from "../game/journal";
 import { editLine, lineOf } from "../game/lines";
-import { CARGO_KINDS, CARGO_SLOTS, storeListed, storeModeOf } from "../economy";
+import { CARGO, CARGO_KINDS, CARGO_SLOTS, capAt, capOf, storeListed, storeModeOf } from "../economy";
 
 /** The starter map with its first two towns joined by a line and a train running on it. */
 function worldWithTrain(): World {
@@ -270,6 +270,19 @@ describe("save format", () => {
     // A mode it doesn't know is turned away.
     (saved as { others?: string }).others = "sometimes";
     expect(deserializeWorld(data).ok).toBe(false);
+  });
+
+  it("loads a Lift and load warehouse's piles stacked over the plain cap (report 2026-11-23: the game was turned away)", () => {
+    const world = worldWithTrain();
+    const end = appendPiece(world.layout, "depot-warehouse", false, connectorRef([...world.layout.pieceIds()].at(-1)!, 1));
+    syncIndustries(world, true);
+    world.economy.setWarehouseLift(true);
+    const store = world.economy.depotAtPiece(end)!;
+    const full = capAt(store);
+    expect(full).toBeGreaterThan(capOf("warehouse"));
+    store.piles[CARGO.planks.index] = full;
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+    expect(r.ok && r.value.economy.depotAtPiece(end)!.piles[CARGO.planks.index]).toBe(full);
   });
 
   it("keeps a mine's Gives / Doesn't give per good; an older save's mine gives both", () => {

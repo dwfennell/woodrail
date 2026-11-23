@@ -1,4 +1,4 @@
-import { PILE_CAP, RECIPES } from "../economy";
+import { LIFT_STACK, MAX_SHEDS, PILE_CAP, RECIPES, SHED_CAP } from "../economy";
 
 // The save's version and limits: shared by `save.ts` and its schemas (`save-schema.ts`, loaded on its own), so
 // the schemas needn't load the save's module (and what it loads) with them.
@@ -15,8 +15,12 @@ import { PILE_CAP, RECIPES } from "../economy";
  */
 export const SAVE_VERSION = 15;
 
-/** The biggest pile any depot keeps (a warehouse's). */
-export const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
+/**
+ * The biggest pile any depot keeps (`capAt`): a warehouse's, stacked `LIFT_STACK` high with Lift and load, and a
+ * harbour's dock sheds on top. (It was the plain cap once, and a game with a Lift and load warehouse over it was turned
+ * away as it loaded, the starter map put in its place: report 2026-11-23, planks 70 and 72 in one.)
+ */
+export const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0)) * LIFT_STACK + MAX_SHEDS * SHED_CAP;
 /** The fastest a train is saved going (mm/s): well over any engine's top speed. */
 export const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
