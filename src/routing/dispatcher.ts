@@ -62,8 +62,12 @@ const RESERVE_TIMEOUT_S = Number(((globalThis as { process?: { env: Record<strin
 export const RESERVE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).RESERVE === "1" };
 /** §13.6's safety check over the stretch (`safeOrder`): off unless SAFE=1 (a prototype under measure). */
 export const SAFE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SAFE === "1" };
-/** A train granted a loop road or detour keeps it when its way is built again (`trainsOf`): off unless KEEP_DETOUR=1 (own-10 jams 21 → 7 a seed, but complex-1 −9, rowan-1 −9, user-2026-11-21 a jam at 1647 s). */
-const KEEP_MODE = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_MODE ?? "";
+/**
+ * A train granted a loop's other road keeps it when its way is built again (`trainsOf`), as far as the old grant ran
+ * and no further than a decision would grant (not onto a single line another is on): KEEP_ROADS=0 off, to measure.
+ */
+export const KEEP_ROADS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_ROADS !== "0" };
+/** …and a detour's, built again round what it avoided: off unless KEEP_DETOUR=1 (complex-1 −9, rowan-1 −9, user-2026-11-21 a jam). */
 export const KEEP_DETOUR = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_DETOUR === "1" };
 /**
  * `headOnAhead`'s admission check on the leg after a move's stop: off unless ADMIT2=1 (measured: own-08, own-10,
@@ -374,7 +378,7 @@ export class Dispatcher {
       // (Granted a detour and still on it: built again round what it avoided, so the grant stays on the detour's road
       // (own-10: Logs two, granted loop 2's free road as it left the sawmill, was built afresh as its route moved on,
       // its way the booked road with Planks two on it; it stood on the loop's points for good).)
-      const onDetour = KEEP_DETOUR.on && KEEP_MODE !== "roads" && !!h && !!h.t.avoid && h.path.some((n) => h.t.detour[n] === 1);
+      const onDetour = KEEP_DETOUR.on && !!h && !!h.t.avoid && h.path.some((n) => h.t.detour[n] === 1);
       const t = onDetour ? buildTrain(layout, s, undefined, h!.t.avoid) : buildTrain(layout, s);
       if (!s.stops || !s.lever) return t;
       const trainId = sim.findCar(s.key)?.train.id ?? -1;
@@ -394,10 +398,11 @@ export class Dispatcher {
         // (The kept way's nodes from where it stands, by the road it was granted where roads part: a loop's other road
         // or a detour's, as well as the booked one (own-10: Logs two, granted loop 2's free road as it left the
         // sawmill, kept only along its booked road, the one Planks two stood on: it stood on the loop's points for good).)
+        const keptEnd = (roads: boolean): [number, number[]] => {
         const seq = [t.at];
         for (let i = t.at; refs.has(t.frontRef[i]) && seq.length <= t.pos.length; ) {
           let nx = -1;
-          if (KEEP_DETOUR.on && KEEP_MODE !== "detours") {
+          if (roads) {
             for (const j of t.succ[i]) if ((j === i + 1 || j >= t.main) && (t.detour[j] === 0 || onDetour) && refs.has(t.frontRef[j])) {
               nx = j;
               if (j === i + 1) break;
@@ -424,6 +429,14 @@ export class Dispatcher {
           while (e > 0 && !t.rest[seq[e]]) e--;
           if (e > 0 || t.rest[t.at]) end = seq[e];
         }
+        return [end, seq.slice(0, seq.indexOf(end) + 1)];
+        };
+        const roads = KEEP_ROADS.on;
+        let [end, kept] = keptEnd(roads);
+        // (Kept by another road than the booked one: as a decision would, not onto a single line another train is on or
+        // waits to run along from its other end (user-2026-11-21, seed 1: kept past its stop onto the line Seven stood
+        // at the far end of, nose to nose for good); else kept along its booked road only, as before.)
+        if (roads && kept.some((n) => n >= t.main) && this.singleLineBy(s.key, t, kept) >= 0) [end, kept] = keptEnd(false);
         this.setHold(h, end, end === t.at ? [] : this.pathTo(t, end));
       } else {
         const nh: Hold = { t, sig, end: t.at, path: [], rem: new Map(), points: [], aim: -1, stood: -1, passed: 0, trainId, waitsOn: -1, decided: -Infinity, short: -1 };
