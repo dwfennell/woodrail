@@ -117,10 +117,9 @@ try {
   const id = s.games[0]?.id;
   check("1. …parked byte for byte", (await parkedSave(id)) === badSave);
 
-  await p.evaluate(() => sessionStorage.setItem("woodrail.resume", "game"));
   await p.reload();
-  await gamesUp().catch(() => {});
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+  await p.waitForTimeout(800);
   s = await parked();
   check("2. after a reload: still parked, one entry, byte for byte", s.games.length === 1 && s.games[0].id === id && (await parkedSave(id)) === badSave, JSON.stringify(s.games));
 
