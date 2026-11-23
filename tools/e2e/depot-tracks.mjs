@@ -340,17 +340,24 @@ if (!setup.error) {
   // (The Long straight: on the Track tab's Straight shelf, opened by taps as a player does: the Track tab, then the
   // Straight shelf.)
   const trayItem = async (key) => {
-    const find = () => p.evaluate((key) => {
-      const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`);
-      if (!e || !e.getBoundingClientRect().width) return null;
-      e.scrollIntoView({ inline: "center", block: "nearest" });
-      const q = e.getBoundingClientRect();
-      return [q.x + q.width / 2, q.y + q.height / 2];
-    }, key);
+    // (Scrolled into view, then measured once the scroll has settled.)
+    const find = async () => {
+      const there = await p.evaluate((key) => {
+        const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`);
+        if (!e || !e.getBoundingClientRect().width) return false;
+        e.scrollIntoView({ inline: "center", block: "nearest" });
+        return true;
+      }, key);
+      if (!there) return null;
+      await p.waitForTimeout(500);
+      return p.evaluate((key) => {
+        const q = document.querySelector(`.scroller .tray-item[data-key="${key}"]`).getBoundingClientRect();
+        return [q.x + q.width / 2, q.y + q.height / 2];
+      }, key);
+    };
     await p.keyboard.press("Escape");
     // (Past a card's closing, and the click shield after it.)
     await p.waitForTimeout(1200);
-    if (await find()) return find();
     // (An Undo's toast can lie over the tray's foot: gone first, as a player would wait.)
     await p.waitForFunction(() => !document.querySelector(".toast.show"), null, { timeout: 20000 }).catch(() => {});
     // The Track tab tapped (even open, a tab tapped goes back to its shelves), then the Straight shelf.
@@ -403,6 +410,9 @@ if (!setup.error) {
     return [0, 1].map((i) => w.layout.joinedConnector(road * 8 + i) >> 3);
   });
   check("3b. a straight dragged from the tray onto each end of the second track joins it there", lengthened.length === 2 && lengthened.every((id) => id !== -1) && [...ends].sort().join() === [...lengthened].sort().join(), JSON.stringify({ lengthened, ends }));
+  // (Back to the Track tab's shelves, so the Switch shelf is there to open.)
+  await tapButton('.tray .tab[data-tab="track"]');
+  await p.waitForTimeout(400);
   const beyond = await p.evaluate(() => {
     const w = window.woodrail;
     const m = w.layout.getPiece(w.economy.depot(window.__mill).pieceId).pose;
