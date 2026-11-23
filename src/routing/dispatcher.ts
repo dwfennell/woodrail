@@ -1306,7 +1306,10 @@ export class Dispatcher {
     for (const o of ts) {
       if (o.key === engine) continue;
       const here = o.pos[o.at];
-      if (mine.place >= 0)
+      // (A road is used by a train waiting on it (held there): one running through leaves it (double track, own-05/06).)
+      const oh0 = this.holdsBy.get(o.key);
+      const waits = o.fixed || !oh0 || oh0.t.pos !== o.pos || oh0.end === o.at || this.placeOf(o, oh0.end) === mine.place;
+      if (mine.place >= 0 && waits)
         roads[mine.place].forEach((r, ri) => {
           if (r.some((p) => here.includes(p))) {
             roadUsed.add(ri);
@@ -1330,7 +1333,7 @@ export class Dispatcher {
         const me = mine.way.get(p);
         if (me !== undefined && me !== en && !isPoints(this.host.layout, p) && this.plainPiece(p)) return o.key;
       }
-      if (mine.place >= 0 && oc.place === mine.place && og !== mine.place) heading++;
+      if (mine.place >= 0 && oc.place === mine.place && og !== mine.place && this.holdsBy.get(o.key)?.t.pos === o.pos && this.placeOf(o, this.holdsBy.get(o.key)!.end) === mine.place) heading++;
     }
     if (mine.place >= 0 && roadUsed.size + heading >= roads[mine.place].length) return firstOnPlace >= 0 ? firstOnPlace : -1;
     return -1;
