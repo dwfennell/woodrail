@@ -29,7 +29,6 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
 import { dragPointsOnto } from "../../scripts/e2e/lib/points-onto-line.mjs";
-import { openShelf } from "../../scripts/e2e/lib/shelf.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/depot-tracks";
@@ -338,16 +337,40 @@ if (!setup.error) {
   const splitsLeft = await p.evaluate((ids) => ids.filter((id) => !!window.woodrail.layout.getPiece(id)).length, laid.map((r) => r.id));
   // (Undone, points go back in the toy box, not back to planks: laid again from there, they cost nothing more.)
   check("3b. Undo twice: the Splits taken back into the box, the track not joined", splitsLeft === 0 && s.planks === 12 && s.tracks === 2 && s.roads[0].open, JSON.stringify({ splitsLeft, s }));
-  // (The Long straight: on the Track tab's Straight shelf, opened by a tap as a player does.)
+  // (The Long straight: on the Track tab's Straight shelf, opened by taps as a player does: Back out of the Switch
+  // shelf the Splits came from, then the Straight shelf; as points-onto-line.mjs goes to the Switch shelf.)
   const trayItem = async (key) => {
-    await openShelf(p, tapButton, "Straight");
-    return p.evaluate((key) => {
+    const find = () => p.evaluate((key) => {
       const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`);
-      if (!e) return null;
-      e.scrollIntoView({ inline: "center" });
+      if (!e || !e.getBoundingClientRect().width) return null;
+      e.scrollIntoView({ inline: "center", block: "nearest" });
       const q = e.getBoundingClientRect();
       return [q.x + q.width / 2, q.y + q.height / 2];
     }, key);
+    await p.keyboard.press("Escape");
+    if (await find()) return find();
+    if (await p.evaluate(() => document.querySelector(".tray")?.classList.contains("in-group"))) {
+      const back = await p.evaluate(() => {
+        const r = document.querySelector(".scroller .tray-back")?.getBoundingClientRect();
+        return r ? [r.x + r.width / 2, r.y + r.height / 2] : null;
+      });
+      if (back) await p.touchscreen.tap(back[0], back[1]);
+      await frames();
+      await p.waitForTimeout(250);
+    }
+    const shelf = await p.evaluate(() => {
+      const g = [...document.querySelectorAll(".scroller .tray-group")].find((b) => b.querySelector(".label")?.textContent === "Straight");
+      if (!g) return null;
+      g.scrollIntoView({ inline: "center", block: "nearest" });
+      const r = g.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2];
+    });
+    if (!shelf) return null;
+    await p.waitForTimeout(250);
+    await p.touchscreen.tap(shelf[0], shelf[1]);
+    await frames();
+    await p.waitForTimeout(250);
+    return find();
   };
   const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   const lengthened = [];
