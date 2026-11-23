@@ -49,6 +49,13 @@ const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>()
 
 /** A stuck train searches for a detour at most this often (s). */
 const DETOUR_EVERY_S = 6;
+/** §13.6.2: how many pieces of another train's way on past its grant count as its (`heldOf`). */
+const CLAIM_AHEAD = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).CLAIM_AHEAD ?? 8);
+/**
+ * §13.6.2: another train holds only what it stands on, is granted, and `CLAIM_AHEAD` pieces on (HELD_ONLY=1); else its
+ * way on to its next passing place (the default, round 1's).
+ */
+export const HELD_ONLY = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HELD_ONLY === "1" };
 /** How long a train stands refused by the reservation book before it goes anyway (§13.6.2). */
 const RESERVE_TIMEOUT_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).RESERVE_TIMEOUT_S ?? 10);
 /** §13.6.2's reservation book (`reservedBy`): off unless RESERVE=1 (a prototype under measure). */
@@ -1259,6 +1266,25 @@ export class Dispatcher {
     return def.paths.length === 1 && def.connectors.length === 2;
   }
 
+  /** §13.6.2: what a train holds: the pieces it stands on and those its hold grants it (piece → the end its front comes onto it by). */
+  private heldOf(o: DTrain, ahead: number): { way: Map<number, number>; place: number } {
+    const way = new Map<number, number>();
+    const h = this.holdsBy.get(o.key);
+    const nodes = h && h.t.pos === o.pos && h.path.length > 0 ? h.path : [o.at];
+    for (const i of nodes) for (const p of o.pos[i]) if (!way.has(p)) way.set(p, o.frontEn[i]);
+    let end = h && h.t.pos === o.pos ? h.end : o.at;
+    // (And `ahead` pieces of its way on past that, short of its next passing place: it's on its way there.)
+    if (this.placeOf(o, end) < 0)
+      for (let i = o.succ[end][0] ?? -1, n = 0; i >= 0 && n < ahead; n++) {
+        const fp = o.pos[i][o.pos[i].length - 1];
+        if (!way.has(fp)) way.set(fp, o.frontEn[i]);
+        end = i;
+        if (this.placeOf(o, i) >= 0) break;
+        i = o.succ[i][0] ?? -1;
+      }
+    return { way, place: this.placeOf(o, end) };
+  }
+
   /** §13.6.2: the passing place (its road's group) node `i` of `t` stands wholly on, or −1. */
   private placeOf(t: DTrain, i: number): number {
     const { group } = passingOf(this.host.layout);
@@ -1332,7 +1358,9 @@ export class Dispatcher {
       const ohw = this.holdsBy.get(o.key);
       if (ohw && ohw.end === ohw.t.at && ohw.waitsOn === engine) continue;
       // (Head-on on plain track: crossing the same points the other way, one after the other, isn't meeting.)
-      const oc = this.claimOf(o, o.at);
+      // (What it holds: where it stands and what it's granted, not its whole way on (own-11, the two-train map: a train
+      // far off, its way on 20-30 pieces, held the asker back long before it came). First granted, first through.)
+      const oc = HELD_ONLY.on ? this.heldOf(o, CLAIM_AHEAD) : this.claimOf(o, o.at);
       for (const [p, en] of oc.way) {
         const me = mine.way.get(p);
         if (me !== undefined && me !== en && !isPoints(this.host.layout, p) && this.plainPiece(p)) return o.key;
