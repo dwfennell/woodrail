@@ -48,6 +48,8 @@ const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>()
 
 /** A stuck train searches for a detour at most this often (s). */
 const DETOUR_EVERY_S = 6;
+/** `headOnAhead`: another's way runs on through the stop its hold ends at (NEXT_LEG=0: not). */
+export const NEXT_LEG = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NEXT_LEG !== "0" };
 /** How long a train waits at a dead end of its own for another heading into the one it turns in (`deadEndBy`). */
 const DEAD_PATIENCE_S = 20;
 
@@ -1063,21 +1065,26 @@ export class Dispatcher {
    * node `to`. Each other train by its booked way from where it stands (`ts`), to its next stop or a turn.
    */
   private headOnAhead(engine: number, ts: readonly DTrain[], placed: readonly DTrain[], t: DTrain, to: number): number {
-    const wayOf = (x: DTrain, from: number): Map<number, number> => {
+    const wayOf = (x: DTrain, from: number, legs = 1): Map<number, number> => {
       // (Piece → the end its front comes onto it by, along its main way from `from`, to its next stop after or a turn.
       // Cached per booked way and node: a train's way is asked of in many decisions while it stands.)
       let byAt = aheadCache.get(x.pos);
       if (!byAt) aheadCache.set(x.pos, (byAt = new Map()));
-      const hit = byAt.get(from);
+      const ck = from * 4 + legs;
+      const hit = byAt.get(ck);
       if (hit) return hit;
       const out = new Map<number, number>();
-      byAt.set(from, out);
+      byAt.set(ck, out);
       const stops = x.arrivals.filter((a) => x.order[a] > x.order[from]);
-      const until = stops.length > 0 ? stops[0] : x.main - 1;
-      for (let i = from, n = 0; i >= 0 && n < 200; n++) {
+      let s = 0;
+      let left = legs;
+      for (let i = from, n = 0; i >= 0 && n < 400; n++) {
         const fp = x.pos[i][x.pos[i].length - 1];
         if (!out.has(fp)) out.set(fp, x.frontEn[i]);
-        if (i === until || (i !== from && x.turned[i])) break;
+        if (i === (s < stops.length ? stops[s] : x.main - 1) || (i !== from && x.turned[i])) {
+          if (--left <= 0 || i === x.main - 1) break;
+          if (s < stops.length && i === stops[s]) s++;
+        }
         i = x.succ[i][0] ?? -1;
       }
       return out;
@@ -1094,7 +1101,10 @@ export class Dispatcher {
     for (let m = 0; m < ts.length; m++) {
       const o = ts[m];
       if (o.key === engine || o.fixed) continue;
-      const oWay = wayOf(o, o.at);
+      // (Its hold ending at its stop: its way on is the leg after it too, it goes on from there next (complex-1: Willow
+      // granted into a single stretch toward a stop another was granted into, its next leg back through that stretch).)
+      const oEnd = placed[m].at;
+      const oWay = wayOf(o, o.at, NEXT_LEG.on && oEnd !== o.at && o.arrivals.includes(oEnd) ? 2 : 1);
       // (This one already on its way: not refused here.)
       if ([...here].some((p) => oWay.has(p))) continue;
       // (Onto its way, the other way over a piece: its front onto it by another end than ours.)
