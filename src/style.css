@@ -226,8 +226,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item.tray-back { width: 56px; background: var(--groove); box-shadow: var(--groove-sh); }
 .tray-item.tray-back .icon { font-size: 34px; font-weight: 800; color: #7a5a3a; height: 52px; width: auto; }
 
-/* A card sits just clear of the tray (138 px with its tabs): over it, it would cover the tabs. */
-.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); background: var(--wood-panel); color: var(--wood-ink); border-radius: 12px; box-shadow: var(--wood-panel-edge), var(--board-drop); padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
+/* A card sits just clear of the tray: over it, it would cover the tabs. It stands on the tray's own height
+   (`--tray-room`, measured by hud.ts; a fixed 146 px put a workshop's card at 2000×1165 under the taller tray's tabs)
+   and stops under the top bar: taller, it scrolls as one (no list scrolling inside it), its head kept (below). */
+.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--tray-room, 156px) + 8px); max-height: calc(100dvh - var(--tray-room, 156px) - 8px - max(10px, env(safe-area-inset-top)) - 62px); overflow-y: auto; overscroll-behavior: contain; background: var(--wood-panel); color: var(--wood-ink); border-radius: 12px; box-shadow: var(--wood-panel-edge), var(--board-drop); padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
 .card-title { font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0.02em; line-height: 1.15; color: var(--wood-ink); }
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: var(--wood-ink-soft); text-align: center; margin-top: -6px; max-width: 300px; }
@@ -429,7 +431,22 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Titles of cards with a ✕ keep clear of it (padded both sides, so they stay centred). */
 .depot-card > .card-title, .piece-card > .card-title { padding: 0 34px; }
 /* (Room for the Wiki link across from ✕, kept even both sides so the title stays centred.) */
-.depot-card:has(> .wiki-link:not([hidden])) > .card-title { padding: 0 52px; }
+.depot-card:has(> .wiki-link:not([hidden])) > .card-title { padding-left: 52px; padding-right: 52px; }
+/* A card's rows keep their height (it scrolls instead), and its lists scroll with it, not inside it. */
+.card > * { flex-shrink: 0; }
+.card .depot-extra, .card .lever-list, .card .reach-list { max-height: none; overflow: visible; }
+.card .depot-extra.ledger { max-height: none; }
+/* A place's card's head stays at its top while the rest scrolls under it, at every size: the ✕ and Wiki first, taking
+   no room (their margins cancel their height and the gap after them), then the title on its own strip of panel. The
+   title sticks at the card's top edge (`top` is the padding's: -12px). Focus scrolls clear of it. */
+.card.depot-card { scroll-padding-top: 56px; }
+.card.depot-card > .close { position: sticky; top: -12px; z-index: 2; order: -4; align-self: flex-end; margin: -12px -14px -54px 0; }
+.card.depot-card > .wiki-link { position: sticky; top: -12px; z-index: 2; order: -3; align-self: flex-start; margin: 0 0 -54px -14px; }
+.card.depot-card > .card-title { position: sticky; top: -12px; z-index: 1; order: -2; align-self: stretch; margin: 0 -14px; padding-top: 12px; padding-bottom: 6px; text-align: center; background: var(--wood-panel); box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
+/* The workshop's lines (Lines here, New route from here) before its long making list, not under it. */
+.depot-card:has(> .depot-yard:not([hidden])) > .depot-extra:not(.ledger) { order: 1; }
+/* On a big screen a place's card is no wider than its rows need (its goods line wraps), clear of the goals at the left. */
+@media (min-width: 641px) and (min-height: 521px) { .card.depot-card { max-width: min(520px, calc(100% - 24px)); box-sizing: border-box; } }
 
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
 /* (As wide as its words, up to the screen less a margin: from `left: 50%` it would otherwise shrink to half the screen
@@ -511,19 +528,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-item .label { font-size: 11px; letter-spacing: -0.01em; }
   .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 151px); min-width: 0; width: calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
   /* A tall card (a workshop's list) stops under the goals chip, and scrolls as one: no list scrolling inside it. */
-  .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 116px); overflow-y: auto; overscroll-behavior: contain; }
-  .card > * { flex-shrink: 0; }
-  .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
-  /* (The ledger's own limit is as specific, and later: lift it too, or its rows spill out under the switches.) The
-     switches stay in view at the card's foot while the ledger scrolls by above them. */
-  .card .depot-extra.ledger { max-height: none; }
+  .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 116px); }
+  /* The switches stay in view at the card's foot while the ledger scrolls by above them. */
   .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: var(--wood-panel); box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
-  /* And its title and ✕ at the top (the ✕ first, laid over the title's right end); focus scrolls clear of both. */
+  /* (Its title and ✕ stick at the top as every place's card's do; focus scrolls clear of both.) */
   .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 72px; }
-  /* (The ✕ comes first and takes no room: its margins cancel its height and the gap after it, so the title starts where
-     it sticks, at the card's top edge. Pulled up further, the sticky title stayed put and the ledger ran up under it.) */
-  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: 0 -14px; padding: 12px 48px 6px; text-align: center; background: var(--wood-panel); box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
-  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -54px 0; }
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
@@ -537,19 +546,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tab { padding: 13px 14px 13px; }
   /* Cards dock at the right, under the top bar: in the middle they'd sit on the very train or piece just tapped, and
      a second tap on it (a car, for its own card) would land on the card's Go instead. */
-  .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 149px); overflow-y: auto; overscroll-behavior: contain; }
+  .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 149px); }
   /* An open card is over the goals bar (QA, 667×375: the bar lay over the card's title); the bar's back when it closes. */
   .card { z-index: 1; }
-  .card > * { flex-shrink: 0; }
-  .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
-  /* (The ledger's own limit is as specific, and later: lift it too, or its rows spill out under the switches.) The
-     switches stay in view at the card's foot while the ledger scrolls by above them. */
-  .card .depot-extra.ledger { max-height: none; }
-  /* Short screens (a phone on its side): the room is the ledger's. The title and ✕ scroll away (the card opens at its
-     top), and only Automatic stays, on a slim footer; the pay rule is for the upright card. */
+  /* Short screens (a phone on its side): Automatic stays on a slim footer while the ledger scrolls; the pay rule is for
+     the upright card. */
   .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 4px 0 6px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
   .depot-card:has(.depot-extra.ledger) > .card-row .chip { min-height: 40px; padding-top: 0; padding-bottom: 0; }
-  .depot-card:has(.depot-extra.ledger) { scroll-padding: 0 0 56px; }
+  .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 56px; }
   .depot-extra.ledger .ledger-pay { display: none; }
   /* The workshop's plank choice moves up under the title (the short card is full with its pile and switches, and the
      choice would be under the fold); its hint is for a taller card. */
@@ -559,26 +563,18 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(> .depot-yard:not([hidden])) > .depot-stock { order: 1; }
   .depot-card:has(> .depot-yard:not([hidden])) > .depot-extra { order: 2; }
   .depot-yard { margin-bottom: -4px; }
-  .depot-yard .chip { height: 40px; }
+  .depot-yard .chip { height: 44px; }
   .depot-yard .yard-hint { display: none; }
-  .depot-card:has(.depot-extra.ledger) > .card-title { position: static; margin: 0; padding: 0 34px; background: none; box-shadow: none; }
-  /* The ✕ rides in the footer, at its left (Automatic is centred; the rewards chip sits over the right corner): in
-     reach however far it's scrolled, at no cost to the ledger's room. */
-  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; bottom: -11px; z-index: 2; order: 3; align-self: flex-start; margin: -57px 0 -11px -10px; }
   /* Scrolling comes to rest with a row's top at the top (gently: a long fling isn't held back). */
   .depot-card:has(.depot-extra.ledger) { scroll-snap-type: y proximity; }
   .depot-extra.ledger > *, .town-pane > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
-  /* (The card's top is a resting place too, its title's: with none there, a card opened at its top could be snapped
-     down to the first row, its name half cut off. QA at 740x360: opened at 25 px.) */
-  .depot-card:has(.depot-extra.ledger) > .card-title { scroll-snap-align: start; scroll-margin-top: 12px; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
   /* A town's card on its side: on the right 60% of the screen (the map's room is beside it), coming down over the tray
      as the engine card does. The header and tabs across the top, the ✕ at the top right as on every card; each pane in
      two columns where it has two parts (Grow: the goods, then what holds it back and what it buys; Station: its rows,
      then its lines, New route and the upgrades), so a pane shows whole on a 390 px tall phone. Taller, it scrolls. */
-  .depot-card:has(.depot-extra.ledger) { width: min(560px, calc(60vw - 12px - env(safe-area-inset-right))); box-sizing: border-box; padding-top: 10px; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); scroll-snap-type: none; }
-  .depot-card:has(.depot-extra.ledger) > .card-title { order: -2; scroll-snap-align: none; padding: 2px 40px 0 0; text-align: left; align-self: stretch; }
-  .depot-card:has(.depot-extra.ledger) > .close { position: absolute; top: 0; right: 0; bottom: auto; margin: 0; order: 0; }
+  .depot-card:has(.depot-extra.ledger) { width: min(560px, calc(60vw - 12px - env(safe-area-inset-right))); box-sizing: border-box; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(8px, env(safe-area-inset-bottom))); scroll-snap-type: none; }
+  .depot-card:has(.depot-extra.ledger) > .card-title { padding: 12px 48px 6px 14px; text-align: left; }
   .depot-card:has(.depot-extra.ledger) > .card-row { position: static; margin: 0; padding: 0; background: none; box-shadow: none; justify-content: flex-start; align-self: stretch; }
   .card .depot-extra.ledger { width: auto; gap: 8px; }
   .depot-extra.ledger .town-pane-grow, .depot-extra.ledger .town-pane-station { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); column-gap: 16px; row-gap: 8px; align-items: start; }
