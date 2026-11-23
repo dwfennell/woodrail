@@ -25,6 +25,7 @@ import { ACCELERATION } from "../sim/brakes";
 import { connectorRef, getPieceDef, pathExitConnector, pathLength, pieceOfRef, indexOfRef, pointsWayFrom, type Layout } from "../track";
 import { next, waysFrom } from "./graph";
 import { isPoints } from "./router";
+import { passingOf } from "./blocks";
 import { STAND_SHORT } from "../economy/sections";
 import { blockerOf, bodyOf, buildTrain, PLAN_FROM_ROAD, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
@@ -48,6 +49,8 @@ const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>()
 
 /** A stuck train searches for a detour at most this often (s). */
 const DETOUR_EVERY_S = 6;
+/** §13.6.2's reservation book (`reservedBy`): off unless RESERVE=1 (a prototype under measure). */
+export const RESERVE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).RESERVE === "1" };
 /** §13.6's safety check over the stretch (`safeOrder`): off unless SAFE=1 (a prototype under measure). */
 export const SAFE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SAFE === "1" };
 /**
@@ -157,6 +160,8 @@ export class Dispatcher {
   decisions = 0;
   grants = 0;
   detours = 0;
+  /** Grants refused by the reservation book (§13.6.2). */
+  reservedRefused = 0;
   /** Grants refused by the safety check (§13.6). */
   unsafeRefused = 0;
   /** Grants refused as ending nose to nose with another train. */
@@ -662,6 +667,17 @@ export class Dispatcher {
         break;
       }
     }
+    // (§13.6.2, single-line working: a move whose claim (its way from where it stands to its next passing place, a road
+    // of a loop or a yard) meets another train's claim the other way on any piece, or finds no road free there, isn't
+    // granted. Both ways ask the same book: the train coming the other way waits at its own passing place.)
+    let reservedBy = -1;
+    if (to >= 0 && RESERVE.on) {
+      reservedBy = this.reservedBy(engine, ts, ways, k, to);
+      if (reservedBy >= 0) {
+        to = -1;
+        this.reservedRefused++;
+      }
+    }
     // (§13.6, the safety check: a grant that leaves no order in which each of the stretch's trains reaches its stop
     // after next isn't granted, unless the stretch had none before it either (it makes nothing worse).)
     let unsafeBy = -1;
@@ -679,6 +695,7 @@ export class Dispatcher {
       }
     }
     if (unsafeBy >= 0) headBy = unsafeBy;
+    if (reservedBy >= 0) headBy = reservedBy;
     this.decisions++;
     this.decisionMs.push(performance.now() - t0);
     h.singleWait = singleBy >= 0 ? singleBy : headBy;
@@ -1228,6 +1245,91 @@ export class Dispatcher {
       }
     }
     return false;
+  }
+
+  /** One road through (no points, crossing or deck). */
+  private plainPiece(p: number): boolean {
+    const piece = this.host.layout.getPiece(p);
+    if (!piece) return false;
+    const def = getPieceDef(piece.type, piece.flipped);
+    return def.paths.length === 1 && def.connectors.length === 2;
+  }
+
+  /** §13.6.2: the passing place (its road's group) node `i` of `t` stands wholly on, or −1. */
+  private placeOf(t: DTrain, i: number): number {
+    const { group } = passingOf(this.host.layout);
+    const g = group.get(t.pos[i][0]);
+    return g !== undefined && t.pos[i].every((p) => group.get(p) === g) ? g : -1;
+  }
+
+  /**
+   * §13.6.2: the claim of `t` from node `from`: each piece of its booked way after the passing place it stands on (if
+   * it does), to the first node it stands wholly on a passing place's road again (the piece → the end its front comes
+   * onto it by; that place, −1: none within reach).
+   */
+  private claimOf(t: DTrain, from: number): { way: Map<number, number>; place: number } {
+    const way = new Map<number, number>();
+    const start = this.placeOf(t, from);
+    let out = start < 0;
+    for (let i = from, n = 0; i >= 0 && n < 600; n++) {
+      const g = this.placeOf(t, i);
+      if (!out && g !== start) out = true;
+      if (out) {
+        if (i !== from && g >= 0 && way.size > 0) return { way, place: g };
+        for (const p of t.pos[i]) if (!way.has(p)) way.set(p, t.frontEn[i]);
+      }
+      i = t.succ[i][0] ?? -1;
+    }
+    return { way, place: -1 };
+  }
+
+  /**
+   * §13.6.2: the train (its key) whose hold on a block a move of member `k` to node `to` out of the passing place it
+   * stands on would meet, or that has the last road of the place it heads for; −1: none (or it isn't leaving one: in a
+   * block already, refusing it helps nobody).
+   */
+  private reservedBy(engine: number, ts: readonly DTrain[], ways: readonly DTrain[], k: number, to: number): number {
+    const t = ways[k];
+    const start = this.placeOf(t, t.at);
+    if (start < 0 || this.placeOf(t, to) === start) return -1;
+    const mine = this.claimOf(t, t.at);
+    // (No passing place within reach on: no block to book (rowan-2's network: a claim of 45 pieces met everyone).)
+    if (mine.way.size === 0 || mine.place < 0) return -1;
+    const { roads } = passingOf(this.host.layout);
+    const roadUsed = new Set<number>();
+    let heading = 0;
+    let firstOnPlace = -1;
+    for (const o of ts) {
+      if (o.key === engine) continue;
+      const here = o.pos[o.at];
+      if (mine.place >= 0)
+        roads[mine.place].forEach((r, ri) => {
+          if (r.some((p) => here.includes(p))) {
+            roadUsed.add(ri);
+            if (firstOnPlace < 0) firstOnPlace = o.key;
+          }
+        });
+      if (o.fixed) {
+        // (A train that never moves: its pieces taken both ways.)
+        if (here.some((p) => mine.way.has(p))) return o.key;
+        continue;
+      }
+      // (Holding a block: in one, or granted out of its passing place into one.)
+      const og = this.placeOf(o, o.at);
+      if (og >= 0) {
+        const oh = this.holdsBy.get(o.key);
+        if (!oh || oh.t.pos !== o.pos || this.placeOf(o, oh.end) === og) continue;
+      }
+      // (Head-on on plain track: crossing the same points the other way, one after the other, isn't meeting.)
+      const oc = this.claimOf(o, o.at);
+      for (const [p, en] of oc.way) {
+        const me = mine.way.get(p);
+        if (me !== undefined && me !== en && !isPoints(this.host.layout, p) && this.plainPiece(p)) return o.key;
+      }
+      if (mine.place >= 0 && oc.place === mine.place && og !== mine.place) heading++;
+    }
+    if (mine.place >= 0 && roadUsed.size + heading >= roads[mine.place].length) return firstOnPlace >= 0 ? firstOnPlace : -1;
+    return -1;
   }
 
   /**
