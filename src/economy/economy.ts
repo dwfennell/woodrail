@@ -15,7 +15,7 @@ import { Stalls } from "./stalls";
 import { Breakdown } from "./breakdown";
 import { next as nextPiece, SEARCH, waysFrom } from "../routing/graph";
 import { Router } from "../routing/router";
-import { Dispatcher } from "../routing/dispatcher";
+import { Dispatcher, OWNER } from "../routing/dispatcher";
 import { BLOCK_RULE } from "../routing/stretch";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone } from "../routing/via";
 import { RoadVehicles } from "../roads/vehicles";
@@ -122,7 +122,8 @@ export interface Recipe {
   readonly gives: readonly CargoKind[];
   /**
    * One cycle every `seconds` (at rate 1): uses `uses` from its piles, adds `makes` to them. Runs while it has what it
-   * uses and room for what it makes. `eats`: uses one of whatever it has of `takes` (a town using up its goods).
+   * uses and room for at least one good it makes; a good is made only up to its pile's cap (a mine full of ore still
+   * brings up coal). `eats`: uses one of whatever it has of `takes` (a town using up its goods).
    */
   readonly cycle?: { readonly uses: Bag; readonly makes: Bag; readonly seconds: number; readonly eats?: boolean };
   /** Most units each pile holds (default `PILE_CAP`). */
@@ -190,7 +191,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // Stone cut from a hillside (Game mode's quarries).
   quarry: { takes: [], gives: ["stone"], cycle: { uses: {}, makes: { stone: 1 }, seconds: 14 } },
   // Mining and iron (Phase C): a mine in the hills brings up coal and ore; a foundry makes iron of them.
-  mine: { takes: [], gives: ["coal", "ore"], cycle: { uses: {}, makes: { coal: 1, ore: 1 }, seconds: 18 } },
+  // Coal 2 a cycle (it feeds foundries, brickworks, glassworks and power stations), ore 1: a foundry's iron is still
+  // ore-bound as before, and there's coal to spare.
+  mine: { takes: [], gives: ["coal", "ore"], cycle: { uses: {}, makes: { coal: 2, ore: 1 }, seconds: 18 } },
   foundry: { takes: ["coal", "ore"], gives: ["iron"], cycle: { uses: { coal: 1, ore: 1 }, makes: { iron: 1 }, seconds: 10 } },
   // A brickworks fires bricks of a quarry's stone and a mine's coal (the next nodes, 2026-11-02).
   brickworks: { takes: ["stone", "coal"], gives: ["bricks"], cycle: { uses: { stone: 1, coal: 1 }, makes: { bricks: 1 }, seconds: 12 } },
@@ -261,6 +264,11 @@ export const SHED_CAP = 12;
 export const MAX_SHEDS = 3;
 
 /** How much each pile of this depot holds: its kind's, and its dock sheds' (a harbour's). */
+/** How many of a cycle's `n` of `kind` fit on this depot's pile: all, the rest up to the cap, or none. */
+export function roomFor(d: DepotState, kind: CargoKind, n: number): number {
+  return Math.max(0, Math.min(n, capAt(d) - d.piles[CARGO[kind].index]));
+}
+
 export function capAt(d: DepotState): number {
   return capOf(d.role) * (d.stack ?? 1) + d.sheds * SHED_CAP;
 }
@@ -740,6 +748,7 @@ export class Economy {
       drive: (train) => this.drive(train),
       granted: (engine) => (this.dispatcher ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine)),
       awaitingGrant: (engine) => (this.dispatcher ? this.dispatcher.awaiting(engine) : this.sections.awaitingGrant(engine)),
+      grantedWay: (engine) => (this.dispatcher && OWNER.on ? this.dispatcher.grantedWay(engine) : null),
       soon: this.sections.steerSoon,
       fullAt: (engine) => this.fullAt(engine),
     });
@@ -796,7 +805,8 @@ export class Economy {
     // nothing, or for the way back round to it, and it would run over the points ahead as they lie.)
     if (r.at) {
       const here = r.stops[i].depotId;
-      const hereAt = this.depots[here]?.pieceId ?? -1;
+      const hereD = this.depots[here];
+      const hereAt = hereD ? this.trackAt(engine, hereD) : -1;
       const train = this.sim.findCar(engine)?.train;
       for (let k = 0; k < r.stops.length; k++) {
         const id = r.stops[i].depotId;
@@ -814,14 +824,20 @@ export class Economy {
   /**
    * Which of depot `d`'s tracks routed engine `engine` is sent to (it has several): the one its train is on already;
    * else the one it was given, while no other train is on it; else the first free one, in order (the depot's own track,
-   * then track 2, then 3): no train on it and none given it. All taken: the depot's own track, and it's marked to wait
-   * short of the ladder (`fullAt`). Every train of a line comes to the same answer in the same state.
+   * then track 2, then 3): no train on it and none given it. All taken: the first, and it's marked to wait short of the
+   * ladder (`fullAt`). Of the tracks on the train's own railway (`networkOf`), where any are. Every train of a line
+   * comes to the same answer in the same state.
    */
   private trackFor(engine: number, d: DepotState): number {
     const found = this.sim.findCar(engine);
     if (!found) return d.pieceId;
     const mine = this.sim.piecesUnder(found.train.id);
-    const tracks = this.reachableTracks(d);
+    // (Only the tracks on its own railway: a second track joined to another line than the yard's own, as the user's
+    // 2026-11-22 warehouse, is that line's trains' track, never one a train of the yard's own line is sent to.)
+    const net = this.networkOf(found.train.bogies[0].pieceId);
+    const all = this.reachableTracks(d);
+    const ours = all.filter((p) => this.networkOf(p) === net);
+    const tracks = ours.length > 0 ? ours : all;
     const on = tracks.find((p) => mine.has(p));
     if (on !== undefined) {
       this.trackOf.set(engine, { depotId: d.id, pieceId: on });
@@ -846,7 +862,7 @@ export class Economy {
     }
     this.trackOf.delete(engine);
     this.full.set(engine, d.id);
-    return d.pieceId;
+    return tracks[0];
   }
 
   /**
@@ -871,19 +887,47 @@ export class Economy {
   }
 
   /**
-   * Depot `d`'s tracks a train can reach: its own, then each further track joined to the same track as it (laid
-   * beside it by the card, joined by the player's points: until then it's no track of the industry to routes).
+   * Depot `d`'s tracks a train can reach: its own, then each further track joined to a line (laid beside it by the
+   * card, joined by the player's points: until then it's no track of the industry to routes). Joined to the same
+   * track as the yard's own, or to another line altogether (the user, 2026-11-22: a warehouse's second track on a line
+   * of its own, "I should be able to stop at the warehouse on the second track"): its trains are sent there (`trackFor`
+   * gives each train the tracks on its own railway: `networkOf`) and the map draws their way into it.
    */
   reachableTracks(d: DepotState): number[] {
-    const j = this.joinsOf(d);
-    return [d.pieceId, ...this.roadsOf(d.id).map((r) => r.pieceId).filter((p) => j.reach.has(p))];
+    return [d.pieceId, ...this.roadsOf(d.id).map((r) => r.pieceId).filter((p) => this.joinedTrack(d, p))];
   }
 
-  /** Depot `d`'s further tracks no train can reach yet (none joined to its track). */
+  /** Depot `d`'s further tracks no train can reach yet (joined to no line). */
   unjoinedTracks(d: DepotState): number[] {
-    const j = this.joinsOf(d);
-    return this.roadsOf(d.id).map((r) => r.pieceId).filter((p) => !j.reach.has(p));
+    return this.roadsOf(d.id).map((r) => r.pieceId).filter((p) => !this.joinedTrack(d, p));
   }
+
+  /**
+   * Is further track `road` of depot `d` joined to a line: to the yard's own track, or to any track but the depot's own
+   * tracks and the open-ended straights laid with them? Kept per layout revision and tracks version (the router asks
+   * as it aims, each tick).
+   */
+  private joinedTrack(d: DepotState, road: number): boolean {
+    if (this.joinsOf(d).reach.has(road)) return true;
+    const key = `${this.layout.revision}|${this.tracksVersion}`;
+    let had = this.joinedOf.get(d.id);
+    if (!had || had.key !== key) this.joinedOf.set(d.id, (had = { key, of: new Map() }));
+    let joined = had.of.get(road);
+    if (joined === undefined) {
+      const net = this.networkOf(road);
+      const t = this.tracks.get(d.id);
+      const mine = new Set<number>([d.pieceId, ...(t?.roads ?? []).map((r) => r.pieceId), ...(t?.ends ?? [])]);
+      joined = false;
+      for (const p of this.layout.pieceIds())
+        if (!mine.has(p) && this.networkOf(p) === net) {
+          joined = true;
+          break;
+        }
+      had.of.set(road, joined);
+    }
+    return joined;
+  }
+  private readonly joinedOf = new Map<number, { key: string; of: Map<number, boolean> }>();
 
   /** Per depot of several tracks, at a layout revision: the pieces joined to its track, and the points into its tracks. */
   private joins = new Map<number, { rev: number; reach: ReadonlySet<number>; points: ReadonlySet<number> }>();
@@ -973,9 +1017,18 @@ export class Economy {
     // (Standing at a stop: that stop, for the map's ribbon, which draws the legs on from it.)
     if (r.at) {
       const d = this.depots[r.stops[r.next % r.stops.length].depotId];
-      return d && this.onMap(d) ? d.pieceId : -1;
+      return d && this.onMap(d) ? this.trackAt(engine, d) : -1;
     }
     return this.goalOf(engine, 0);
+  }
+
+  /** Which of depot `d`'s tracks engine `engine`'s train stands on (a depot of several), else the depot's own piece. */
+  private trackAt(engine: number, d: DepotState): number {
+    if (!this.tracks.has(d.id)) return d.pieceId;
+    const found = this.sim.findCar(engine);
+    if (!found) return d.pieceId;
+    for (const b of found.train.bogies) if (this.byPiece.get(b.pieceId)?.id === d.id) return b.pieceId;
+    return d.pieceId;
   }
 
   /** Whose kept ways (stickiness) a routed engine's plan keeps: its line's, else its own (as a negative number). */
@@ -1964,16 +2017,22 @@ export class Economy {
   }
 
   /**
-   * Is this depot making (or using) something now: it has what its cycle uses and room for what it makes? (A
-   * sawmill's saw spins while true.)
+   * Is this depot making (or using) something now: it has what its cycle uses and room for at least one of the goods
+   * it makes? (A mine whose ore is full goes on bringing up coal; `roomFor` says how much of each it makes.) A
+   * sawmill's saw spins while true.
    */
   working(d: DepotState): boolean {
     const cycle = RECIPES[d.role].cycle;
     if (!cycle || d.rate <= 0) return false;
     if (cycle.eats) return RECIPES[d.role].takes.some((k) => d.piles[CARGO[k].index] > 0);
     for (const k in cycle.uses) if (d.piles[CARGO[k as CargoKind].index] < cycle.uses[k as CargoKind]!) return false;
-    for (const k in cycle.makes) if (d.piles[CARGO[k as CargoKind].index] + cycle.makes[k as CargoKind]! > capAt(d)) return false;
-    return true;
+    let made = false;
+    for (const k in cycle.makes) {
+      made = true;
+      if (roomFor(d, k as CargoKind, cycle.makes[k as CargoKind]!) > 0) return true;
+    }
+    // (A cycle that makes nothing, as a power station's, runs on its inputs alone.)
+    return !made;
   }
 
   /** Would the crane do anything for this car at this depot? */
@@ -2076,7 +2135,8 @@ export class Economy {
    *   `taker` is the first later stop that would take it, `takerFull` whether it's full (else it doesn't need any yet);
    * - "no-wagon": a later stop takes it, but no wagon of the train carries it (or each is set to Off for it);
    * - "none": it would load it, but the place has none (and isn't making any).
-   * Not said: goods no later stop takes (the line isn't for them), a stop set to Only drop, wagons already full.
+   * Not said: goods no later stop takes (the line isn't for them), a stop set to Only drop, wagons already full, and at
+   * a store (a warehouse) goods it holds none of.
    * Cheap: a route walk per good, asked while its card is open.
    */
   notLoadingAt(trainId: number): { depot: DepotState; kind: CargoKind; why: "no-room" | "no-wagon" | "none"; taker?: DepotState; takerFull?: boolean } | null {
@@ -2104,6 +2164,10 @@ export class Economy {
     for (const kind of r.gives) {
       const bit = 1 << CARGO[kind].index;
       if (!storeLetsOut(d, kind) || !((r.routedOnly ? later.uses : later.takes) & bit)) continue;
+      // (A store, a warehouse or a landing, gives only what it holds: no wagon for a good it has none of is nothing to
+      // say. The user, 2026-11-22: a flour line's vans at a warehouse of flour told "Not loading planks…: they go on a
+      // flatbed wagon", for the workshop further on, though the warehouse had no planks.)
+      if (r.routedOnly && d.piles[CARGO[kind].index] <= 0) continue;
       const carriers = train.cars.filter((c) => canCarry(c.kind, kind) && this.carTakes(c.id, kind));
       if (carriers.length === 0) {
         // (No wagon could take it: said only where none carries it at all, not where its wagons are set to Off for it,
@@ -2808,6 +2872,10 @@ export class Economy {
         // (A grant steers it at once, as a sections grant does: the router sets the points ahead.)
         granted: (engine) => this.sections.steerSoon.add(engine),
         overruled: (train) => (this.router.speedCap(train) < 1 ? "points" : this.sim.heldHow(train.id)),
+        pointsWaitBy: (engine) => {
+          const w = this.router.waitOf(engine);
+          return w && w.kind === "points" && typeof w.by === "number" ? w.by : -1;
+        },
       });
       this.dispatcher = d;
       // (A move past a plain signal still needs its whole block free: without it, trains ran deep into single track and
@@ -2818,7 +2886,8 @@ export class Economy {
       // (The signals are its holds (routing redesign §3.6).)
       // (What its signals show (routing redesign §3.6). Who goes on past them is still the gate's and the blocks': the
       // owner deciding that too (`clearFor`) ran trains deep into single track, 22-30 jams against 0-3 on three maps.)
-      sim.signalOwner = { clearFor: () => null, aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() };
+      // (§13.5 step 2: the path signals too, for the trains it holds: green iff its hold runs past.)
+      sim.signalOwner = { clearFor: (ref, id) => (OWNER.on ? d.clearFor(ref, id) : null), aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() };
     } else {
       this.dispatcher = null;
       BLOCK_RULE.on = false;
@@ -3412,9 +3481,13 @@ export class Economy {
         continue;
       }
       for (const k in cycle.uses) d.piles[CARGO[k as CargoKind].index] -= cycle.uses[k as CargoKind]!;
+      // Only what fits is made: a full pile's share of the cycle isn't (a mine full of ore makes coal), and a pile
+      // with room for less than the cycle makes is topped up to its cap.
       for (const k in cycle.makes) {
-        d.piles[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
-        this.made[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
+        const n = roomFor(d, k as CargoKind, cycle.makes[k as CargoKind]!);
+        if (n === 0) continue;
+        d.piles[CARGO[k as CargoKind].index] += n;
+        this.made[CARGO[k as CargoKind].index] += n;
       }
     }
     // Towns post mail (Game mode's Post office), looked at once a second.

@@ -778,6 +778,16 @@ describe("props in saves", () => {
     expect(old.ok && [...old.value.props.all()].filter((p) => p.building === undefined).length).toBe(0);
   });
 
+  it("leave out a grand project's site still being placed (a draft: not paid for yet)", () => {
+    const world = buildStarterWorld();
+    const kept = world.props.add("bldg-red-barn", { x: 100, z: 50, heading: 0, y: 0 });
+    world.props.add("grand-exhibition-0", { x: 400, z: 50, heading: 0, y: 0 }, undefined, { scale: 1 }).draft = true;
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    const loaded = r.ok ? [...r.value.props.all()].filter((p) => p.building === undefined) : [];
+    expect(loaded.map((p) => p.id)).toEqual([kept.id]);
+  });
+
   it("keep a town house's storeys and a building's level (v15); a v14 save's town storeys are dropped, to be given again", () => {
     const world = buildStarterWorld();
     const town = world.landscape.towns[0];

@@ -175,7 +175,10 @@ if (!setup.error) {
   let opened = null;
   for (let k = 0; k < 60 && !opened; k++) {
     await p.evaluate(() => window.__run(2));
-    opened = await p.waitForFunction(() => window.woodrail.progress().circus, null, { timeout: 1500 }).then((h) => h.jsonValue(), () => null);
+    // (Its second of play ticked by the game's own loop, then read: an evaluate waits out a slow frame, where a 1.5 s
+    // waitForFunction timed out before its poll ever ran (under SwiftShader a frame after `__run` takes longer).)
+    await p.waitForTimeout(1500);
+    opened = await p.evaluate(() => window.woodrail.progress().circus);
   }
   check("3. the circus train comes to a town: a show opens there", !!opened, JSON.stringify(opened));
   const top = await p.evaluate(() => [...window.woodrail.world.props.all()].find((x) => x.asset === "scene-big-top") ?? null);

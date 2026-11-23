@@ -3,7 +3,8 @@
  * now and then, so the bundle every start fetches doesn't carry them. `use(f)` calls `f` with it, at once if it's
  * made, else once it is (calls while it loads all wait, in order). `now` is it, or null till it's made. If making it
  * fails (its code couldn't be fetched: offline, or a tab older than the build now served), the waiting calls are
- * dropped, `failed` is told, and the next `use` tries again.
+ * dropped, `failed` is told, and the next `use` tries again. (Chromium keeps a failed `import()` failed for the page's
+ * life, so there the next try fails too, and `failed` is told each time: say so, with a reload.)
  */
 export interface Lazy<T> {
   readonly now: T | null;

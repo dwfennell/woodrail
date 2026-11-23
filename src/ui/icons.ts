@@ -189,6 +189,9 @@ const UI_PATHS = {
   // A folded paper map with a pin.
   map: `<path d="M3.5 6.5 9 4.5l6 2 5.5-2v13l-5.5 2-6-2-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>`,
   land: `<path d="M3.5 8.5h7v7h-7z" fill="currentColor" stroke="none" opacity="0.35"/><path d="M3.5 8.5h7v7h-7zM10.5 8.5h7"/><path d="M17.5 8.5v4"/><path d="M14 18h7M17.5 14.5v7"/>`,
+  // "What this means": an i in a ring. (Drawn, not the ⓘ character: none of the game's fonts has it, and a Mac's
+  // fallback drew a CJK glyph in its place.)
+  info: `<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.6" r="1.35" fill="currentColor" stroke="none"/>`,
 } as const;
 
 export type UiIcon = keyof typeof UI_PATHS;

@@ -4,7 +4,7 @@ import { checkProp, TrackIndex, type Footprint } from "../props/placement";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { CATALOGUE } from "../catalogue/assets";
 import { kindsOf, total } from "../economy/goods";
-import { advanceGrands, achievements, centralWhy, countRider, earned, GRAND_CENTRAL_KITS, moveCentralKit, HUB_FARE, hubFare, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ROYAL_GIFT, siteAsset, siteSpot, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
+import { advanceGrands, achievements, centralWhy, countRider, earned, GRAND_CENTRAL_KITS, moveCentralKit, HUB_FARE, hubFare, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ROYAL_GIFT, siteAsset, siteMoveRule, siteSpot, siteWhy, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
 import { RECIPES } from "../economy/economy";
 import { CARRIES } from "../economy/cargo";
 import { FULL_PAY } from "./towns";
@@ -17,7 +17,11 @@ import { growthOf, receivedBy, statusOf, TownLife, type TownLifeHost } from "./t
 import { townLevel, townStatus, wantsWith } from "./towns";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { deliverByTrain } from "./workshop-testing";
-import type { Town } from "../landscape";
+import { FEAT_FIELD, FEAT_NONE, SURF_GRASS, SURF_ROAD, type Town } from "../landscape";
+import { worldYards, footprintInYards } from "./depot-footprint";
+import { loadBugMap } from "../play/bugmap";
+import EXHIBITION_MAP from "../play/bugmaps/reports/2026-11-22-grand-exhibition-overlap.txt?raw";
+import CATHEDRAL_MAP from "../play/bugmaps/reports/2026-11-22-cathedral-overlap.txt?raw";
 
 /**
  * Grand projects (spec 2026-11-05-character-and-goals.md): started from a City ★'s card, built in stages from goods
@@ -157,6 +161,116 @@ describe("starting a grand project", () => {
     const c = checkProp({ land: w.landscape, track: new TrackIndex(w.layout), props: w.props, footprint: footprintOf }, siteOf("exhibition"), prop, "land", prop.id);
     expect(c.kind).toBe("clear");
     expect(Math.hypot(prop.x - town.centre.x, prop.z - town.centre.z)).toBeLessThan(1400);
+  });
+
+  it("keeps clear of a workshop the player placed: its yard isn't marked on the map's squares (report 2026-11-22)", () => {
+    const { w, life, p } = game();
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, GRAND_LEVEL);
+    p.coins = 1000;
+    const fp = siteOf("exhibition");
+    // Where the site would go on an empty map; a workshop then put beside it, its yard (not its track) on that spot, as
+    // in the report. (Setup shortcut: the piece written into the layout, not dropped from the tray: the placement under
+    // test is the site's.)
+    const first = siteSpot(w, town, fp, footprintOf)!;
+    expect(first).not.toBeNull();
+    const ctx = () => ({ land: w.landscape, track: new TrackIndex(w.layout), props: w.props, footprint: footprintOf });
+    let put = -1;
+    search: for (let dx = -300; dx <= 300; dx += 12)
+      for (let dz = -300; dz <= 300; dz += 12)
+        for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+          const id = w.layout.addPiece("depot-workshop", { x: first.x + dx, z: first.z + dz, heading }, first.y);
+          if (footprintInYards(worldYards(w), fp, first) && checkProp(ctx(), fp, first, "land").kind === "clear") {
+            put = id;
+            break search;
+          }
+          w.layout.removePiece(id);
+        }
+    expect(put).toBeGreaterThanOrEqual(0);
+    syncIndustries(w);
+    expect(w.economy.depotAtPiece(put)?.role).toBe("workshop");
+    // The props' own rule calls that spot clear (the bug); the site's rule doesn't.
+    expect(siteWhy(w.landscape, worldYards(w), fp, first)).toBe("yard");
+    expect(build(w, p, town, "exhibition")).toBe("started");
+    const prop = w.props.get(w.economy.grandPlans.get("exhibition")!.prop)!;
+    expect(footprintInYards(worldYards(w), fp, prop)).toBeNull();
+    expect(checkProp({ land: w.landscape, track: new TrackIndex(w.layout), props: w.props, footprint: footprintOf }, fp, prop, "land", prop.id).kind).toBe("clear");
+  });
+
+  it("on the reported map, the exhibition's old spot is refused and the one found is clear of yards and roads", async () => {
+    const { world: w } = await loadBugMap(EXHIBITION_MAP.trim());
+    const fp = siteOf("exhibition");
+    const old = [...w.props.all()].find((q) => q.asset.startsWith("grand-exhibition-"))!;
+    const yards = worldYards(w);
+    expect(siteWhy(w.landscape, yards, fp, old)).toBe("yard");
+    // Taken away, and Start tapped again in Rookhurst.
+    w.props.remove(old.id);
+    const town = w.landscape.towns.find((t) => t.name === "Rookhurst")!;
+    const spot = siteSpot(w, town, fp, footprintOf);
+    expect(spot).not.toBeNull();
+    expect(siteWhy(w.landscape, yards, fp, spot!)).toBeNull();
+    expect(checkProp({ land: w.landscape, track: new TrackIndex(w.layout), props: w.props, footprint: footprintOf }, fp, spot!, "land").kind).toBe("clear");
+  });
+
+  it("on the reported map, the cathedral's old spot (on a placed school's yard in Dimbleby) is refused too", async () => {
+    const { world: w } = await loadBugMap(CATHEDRAL_MAP.trim());
+    const fp = siteOf("cathedral");
+    const old = [...w.props.all()].find((q) => q.asset.startsWith("grand-cathedral-"))!;
+    const yards = worldYards(w);
+    expect(footprintInYards(yards, fp, old)?.type).toBe("depot-school");
+    expect(siteWhy(w.landscape, yards, fp, old)).toBe("yard");
+    w.props.remove(old.id);
+    const town = w.landscape.towns.find((t) => t.name === "Dimbleby")!;
+    const spot = siteSpot(w, town, fp, footprintOf);
+    expect(spot).not.toBeNull();
+    expect(siteWhy(w.landscape, yards, fp, spot!)).toBeNull();
+    expect(checkProp({ land: w.landscape, track: new TrackIndex(w.layout), props: w.props, footprint: footprintOf }, fp, spot!, "land").kind).toBe("clear");
+  });
+
+  it("moved by the player, it keeps by its city and off roads (step 1 of 2026-11-22-grand-placement.md)", () => {
+    const { w } = game();
+    const town = w.landscape.towns[0];
+    const g = grandOf("exhibition")!;
+    const rule = siteMoveRule(w.landscape, town, g, siteOf("exhibition"));
+    expect(rule.fp).toEqual(siteOf("exhibition"));
+    expect(rule.why({ x: town.centre.x + 100, z: town.centre.z, heading: 0 })).not.toMatch(/stays by/);
+    expect(rule.why({ x: town.centre.x + 5000, z: town.centre.z, heading: 0 })).toBe(`The ${g.name} stays by ${town.name}`);
+    const grid = w.landscape.grid;
+    let road = -1;
+    grid.forEachCell((i) => {
+      const x = grid.centreX(grid.colOf(i));
+      const z = grid.centreZ(grid.rowOf(i));
+      if (road < 0 && grid.surface[i] === SURF_ROAD && Math.hypot(x - town.centre.x, z - town.centre.z) < 600) road = i;
+    });
+    expect(road).toBeGreaterThanOrEqual(0);
+    expect(rule.why({ x: grid.centreX(grid.colOf(road)), z: grid.centreZ(grid.rowOf(road)), heading: 0 })).toMatch(/^Not on a road/);
+  });
+
+  it("never covers a road", () => {
+    const { w } = game();
+    const g = w.landscape.grid;
+    let road = -1;
+    g.forEachCell((i) => {
+      if (road < 0 && g.surface[i] === SURF_ROAD) road = i;
+    });
+    expect(road).toBeGreaterThanOrEqual(0);
+    const at = { x: g.centreX(g.colOf(road)), z: g.centreZ(g.rowOf(road)) };
+    expect(siteWhy(w.landscape, [], { cx: 0, cz: 0, hw: 20, hd: 20 }, { x: at.x, z: at.z, heading: 0 })).toBe("road");
+  });
+
+  it("never covers a farm's field (its industry's ground)", () => {
+    const { w } = game();
+    const g = w.landscape.grid;
+    // (A square marked a field, as a farm's are: the setup writes the mark; the rule under test reads it.)
+    let open = -1;
+    g.forEachCell((i) => {
+      if (open < 0 && g.feature[i] === FEAT_NONE && g.surface[i] === SURF_GRASS && g.road[i] === 0) open = i;
+    });
+    const at = { x: g.centreX(g.colOf(open)), z: g.centreZ(g.rowOf(open)), heading: 0 };
+    const fp = { cx: 0, cz: 0, hw: 10, hd: 10 };
+    expect(siteWhy(w.landscape, [], fp, at)).toBeNull();
+    g.feature[open] = FEAT_FIELD;
+    expect(siteWhy(w.landscape, [], fp, at)).toBe("field");
   });
 
   it("with no room by the city, nothing is paid or put up", () => {

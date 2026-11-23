@@ -1,7 +1,8 @@
 import type { CargoKind } from "../economy/cargo";
 import { addInto, type Bag, kindsOf, total } from "../economy/goods";
-import type { Landscape, Town } from "../landscape";
-import { checkProp, TrackIndex, type Footprint } from "../props/placement";
+import { FEAT_FIELD, SURF_LANE, SURF_ROAD, type Landscape, type Town } from "../landscape";
+import { checkProp, footprintSamples, TrackIndex, type Footprint } from "../props/placement";
+import { footprintInYards, worldYards, type PlacedYard } from "./depot-footprint";
 import type { PropPose } from "../props/store";
 import { coinsShort } from "./research";
 import type { Progress } from "./progress";
@@ -467,10 +468,14 @@ export const SITE_REACH = 900;
 /**
  * Where a project's site can stand by town `town` (its whole footprint `fp`, every stage's: `unionFootprint`): clear,
  * level land in rings round the town's station, nearest first, along or across the map, by the props' own rule
- * (`checkProp`). Null if there's no room.
+ * (`checkProp`), out of every placed depot's and kit's yard (`worldYards`: their squares aren't marked on the map, so
+ * `checkProp` alone let a site onto a placed workshop's yard: report 2026-11-22), off roads and lanes and off farms'
+ * fields (`siteWhy`).
+ * Null if there's no room.
  */
-export function siteSpot(world: Pick<World, "landscape" | "layout" | "props" | "stations">, town: Town, fp: Footprint, footprint: (asset: string) => Footprint | undefined): PropPose | null {
+export function siteSpot(world: Pick<World, "landscape" | "layout" | "props" | "stations" | "depots">, town: Town, fp: Footprint, footprint: (asset: string) => Footprint | undefined): PropPose | null {
   const ctx = { land: world.landscape, track: new TrackIndex(world.layout), props: world.props, footprint };
+  const yards = worldYards(world);
   const station = world.layout.getPiece(world.stations.get(town.id) ?? -1)?.pose ?? town.centre;
   const reach = Math.hypot(fp.hw, fp.hd);
   // (Rings 36 mm apart, from just clear of the station out to the reach: a few hundred checks, on a tap.)
@@ -484,11 +489,60 @@ export function siteSpot(world: Pick<World, "landscape" | "layout" | "props" | "
       for (const heading of [0, Math.PI / 2]) {
         const pose = { x, z, heading };
         const c = checkProp(ctx, fp, pose, "land");
-        if (c.kind === "clear") return { ...pose, y: c.y };
+        if (c.kind === "clear" && !siteWhy(world.landscape, yards, fp, pose)) return { ...pose, y: c.y };
       }
     }
   }
   return null;
+}
+
+/**
+ * What a site at `pose` would stand on beyond `checkProp`'s rule: a placed depot's or kit's yard (`yards`: `worldYards`),
+ * a road or lane, or a farm's field (its industry's ground); null if none. (A prop dropped from the tray may stand by a
+ * lane; a project's site is a big fenced plot, and never covers a road or a field.)
+ */
+export function siteWhy(land: Landscape, yards: readonly PlacedYard[], fp: Footprint, pose: Pick<PropPose, "x" | "z" | "heading">): "yard" | "road" | "field" | null {
+  if (footprintInYards(yards, fp, pose)) return "yard";
+  const grid = land.grid;
+  const pts = footprintSamples(fp, pose);
+  for (let i = 0; i < pts.length; i += 2) {
+    const cell = grid.cellAtWorld(pts[i], pts[i + 1]);
+    if (cell === -1) continue;
+    const surf = grid.surface[cell];
+    if (surf === SURF_ROAD || surf === SURF_LANE || grid.road[cell] !== 0) return "road";
+    if (grid.feature[cell] === FEAT_FIELD) return "field";
+  }
+  return null;
+}
+
+/** Said when a grand project's site is dropped on the tray: it's its city's, never put in the toy box. */
+export const GRAND_STAYS = "Grand projects stay on the map: drop it by its city";
+
+/** How a grand project's site moves when the player picks it up (`Interaction.siteMove`). */
+export interface SiteMove {
+  /** Its whole footprint, every stage's (`unionFootprint`), scaled. */
+  readonly fp: Footprint;
+  /** Why it can't stand at `pose` beyond the props' rule and the yards (the drag checks those): too far, a road. */
+  why(pose: Pick<PropPose, "x" | "z" | "heading">): string | null;
+}
+
+/**
+ * The rule a site moved by the player keeps (spec 2026-11-22-grand-placement.md, step 1): near its city, as `siteSpot`
+ * looks (`SITE_REACH` from its middle, the site's own reach added), and never on a road, a lane or a field (`siteWhy`). The
+ * yards are the drag's own check (`Interaction.propInYard`, cached), so not looked at here: this runs on every move.
+ */
+export function siteMoveRule(land: Landscape, town: Town, g: Grand, fp: Footprint): SiteMove {
+  const reach = SITE_REACH + Math.hypot(fp.hw, fp.hd);
+  return {
+    fp,
+    why: (pose) => {
+      if (Math.hypot(pose.x - town.centre.x, pose.z - town.centre.z) > reach) return `The ${g.name} stays by ${town.name}`;
+      const why = siteWhy(land, [], fp, pose);
+      if (why === "road") return `Not on a road: the ${g.name} needs open ground`;
+      if (why === "field") return `Not on a farm's field: the ${g.name} needs open ground`;
+      return null;
+    },
+  };
 }
 
 export type StartResult = "started" | "no-room" | "not-now";

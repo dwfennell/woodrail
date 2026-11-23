@@ -78,6 +78,30 @@ describe("why a routed train won't load at its next stop (the engine card)", () 
     expect(w.said()).toBe("Not loading planks at the sawmill: they go on a flatbed. Add one to this train");
   });
 
+  it("a warehouse gives only what it holds: no wagon for planks it has none of says nothing; with planks, it's said", () => {
+    // The user, 2026-11-22 (src/play/bugmaps/teal-warehouse.test.ts): vans at a warehouse of flour, the workshop further
+    // on, were told "Not loading planks at Warehouse 2: they go on a flatbed".
+    const layout = new Layout();
+    const types: PieceTypeId[] = ["straight-216", "straight-216", "depot-warehouse", "straight-216", "depot-workshop", "straight-216", "station", "straight-216"];
+    const ids = types.map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine", "van", "van"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    const store = economy.addDepot("warehouse", ids[2]);
+    const workshop = economy.addDepot("workshop", ids[4]);
+    const town = economy.addDepot("town", ids[6], 0);
+    const engine = sim.getTrain(placed.trainId)!.cars[0].id;
+    economy.setRoute(engine, { stops: [store, workshop, town].map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
+    store.piles[CARGO.flour.index] = 18;
+    const said = () => engineView(sim, economy, engine, (id) => (id === store.id ? "Warehouse 2" : "?")).status;
+    expect(economy.notLoadingAt(placed.trainId)?.kind).not.toBe("planks");
+    expect(said()).not.toMatch(/planks/);
+    store.piles[CARGO.planks.index] = 6;
+    expect(economy.notLoadingAt(placed.trainId)).toMatchObject({ kind: "planks", why: "no-wagon" });
+    expect(said()).toBe("Not loading planks at Warehouse 2: they go on a flatbed. Add one to this train");
+  });
+
   it("none at the sawmill, and none being made: says there are none yet", () => {
     const w = line();
     w.sawmill.piles.fill(0);

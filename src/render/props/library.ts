@@ -109,6 +109,11 @@ export class PropLibrary {
     }));
   }
 
+  /** How many models are being fetched now (for `Game.settled`: each lands with a frame). */
+  get loading(): number {
+    return this.pending.size;
+  }
+
   /** Fetch and build a model, or a colour variant of it (once each; rejects if it can't be fetched). `key`: see `modelKey`. */
   load(key: string): Promise<PropModel | null> {
     const done = this.models.get(key);

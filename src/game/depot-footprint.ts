@@ -464,6 +464,23 @@ export function placedYard(pieceId: number, type: PieceTypeId, pose: Pose, y: nu
 }
 
 /**
+ * Every yard on the map that isn't marked on its squares: the player's placed depots' and kits' (and a map depot moved
+ * by the player), as the tray's drops keep things out of them (`Interaction.playerYards`). For a check made on a tap
+ * (a grand project's site, `siteSpot`): worked out afresh each call.
+ */
+export function worldYards(w: Pick<World, "layout" | "depots" | "landscape">): PlacedYard[] {
+  const fixed = new Set([...w.depots].filter(([depotId]) => !w.landscape.depots[depotId]?.moved).map(([, id]) => id));
+  const out: PlacedYard[] = [];
+  for (const id of w.layout.pieceIds()) {
+    if (fixed.has(id) || w.layout.isLifted(id)) continue;
+    const p = w.layout.getPiece(id)!;
+    const yard = placedYard(id, p.type, p.pose, p.y);
+    if (yard) out.push(yard);
+  }
+  return out;
+}
+
+/**
  * The placed yard a piece's track would run into (its pad, or a crane leg on the yard's side), or null. Bounding boxes
  * first: cheap on every pointer move (the player's depots are few).
  */

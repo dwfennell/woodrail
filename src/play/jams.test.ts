@@ -14,6 +14,8 @@ import { buildTrain, DISPATCH_STATES, judgeStretch, search, snapOf, stretchOf, t
  * all); JAMS_SECONDS: how long (default 1800).
  */
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
+/** The dispatcher on: JAMS_DISPATCHER set to anything but "" or "0" ("0" once turned it on). */
+const DISPATCHER = !!ENV.JAMS_DISPATCHER && ENV.JAMS_DISPATCHER !== "0";
 const MAPS = Object.fromEntries(
   Object.entries(import.meta.glob("./bugmaps/reference/*.txt", { query: "?raw", import: "default", eager: true }) as Record<string, string>).map(([k, v]) => [k.split("/").pop()!, v]),
 );
@@ -42,8 +44,8 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
       const { world } = await loadBugMap(text);
       // (JAMS_DISPATCHER: the dispatcher acting (§8 step 2), in place of sections' holds.)
       // (Else off, though the map's save had it on (a user's beta game): the bar's main run is the dispatcher off.)
-      world.economy.useDispatcher(!!ENV.JAMS_DISPATCHER);
-      if (ENV.JAMS_DISPATCHER && ENV.JAMS_DEBUG) world.economy.dispatcher!.debug = true;
+      world.economy.useDispatcher(DISPATCHER);
+      if (DISPATCHER && ENV.JAMS_DEBUG) world.economy.dispatcher!.debug = true;
       const t0 = performance.now();
       // (JAMS_SHADOW: the dispatcher's first report (routing/dispatch-shadow.ts): each jam judged now and as it stood
       // `BEFORE_S` before it began, from where every train stood each second.)
@@ -126,7 +128,7 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
         };
       }
       const r = runJams(world, SECONDS, hooks, seed);
-      const line = { map: file, seed, jams: r.jams, arrivals: r.arrivals, byEngine: Object.fromEntries(Object.entries(r.byEngine).map(([e, n]) => [world.sim.nameOf(Number(e)) || e, n])), longestStand: r.longestStand, firstJam: r.firstJam, stuckBefore: r.stuckBefore, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}), ...(world.economy.dispatcher ? { dispatcher: { decisions: world.economy.dispatcher.decisions, grants: world.economy.dispatcher.grants, detours: world.economy.dispatcher.detours, overruled: Object.fromEntries([...world.economy.dispatcher.overruled].map(([k, v]) => [k, Math.round(v)])), heldBlocked: world.economy.dispatcher.heldBlocked, ms: msOf(world.economy.dispatcher.decisionMs), heldOrder: world.economy.dispatcher.heldOrder, notes: world.economy.dispatcher.notes, perTrain: Object.fromEntries(world.economy.dispatcher.perTrain), offWay: world.economy.dispatcher.offWay, givenBack: world.economy.dispatcher.givenBack, offNotes: world.economy.dispatcher.offNotes } } : {}) };
+      const line = { map: file, seed, jams: r.jams, arrivals: r.arrivals, byEngine: Object.fromEntries(Object.entries(r.byEngine).map(([e, n]) => [`${e} ${r.names[Number(e)]}`, n])), longestStand: r.longestStand, firstJam: r.firstJam, stuckBefore: r.stuckBefore, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}), ...(world.economy.dispatcher ? { dispatcher: { decisions: world.economy.dispatcher.decisions, grants: world.economy.dispatcher.grants, detours: world.economy.dispatcher.detours, overruled: Object.fromEntries([...world.economy.dispatcher.overruled].map(([k, v]) => [k, Math.round(v)])), heldBlocked: world.economy.dispatcher.heldBlocked, ms: msOf(world.economy.dispatcher.decisionMs), heldOrder: world.economy.dispatcher.heldOrder, notes: world.economy.dispatcher.notes, perTrain: Object.fromEntries(world.economy.dispatcher.perTrain), offWay: world.economy.dispatcher.offWay, givenBack: world.economy.dispatcher.givenBack, offNotes: world.economy.dispatcher.offNotes } } : {}) };
       (globalThis as { process?: { stdout: { write(s: string): void } } }).process?.stdout.write(`\nJAMS ${JSON.stringify(line)}\n`);
     }, 3_600_000);
   }

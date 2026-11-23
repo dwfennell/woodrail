@@ -1307,6 +1307,20 @@ export class Hud {
     fitWatch.observe(tools);
     this.tray.append(head, scroller);
     this.root.appendChild(this.tray);
+    // The room the tray takes at the screen's foot, for the cards that stand on it (`--tray-room` in style.css: a
+    // workshop's card at 2000×1165 ran under the tray's tabs, its foot set for a shorter tray). Measured when the tray
+    // or the window changes size, never per frame; a tray not shown (0 tall) keeps the last room, so a card doesn't jump.
+    if (typeof ResizeObserver !== "undefined") {
+      let room = "";
+      const fitRoom = () => {
+        const r = this.tray.getBoundingClientRect();
+        const px = `${Math.round(innerHeight - r.top)}px`;
+        if (r.height <= 0 || px === room) return;
+        document.documentElement.style.setProperty("--tray-room", (room = px));
+      };
+      new ResizeObserver(fitRoom).observe(this.tray);
+      addEventListener("resize", fitRoom);
+    }
 
     // Beside the HUD, not in it, so a toast shows over the panels opened over the HUD too (the Blueprints board).
     this.root.after(this.toastEl);

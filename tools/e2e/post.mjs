@@ -3,7 +3,7 @@
 // the payoff: track between the first two towns' stations, a post office on the way, and a train of two mail vans
 // routed by taps (the first town, the post office, the second town). It runs: the towns post mail, the mail vans take
 // it to the post office, which sorts it, and the post goes on to the towns, paid in full. A town that's had post gets a
-// red post van on its streets; its card says so ("Post" row, "Always buys 📮 post"). The post van asks for frames only
+// red post van on its streets; its card says so ("Post" row, "Full pay for these too: 📮 post"). The post van asks for frames only
 // while it's in view and near enough to see it drive; zoomed out, it moves on unseen and nothing is drawn.
 //
 // Usage: npm run e2e:post [-- <out dir>]   (default out: e2e-out/post)
@@ -294,7 +294,7 @@ if (!setup.error && setup.engine !== -1) {
     check("zoomed out: the post van moves on unseen, no frames drawn", g1 - g0 <= 1, JSON.stringify({ frames: g1 - g0, leg: driving }));
   }
 
-  // 8. That town's card: a Post row with its post van, and "Always buys 📮 post at full pay". The train has stopped at
+  // 8. That town's card: a Post row with its post van, and "Full pay for these too: 📮 post". The train has stopped at
   // its station, so the tap goes where the game's own pick says this town is (its station or its streets and houses),
   // not a car: the spot nearest the station that `interaction.pick` gives as this town's depot.
   // (Straight after the view came back from far out a tap can land before the map has settled: tapped again if no card.)

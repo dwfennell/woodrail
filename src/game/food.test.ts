@@ -55,8 +55,8 @@ describe("the dairy chain and the orchard (tech-tree I3, I4)", () => {
 
   it("a town's card says what it always buys, of what's learned", () => {
     expect(buysText(new Set())).toBeNull();
-    expect(buysText(new Set(["dairy"]))).toBe(`Always buys ${GOODS_ICON.milk} milk at full pay`);
-    expect(buysText(new Set(["dairy", "bakery", "orchard"]))).toBe(`Always buys ${GOODS_ICON.milk} milk, ${GOODS_ICON.bread} bread and ${GOODS_ICON.fruit} fruit at full pay`);
+    expect(buysText(new Set(["dairy"]))).toBe(`Full pay for these too: ${GOODS_ICON.milk} milk`);
+    expect(buysText(new Set(["dairy", "bakery", "orchard"]))).toBe(`Full pay for these too: ${GOODS_ICON.milk} milk, ${GOODS_ICON.bread} bread and ${GOODS_ICON.fruit} fruit`);
   });
 
   it("the News has the first milk, bread or fruit any town has had, once", () => {

@@ -226,6 +226,8 @@ function swOf(layout: Layout, p: number): boolean {
  * (today's), off where the dispatcher owns them (`Sim.signalOwner`: a signal is its hold).
  */
 export const BLOCK_RULE = { on: false };
+/** A train on points plans on from the road it's on (`buildTrain`); PLAN_FROM_ROAD=0: from the points. */
+export const PLAN_FROM_ROAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).PLAN_FROM_ROAD !== "0" };
 
 /** A plain block's pieces beyond the signal at `ref` (cached per layout and its signals' version); null: a path signal's. */
 const blockCache = new WeakMap<Layout, { ver: string; m: Map<number, Int32Array | null> }>();
@@ -322,6 +324,13 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     const first = s.at ? s.next + 1 : s.next;
     const front = lane[lane.length - 1];
     let state: PlanState | null = { pieceId: front.p, entry: front.en, lead: true };
+    // (Its front on points: it leaves them by the road its axles are on (they can't be thrown under it), so its way is
+    // planned on from there (complex-1: its booked way out by their other road, granted that, it stood at the signal on
+    // the road it was on for 20 minutes).)
+    if (PLAN_FROM_ROAD.on && front.ex >= 0 && swOf(layout, front.p) && waysFrom(layout, front.p, front.en, () => false).length > 1) {
+      const n = next(layout, front.p, front.ex);
+      if (n) state = { pieceId: n.pieceId, entry: n.entry, lead: true };
+    }
     const apply = (st: { pieceId: number; entry: number; exit: number; reverse?: boolean }): boolean => {
       const f = lane[lane.length - 1];
       if (st.pieceId === f.p) {
@@ -619,7 +628,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
  * pieces the other members stand on, where its booked way runs over them. A copy of `trains` (the others as they were),
  * or null if none has one.
  */
-const detourCache = new Map<string, DTrain>();
+const detourCaches = new WeakMap<Layout, Map<string, DTrain>>();
 
 export function withDetours(layout: Layout, snaps: readonly Snap[], trains: readonly DTrain[], members: readonly number[], horizon = HORIZON): DTrain[] | null {
   const out = trains.slice();
@@ -639,6 +648,9 @@ export function withDetours(layout: Layout, snaps: readonly Snap[], trains: read
     // (Cached by where it stands, its route and what it avoids: a jam that lasts plans its detours once.)
     const f = s.elems[s.elems.length - 1];
     const ck = `${s.key}.${f.p}.${f.en}.${s.next}.${s.at ? 1 : 0}.${horizon}.${[...avoid].sort((a, b) => a - b).join(",")}`;
+    // (Per layout: one shared across worlds (a test run's maps, its seeds) handed one world's way to another.)
+    let detourCache = detourCaches.get(layout);
+    if (!detourCache) detourCaches.set(layout, (detourCache = new Map()));
     let d = detourCache.get(ck);
     if (!d) {
       d = buildTrain(layout, s, horizon, avoid);
@@ -809,9 +821,11 @@ function branchesOf(t: DTrain, i: number): Branch[] {
         // (Out of a close-up, its front piece is shared till then: still to be had.)
         const had = t.half[before] ? t.pos[before].subarray(0, t.pos[before].length - 1) : t.pos[before];
         for (const p of t.pos[nd]) if (!had.includes(p)) flat.push(p);
-        // (On past a plain signal: its whole block must be free too.)
+        // (On past a plain signal: its whole block must be free too. Only through the joint it stands at: off points by
+        // their other exit, that signal's block (the road beyond it) isn't the way (own-03: into a loop's free road, it
+        // asked the other road's too, where a train stood, and the two stood nose to nose for good).)
         const blk = t.blockAfter?.[before];
-        if (blk && t.frontRef[before] !== t.frontRef[nd]) for (const p of blk) if (!had.includes(p)) flat.push(p);
+        if (blk && t.frontRef[before] !== t.frontRef[nd] && t.pos[nd].some((p) => blk.includes(p))) for (const p of blk) if (!had.includes(p)) flat.push(p);
         before = nd;
       });
       off[path.length] = flat.length;

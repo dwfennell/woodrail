@@ -20,6 +20,7 @@ import { SIGNAL_MODES, type SignalStyle } from "../track";
 import { pieceInfo } from "../ui/piece-info";
 import { powerOf, RADIO_MAST, WIND_TURBINE } from "./power";
 import { RADIO_RIDERS, townOfMast } from "./radio";
+import { GRAND_STAYS, type SiteMove } from "./grand";
 import { checkProp, inFootprint, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
 import { streetTown } from "./street-moves";
@@ -370,6 +371,8 @@ type Mode =
        * building, its town look, the lot under the hand (worked out again only when the square under it changes).
        */
       town?: { building: number; look: Look; editor: LandEditor; cell: number; start: number; lot: TownLot | TownMoveBlock | null; preview: number; told: Set<string> };
+      /** Game mode, a grand project's site being moved (`siteMove`): its whole footprint and its city's rule. */
+      site?: SiteMove;
     }
   | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
   /** Drawing a line of track (the Draw chip on): see `DrawHand`. */
@@ -2163,8 +2166,8 @@ export class Interaction {
       else hit = null;
     }
     // (In Game mode, the town's houses only to move them about their town: a landmark not at all.)
-    // (A grand project's site neither: it stays where its city put it.)
-    if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || this.grandSite(hit.propId) || !this.propWithinReach(hit.propId))) hit = null;
+    // (A grand project's site is moved by its own rule, by its city: `siteMove`.)
+    if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || (this.grandSite(hit.propId) && !this.siteMove) || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     // By a free end, on nothing that can be taken hold of from here after all: it draws straight away.
@@ -2238,8 +2241,11 @@ export class Interaction {
       case "depot":
         return dragMoves("depot", press.depotId === this.selectedDepot, pointerType);
       case "prop":
-        // (A town's house in Game mode is never selected: a finger rests on it to pick it up, a mouse drags it.)
-        if (this.townHouse(press.propId)) return pointerType === "mouse";
+        // (A town's house or a grand project's site in Game mode is never selected: a finger rests on it to pick it up,
+        // a mouse drags it.)
+        // (A site still being placed, before it's paid for: any drag on it moves it, a finger needn't rest.)
+        if (press.propId === this.sitePending) return true;
+        if (this.townHouse(press.propId) || this.grandSite(press.propId)) return pointerType === "mouse";
         return dragMoves("prop", press.propId === this.selectedProp, pointerType);
       case "road":
         // (A town's street, like its houses, is never selected: a finger rests on it, a mouse drags it.)
@@ -2450,9 +2456,9 @@ export class Interaction {
     // (Out of reach, a line's body is only branched off: see `far`. A road tapped to turn a deck, only tapped.)
     if (m.far || (m.press.kind === "piece" && m.press.tapOnly)) return;
     const k = m.press.kind;
-    // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
+    // (A town's house in Game mode is picked up as a piece is: a finger resting on it; a grand project's site too.)
     // (And a town's street, as its houses: issue #18.)
-    const house = (m.press.kind === "prop" && this.townHouse(m.press.propId)) || (m.press.kind === "road" && this.roads.townStreet(m.press.cell));
+    const house = (m.press.kind === "prop" && (this.townHouse(m.press.propId) || this.grandSite(m.press.propId))) || (m.press.kind === "road" && this.roads.townStreet(m.press.cell));
     const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : house || k === "signal" ? "piece" : null;
     // Drawing, on a line's body: a drag draws a branch, so a long press (a mouse's too) is how the piece is picked up.
     // (Never while planning a route: then a press draws nothing, `drawsNow`, and a hold picks nothing up.)
@@ -3095,6 +3101,8 @@ export class Interaction {
       return;
     }
     if (p.kind === "prop") {
+      // (A site still being placed: a tap on it does nothing, its bar says what to do.)
+      if (p.propId === this.sitePending) return;
       // (A town's house in Game mode isn't selected: a tap there opens its town's card.)
       if (this.townHouse(p.propId) || this.grandSite(p.propId)) {
         const station = this.townStation(p.propId);
@@ -4008,6 +4016,31 @@ export class Interaction {
    */
   siteTown: ((propId: number) => number) | null = null;
 
+  /**
+   * The prop of a grand project's site still being placed (Start, before Build here: spec 2026-11-22-grand-placement.md,
+   * step 2), or −1. A drag on it moves it at once; its moves are no undo steps (Cancel takes it all back).
+   */
+  sitePending = -1;
+  /** The pending site was let go somewhere it fits (main: the bar, the camera). */
+  onSiteMoved: (() => void) | null = null;
+
+  /**
+   * Would grand site `propId` fit where it stands, turned to `heading`? The same rule as a drag's (`checkProp`, the
+   * yards, its city's `siteMove`). Its pose there, or why not.
+   */
+  siteFits(propId: number, heading: number): PropPose | string {
+    const g = this.game;
+    const p = g.props.get(propId);
+    const site = p ? this.siteMove?.(propId) : null;
+    if (!p || !site) return PROP_MESSAGES.site;
+    const pose = { x: p.x, z: p.z, heading };
+    const c = checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, site.fp, pose, placeOn(p.asset), propId);
+    if (c.kind !== "clear") return this.propMessage(c.reason);
+    if (this.propInYard(site.fp, pose)) return this.propMessage("yard");
+    const why = site.why(pose);
+    return why ?? { ...pose, y: c.y };
+  }
+
   /** Is this prop a grand project's site in Game mode? */
   private grandSite(propId: number): boolean {
     return !this.propsEditable && (this.siteTown?.(propId) ?? -1) >= 0;
@@ -4020,8 +4053,17 @@ export class Interaction {
 
   /** What to say for a prop that can't go somewhere. */
   private propMessage(reason: PropBlock): string {
-    return reason === "yard" ? this.inYardWhy : PROP_MESSAGES[reason];
+    return reason === "yard" ? this.inYardWhy : reason === "site" ? this.siteWhyText : PROP_MESSAGES[reason];
   }
+
+  /**
+   * Game mode: how a grand project's site moves (src/game/grand.ts, set by main), or null (not one: none can be lifted
+   * without it). Its whole footprint, every stage's, and why a pose won't do beyond the props' own rule (its city's
+   * reach, a road), or null. Asked once a lift; `why` on every move while it's held, so it must be cheap.
+   */
+  siteMove: ((propId: number) => SiteMove | null) | null = null;
+  /** Why the site held can't go where it is (`siteMove`'s `why`). */
+  private siteWhyText = "";
 
   /** The last two yard checks while a depot was held, for their inputs (cleared when it's put down). */
   private yardMemo: { key: string; why: YardBlock | null; message: string }[] = [];
@@ -5949,6 +5991,8 @@ export class Interaction {
     this.mode.overTray = false;
     const found = this.townHouse(propId) && p.building !== undefined ? findBuilding(g.landscape, p.building) : null;
     if (found) this.mode.town = { building: p.building!, look: looksOf(g.landscape, found.town).get(p.building!) ?? "house", editor: this.landEditor(), cell: -2, start: -2, lot: null, preview: -1, told: new Set() };
+    const site = this.grandSite(propId) ? this.siteMove?.(propId) : undefined;
+    if (site) this.mode.site = site;
     // Drawn by the hand while it moves, not where it stood.
     g.propsChanged(propId);
     this.onPickup?.();
@@ -5975,7 +6019,8 @@ export class Interaction {
     const h = hills.groundAt(at.x + offset.x, at.z + offset.z);
     if (h > 0) at = this.planeAt(x, sy, h + rise) ?? at;
     const pose = { x: Math.round((at.x + offset.x) / 2) * 2, z: Math.round((at.z + offset.z) / 2) * 2, heading: m.heading };
-    const fp = scaleFootprint(g.propLibrary.footprint(m.asset), g.props.get(m.propId)?.scale);
+    // (A grand project's site: its whole footprint, every stage's, so where it fits now its finished building fits too.)
+    const fp = m.site?.fp ?? scaleFootprint(g.propLibrary.footprint(m.asset), g.props.get(m.propId)?.scale);
     let ground = hills.groundAt(pose.x, pose.z);
     let blocked: PropBlock | null = null;
     if (standsAside(m.asset)) {
@@ -6025,6 +6070,13 @@ export class Interaction {
       if (c.kind === "clear") ground = c.y;
       else blocked = c.reason;
       blocked ??= this.propInYard(fp, pose);
+      if (!blocked && m.site) {
+        const why = m.site.why(pose);
+        if (why) {
+          this.siteWhyText = why;
+          blocked = "site";
+        }
+      }
     }
     if (m.town) {
       // (Each reason told once a carry, not on every square it crosses.)
@@ -6051,21 +6103,38 @@ export class Interaction {
     this.mode = { kind: "idle" };
     g.scene.remove(m.ghost);
     this.propOutline.hide();
+    if (m.propId !== -1 && m.propId === this.sitePending && !m.overTray) {
+      // A site still being placed: moved where it fits (no undo step: Cancel takes it all back), or told why not.
+      if (m.blocked) {
+        this.hud.toast(this.propMessage(m.blocked));
+        this.onRefused?.();
+      } else g.props.move(m.propId, { ...m.pose });
+      g.propsChanged(-1);
+      this.onSiteMoved?.();
+      return;
+    }
+    if (m.overTray && m.site) {
+      // A grand project's site is its city's, not the toy box's: back where it stood.
+      g.propsChanged(-1);
+      this.hud.toast(GRAND_STAYS);
+      this.onRefused?.();
+      return;
+    }
     if (m.overTray) {
       // Back in the box: a moved prop is removed (undoably), a new one never was.
       g.propsChanged(-1);
       if (m.propId !== -1) this.removeProp(m.propId);
       return;
     }
-    const fp = scaleFootprint(g.propLibrary.footprint(m.asset), g.props.get(m.propId)?.scale);
+    const fp = m.site?.fp ?? scaleFootprint(g.propLibrary.footprint(m.asset), g.props.get(m.propId)?.scale);
     if (m.blocked || !fp) {
       this.onRefused?.();
       // (A tray's prop is carried quietly, its outline red where it can't go. A wind turbine's hilltop rule isn't one
       // a player would guess: said when it's let go off one.)
       if (m.blocked === "low") this.hud.toast(this.propMessage(m.blocked));
       g.propsChanged(-1);
-      // A moved prop stays where it was, still selected (a town's house in Game mode is never selected).
-      if (m.propId !== -1 && !m.town) this.selectProp(m.propId);
+      // A moved prop stays where it was, still selected (a town's house or a grand site in Game mode is never selected).
+      if (m.propId !== -1 && !m.town && !m.site) this.selectProp(m.propId);
       return;
     }
     const store = g.props;
@@ -6093,8 +6162,8 @@ export class Interaction {
     }
     g.propsChanged(-1);
     this.onPlaced?.(false);
-    // It stays selected, to nudge or turn again straight away (a town's house in Game mode is never selected).
-    if (!m.town) this.selectProp(placed);
+    // It stays selected, to nudge or turn again straight away (a town's house or a grand site in Game mode is never selected).
+    if (!m.town && !m.site) this.selectProp(placed);
   }
 
   private selectProp(id: number): void {

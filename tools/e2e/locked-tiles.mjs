@@ -175,7 +175,10 @@ const tabRow = (p) =>
   await p.touchscreen.tap(tile.x, tile.y);
   await p.waitForTimeout(800);
   await tapOn(p, ".lock-note-go");
-  await p.waitForTimeout(800);
+  // (The picker's code is fetched the first time it opens: under SwiftShader on a loaded box, more than a fixed 800 ms.)
+  const t0 = Date.now();
+  await p.waitForFunction(() => !!document.querySelector(".board-panel:not([hidden]) .board-sheet .bp-ticket b"), null, { timeout: 20000, polling: 200 }).catch(() => {});
+  console.log(`(the picker opened ${Date.now() - t0} ms after the tap)`);
   const board = await p.evaluate(() => {
     const t = document.querySelector(".board-sheet .bp-ticket");
     return { open: !!document.querySelector(".board-panel:not([hidden])"), name: t?.querySelector("b")?.textContent ?? null, note: document.querySelector(".lock-note")?.hidden !== false };
@@ -234,7 +237,9 @@ const tabRow = (p) =>
     return r && { x: r.x + r.width / 2, y: r.y + r.height / 2 };
   });
   await p.mouse.move(c.x, c.y);
-  await p.waitForTimeout(1200);
+  const t1 = Date.now();
+  await p.waitForFunction(() => { const t = document.querySelector(".tooltip"); return !!t && !t.hidden; }, null, { timeout: 20000, polling: 200 }).catch(() => {});
+  console.log(`(the tooltip showed ${Date.now() - t1} ms after the hover)`);
   const tip = await p.evaluate(() => { const t = document.querySelector(".tooltip"); return t && !t.hidden ? t.textContent : null; });
   check("desktop: hover on the locked Switch says how to unlock it", !!tip && tip.includes("Research Switches to unlock"), String(tip));
   await p.mouse.click(c.x, c.y);

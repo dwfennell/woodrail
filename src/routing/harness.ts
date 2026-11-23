@@ -18,7 +18,7 @@ import { connectorRef, type Layout, type SignalMode, type SignalStyle } from "..
 import { Sections } from "../economy/sections";
 import { Stalls, type Stuck } from "../economy/stalls";
 import { Router } from "./router";
-import { Dispatcher } from "./dispatcher";
+import { Dispatcher, OWNER } from "./dispatcher";
 import { BLOCK_RULE } from "./stretch";
 import { aimOf, lapAims, passVias, ranOnto, resetVias, skipVias, viaDone, type ViaProgress } from "./via";
 import { INVARIANTS, Invariants, type Invariant, type InvariantWorld } from "../sim/invariants";
@@ -346,6 +346,7 @@ export class HarnessRun implements InvariantWorld {
       drive,
       granted: (engine) => (d ? d.steerHint(engine) : this.sections.steerHint(engine)),
       awaitingGrant: (engine) => (d ? d.awaiting(engine) : this.sections.awaitingGrant(engine)),
+      grantedWay: (engine) => (d && OWNER.on ? d.grantedWay(engine) : null),
       soon: this.sections.steerSoon,
     });
     this.router.timing = true;
@@ -355,7 +356,7 @@ export class HarnessRun implements InvariantWorld {
     // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
     const sections = this.sections;
     sim.signalGate = d ? { at: (ref) => d.gateAt(ref), version: () => d.gateVersion() } : { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
-    sim.signalOwner = d ? { clearFor: () => null, aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() } : null;
+    sim.signalOwner = d ? { clearFor: (ref, id) => (OWNER.on ? d.clearFor(ref, id) : null), aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() } : null;
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
       routeWait: (engine) => d?.waitingOn(engine) ?? this.router.waitingOn(engine),

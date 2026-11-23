@@ -60,7 +60,7 @@ if (SEEDS > 1) {
   })();
   const pad = (s, n) => String(s).padEnd(n);
   const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
-  console.log(`${pad("map", 30)}${pad("stops mean (min–max)", 26)}${against ? pad("vs", 14) : ""}${pad("1st jam s", 14)}${pad("stuck s", 9)}${pad("jams mean", 11)}${pad("breaks", 8)}${process.env.JAMS_DISPATCHER ? pad("decide p98/max", 18) : ""}first break`);
+  console.log(`${pad("map", 30)}${pad("stops mean (min–max)", 26)}${against ? pad("vs", 14) : ""}${pad("1st jam s", 14)}${pad("stuck s", 9)}${pad("jams mean", 11)}${pad("breaks", 8)}${process.env.JAMS_DISPATCHER && process.env.JAMS_DISPATCHER !== "0" ? pad("decide p98/max", 18) : ""}first break`);
   const out = {};
   let lower = 0;
   for (const [map, rs] of [...by].sort((a, b) => a[0].localeCompare(b[0]))) {

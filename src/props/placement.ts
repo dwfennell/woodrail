@@ -12,7 +12,7 @@ export interface Footprint {
 }
 
 /** Why a prop can't stand somewhere. */
-export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven" | "yard" | "no-crossing" | "town" | "low";
+export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven" | "yard" | "no-crossing" | "town" | "low" | "site";
 
 export const PROP_MESSAGES: Record<PropBlock, string> = {
   "off-land": "That's past the edge of your land",
@@ -29,6 +29,8 @@ export const PROP_MESSAGES: Record<PropBlock, string> = {
   // (A town's house in Game mode is told why by town-moves.ts: this is only its outline's red.)
   town: "A house goes on one of its town's lots",
   low: "Wind turbines go on a hilltop, where the wind blows",
+  // (A grand project's site, moved: its own rule says why, `Interaction.siteMove`. This is only a fallback.)
+  site: "A grand project stays by its city, on open ground",
 };
 
 /**
@@ -69,7 +71,7 @@ export function footprintCorners(fp: Footprint, pose: Pick<Pose, "x" | "z" | "he
 }
 
 /** Points covering the footprint, edges included (x, z pairs, world space). */
-function samples(fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">): number[] {
+export function footprintSamples(fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">): number[] {
   const c = Math.cos(pose.heading);
   const s = Math.sin(pose.heading);
   const nx = Math.max(1, Math.ceil((2 * fp.hw) / STEP));
@@ -167,7 +169,7 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
   const water = on === "water";
   const grid = ctx.land.grid;
   const hills = hillsOf(grid);
-  const pts = samples(fp, pose);
+  const pts = footprintSamples(fp, pose);
   let y = NaN;
   for (let i = 0; i < pts.length; i += 2) {
     const x = pts[i];

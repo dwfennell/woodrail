@@ -1,4 +1,4 @@
-import type { Economy, Line, RouteStopDef } from "../economy";
+import type { DepotState, Economy, Line, RouteStopDef } from "../economy";
 import { flipCursor, type Cursor } from "../sim";
 import { topologyOf } from "../economy/sections";
 import { trainLength } from "../sim/train-cars";
@@ -155,6 +155,16 @@ export function joinLine(economy: Economy, engineCarId: number, id: number): Lin
 }
 
 /**
+ * A line's stop at depot `d` for the way between stops (`viaLegs`): its piece, its via points on to the next stop, and,
+ * a depot of several tracks, all those a train can reach (`Economy.reachableTracks`). The user, 2026-11-22: a
+ * warehouse's second track on another line than its first, its stop drawn out of reach ("!") though trains loaded there.
+ */
+export function legStop(economy: Economy, d: DepotState, via?: readonly number[]): LegStop {
+  const tracks = economy.trackCount(d.id) > 1 ? economy.reachableTracks(d) : undefined;
+  return { piece: d.pieceId, ...(via ? { via } : {}), ...(tracks && tracks.length > 1 ? { tracks } : {}) };
+}
+
+/**
  * The stop (an index into `stops`) the train with this engine comes to first along its way: the shortest of the ways a
  * routed train would take from its front (as the drawn line and the router choose at points; it turns round only where
  * the track ends) to each stop on the map, the earlier stop on a tie. −1: it's not on the track, or reaches none.
@@ -176,8 +186,12 @@ export function firstStopAhead(economy: Economy, engineCarId: number, stops: rea
     if (!d) return;
     let len = seen.get(d.pieceId);
     if (len === undefined) {
-      const leg = legFromCursor(economy.layout, front, d.pieceId);
-      len = leg ? runsLength(leg) : Infinity;
+      // (To its nearest track, a depot of several.)
+      len = Infinity;
+      for (const p of economy.reachableTracks(d)) {
+        const leg = legFromCursor(economy.layout, front, p);
+        if (leg) len = Math.min(len, runsLength(leg));
+      }
       seen.set(d.pieceId, len);
     }
     if (len < bestLen) [best, bestLen] = [k, len];
@@ -237,11 +251,11 @@ export function inTheWayOf(economy: Economy, engineCarId: number, lineId: number
   const stops: LegStop[] = [];
   for (const st of line.stops) {
     const d = economy.liveDepot(st.depotId);
-    if (d) stops.push({ piece: d.pieceId, ...(st.via ? { via: st.via } : {}) });
+    if (d) stops.push(legStop(economy, d, st.via));
   }
   const way = new Set<number>();
   for (const leg of viaLegs(economy.layout, stops)) for (const r of leg ?? []) way.add(r.pieceId);
-  for (const st of stops) way.add(st.piece);
+  for (const st of stops) for (const p of st.tracks ?? [st.piece]) way.add(p);
   const under = [...economy.sim.piecesUnder(train.id)].filter((p) => way.has(p));
   if (under.length === 0) return [];
   // (The loops the line's trains fit, as the line's own rules count them: for its longest train.)
@@ -493,7 +507,7 @@ export function isRingLine(economy: Economy, stops: readonly RouteStopDef[]): bo
   for (const st of stops) {
     const d = economy.liveDepot(st.depotId);
     if (!d) continue;
-    legStops.push({ piece: d.pieceId, ...(st.via ? { via: st.via } : {}) });
+    legStops.push(legStop(economy, d, st.via));
   }
   if (new Set(legStops.map((s) => s.piece)).size < 2) return false;
   const legs = viaLegs(layout, legStops);
@@ -606,7 +620,7 @@ export function bestInsert(economy: Economy, stops: readonly RouteStopDef[], dep
   if (n < 2 || piece === undefined || stops.some((st) => st.depotId === depotId)) return end;
   const lap = lapOf(economy, stops);
   if (!lap) return end;
-  const base = viaLegs(economy.layout, stops.map((st) => ({ piece: economy.liveDepot(st.depotId)!.pieceId, ...(st.via ? { via: st.via } : {}) })));
+  const base = viaLegs(economy.layout, stops.map((st) => legStop(economy, economy.liveDepot(st.depotId)!, st.via)));
   const fits: { k: number; keep: number; cost: number; onWay: boolean }[] = [];
   for (let k = 0; k < n; k++) {
     // (The same place twice in a row is one stop: never next to itself.)
@@ -638,7 +652,7 @@ function lapOf(economy: Economy, stops: readonly RouteStopDef[]): ((list: readon
   if (stops.some((st) => !economy.liveDepot(st.depotId))) return null;
   return (list) => {
     let total = 0;
-    for (const leg of viaLegs(economy.layout, list.map((st) => ({ piece: economy.liveDepot(st.depotId)!.pieceId, ...(st.via ? { via: st.via } : {}) })))) {
+    for (const leg of viaLegs(economy.layout, list.map((st) => legStop(economy, economy.liveDepot(st.depotId)!, st.via)))) {
       if (!leg) return Infinity;
       total += runsLength(leg);
     }

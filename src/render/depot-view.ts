@@ -2074,9 +2074,9 @@ export class DepotView {
   }
 
   /** World matrix of wagon unit k on car `car` (its model root). */
-  private wagonUnit(car: Object3D, kind: CargoKind, k: number, out: Matrix4): Matrix4 {
+  private wagonUnit(car: Object3D, kind: CargoKind, k: number, out: Matrix4, count = k + 1): Matrix4 {
     car.updateWorldMatrix(true, false);
-    const slot = wagonSlot(kind, k);
+    const slot = wagonSlot(kind, k, count);
     const deck = car.userData.carKind === "hopper" ? HOPPER_LOAD : TIMBER_DECK;
     return out.makeTranslation(slot.x, deck + slot.y, slot.z).premultiply(car.matrixWorld);
   }
@@ -2306,7 +2306,7 @@ export class DepotView {
         if (look) this.putHeap(look.heap, car, look.y, owner);
         if (look || count <= 0) continue;
       }
-      for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
+      for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m, count), owner);
     }
     const wagons = this.wagonsKey(economy, carIds, carCount, drag);
     if (wagons !== this.wagonsSeen) {

@@ -344,7 +344,7 @@ export const RULES = [
   [["src/game/airports.ts", "src/game/passengers.ts", "src/render/planes-view.ts", "src/economy/economy.ts", "src/render/depot-view.ts", "src/main.ts"], ["airport"]],
   // Grand projects as achievements (spec 2026-11-05-character-and-goals.md): the projects, the city's card, the
   // Journal's Achievements tab, the stage models, rewards toward growth, and the site's prop.
-  [["src/game/grand.ts", "src/ui/grand-row.ts", "src/ui/goals-panel.ts", "src/catalogue/assets/grand.ts", "src/catalogue/build-parts.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/game/stickers.ts", "src/game/interaction.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/economy/economy.ts", "src/main.ts"], ["grand"]],
+  [["src/game/grand.ts", "src/ui/grand-row.ts", "src/ui/site-bar.ts", "src/ui/goals-panel.ts", "src/catalogue/assets/grand.ts", "src/catalogue/build-parts.ts", "src/game/town-life.ts", "src/game/towns.ts", "src/game/stickers.ts", "src/game/interaction.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/economy/economy.ts", "src/main.ts"], ["grand"]],
   // The touring circus (late-game spec K1).
   [["src/game/circus.ts", "src/game/passengers.ts", "src/game/rewards.ts", "src/game/progress.ts", "src/catalogue/assets/circus-cage.ts", "src/main.ts"], ["circus"]],
   // Time control (late-game spec, Clockmaker CA).

@@ -63,35 +63,50 @@ function legOn(layout: Layout, at: At, to: number, keep?: KeepTest): Leg {
  * round twice from the first stop and the second lap is drawn, so the way into the first stop is known too. Where a leg
  * is null (no way leads there), the next leaves its stop by the shorter end.
  */
-export function lineLegs(layout: Layout, stopPieces: readonly number[], from?: { k: number; leg: Leg }, keep?: KeepTest): Leg[] {
+export function lineLegs(layout: Layout, stopPieces: readonly number[], from?: { k: number; leg: Leg }, keep?: KeepTest, tracks?: readonly (readonly number[] | undefined)[]): Leg[] {
   const n = stopPieces.length;
   if (n < 2) return [];
+  // (A stop of several tracks, a depot's: any of them is the stop, the nearest taken; its own piece first, for a tie.)
+  const all = (k: number): readonly number[] => tracks?.[k] ?? [stopPieces[k]];
   const legs: Leg[] = new Array<Leg>(n).fill(null);
   const lap = (k0: number, start: At | null) => {
     let at = start;
     for (let i = 0; i < n; i++) {
       const k = (k0 + i) % n;
-      const a = stopPieces[k];
-      const b = stopPieces[(k + 1) % n];
-      const leg = at && at.pieceId === a ? legOn(layout, at, b, keep) : legBetween(layout, a, b, keep);
+      const as = all(k);
+      const bs = all((k + 1) % n);
+      const from = at;
+      const leg = from && as.includes(from.pieceId) ? nearest(bs.map((b) => legOn(layout, from, b, keep))) : nearest(as.flatMap((a) => bs.map((b) => legBetween(layout, a, b, keep))));
       legs[k] = leg;
       if (leg && leg.length > 0) at = arrivalOf(leg);
       else if (!leg) at = null;
       // (An empty leg, a stop visited twice running: the train stands on, the way it was going.)
-      else if (at && at.pieceId !== b) at = null;
+      else if (at && !bs.includes(at.pieceId)) at = null;
     }
     return at;
   };
   const known = from ? arrivalOf(from.leg) : null;
-  if (from && known && known.pieceId === stopPieces[from.k]) lap(from.k, known);
+  if (from && known && all(from.k).includes(known.pieceId)) lap(from.k, known);
   else lap(0, lap(0, null));
   return legs;
+}
+
+/** The shortest of some legs (an empty one, already there, before any), or null if none has a way. */
+function nearest(legs: readonly Leg[]): Leg {
+  let best: Leg = null;
+  for (const leg of legs) if (leg && (!best || runsLength(leg) < runsLength(best))) best = leg;
+  return best;
 }
 
 /** A line's stop for `viaLegs`: its piece (−1: not on the map), and the via points on the way out of it to the next. */
 export interface LegStop {
   piece: number;
   via?: readonly number[];
+  /**
+   * A depot of several tracks: all of them a train can reach, `piece` first (`Economy.reachableTracks`): a leg into
+   * the stop goes to the nearest, and on from the one it came to. Left out: `piece` alone.
+   */
+  tracks?: readonly number[];
 }
 
 /**
@@ -106,13 +121,16 @@ export function viaLegs(layout: Layout, stops: readonly LegStop[], from?: { k: n
   const points: number[] = [];
   const raw: number[] = [];
   const first: number[] = [];
+  const tracks: (readonly number[] | undefined)[] = [];
   for (const st of stops) {
     first.push(points.length);
     points.push(st.piece);
+    tracks.push(st.tracks && st.tracks.length > 1 ? st.tracks : undefined);
     raw.push(-1);
     (st.via ?? []).forEach((v, i) => {
       if (!layout.getPiece(v)) return;
       points.push(v);
+      tracks.push(undefined);
       raw.push(i);
     });
   }
@@ -131,7 +149,7 @@ export function viaLegs(layout: Layout, stops: readonly LegStop[], from?: { k: n
       }
     at = { k: w, leg: from.leg };
   }
-  const parts = lineLegs(layout, points, at, keep);
+  const parts = lineLegs(layout, points, at, keep, tracks.some((t) => t) ? tracks : undefined);
   return stops.map((_, k) => {
     const runs: PathRun[] = [];
     for (let w = first[k]; w < first[k + 1]; w++) {

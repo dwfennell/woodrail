@@ -46,6 +46,19 @@ describe("chains: what an industry makes, where its goods come from and go", () 
     expect(stateWords(chainOf(mill, w.economy.allDepots(), placeOf(w)))).toBe("Full of planks: a train can take them");
   });
 
+  it("a mine full of ore is still working, bringing up coal; full of both, it's full", () => {
+    const { w, place } = sandbox();
+    const mine = place("depot-mine", 3000, 3000);
+    const words = () => stateWords(chainOf(mine, w.economy.allDepots(), placeOf(w)));
+    expect(words()).toBe("Working");
+    mine.piles[CARGO.ore.index] = capAt(mine);
+    expect(w.economy.working(mine)).toBe(true);
+    expect(words()).toBe("Working. Full of ore: a train can take it");
+    mine.piles[CARGO.coal.index] = capAt(mine);
+    expect(w.economy.working(mine)).toBe(false);
+    expect(words()).toBe("Full of coal and ore: a train can take them");
+  });
+
   it("the bread chain: a bakery says what's missing and which industry makes it, then where each comes from", () => {
     const { w, place } = sandbox();
     const bakery = place("depot-bakery", 3000, 3000);
