@@ -48,6 +48,11 @@ const aheadCache = new WeakMap<Int32Array[], Map<number, Map<number, number>>>()
 
 /** A stuck train searches for a detour at most this often (s). */
 const DETOUR_EVERY_S = 6;
+/**
+ * `headOnAhead`'s admission check on the leg after a move's stop: off unless ADMIT2=1 (measured: own-08, own-10,
+ * complex-3 no better, rowan-2 −56, own-03 −5; dispatcher spec §13, the deeper lookahead).
+ */
+export const ADMIT2 = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ADMIT2 === "1" };
 /** `headOnAhead`: another's way runs on through the stop its hold ends at (NEXT_LEG=0: not). */
 export const NEXT_LEG = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NEXT_LEG !== "0" };
 /** How long a train waits at a dead end of its own for another heading into the one it turns in (`deadEndBy`). */
@@ -1128,6 +1133,34 @@ export class Dispatcher {
       // free, they pass there (own-07: refused onto the line into a loop as the other stood in the loop's main road).)
       const stand = placed[m].pos[placed[m].at];
       if ((o.pos[o.at].some((p) => myAhead.has(p)) || stand.some((p) => myAhead.has(p))) && !this.wayRound(t, to, new Set([...o.pos[o.at], ...stand]))) return o.key;
+    }
+    // (Admission two stops on: a move ending at its stop, and the leg after it, from there to its next stop or turn,
+    // taken (stood on, or granted onto) by trains coming the other way along it with no road round them all: not
+    // granted. Once in, it could only meet them there (own-08, own-10, complex-3: let into a stretch toward its stop,
+    // the train it would meet on the leg after already on it, the two held each other for good).)
+    if (ADMIT2.on && t.arrivals.includes(to)) {
+      const union = new Set<number>();
+      let first = -1;
+      for (const o of ts) {
+        if (o.key === engine || o.fixed) continue;
+        const oh = this.holdsBy.get(o.key);
+        const pieces = new Set<number>(o.pos[o.at]);
+        if (oh && oh.t.pos === o.pos) for (const i of oh.path) for (const p of oh.t.pos[i]) pieces.add(p);
+        if (![...pieces].some((p) => myAhead.has(p))) continue;
+        const oWay = wayOf(o, o.at);
+        let opp = false;
+        for (const [p, en] of oWay) {
+          const mine = myAhead.get(p);
+          if (mine !== undefined && mine !== en) {
+            opp = true;
+            break;
+          }
+        }
+        if (!opp) continue;
+        for (const p of pieces) union.add(p);
+        if (first < 0) first = o.key;
+      }
+      if (first >= 0 && !this.wayRound(t, to, union)) return first;
     }
     return -1;
   }
