@@ -8121,13 +8121,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
   // The sheets most often opened, fetched once the game has gone quiet (src/lib/prefetch.ts): they then open at once,
   // and still open in a tab older than the deploy now served (whose files may be gone by then). About 38 kB, 15 kB gzipped.
-  // `woodrail.prefetched` is for the e2e (research-picker's `prefetched` group).
+  // `woodrail.prefetched` is for the e2e (`npm run e2e:prefetch`). Built games only: the dev server has no old deploys to
+  // lose, and its unbundled imports landing mid-test upset the click suite's wheel and tray drag.
   {
     const loads: Load[] = [loadBlueprintBoard, loadExplainerSheet, loadPaintSheet, loadCreditsSheet];
     if (statsCard) loads.push(loadStatsCard);
     if (feedbackUrl) loads.push(loadFeedbackSheet);
     const w = (window as unknown as { woodrail: { prefetched?: boolean } }).woodrail;
-    void prefetchWhenIdle(loads).then(() => (w.prefetched = true));
+    if (!import.meta.env.DEV) void prefetchWhenIdle(loads).then(() => (w.prefetched = true));
   }
   /** The one-time "Help improve Woodrail?" question: put off while something else is being done. */
   function askStats(): void {
