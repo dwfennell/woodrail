@@ -630,3 +630,22 @@ Found on own-10. Both are on by default, behind switches for measuring.
 **Measured, not taken: keeping a granted loop road or detour when a train's way is rebuilt** (`KEEP_DETOUR=1`). On own-10 it cuts jams from 21 to 7 a seed, but it costs complex-1 9 stops and rowan-1 9 stops, and gives user-2026-11-21 a jam at 1647 s.
 
 **own-07** loses to the dispatcher-off run through the bar's own clearing. Its anticlockwise train is put back at its line's first stop, between two clockwise trains with no loop between them. The same knot then comes back every 98 s, and only a back-up longer than a train would free it.
+
+#### 13.7.1 `headOnAhead` timed, measured and parked
+
+`clearsFirst` sits behind `TIMED=1`, with `TIMED_CUT=1` for the cut-back below. A move that `headOnAhead` refuses goes anyway if both hold:
+- it clears every piece where the two ways cross the other way before the other train could reach the first of them (`TIMED_RATIO` 0.6, `TIMED_MARGIN_MM` 500);
+- the other train's grant doesn't reach the crossing yet.
+
+With `TIMED_CUT=1`, a grant into the crossing from far off is cut back to a rest short of it, but only if this move is then granted.
+
+Seed 1, with why each refusal stood (counted by `timedWhy`):
+
+| Map | Stops off → on | Let go | Mostly refused because |
+|---|---|---|---|
+| complex-1 | 481 → 481 | 1 | the other stands on the crossing (122); it's nearer (2000 mm vs 1000, 70) |
+| complex-3 | 491 → 491 | 0 | stands on it (3652) |
+| user-2026-11-21 | 546 → 546 | 2 | stands on it (322) |
+| rowan-2 | 754 → 691 (7 jams → 19) | 7 | stands on it (1874) |
+
+**Why parked:** the refusals that cost complex-1 its stops are real. The other train is already on the shared track facing this one, or nearer to it. The few moves timing lets through cost rowan-2. complex-1's gap against the dispatcher-off run (481 vs 546) isn't about timing.

@@ -83,6 +83,9 @@ export const ADMIT2 = { on: ((globalThis as { process?: { env: Record<string, st
 export const TIMED = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED === "1" };
 const TIMED_RATIO = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED_RATIO ?? 0.6);
 const TIMED_MARGIN_MM = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED_MARGIN_MM ?? 500);
+/** …and a grant into the crossing from far off cut back to let it go: TIMED_CUT=1 (measuring), to a rest at least `TIMED_STOP_MM` on. */
+export const TIMED_CUT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED_CUT === "1" };
+const TIMED_STOP_MM = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED_STOP_MM ?? 600);
 const TIMED_GAP_MM = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TIMED_GAP_MM ?? 2000);
 /** `headOnAhead`: another's way runs on through the stop its hold ends at (NEXT_LEG=0: not). */
 export const NEXT_LEG = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NEXT_LEG !== "0" };
@@ -188,6 +191,9 @@ export class Dispatcher {
   detours = 0;
   /** Moves let go by `clearsFirst` that `headOnAhead` would have refused. */
   timedGo = 0;
+  private readonly cuts: { h: Hold; path: number[]; k: number }[] = [];
+  /** Why `clearsFirst` said no, counted. */
+  readonly timedWhy = new Map<string, number>();
   /** Grants refused by the reservation book (§13.6.2). */
   reservedRefused = 0;
   /** Grants refused by the safety check (§13.6). */
@@ -773,6 +779,9 @@ export class Dispatcher {
     }
     h.passed = 0;
     this.grants++;
+    // (Grants cut back so this move could go (`clearsFirst`), still as they were when it was weighed.)
+    for (const c of this.cuts) if (c.h.path === c.path) this.setHold(c.h, c.path[c.k], c.path.slice(0, c.k + 1));
+    this.cuts.length = 0;
     // (Granted: its way (a detour's, if that's it) from where it stands to the move's waiting point.)
     const t = ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at };
     // (Its way now a detour's, if that's what it's granted: moved along it from here on, its route the same.)
@@ -1197,6 +1206,7 @@ export class Dispatcher {
    * node `to`. Each other train by its booked way from where it stands (`ts`), to its next stop or a turn.
    */
   private headOnAhead(engine: number, ts: readonly DTrain[], placed: readonly DTrain[], t: DTrain, to: number): number {
+    this.cuts.length = 0;
     const wayOf = (x: DTrain, from: number, legs = 1): Map<number, number> => {
       // (Piece → the end its front comes onto it by, along its main way from `from`, to its next stop after or a turn.
       // Cached per booked way and node: a train's way is asked of in many decisions while it stands.)
@@ -1304,10 +1314,13 @@ export class Dispatcher {
       const oen = oWay.get(p);
       if (oen !== undefined && oen !== en) cross.add(p);
     }
-    if (cross.size === 0) return false;
+    const why = (k: string) => { this.timedWhy.set(k, (this.timedWhy.get(k) ?? 0) + 1); return false; };
+    if (cross.size === 0) return why("no-cross");
     const oh = this.holdsBy.get(o.key);
-    if (oh && oh.t.pos === o.pos) for (const i of oh.path) if (o.pos[i].some((p) => cross.has(p))) return false;
-    for (const p of o.pos[o.at]) if (cross.has(p)) return false;
+    let inAt = -1;
+    if (oh && oh.t.pos === o.pos) inAt = oh.path.findIndex((i) => o.pos[i].some((p) => cross.has(p)));
+    if (inAt >= 0 && !TIMED_CUT.on) return why("granted-in");
+    for (const p of o.pos[o.at]) if (cross.has(p)) return why("stands-in");
     // (Along a way's main nodes from where it stands (mm, across turns): to the last crossing piece (ours), the first (theirs).)
     const walk = (x: DTrain, last: boolean): number => {
       let run = 0;
@@ -1325,8 +1338,19 @@ export class Dispatcher {
     };
     const mine = walk(t, true);
     const theirs = walk(o, false);
-    if (mine < 0 || theirs < 0) return false;
-    return mine + t.length + TIMED_MARGIN_MM < theirs * TIMED_RATIO;
+    if (mine < 0 || theirs < 0) return why(mine < 0 ? "mine-none" : "theirs-none");
+    if (mine + t.length + TIMED_MARGIN_MM < theirs * TIMED_RATIO) {
+      if (inAt < 0) return true;
+      // (Granted into the crossing but far from it: its grant cut back to its last rest short of it, one it can still
+      // stop at, as a signal there would hold it; done only if this move is granted (`cuts`, in `decide`).)
+      let k = inAt - 1;
+      while (k > 0 && !o.rest[oh!.path[k]]) k--;
+      const at = oh!.path[k];
+      if (k <= 0 || o.seg[at] !== o.seg[o.at] || o.dist[at] - o.dist[o.at] < TIMED_STOP_MM) return why("granted-close");
+      this.cuts.push({ h: oh!, path: oh!.path, k });
+      return true;
+    }
+    return why(`far ${Math.round((mine + t.length) / 500) * 500} vs ${Math.round(theirs / 500) * 500}`);
   }
 
   /**
