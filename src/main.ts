@@ -15,9 +15,9 @@ import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, resto
 import { connectedPairs, mapSettingsOf, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { mapCode, parseMapCode, type MapSettings } from "./landscape/water";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { loadLinkedMap, mapText } from "./persist/bug-map";
+import { loadLinkedMap, mapText, readMapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
-import { GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, lockSaves, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
+import { deserializeWorld, GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, lockSaves, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
@@ -1799,6 +1799,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     remove: (id) => {
       slots.remove(id);
       if (title.shown) showTitleCards();
+    },
+    addFromText: async (text) => {
+      const copy = await readMapText(text);
+      if (!copy) return { ok: false, say: "That isn't a copied map: paste the whole text, from woodrail-map:1: to its end." };
+      if (copy.mode !== "game") return { ok: false, say: "That's a Sandbox map: only Game maps can be added to Your games." };
+      const raw = copy.keys[GAME_SLOT_KEYS.save];
+      let loads: string | null = "it has no railway";
+      if (raw !== undefined)
+        try {
+          const r = deserializeWorld(JSON.parse(raw), { sandbox: false });
+          loads = r.ok ? null : r.error;
+        } catch {
+          loads = "it isn't valid";
+        }
+      if (loads !== null) return { ok: false, say: `This version of the game can't open that map (${loads}).` };
+      const r = await slots.add(copy.keys);
+      if (!r.ok) return { ok: false, say: r.error };
+      if (title.shown) showTitleCards();
+      return { ok: true, say: `Added “${r.value.name}”. Open it to play.` };
     },
     closed: () => {
       if (playing) game.paused = gamesPaused;
@@ -8177,6 +8196,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       openingView();
     } else showTitleOverOpening();
     if (!overOpening) dismissLoading();
+    // The game's save couldn't be opened (kept in Your games): said there, over the title, with the game in view.
+    if (!opening.linked && unreadableNote !== null) {
+      openGames(unreadableNote);
+      unreadableNote = null;
+    }
   });
 }
 

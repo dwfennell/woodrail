@@ -128,3 +128,23 @@ describe("Your games: keepUnreadable", () => {
     for (const [k, v] of Object.entries(keys)) if (k !== K.session) expect(tight.m.get(k)).toBe(v);
   });
 });
+
+describe("Your games: a map pasted as text", () => {
+  it("is added beside the open game under a new id, never over it, and opens", async () => {
+    const copy = await readMapText(lostGame);
+    const { m, store } = slotStore();
+    const open = { [K.save]: "{\"version\":15,\"landscape\":{\"seed\":7,\"starter\":true}}", [K.session]: JSON.stringify({ clock: 21, slot: { id: "e2zlzkgb", name: "770187-gentle" } }) };
+    for (const [k, v] of Object.entries(open)) m.set(k, v);
+    store.startUp();
+    const r = await store.add(copy!.keys);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.id).not.toBe("e2zlzkgb");
+    expect(r.value.name).toBe("770187-gentle (from text)");
+    expect(m.get(K.save)).toBe(open[K.save]);
+    expect(store.list().find((g) => g.id === r.value.id)).toMatchObject({ coins: expect.any(Number) });
+    expect((await store.open(r.value.id)).ok).toBe(true);
+    expect(m.get(K.save)).toBe(copy!.keys[K.save]);
+    expect(store.isParked("e2zlzkgb")).toBe(true);
+  });
+});

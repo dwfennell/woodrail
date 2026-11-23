@@ -436,6 +436,35 @@ export class SlotStore {
     return ok(copyId);
   }
 
+  /**
+   * A game from elsewhere (a "Copy map for a bug report" text pasted in Your games) parked beside the others under a
+   * new id, never in place of one: only the game's own keys of it are kept. Its id, or why not (nothing changed).
+   */
+  async add(from: Readonly<Record<string, string>>): Promise<Result<{ id: string; name: string }, string>> {
+    const keys: Keys = {};
+    for (const k of this.keys.live) if (typeof from[k] === "string") keys[k] = from[k];
+    if (keys[this.keys.save] === undefined) return err(UNREADABLE);
+    const i = this.index();
+    const id = this.freshId(i);
+    const was = tagOfSession(keys[this.keys.session])?.name || nameOfSave(keys[this.keys.save]);
+    const name = cleanName(`${was.replace(UNREADABLE_PREFIX, "").slice(0, NAME_MAX - 12)} (from text)`);
+    keys[this.keys.session] = withTag(keys[this.keys.session], { id, name });
+    const packed = await packKeys(keys);
+    try {
+      this.storage.setItem(parkedKey(id), packed);
+    } catch {
+      this.remove1(parkedKey(id));
+      return err(NO_ROOM);
+    }
+    const t = this.now();
+    i.games.push({ id, name, created: t, played: t, playMs: 0, ...this.factsOf((k) => keys[k]) });
+    if (!this.writeIndex(i)) {
+      this.remove1(parkedKey(id));
+      return err(NO_ROOM);
+    }
+    return ok({ id, name });
+  }
+
   /** A game renamed (an empty name: nothing). Its tag too, when it's the open one. */
   rename(id: string, name: string): boolean {
     const clean = cleanName(name);
