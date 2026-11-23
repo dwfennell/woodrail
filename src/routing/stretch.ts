@@ -226,6 +226,8 @@ function swOf(layout: Layout, p: number): boolean {
  * (today's), off where the dispatcher owns them (`Sim.signalOwner`: a signal is its hold).
  */
 export const BLOCK_RULE = { on: false };
+/** A train on points plans on from the road it's on (`buildTrain`); PLAN_FROM_ROAD=0: from the points. */
+export const PLAN_FROM_ROAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).PLAN_FROM_ROAD !== "0" };
 
 /** A plain block's pieces beyond the signal at `ref` (cached per layout and its signals' version); null: a path signal's. */
 const blockCache = new WeakMap<Layout, { ver: string; m: Map<number, Int32Array | null> }>();
@@ -322,6 +324,13 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
     const first = s.at ? s.next + 1 : s.next;
     const front = lane[lane.length - 1];
     let state: PlanState | null = { pieceId: front.p, entry: front.en, lead: true };
+    // (Its front on points: it leaves them by the road its axles are on (they can't be thrown under it), so its way is
+    // planned on from there (complex-1: its booked way out by their other road, granted that, it stood at the signal on
+    // the road it was on for 20 minutes).)
+    if (PLAN_FROM_ROAD.on && front.ex >= 0 && swOf(layout, front.p) && waysFrom(layout, front.p, front.en, () => false).length > 1) {
+      const n = next(layout, front.p, front.ex);
+      if (n) state = { pieceId: n.pieceId, entry: n.entry, lead: true };
+    }
     const apply = (st: { pieceId: number; entry: number; exit: number; reverse?: boolean }): boolean => {
       const f = lane[lane.length - 1];
       if (st.pieceId === f.p) {
