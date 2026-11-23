@@ -175,6 +175,8 @@ export const RULES = [
   ["scripts/e2e/affected.mjs", []],
   // CI's planner and runner (.github/workflows/e2e.yml): no suite of its own; the workflow's own run is its test.
   [["scripts/e2e/ci.mjs", "scripts/e2e/durations.json", ".github/**"], []],
+  // The Pages deploy's keeping of old builds' files: its unit test (scripts/pages-keep-assets.test.mjs); nothing in the game.
+  [["scripts/pages-keep-assets.mjs", "scripts/pages-keep-assets.test.mjs"], []],
   ["scripts/e2e/phone-audit.mjs", []],
   ["scripts/e2e/track-pieces.mjs", [TOUCH_PIECES]],
   ["tools/e2e/**", []], // (each file maps to its own suite: see suiteOfScript)
