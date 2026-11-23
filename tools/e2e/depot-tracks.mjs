@@ -12,7 +12,7 @@
 //      joins the new track's end; the pointer move's cost while held;
 //      the card no longer asks, nothing lit.
 //   3b. These trains are longer than the yard (an engine and two hoppers), so the player makes room, as the card says:
-//      Undo twice (the top bar) takes the Splits back (the line's straights back, the planks back); a straight dragged by
+//      Undo twice (the top bar) takes the Splits back (the line's straights back, the Splits into the toy box); a straight dragged by
 //      touch from the tray onto each open end of the second track joins it; a Split on the line beyond each, joined.
 //   4. Each train given a route by taps (Plan a route, the mill, the workshop, Done) and set going: they stand at the
 //      mill on two tracks at once, the one crane serving each in turn (never two loads at once), and both trains'
@@ -29,6 +29,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
 import { dragPointsOnto } from "../../scripts/e2e/lib/points-onto-line.mjs";
+import { openShelf } from "../../scripts/e2e/lib/shelf.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/depot-tracks";
@@ -335,19 +336,18 @@ if (!setup.error) {
   }
   s = await state();
   const splitsLeft = await p.evaluate((ids) => ids.filter((id) => !!window.woodrail.layout.getPiece(id)).length, laid.map((r) => r.id));
-  check("3b. Undo twice: the Splits taken back, their planks back, the track not joined", splitsLeft === 0 && s.planks === 22 && s.tracks === 2 && s.roads[0].open, JSON.stringify({ splitsLeft, s }));
+  // (Undone, points go back in the toy box, not back to planks: laid again from there, they cost nothing more.)
+  check("3b. Undo twice: the Splits taken back into the box, the track not joined", splitsLeft === 0 && s.planks === 12 && s.tracks === 2 && s.roads[0].open, JSON.stringify({ splitsLeft, s }));
+  // (The Long straight: on the Track tab's Straight shelf, opened by a tap as a player does.)
   const trayItem = async (key) => {
-    const find = () => p.evaluate((key) => { const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`); if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; }, key);
-    for (let k = 0; k < 24; k++) {
-      const r = await find();
-      if (r) return r;
-      if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await tapButton(".scroller .tray-back");
-      const shelves = await p.evaluate(() => document.querySelectorAll(".scroller .tray-group").length);
-      if (k >= shelves) return null;
-      const box = await p.evaluate((k) => { const e = document.querySelectorAll(".scroller .tray-group")[k]; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; }, k);
-      await tapped(() => p.touchscreen.tap(box[0], box[1]));
-    }
-    return null;
+    await openShelf(p, tapButton, "Straight");
+    return p.evaluate((key) => {
+      const e = document.querySelector(`.scroller .tray-item[data-key="${key}"]`);
+      if (!e) return null;
+      e.scrollIntoView({ inline: "center" });
+      const q = e.getBoundingClientRect();
+      return [q.x + q.width / 2, q.y + q.height / 2];
+    }, key);
   };
   const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   const lengthened = [];
@@ -405,7 +405,7 @@ if (!setup.error) {
     return ids.map((id) => (w.layout.getPiece(id) ? [0, 1, 2].map((i) => w.layout.joinedConnector(id * 8 + i) !== -1) : null));
   }, laid2.map((r) => r.id));
   s = await state();
-  check("3b. …each joined at all three ends; the track the industry's again, 648 clear of the points; 5 planks each", joined2.every((j) => j && j.every(Boolean)) && !s.roads[0].open && s.planks === 12, JSON.stringify({ joined2, planks: s.planks }));
+  check("3b. …each joined at all three ends; the track the industry's again, 648 clear of the points; the Splits from the box (no more planks)", joined2.every((j) => j && j.every(Boolean)) && !s.roads[0].open && s.planks === 12, JSON.stringify({ joined2, planks: s.planks }));
   await showing({ depot: mill, across: -40 }, 1250, { phi: 0.8, theta: Math.PI / 2 + 0.45, inRoom: true });
   await settle();
   await shot("3b-two-tracks-lengthened");
