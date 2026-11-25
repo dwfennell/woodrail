@@ -41,6 +41,16 @@ export function crashPayload(kind: CrashKind, error: unknown, about: Omit<CrashP
   return { kind, message: cleanStack(message).slice(0, MAX_MESSAGE), stack: typeof e?.stack === "string" ? cleanStack(e.stack) : "", ...about };
 }
 
+/**
+ * Errors that are no fault of the game and break nothing: "ResizeObserver loop completed with undelivered
+ * notifications" (or "…limit exceeded") is the browser saying it put off a resize to the next frame.
+ */
+const HARMLESS = [/^ResizeObserver loop/];
+
+export function harmless(message: string): boolean {
+  return HARMLESS.some((re) => re.test(message));
+}
+
 /** Has the player switched crash reports off? */
 export function crashReportsOff(): boolean {
   try {
@@ -101,7 +111,10 @@ export class CrashReporter {
 
   /** Report uncaught errors and rejections. */
   listen(): void {
-    addEventListener("error", (e) => this.report("error", e.error ?? { message: e.message, stack: `at ${e.filename}:${e.lineno}:${e.colno}` }));
+    addEventListener("error", (e) => {
+      if (harmless(e.message ?? "")) return;
+      this.report("error", e.error ?? { message: e.message, stack: `at ${e.filename}:${e.lineno}:${e.colno}` });
+    });
     addEventListener("unhandledrejection", (e) => this.report("rejection", e.reason));
   }
 }
