@@ -1,5 +1,5 @@
-// The railway yard buildings one by one, each beside a town house at the same scale (to judge them against the towns'
-// houses), drawn by the game on this machine's GPU on a plain slab high over the map:
+// The railway yard buildings one by one, each beside a row house at the same scale (to judge them against the towns'
+// rows), drawn by the game on this machine's GPU on a plain slab high over the map:
 // `node tools/shots/yard-buildings.mjs [<out dir>] [--only=shed,box] [--ids=bldg-school,…] [--yaw=2] [--pitch=1.05]`:
 // <out>/<id>.jpg and <out>/sheet.jpg.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -26,9 +26,9 @@ const IDS = others ?? [
   "bldg-engine-shed",
   "bldg-roundhouse-segment",
 ].filter((id) => !only || only.some((o) => id.includes(o)));
-/** The town house each stands beside, and its colours. */
-const BESIDE = "bldg-semi-detached";
-const VARIANT = 0;
+/** The row house each stands beside, and its colours. */
+const BESIDE = "row-pair-a";
+const VARIANT = 9;
 mkdirSync(OUT, { recursive: true });
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5397, strictPort: false }, logLevel: "error" });
 await server.listen();
@@ -76,7 +76,7 @@ for (const id of IDS) {
         return box;
       };
       const box = await put(id, 0, 0);
-      // (The town house stands clear of the yard building's side, whatever its width.)
+      // (The row house stands clear of the yard building's side, whatever its width.)
       await put(beside, variant, box.max.z + 60);
       const t = w.world.landscape.towns[0].centre;
       g.position.set(t.x, Y, t.z);

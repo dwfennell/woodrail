@@ -498,6 +498,9 @@ const townSize = (town: Town): number => TOWN_START_MIN + (hashInts(Math.floor(t
  */
 function growInto(grid: LandscapeGrid, town: Town, n: number, canUse: (i: number) => boolean, toward: { x: number; z: number }[], random: () => number, nextId: number): number {
   let buildingId = nextId;
+  // (A new map's towns are laid out as they always were, not in the rows' fill order (`rows`), so a seed and a map's
+  // code make the world they always made: what's placed after the towns, a ruin, a site, falls by where they are. A
+  // town's buildings are dressed as rows all the same, and it grows in rows from here: `game/town-growth.ts`.)
   const steps = growTown(grid, { centre: town.centre, heading: town.station.heading, cells: town.cells, buildings: town.buildings }, n, { canUse, toward });
   const ids: number[] = [];
   for (const step of steps) {

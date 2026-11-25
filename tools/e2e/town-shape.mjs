@@ -13,7 +13,10 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const OUT = process.argv[2] ?? "e2e-out/town-shape";
+// Towns grow in rows (spec 2026-11-14-town-rows-design.md): at each level, what rows are for: every row house fronts a
+// street, four in five touch a neighbour along their street from a village on, none is taller than twice its width.
+const ROWS = true;
+const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out/town-shape";
 mkdirSync(OUT, { recursive: true });
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5384, strictPort: false }, logLevel: "error" });
 await server.listen();
@@ -111,6 +114,41 @@ for (let level = 1; level <= 5; level++) {
   check(`${NAMES[level]}: the outer fifth stays single-storey`, t.houses.every((h) => h.share < 0.8 || h.storeys === 0), JSON.stringify(t.houses.filter((h) => h.share >= 0.8 && h.storeys)));
   check(`${NAMES[level]}: this level's new buildings are single-storey`, t.houses.every((h) => h.born < level || h.storeys === 0), JSON.stringify(t.houses.filter((h) => h.born === level && h.storeys)));
   if (level >= 3) check(`${NAMES[level]}: its middle is taller`, tall.length > 0);
+  if (ROWS) {
+    const r = await p.evaluate(async () => {
+      const { rowFront } = await import("/src/props/towns.ts");
+      const { drawnKey } = await import("/src/render/props/library.ts");
+      const w = window.woodrail;
+      const land = w.world.landscape;
+      const g = land.grid;
+      const t = land.towns[0];
+      const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+      const props = new Map([...w.world.props.all()].filter((q) => q.town === t.id && q.building !== undefined).map((q) => [q.building, q]));
+      const frontAt = new Map();
+      const rows = t.buildings.filter((b) => props.get(b.id)?.asset.startsWith("row-"));
+      // (Every building of the town: a row house beside a church or a bandstand touches a neighbour too.)
+      for (const b of t.buildings) for (const c of b.cells) frontAt.set(c, rowFront(land, t, b));
+      const at = (c, e) => g.index(g.colOf(c) + DIRS[e][0], g.rowOf(c) + DIRS[e][1]);
+      let fronts = 0;
+      let joins = 0;
+      let tallest = 0;
+      for (const b of rows) {
+        const f = rowFront(land, t, b);
+        if (b.cells.some((c) => at(c, f) !== -1 && (g.surface[at(c, f)] === 2 || g.road[at(c, f)] !== 0))) fronts++;
+        if (b.cells.some((c) => [(f + 1) & 3, (f + 3) & 3].some((e) => !b.cells.includes(at(c, e)) && frontAt.has(at(c, e))))) joins++;
+        const q = props.get(b.id);
+        const key = drawnKey(q.asset, q.variant, q.storeys);
+        const m = w.propLibrary.model(key) ?? (await w.propLibrary.load(key));
+        tallest = Math.max(tallest, m?.height ?? 0);
+      }
+      return { rows: rows.length, all: t.buildings.length, fronts, joins, tallest: Math.round(tallest) };
+    });
+    console.log(`  rows: ${r.rows} of ${r.all} buildings are rows; ${r.fronts} front a street, ${r.joins} touch a neighbour along it; the tallest ${r.tallest} mm`);
+    check(`${NAMES[level]}: rows: most of the town is rows`, r.rows >= r.all * 0.7, `${r.rows} of ${r.all}`);
+    check(`${NAMES[level]}: rows: every row house fronts a street`, r.fronts === r.rows, `${r.fronts} of ${r.rows}`);
+    if (level >= 1) check(`${NAMES[level]}: rows: four in five touch a neighbour along their street`, r.joins >= r.rows * 0.8, `${r.joins} of ${r.rows}`);
+    check(`${NAMES[level]}: rows: none taller than twice its width`, r.tallest <= 140, `${r.tallest} mm`);
+  }
   had = t.buildings;
   await picture(`level-${level}-${NAMES[level]}`);
 }

@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { CELL, FEAT_STATION, generateLandscape, SURF_ROAD } from "../../landscape";
 import type { Materials } from "../materials";
 import type { Batcher } from "./batcher";
-import { building, buildStation, buildTown, footprintOf, FURNITURE_CLEARANCE, SPECIAL_LOOKS, townFurniture, townGreens, townLooks, type Look, type PropKind } from "./buildings";
+import { building, buildStation, STATION_ROOF_FLAT, buildTown, footprintOf, FURNITURE_CLEARANCE, SPECIAL_LOOKS, townFurniture, townGreens, townLooks, type Look, type PropKind } from "./buildings";
 import { releaseBuilding } from "../../props/towns";
 import { loadBlenderModels } from "../blender-models";
 import { onFelt } from "./roads";
@@ -140,22 +140,133 @@ describe("town greens (QA: N7)", () => {
     const land = generateLandscape(SEEDS[0]);
     const town = land.towns.find((t) => t.buildings.some((b) => b.cells.length === 1 && !b.landmark))!;
     expect(townGreens(land, town)).toEqual([]);
+    // (The rows' paved openings aside: they have a test of their own.)
     const before = measuring();
-    buildTown(land, town, mats, before.b);
+    buildTown(land, town, mats, before.b, false);
     const house = town.buildings.find((b) => b.cells.length === 1 && !b.landmark)!;
     const cell = house.cells[0];
     releaseBuilding(land, house.id);
     expect(townGreens(land, town)).toEqual([cell]);
     const after = measuring();
-    buildTown(land, town, mats, after.b);
+    buildTown(land, town, mats, after.b, false);
     // A lawn and twelve flowers, within the square and no higher than a few mm above the ground.
     expect(after.count() - before.count()).toBe(13);
     const g = land.grid;
     const lawn = measuring();
-    buildTown(land, { ...town, cells: [cell], buildings: [] }, mats, lawn.b);
+    buildTown(land, { ...town, cells: [cell], buildings: [] }, mats, lawn.b, false);
     const box = lawn.bounds;
     expect(box.min.x).toBeGreaterThanOrEqual(g.centreX(g.colOf(cell)) - CELL / 2);
     expect(box.max.x).toBeLessThanOrEqual(g.centreX(g.colOf(cell)) + CELL / 2);
     expect(box.max.y - g.groundY(cell)).toBeLessThan(5);
+  });
+});
+
+describe("row openings (towns in rows)", () => {
+  /** A town with a house in the middle of a row, and that house's square. */
+  function rowWithMiddle() {
+    for (const seed of SEEDS) {
+      const land = generateLandscape(seed);
+      const g = land.grid;
+      for (const town of land.towns) {
+        const frontAt = new Map<number, number | undefined>();
+        for (const b of town.buildings) for (const c of b.cells) frontAt.set(c, b.front);
+        for (const b of town.buildings) {
+          if (b.cells.length !== 1 || b.front === undefined || b.landmark) continue;
+          const c = b.cells[0];
+          const along = b.front % 2 === 0 ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]];
+          if (along.every(([dc, dr]) => frontAt.get(g.index(g.colOf(c) + dc, g.rowOf(c) + dr)) === b.front)) return { land, town, house: b, cell: c };
+        }
+      }
+    }
+    throw new Error("no town with three houses in a row in these seeds");
+  }
+
+  it("an opening between two houses of a row is a small paved place; off, or once a street leaves through it, nothing", () => {
+    const { land, town, house, cell } = rowWithMiddle();
+    const g = land.grid;
+    // (The town's other openings, before this one: what it's counted against.)
+    const count = (rows: boolean) => {
+      const m = measuring();
+      buildTown(land, { ...town, cells: [cell] }, mats, m.b, rows);
+      return m.count();
+    };
+    const others = count(true) - count(false);
+    // The house gone, its square bare grass again: an opening in the row.
+    town.buildings.splice(town.buildings.indexOf(house), 1);
+    g.feature[cell] = 0;
+    g.owner[cell] = -1;
+    g.surface[cell] = 0;
+    const off = measuring();
+    buildTown(land, { ...town, cells: [cell] }, mats, off.b, false);
+    const on = measuring();
+    buildTown(land, { ...town, cells: [cell] }, mats, on.b, true);
+    expect(on.count() - off.count()).toBe(others + 1);
+    // Flat pavement and nothing standing on it: the player's track or a prop may go there (the dressing can't know).
+    const slab = measuring();
+    buildTown(land, { ...town, cells: [], buildings: town.buildings.filter((x) => x.cells.some((c) => Math.abs(g.colOf(c) - g.colOf(cell)) + Math.abs(g.rowOf(c) - g.rowOf(cell)) === 1)) }, mats, slab.b, true);
+    expect(slab.bounds.max.y - g.groundY(cell)).toBeLessThanOrEqual(2.5);
+    expect(slab.bounds.max.x - slab.bounds.min.x).toBeLessThanOrEqual(CELL + 0.01);
+    const place = measuring();
+    buildTown(land, { ...town, cells: [], station: town.station }, mats, place.b, true);
+    const none = measuring();
+    buildTown(land, { ...town, cells: [], station: town.station }, mats, none.b, false);
+    expect(place.count() - none.count()).toBe(on.count() - off.count());
+    // A street through it: an opening no more.
+    g.surface[cell] = SURF_ROAD;
+    const street = measuring();
+    buildTown(land, { ...town, cells: [cell] }, mats, street.b, true);
+    const streetOff = measuring();
+    buildTown(land, { ...town, cells: [cell] }, mats, streetOff.b, false);
+    expect(street.count() - streetOff.count()).toBe(others);
+  });
+});
+
+describe("the station house in the rows' style", () => {
+  /** What `buildStation` adds, by a material's name. */
+  function parts(rows: boolean) {
+    const land = generateLandscape(7);
+    const town = land.towns[0];
+    const wood = new MeshStandardMaterial({ name: "wood" });
+    const added: { paint: string; box: Box3 }[] = [];
+    const named = { lacquer: (c: string) => new MeshStandardMaterial({ name: c }), blockWood: wood, naturalWood: wood } as unknown as Materials;
+    const b = {
+      add(m: Material, g: BufferGeometry) {
+        g.computeBoundingBox();
+        added.push({ paint: m.name, box: g.boundingBox!.clone() });
+      },
+    } as unknown as Batcher;
+    buildStation(town, named, b, rows);
+    return added;
+  }
+  const tall = (p: { box: Box3 }) => p.box.max.y - p.box.min.y;
+
+  it("has painted walls and a hipped roof in place of the bare block and its flat lid; nothing stands higher than before", () => {
+    const now = parts(false);
+    const rows = parts(true);
+    // Today: the house is a bare wooden block, 46 tall.
+    expect(now.some((p) => p.paint === "wood" && Math.abs(tall(p) - 46) < 0.01)).toBe(true);
+    expect(rows.some((p) => p.paint === "wood" && Math.abs(tall(p) - 46) < 0.01)).toBe(false);
+    // In rows: cream walls, 46 tall, and a roof that slopes (taller than the flat lid's 5).
+    expect(rows.some((p) => p.paint === "#f3e7cb" && Math.abs(tall(p) - 46) < 0.01)).toBe(true);
+    const top = (list: typeof now) => Math.max(...list.map((p) => p.box.max.y));
+    expect(top(rows)).toBeLessThanOrEqual(top(now) + 0.01);
+    expect(rows.length).toBeGreaterThanOrEqual(now.length);
+  });
+
+  it("the roof's flat top is long enough for the town's sign to stand on: its posts are 28 either side of the middle, 2.4 thick", () => {
+    const roofs = parts(true).filter((p) => p.box.max.y > 64 && p.box.max.y - p.box.min.y > 6 && p.box.max.y - p.box.min.y < 12);
+    expect(roofs).toHaveLength(1);
+    // (Measured on the roof's own geometry: how far its top face reaches along the station.)
+    expect(STATION_ROOF_FLAT / 2).toBeGreaterThanOrEqual(28 + 2.4);
+  });
+
+  it("is how a station is drawn unless told otherwise", () => {
+    const land = generateLandscape(7);
+    const a = measuring();
+    const b = measuring();
+    buildStation(land.towns[0], mats, a.b);
+    buildStation(land.towns[0], mats, b.b, true);
+    expect(b.count()).toBe(a.count());
+    expect(b.bounds).toEqual(a.bounds);
   });
 });

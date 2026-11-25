@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { loadFootprints } from "../props/footprints-testing";
 import type { Footprint } from "../props/placement";
-import { fitScale, PLACE_MIN_FIT } from "../props/towns";
+import { addTownProps, fitScale, PLACE_MIN_FIT } from "../props/towns";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { BLUEPRINTS } from "./blueprints";
 import { landmarksOf, townLandmarks } from "./landmarks";
@@ -331,7 +331,10 @@ describe("look-alikes open free", () => {
     const b = town.buildings.find((x) => !x.landmark)!;
     const prop = [...w.props.all()].find((q) => q.building === b.id)!;
     w.props.remove(prop.id);
+    // (Dressed as the town dresses it: in rows, the fire station made for its lot.)
     w.props.add("bldg-fire-station", { x: prop.x, z: prop.z, heading: prop.heading, y: prop.y }, undefined, { building: b.id, town: town.id });
+    addTownProps(w.landscape, w.props);
+    expect([...w.props.all()].find((q) => q.building === b.id)!.asset).toMatch(/^row-fire-station/);
     expect(life.openFree(placeOf("fire-station")!).map((t) => t.id)).toEqual([town.id]);
     expect(b.landmark).toBe("fire-station");
     expect(townSmiles(town)).toBe(1);
