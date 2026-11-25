@@ -27,7 +27,7 @@ import { next, waysFrom } from "./graph";
 import { isPoints } from "./router";
 import { passingOf } from "./blocks";
 import { STAND_SHORT } from "../economy/sections";
-import { blockerOf, bodyOf, buildTrain, PLAN_FROM_ROAD, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
+import { q9Mirror, blockerOf, bodyOf, buildTrain, PLAN_FROM_ROAD, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
 /** §13.5 step 2, the dispatcher owning the points on its grants: on, unless OWNER=0 (for comparing runs). */
 export const OWNER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).OWNER !== "0" };
@@ -172,8 +172,13 @@ const TURN_S = Number(((globalThis as { process?: { env: Record<string, string |
 export const ONE_LINE_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_SHORT !== "0" };
 const ONE_LINE_MIN = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_MIN ?? 3);
 
+/** A move out of a dead end to a waiting place short of the occupied dead end it turns in next not held (`deadEndBy`): DEAD_LOOP=1 (measuring). */
+export const DEAD_LOOP = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_LOOP === "1" };
+
 /** §16 Q9 in the search (§13.12 (a), `SearchOptions.q9`): planned turns close behind trains at the line's end, granted as `Q9`'s: Q9S=1 (measuring). */
 export const Q9S = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9S === "1" };
+/** …with `DEAD_BACK` letting a turn-only train in behind a routed one (Q9S_IN=1). */
+export const Q9S_IN = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9S_IN === "1" };
 
 /** A move refused onto a single line granted up to its last waiting place before it (`decide`): SINGLE_CUT=1 (measuring, off: with Q9 no case changed). */
 export const SINGLE_CUT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SINGLE_CUT === "1" };
@@ -931,19 +936,35 @@ export class Dispatcher {
     if (to >= 0 && Q9S.on) {
       const w = ways[k];
       const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
-      const path = this.pathTo(tt, to);
-      if (path.some((n) => tt.turned[n])) {
-        const others = new Set<number>();
+      // (A Q9 move: its node the mirror of one on its way before the turn (`q9Mirror`), a train standing between that one
+      // and the turn. Not every move through a turn: one that runs to a free end, turns and comes back is a move as any.)
+      let c = -1;
+      for (let i = tt.at, n = 0; i >= 0 && !tt.turned[i] && n < 400; n++) {
+        if (q9Mirror(tt, i) === to) c = i;
+        i = tt.succ[i][0] ?? -1;
+      }
+      let standing = false;
+      if (c >= 0) {
         const self = this.host.sim.findCar(engine)?.train;
-        for (const o of this.host.sim.trains()) if (o !== self) for (const b of o.bogies) others.add(b.pieceId);
-        const here = new Set(tt.pos[tt.at]);
-        if (path.some((n) => tt.pos[n].some((p) => !here.has(p) && others.has(p)))) {
-          const end = this.q9End(engine, ts[k]);
-          if (end >= 0) {
-            to = end;
-            q9 = true;
-            this.q9Grants++;
-          } else to = -1;
+        const between = new Set<number>();
+        for (let i = tt.succ[c][0] ?? -1, n = 0; i >= 0 && !tt.turned[i] && n < 400; n++) {
+          for (const p of tt.pos[i]) between.add(p);
+          i = tt.succ[i][0] ?? -1;
+        }
+        for (const p of tt.pos[c]) between.delete(p);
+        for (const o of this.host.sim.trains()) if (o !== self && o.speed === 0 && o.bogies.some((b) => between.has(b.pieceId))) standing = true;
+      }
+      if (standing) {
+        const end = this.q9End(engine, ts[k]);
+        if (end >= 0) {
+          to = end;
+          q9 = true;
+          this.q9Grants++;
+        } else {
+          // (Planned but not to be had (the train at the end not standing, a hand-run one, another granted in): decided as
+          // without Q9 moves, not refused outright.)
+          const r0 = search(ways, members, { cap: DISPATCH_STATES, backUps: false, order, taken, takenFirst: TAKEN_FIRST.on, weights, oneWay: this.oneWay });
+          to = r0.first[0] >= 0 && r0.first[0] >= r0.plain ? r0.firstTo[0] : -1;
         }
       }
     }
@@ -1038,7 +1059,19 @@ export class Dispatcher {
           singleBy = -1;
         }
       }
-      if (singleBy < 0 && DEAD.on) singleBy = this.deadEndBy(engine, tt, ts);
+      // (`DEAD_LOOP`: a move out of its dead end that ends at a waiting place short of the dead end it turns in next (a
+      // loop's road), and never comes onto that one, isn't held for the train there: it waits in the loop (fuzz seed 149: held
+      // in its dead end for good, the train in the other one waiting on it in turn).)
+      if (singleBy < 0 && DEAD.on) {
+        const by = this.deadEndBy(engine, tt, ts);
+        let inLoop = false;
+        if (by >= 0 && DEAD_LOOP.on && tt.wait[to]) {
+          const s2 = this.deadTarget(tt, tt.at, true);
+          const seg = this.singleOf();
+          inLoop = s2 >= 0 && !this.pathTo(tt, to).some((n) => tt.pos[n].some((p) => seg.get(p) === s2));
+        }
+        if (!inLoop) singleBy = by;
+      }
       if (singleBy >= 0) to = -1;
     }
     // (Points on the move the router has locked for another train, or another train is on: not granted; it waits on that
@@ -1656,7 +1689,7 @@ export class Dispatcher {
         // at the buffer may stand there for good (wye 2×mix same: the routed one waited for it on the wye's points).)
         // (Not where this one heads there only to turn too (no stop of its own in it, `Q9`): the one ahead turns at the
         // buffer and this one close behind it (§16 Q9), and this one leads out; they never meet (fuzz seed 149).)
-        if (DEAD_BACK.on && (this.holdsBy.has(key) || o.speed !== 0) && this.endsDead(end) && !((Q9.on || Q9S.on) && this.holdsBy.has(key) && !(HANDOFF.on && this.host.couldSwap?.(engine)) && this.deadTarget(t, t.at, true) === s)) return key;
+        if (DEAD_BACK.on && (this.holdsBy.has(key) || o.speed !== 0) && this.endsDead(end) && !((Q9.on || (Q9S.on && Q9S_IN.on)) && this.holdsBy.has(key) && !(HANDOFF.on && this.host.couldSwap?.(engine)) && this.deadTarget(t, t.at, true) === s)) return key;
         break;
       }
       // (Granted onto it, heading the other way.)

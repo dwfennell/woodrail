@@ -804,3 +804,20 @@ waiting point has its front past the loop's far points, on the line the west-bou
 waiting places for opposed trains, the next piece, is in the way-building (`buildTrain`'s waiting points: one inside the
 road, short of the far points).
 
+**The second half (2026-11-25, measured, off).** The loop roads' waiting points were right already (the last rest clear of
+points: inside the road, short of the far points). What held seed 149's east-bound train in its dead end was `deadEndBy`
+(a train in a dead end of its own isn't moved out while the dead end it turns in next is taken), which refused even the
+move into the loop's free road. `DEAD_LOOP=1`: a move out to a waiting place short of that dead end, never onto it, isn't
+held. With `Q9S` seed 149 then runs (4/5/5) in the harness. Measured with the dispatcher on:
+
+- `Q9S` (search Q9 moves only in dead ends a train only turns in, a planned one granted only with the train at the end
+  standing, else decided without them): cases 38 → 37 (fuzz 136; none new), but own-01 −21 (the plans no longer reach
+  `ROAD_FREE`'s case there). Its first form, Q9 moves at any dead end, broke the trap's four (a train "turning behind" one
+  at its own stop).
+- `DEAD_LOOP`: no case alone; own-04 −4.
+- Both: 37 (149 lost again once a planned Q9 move needs the train ahead already standing: it's still running in when the
+  follower asks).
+
+Left off. What it shows: Q9 under the dispatcher needs the follower's grant timed to the train ahead coming to a stand
+(an event the dispatcher sees: its sig changes), not decided when it first asks.
+

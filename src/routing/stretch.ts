@@ -1199,7 +1199,8 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
           let filled = true;
           let x = t.succ[c][0] ?? -1;
           for (let n = 0; x >= 0 && !t.turned[x] && n < 400; n++) {
-            if (t.succ[x].length > 1) {
+            // (Points on the way, or a stop of its own before the turn: not a dead end it only turns in (Q9 is for those).)
+            if (t.succ[x].length > 1 || t.arrivals.includes(x)) {
               filled = false;
               break;
             }
