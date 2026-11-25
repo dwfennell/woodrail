@@ -1310,9 +1310,11 @@ export class Game {
     this.simMs = performance.now() - t0;
     const tipping = this.trainView.update(this.snapshot, dt);
     // An engine painted (or a save's liveries put back): its model built again, once (drawn from the next frame).
-    if (this.sim.liveriesVersion !== this.liveriesShown) {
+    // (And an engine swapped for another (game/swap-engine.ts): its look's model, the same way.)
+    if (this.sim.liveriesVersion !== this.liveriesShown || this.sim.looksVersion !== this.looksShown) {
       this.liveriesShown = this.sim.liveriesVersion;
-      this.trainView.syncLiveries();
+      this.looksShown = this.sim.looksVersion;
+      this.trainView.syncModels();
       this.invalidate();
     }
     // An engine renamed (or a save's names put back): its plates painted again, once.
@@ -1814,6 +1816,7 @@ export class Game {
   private signalsShown = -1;
   private namesShown = -1;
   private liveriesShown = 0;
+  private looksShown = 0;
 
   /** The sim's mark aspects, for the marks' view (the sim is replaced on a new world: read through `this`). */
   private markAspects(): { markClear(id: number): boolean; readonly signalsVersion: number } {

@@ -8,6 +8,8 @@ import { buildCarModel, carVariant, disposeObject, WHEEL_RADIUS, type CarModel }
 interface CarEntry {
   /** The livery it was built in ("": as it came). */
   livery: string;
+  /** The look it was built in (an engine swapped is built again: `syncModels`). */
+  look: CarLook;
   model: CarModel;
   lastX: number;
   lastZ: number;
@@ -147,7 +149,7 @@ export class TrainView {
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
-        entry = { livery: livery?.id ?? "", model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0, ghosts: null, inTunnel: false };
+        entry = { livery: livery?.id ?? "", look, model, lastX: x, lastZ: z, lastY: 0, lastHeading: 0, lastPitch: 0, lastLever: -9, spin: 0, tip: 0, hoist: 0, shells: null, shown: 0, ghosts: null, inTunnel: false };
         this.cars.set(id, entry);
       }
       const heading = snap.transforms[o + 3];
@@ -219,12 +221,13 @@ export class TrainView {
   }
 
   /**
-   * Engines painted (`Sim.liveriesVersion`): a car built in another livery is taken down, and built again in its new
-   * one on the next update (one car's model, from the lacquer cache). Not per frame.
+   * Engines painted (`Sim.liveriesVersion`) or swapped (`Sim.looksVersion`): a car built in another livery or look is
+   * taken down, and built again in its new one on the next update (one car's model, from the lacquer cache). Not per
+   * frame.
    */
-  syncLiveries(): void {
+  syncModels(): void {
     for (const [id, entry] of this.cars) {
-      if ((this.liveryOf(id)?.id ?? "") === entry.livery) continue;
+      if ((this.liveryOf(id)?.id ?? "") === entry.livery && this.lookOf(id) === entry.look) continue;
       this.group.remove(entry.model.root);
       disposeObject(entry.model.root);
       this.plates.release(id);

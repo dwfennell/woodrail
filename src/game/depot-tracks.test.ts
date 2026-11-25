@@ -8,7 +8,7 @@ import { buildStarterWorld, INDUSTRY_ROLE, type World } from "./world";
 import { trackBlock } from "./track-rules";
 import { BLOCK_MESSAGES } from "../landscape/clearance";
 import { loadBugMap } from "../play/bugmap";
-import { legStop } from "./lines";
+import { editLine, legStop } from "./lines";
 import { viaLegs } from "./route-path";
 import WORKSHOP_MAP from "../play/bugmaps/reports/2026-11-17-workshop-second-track.txt?raw";
 
@@ -438,6 +438,55 @@ describe("depot tracks: routed trains", () => {
     expect(w.economy.tracksOf(w.mill.id)).toBeUndefined();
     for (let i = 0; i < sec(60); i++) w.step();
     expect(trains[0].cars.some((c) => w.economy.cargoOf(c.id).kind === "flour")).toBe(true);
+  });
+});
+
+describe("depot tracks: a train standing on the points into them", () => {
+  /**
+   * A train on a line whose front axle stands on the split into the mill's second track, the split set for that track,
+   * its stop the mill's own track; another line's train in the second track. The points can't move under it, so the
+   * second track is the only way it can go. Its way was found full there naming no train: it waited for train −1 on
+   * the points for good (an invariant break seen in e2e:depot-tracks: "waits (section) for a train that isn't there
+   * (-1)").
+   */
+  function onThePoints(path: number) {
+    const w = line(11, 6);
+    const far = w.layout.addPiece("depot-farm", { x: w.ids.length * 216, z: 0, heading: 0 });
+    const farm = w.economy.addDepot("farm", far);
+    upgrade(w, 2);
+    const split = [...w.layout.pieceIds()].find((id) => w.layout.getPiece(id)!.type === "split" && w.layout.getPiece(id)!.pose.heading === 0)!;
+    w.mill.piles[CARGO.flour.index] = 12;
+    const other = put(w, roadOf(w, 0), ["engine"], 150);
+    // (Its front on the split's way into the second track (path 1), or straight on toward the mill's own (path 0).)
+    const r = w.sim.addTrain(["engine"], { pieceId: split, pathIndex: path, reversed: false, s: 100 });
+    if (r.kind !== "placed") throw new Error(`no room: ${r.kind}`);
+    const train = w.sim.getTrain(r.trainId) as Train;
+    w.sim.setLever(train.cars[0].id, 1);
+    for (const t of [other, train]) editLine(w.economy, t.cars[0].id, (stops) => stops.push({ depotId: w.mill.id, action: "auto" }, { depotId: farm.id, action: "auto" }));
+    return { w, other: other.cars[0].id, engine: train.cars[0].id, split, far };
+  }
+
+  it.each([1, 0])("never waits for no train, and goes on to its stops (its front on the split's path %i)", (path) => {
+    const { w, engine, other, split, far } = onThePoints(path);
+    const front = w.sim.findCar(engine)!.train.bogies[0];
+    expect([front.pieceId, front.pathIndex]).toEqual([split, path]);
+    // (How long each has waited for a train that isn't there: the invariants' "deadlock" says so at a second.)
+    const ghost = new Map<number, number>();
+    let longest = 0;
+    let farm = false;
+    for (let i = 0; i < sec(120) && !farm; i++) {
+      w.step();
+      for (const e of [engine, other]) {
+        const wait = w.economy.sections.waitOf(e);
+        const n = wait && "engine" in wait && !w.sim.findCar(wait.engine) ? (ghost.get(e) ?? 0) + 1 : 0;
+        ghost.set(e, n);
+        longest = Math.max(longest, n);
+      }
+      farm = w.sim.findCar(engine)!.train.bogies.some((b) => b.pieceId === far);
+    }
+    expect(longest).toBe(0);
+    // The payoff: off the points, on by the mill's tracks, to its next stop.
+    expect(farm).toBe(true);
   });
 });
 

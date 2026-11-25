@@ -281,7 +281,18 @@ suite.add("desktop", async () => {
   const v1 = await view(p);
   const n3 = await pieces(p);
   check("a drag on the map still pans, putting nothing down", (v1.x !== v0.x || v1.z !== v0.z) && n3 === n2 && (await carried(p)), `view ${v0.x},${v0.z} → ${v1.x},${v1.z}; pieces ${n2} → ${n3}`);
-  const goal = () => p.evaluate(() => { const m = window.woodrail.interaction.preview; return m ? [Math.round(m.goal.x), Math.round(m.goal.z)] : null; });
+  // (Where the ghost is going, and the ground under the mouse: a ghost snapped to a free end the mouse is near (zoomed
+  // out, an end comes within reach) sits at that end, not under the mouse, and rightly so; then the ground is what's
+  // compared.)
+  const mouseAt = [free[0] - 150, free[1] - 40];
+  const goal = () =>
+    p.evaluate(([x, y]) => {
+      const w = window.woodrail;
+      const m = w.interaction.preview;
+      const g = w.interaction.groundAt(x, y);
+      return m ? { goal: [Math.round(m.goal.x), Math.round(m.goal.z)], ground: g ? [Math.round(g.x), Math.round(g.z)] : null, snap: m.snap.kind, visible: m.ghost.visible } : null;
+    }, mouseAt);
+  const dist = (a, b) => (a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : NaN);
   const w0 = await goal();
   await p.mouse.wheel(0, 240);
   // (The zoom eases in: till the distance stops changing.)
@@ -295,7 +306,13 @@ suite.add("desktop", async () => {
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await frames(p);
   const w2 = await goal();
-  check("the ghost stays under the mouse as the view moves: the wheel (toward the mouse) or a glide (QA)", !!w0 && !!w1 && !!w2 && Math.hypot(w1[0] - w0[0], w1[1] - w0[1]) < 40 && Math.hypot(w2[0] - w1[0], w2[1] - w1[1]) > 200 && (await ghost(p))?.visible, `ghost at ${w0} → wheel ${w1} → glide ${w2}`);
+  // The wheel keeps the ground under the mouse, and the ghost with it; a glide moves the ground under the mouse, and
+  // the ghost goes with it (by as much, unsnapped).
+  const loose = (r) => r.snap === "none";
+  const wheelKept = !!w0 && !!w1 && dist(w1.ground, w0.ground) < 40 && (!loose(w0) || !loose(w1) || dist(w1.goal, w0.goal) < 40);
+  const glideFollowed =
+    !!w1 && !!w2 && w2.visible && dist(w2.ground, w1.ground) > 200 && (!loose(w1) || !loose(w2) || Math.abs(dist(w2.goal, w1.goal) - dist(w2.ground, w1.ground)) < 40);
+  check("the ghost stays under the mouse as the view moves: the wheel (toward the mouse) or a glide (QA)", wheelKept && glideFollowed, `${JSON.stringify(w0)} → wheel ${JSON.stringify(w1)} → glide ${JSON.stringify(w2)}`);
   // Undo keeps it carried (what was put down goes).
   const u0 = await pieces(p);
   await p.keyboard.press("Control+z");
@@ -332,9 +349,22 @@ suite.add("desktop", async () => {
   check("Draw puts it away", !(await carried(p)));
   await p.evaluate(() => window.woodrail.interaction.setDrawing(false));
 
-  // 8. A drag out of the tray still works as before.
+  // 8. A drag out of the tray still works as before. (Onto a spot the piece may go: carried a moment to find one where
+  // its ghost isn't refused (a hill, a town), as in 3, then put away. The first open ground, as before, was a hillside
+  // or not by where the view had ended up.)
   const d0 = await pieces(p);
-  const drop = await openGround(p);
+  await p.mouse.click(item.x, item.y);
+  let drop = null;
+  for (const q of await openPoints(p)) {
+    await p.mouse.move(q[0], q[1], { steps: 2 });
+    const g = await ghost(p);
+    if (g?.visible && !g.blocked) {
+      drop = q;
+      break;
+    }
+  }
+  await p.keyboard.press("Escape");
+  drop ??= await openGround(p);
   await p.mouse.move(item.x, item.y);
   await p.mouse.down();
   await p.mouse.move(item.x, item.y - 60, { steps: 4 });

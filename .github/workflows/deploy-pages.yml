@@ -34,6 +34,13 @@ jobs:
           VITE_CLOUD_URL: ${{ vars.WOODRAIL_CLOUD_URL }}
       # The wiki (src/wiki), from the game's own data, beside the game at /<repo>/wiki/.
       - run: npm run wiki -- --out dist/wiki
+      # The live site's address (a custom domain too).
+      - id: pages
+        uses: actions/configure-pages@v5
+      # Keep the last week's builds' hashed files (scripts/pages-keep-assets.mjs): a deploy replaces the whole site,
+      # and a tab opened before it still asks for its own build's lazily loaded chunks. Only dist/assets/ gains files;
+      # index.html, models/ and the wiki are this build's. Never fails the deploy: at worst the old files are missing.
+      - run: node scripts/pages-keep-assets.mjs --site "${{ steps.pages.outputs.base_url }}/" --dist dist --sha "${{ github.sha }}"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

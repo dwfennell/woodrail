@@ -22,6 +22,7 @@ import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 import { clearSpot, leastCovered, type Label, type Spot } from "./toast-room";
 import type { CreditsSheet } from "./credits-sheet";
 import type { ExplainerSheet } from "./explainer-sheet";
+import { loadCreditsSheet, loadExplainerSheet } from "./lazy-chunks";
 import { EXPLAINER_TITLES, explainerIdFor, type ExplainerId } from "./explainer-keys";
 import { WIKI_URL } from "./wiki-link";
 
@@ -75,6 +76,8 @@ export interface HudHandlers {
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
   swapEnds(): void;
+  /** The engine card's Engine: the sheet of engines to swap it for (game/swap-engine.ts). */
+  swapEngine?(): void;
   /** The engine card, waiting to turn back where the track ends: turn round now and run on to the next stop. */
   continueOn(): void;
   /** The engine card, waiting for a full load: go now with what it has (this stop only). */
@@ -208,6 +211,7 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
 
 const SWAP_TITLE = "Move the engine to the other end of its train";
 const ENGINE_DECOUPLE_TITLE = "Uncouple the engine from its cars";
+const ENGINE_SWAP_TITLE = "Swap this engine for another kind: the train keeps its line, cars and name";
 const CAR_DECOUPLE_TITLE = "Uncouple this wagon (and those behind it) from the cars on the engine's side";
 const EMPTY_CAR_TITLE = "Tip this wagon's goods out (they're thrown away)";
 const EMPTY_TRAIN_TITLE = "Delete every wagon's cargo (it's gone: not unloaded anywhere). Tap, then tap again";
@@ -420,6 +424,8 @@ export class Hud {
   private readonly leaveNowBtn: HTMLButtonElement;
   /** Swap ends and Decouple (the engine card's), and the wagon card's Decouple: greyed where they'd be refused. */
   private readonly swapBtn: HTMLButtonElement;
+  /** Engine (the engine card's): swap the engine for another kind, in place. */
+  readonly engineSwapBtn: HTMLButtonElement;
   private readonly engineDecoupleBtn: HTMLButtonElement;
   private readonly carDecoupleBtn: HTMLButtonElement;
   private readonly engineStatus = el("div", "engine-status");
@@ -700,7 +706,7 @@ export class Hud {
         this.menu.hidden = true;
         // (Its code is loaded the first time it opens.)
         if (this.credits) this.credits.show();
-        else void import("./credits-sheet").then(({ CreditsSheet }) => (this.credits ??= new CreditsSheet(this.root)).show());
+        else void loadCreditsSheet().then(({ CreditsSheet }) => (this.credits ??= new CreditsSheet(this.root)).show());
       }, "menu-item credits-item-btn"),
       sep(),
       button("Title screen", "Save and go back to the title screen", () => {
@@ -769,10 +775,12 @@ export class Hud {
     // quieter row of their own under the line, Remove last and set apart.
     this.swapBtn = button("Swap ends", SWAP_TITLE, h.swapEnds, "chip text swap-ends");
     this.engineDecoupleBtn = button("Decouple", ENGINE_DECOUPLE_TITLE, h.decouple, "chip text decouple");
+    this.engineSwapBtn = button("Engine", ENGINE_SWAP_TITLE, () => h.swapEngine?.(), "chip text swap-engine");
     const engineActions = el("div", "engine-actions");
     engineActions.append(
       this.swapBtn,
       this.engineDecoupleBtn,
+      this.engineSwapBtn,
       this.paintBtn,
       el("i", "engine-actions-gap"),
       (this.engineRemoveBtn = button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger remove")),
@@ -2118,11 +2126,12 @@ export class Hud {
   }
 
   /**
-   * Why the open card's Swap ends and Decouple would be refused now ("" for neither): greyed with that as the tooltip.
-   * Main sets it as the train starts and stops (set only on change). `swap` is the engine card's alone.
+   * Why the open card's Swap ends, Decouple and Engine would be refused now ("" for none): greyed with that as the
+   * tooltip. Main sets it as the train starts and stops (set only on change). `swap` and `engine` are the engine card's.
    */
-  setCardRefusals(swap: string, decouple: string): void {
+  setCardRefusals(swap: string, decouple: string, engine = ""): void {
     setRefused(this.swapBtn, swap, SWAP_TITLE);
+    setRefused(this.engineSwapBtn, engine, ENGINE_SWAP_TITLE);
     setRefused(this.engineDecoupleBtn, decouple, ENGINE_DECOUPLE_TITLE);
     setRefused(this.carDecoupleBtn, decouple, CAR_DECOUPLE_TITLE);
   }
@@ -2977,7 +2986,7 @@ export class Hud {
     const open = (sheet: ExplainerSheet) => sheet.show(id, onClose ?? (() => {}));
     if (this.explainers) return open(this.explainers);
     // (Its words, pictures and code are loaded the first time: nothing of them before.)
-    void import("./explainer-sheet").then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
+    void loadExplainerSheet().then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
   }
 
   /** The explainer open now, or null (for tests). */

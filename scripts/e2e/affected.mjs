@@ -37,6 +37,7 @@ export const SUITES = {
   lift: { script: "e2e:lift" },
   loop: { script: "e2e:loop" },
   research: { script: "e2e:research", minutes: 3 },
+  prefetch: { script: "e2e:prefetch", groups: true, minutes: 1 },
   growth: { script: "e2e:growth" },
   "copy-map": { script: "e2e:copy-map", minutes: 2 },
   "town-drag": { script: "e2e:town-drag", minutes: 4 },
@@ -95,6 +96,7 @@ export const SUITES = {
   "routes-ux": { script: "e2e:routes-ux", minutes: 6 },
   "route-insert": { script: "e2e:route-insert", minutes: 4 },
   "train-off-line": { script: "e2e:train-off-line", minutes: 4 },
+  "swap-engine": { script: "e2e:swap-engine", minutes: 4 },
   "tech-tree-5": { script: "e2e:tech-tree-5", minutes: 4 },
 };
 
@@ -174,6 +176,8 @@ export const RULES = [
   ["scripts/e2e/affected.mjs", []],
   // CI's planner and runner (.github/workflows/e2e.yml): no suite of its own; the workflow's own run is its test.
   [["scripts/e2e/ci.mjs", "scripts/e2e/durations.json", ".github/**"], []],
+  // The Pages deploy's keeping of old builds' files: its unit test (scripts/pages-keep-assets.test.mjs); nothing in the game.
+  [["scripts/pages-keep-assets.mjs", "scripts/pages-keep-assets.test.mjs"], []],
   ["scripts/e2e/phone-audit.mjs", []],
   ["scripts/e2e/track-pieces.mjs", [TOUCH_PIECES]],
   ["tools/e2e/**", []], // (each file maps to its own suite: see suiteOfScript)
@@ -257,6 +261,8 @@ export const RULES = [
   ["src/ui/prefs.ts", ["sandbox-chains"]],
   [["src/ui/explainers.ts", "src/ui/explainer-sheet.ts", "src/ui/hud.ts", "src/style.css"], ["learn-more", "situation-loops"]],
   [["src/ui/blueprint-board.ts", "src/ui/cost-tag.ts", "src/ui/wiki-link.ts"], ["research", "locked"]],
+  // The idle prefetch of lazily loaded sheets, and the loaders it shares with their opens (runs on the build).
+  [["src/lib/prefetch.ts", "src/lib/lazy.ts", "src/ui/lazy-chunks.ts", "tools/e2e/prefetch.mjs"], ["prefetch", "learn-more"]],
   ["src/ui/feedback-sheet.ts", ["touch:feedback", "click:feedback"]],
   [["src/ui/controls-tutorial.ts", "src/ui/title.ts"], ["tutorial"]],
   ["src/ui/focus-ring.ts", ["focus-ring"]],
@@ -273,6 +279,8 @@ export const RULES = [
   [["src/game/lines.ts", "src/ui/line-sheet.ts", "src/main.ts"], ["route-insert"]],
   // A train taken off its line (the card's Leave line, the sheet's Take off): it stands clear of points.
   [["src/game/lines.ts", "src/ui/line-sheet.ts"], ["train-off-line"]],
+  // Swap engine (the card's Engine, its sheet): the engine's look in place, the train kept on its line.
+  [["src/game/swap-engine.ts", "src/ui/engine-sheet.ts", "src/game/engines.ts", "src/render/train-view.ts"], ["swap-engine"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
   ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips", "situation-help"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],

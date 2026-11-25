@@ -1,4 +1,6 @@
 import { lazy } from "./lib/lazy";
+import { type Load, prefetchWhenIdle } from "./lib/prefetch";
+import { loadBlueprintBoard, loadCreditsSheet, loadExplainerSheet, loadFeedbackSheet, loadPaintSheet, loadStatsCard } from "./ui/lazy-chunks";
 import { CRANE_TEXT } from "./game/crane-text";
 import { placeNear, type Place as NearPlace } from "./game/place-near";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
@@ -47,6 +49,7 @@ import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, orderPlanks, owedText, shopOwes, shopOwing, shopSpare, takeFromWorkshops, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
+import { swapChoices, swapEngine, swappedWords, swapRefusal, SWAP_WHY, type SwapRules } from "./game/swap-engine";
 import { costText, isFree, isGift, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltTown, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
@@ -641,6 +644,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
+      swapEngine: () => {
+        const id = interaction.openEngineCarId;
+        if (id === -1) return;
+        const why = swapRefusal(game.world, id, null, swapRules());
+        if (why) return hud.toast(SWAP_WHY[why] || "Can't swap this engine now", false, 2500);
+        engineSheet.use((s) => s.show(id));
+      },
       continueOn: () => continueTrain(),
       leaveNow: () => leaveNow(),
       decouple: () => decouple(),
@@ -2871,7 +2881,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // opened (`setBoardOpen`); till then `board` stands in, shut. (By `lazy`: a fetch that fails, offline or a tab older
   // than the build served, says so and the next tap tries again. A flag of its own once stayed "loading" after a failed
   // fetch, and Research never opened again till a reload.)
-  const boardLazy = lazy(async () => new (await import("./ui/blueprint-board")).BlueprintBoard(document.body, boardHandlers), (e) => lazyFailed(e));
+  const boardLazy = lazy(async () => new (await loadBlueprintBoard()).BlueprintBoard(document.body, boardHandlers), (e) => lazyFailed(e));
   const board = {
     get open(): boolean {
       return boardLazy.now?.open ?? false;
@@ -5568,6 +5578,56 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     onChange();
   }
 
+  /**
+   * Swap engine's rules (game/swap-engine.ts): Game mode's, an engine's look locked till its blueprint's learned (by the
+   * blueprint's name); Sandbox's, none.
+   */
+  function swapRules(): SwapRules | null {
+    if (mode !== "game") return null;
+    return {
+      locked: (look) => {
+        const tech = LOOK_TECH[look];
+        return tech && !progress.learned.has(tech) ? (techOf(tech)?.label ?? tech) : null;
+      },
+    };
+  }
+
+  /**
+   * Swap engine (the engine card's Engine, then a row of its sheet): the engine becomes `look` in place, the same car,
+   * so its train keeps its line, place on it, cars, loads, name and paint. One undo step (the look back, if the engine's
+   * still on the track); saved.
+   */
+  function swapEngineTo(carId: number, look: CarLook): boolean {
+    const rules = swapRules();
+    const why = swapRefusal(game.world, carId, look, rules);
+    if (why !== null) {
+      if (SWAP_WHY[why]) hud.toast(SWAP_WHY[why], false, 2500);
+      audio.refuse();
+      return false;
+    }
+    const was = swapEngine(game.world, carId, look, rules);
+    if (was === null) return false;
+    const put = (l: CarLook) => {
+      if (game.sim.findCar(carId)) game.sim.setLook(carId, l);
+      scheduleSave();
+    };
+    editor.recordRoutes({ undo: () => put(was), redo: () => put(look) });
+    hud.setHistory(editor.canUndo, editor.canRedo);
+    audio.magnet(0.6, 0);
+    hud.toast(swappedWords(game.sim.nameOf(carId), look), false, 2500);
+    showSummary();
+    game.invalidate();
+    scheduleSave();
+    return true;
+  }
+
+  // Swap engine's sheet (ui/engine-sheet.ts). (Its code is loaded the first time it opens.)
+  const engineSheet = lazy(async () => new (await import("./ui/engine-sheet")).EngineSheet({
+    choices: (carId) => swapChoices(game.world, carId, swapRules()),
+    nameOf: (carId) => game.sim.nameOf(carId),
+    swap: (carId, look) => swapEngineTo(carId, look),
+  }), lazyFailed);
+
   /** Continue (the engine card, at the end of the track): it turns round now and runs on to its next stop. */
   function continueTrain(): void {
     const carId = interaction.openEngineCarId;
@@ -5931,7 +5991,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // The paint shop's sheet (game/paint-shop.ts): an engine painted from its card.
   // (Its code is loaded the first time it opens.)
-  const paintSheet = lazy(async () => new (await import("./ui/paint-sheet")).PaintSheet({
+  const paintSheet = lazy(async () => new (await loadPaintSheet()).PaintSheet({
     progress: () => progress,
     liveryOf: (id) => game.sim.liveryOf(id),
     nameOf: (id) => game.sim.nameOf(id),
@@ -5988,10 +6048,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const swap = engineId !== -1 ? game.sim.runAroundRefusal(engineId) : null;
     const dec = game.sim.decoupleRefusal(carId);
-    const key = `${carId}:${swap}:${dec}`;
+    // (Engine: greyed with why while moving, or a crane has it, or it's the metro's or the Royal Train's.)
+    const engine = engineId !== -1 ? swapRefusal(game.world, engineId, null, null) : null;
+    const key = `${carId}:${swap}:${dec}:${engine}`;
     if (key === refusalsKey) return;
     refusalsKey = key;
-    hud.setCardRefusals(swap ? REFUSED_WHY[swap] : "", dec ? REFUSED_WHY[dec] : "");
+    hud.setCardRefusals(swap ? REFUSED_WHY[swap] : "", dec ? REFUSED_WHY[dec] : "", engine ? SWAP_WHY[engine] : "");
   }
 
   /**
@@ -6019,7 +6081,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const cars = found.train.cars;
     const line = engineId !== -1 ? lineOf(game.economy, engineId) : undefined;
-    const key = `${mode}:${engineId}:${carId}:${game.economy.loadsVersion}:${game.economy.carGoodsVersion}:${game.economy.wagonCapacity}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
+    const key = `${mode}:${engineId}:${carId}:${game.sim.looksVersion}:${game.economy.loadsVersion}:${game.economy.carGoodsVersion}:${game.economy.wagonCapacity}:${cars.length}:${cars[0].id}:${cars[cars.length - 1].id}:${line?.name ?? ""}`;
     if (key === summaryKey) return;
     summaryKey = key;
     if (engineId !== -1) {
@@ -7690,6 +7752,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     if (e.key === "Escape" && mapView.open) closeMap(true, true);
     if (e.key === "Escape" && board.open) setBoardOpen(false);
+    if (e.key === "Escape" && engineSheet.now?.open) engineSheet.now.close();
     // (A line sheet with no train's card under it: Esc closes it, as it closes a card. A train's planning ends as its
     // card closes.)
     if (e.key === "Escape" && planning && sheetEngine === -1) setPlanning(false);
@@ -8091,7 +8154,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, situations: () => situations, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving, slots });
   // (Its code is loaded the first time it's shown.)
-  const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m)), lazyFailed) : null;
+  const statsCard = stats.available ? lazy(async () => new (await loadStatsCard()).StatsCard(hud.root, stats, (m) => hud.toast(m)), lazyFailed) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
   const feedbackUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
@@ -8099,7 +8162,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   if (feedbackUrl) {
     // (Its code is loaded the first time it opens.)
     const url = feedbackUrl;
-    const sheet = lazy(async () => new (await import("./ui/feedback-sheet")).FeedbackSheet(hud.root, url, {
+    const sheet = lazy(async () => new (await loadFeedbackSheet()).FeedbackSheet(hud.root, url, {
       map: async () => {
         save();
         return { map: await mapText(mode), mode };
@@ -8112,6 +8175,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.hideCards();
       sheet.use((f) => f.show());
     });
+  }
+  // The sheets most often opened, fetched once the game has gone quiet (src/lib/prefetch.ts): they then open at once,
+  // and still open in a tab older than the deploy now served (whose files may be gone by then). About 38 kB, 15 kB gzipped.
+  // `woodrail.prefetched` is for the e2e (`npm run e2e:prefetch`). Built games only: the dev server has no old deploys to
+  // lose, and its unbundled imports landing mid-test upset the click suite's wheel and tray drag.
+  {
+    const loads: Load[] = [loadBlueprintBoard, loadExplainerSheet, loadPaintSheet, loadCreditsSheet];
+    if (statsCard) loads.push(loadStatsCard);
+    if (feedbackUrl) loads.push(loadFeedbackSheet);
+    const w = (window as unknown as { woodrail: { prefetched?: boolean } }).woodrail;
+    if (!import.meta.env.DEV) void prefetchWhenIdle(loads).then(() => (w.prefetched = true));
   }
   /** The one-time "Help improve Woodrail?" question: put off while something else is being done. */
   function askStats(): void {

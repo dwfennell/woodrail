@@ -589,9 +589,14 @@ export class Sim {
   /** Each car's look, by id (it follows the car when it's picked up and put down again, as ids do). */
   private readonly looks = new Map<number, CarLook>();
 
+  /** Goes up whenever a car's look changes on the track (an engine swapped: its model is built again). */
+  looksVersion = 0;
+
   setLook(carId: number, look: CarLook): void {
+    if ((this.looks.get(carId) ?? "classic") === look) return;
     if (look === "classic") this.looks.delete(carId);
     else this.looks.set(carId, look);
+    this.looksVersion++;
   }
 
   lookOf(carId: number): CarLook {
