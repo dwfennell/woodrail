@@ -696,3 +696,38 @@ Seed 1, with why each refusal stood (counted by `timedWhy`):
 | rowan-2 | 754 → 691 (7 jams → 19) | 7 | stands on it (1874) |
 
 **Why parked:** the refusals that cost complex-1 its stops are real. The other train is already on the shared track facing this one, or nearer to it. The few moves timing lets through cost rowan-2. complex-1's gap against the dispatcher-off run (481 vs 546) isn't about timing.
+
+### 13.8 The turn queue (2026-11-25)
+
+§2.2a's "the longest waiter goes next", as the code had it, only refused a move onto a single line that another train was
+on, or granted onto, heading for its other end. A train *waiting* at the far end didn't count. On a ring with one loop
+and two trains going opposite ways (the routing cases' `ring1 2×one opposed`, ten variants) that starved one of them for
+good: the train going round asks for the single line while it's still running (`ASK_LOOK` ahead of its hold's end), finds
+it free, and is granted it; the one at the loop's far end asks once the line is taken, and is refused. Every lap the same.
+
+**The queue.** A train refused entry to a single line by `singleLineBy` keeps the lines it asked for and the end it was
+heading to (`Hold.queued`). A later move onto one of those lines heading for the *other* end isn't granted while that
+train still waits there and has waited longer than the mover (a mover under way hasn't waited at all): it waits its turn
+at its own end. Followers the same way aren't held (one at a time is per direction, as before).
+
+**What it never does.**
+
+- It doesn't hold a train already on the line: it runs on off it.
+- It doesn't hold a train standing on the waiter's way to the line (the waiter couldn't go till it moves).
+- A waiter that leaves (granted elsewhere, put away, its route changed) leaves the queue at its next decision.
+
+**Measured (2026-11-25, not kept).** Built behind a switch and run on the routing cases with the dispatcher on (65 wrong
+before):
+
+- As written: 65, nothing cleared. The ring's long single line has both its ends at its one loop, so the train going
+  round is still *on* it (its tail) each time it asks, and "a train on the line already runs on off it" let it through:
+  its grant runs through the loop and back onto the same line from the far end.
+- The exception narrowed to the track between the waiter and the line, and "on it" to the line as the move leaves it
+  (coming back onto it counts as coming onto it): the waiter gets its turn once, then the other waits 60 s and more and
+  breaks `deadlock`; and 12 cases new wrong (line1 2× and 3×: trains queued behind a waiter that couldn't go next).
+
+**What it shows.** The waiter's turn needs the line *and* its way out the far side: the train it let by holds a grant
+that runs on round the ring through the waiter's next move, so the turn passes back at once. A queue on the line alone
+can't give that. The next attempt books the whole move: a queued train's turn includes the track from the line's far end
+to its next waiting place, and a train granted past it is cut back to its last rest before (the §2.2a "through to a place
+it can wait", for both). Parked till then.
