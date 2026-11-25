@@ -2904,6 +2904,10 @@ async function putAwayButton(p) {
   await frames(p);
   const setup = await p.evaluate(async () => {
     const w = window.woodrail;
+    // Harness shortcut (setup): the train dispatcher off, as ☰ Train dispatcher would turn it, and as an old save has it.
+    // The trap is the sections' room rule (a fourth train held where three fit), which is what runs without it; a new
+    // game has it on (`asNewGame`), and it plans the line its own way. Saved off with the game, so the reload keeps it.
+    w.economy.useDispatcher(false);
     const { Layout, appendPiece, connectorRef } = await import("/src/track/index.ts");
     const { loopOn } = await import("/src/economy/loop-fixtures.ts");
     const { editLine, joinLine } = await import("/src/game/lines.ts");
