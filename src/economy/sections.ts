@@ -1506,6 +1506,16 @@ export class Sections {
           }
           return { steps, sections, through, dest: r, outBy, blockedBy: -1 };
         }
+        // (Standing on the facing points itself, every road passed over (its stop's not the one they lie for, and they
+        // never move under it) and nobody named: the road they lie for is the only one it can take, its stop's or not,
+        // and whoever's in it is who it waits for. Before, the way came back full naming no train, and it stood on the
+        // points waiting for train −1 (an invariant break in e2e:depot-tracks; depot-tracks.test.ts "a train standing on
+        // the points into them": a front axle on the split into a mill's second track, its stop the mill's own track,
+        // another train in the second).)
+        if (blockedBy === -1 && prev && under.has(prev.pieceId) && !roads.includes(slot)) {
+          const u = this.slotUser(info, slot, st.engine, outBy);
+          return u === -1 ? { steps, sections, through, dest: slot, outBy, blockedBy: -1 } : { steps, sections, through, dest: -1, outBy, blockedBy: u };
+        }
         return { steps, sections, through, dest: -1, outBy, blockedBy };
       }
       const sec = topo.sectionOf.get(at.pieceId);

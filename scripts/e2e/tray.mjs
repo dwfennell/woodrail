@@ -62,7 +62,8 @@ async function pictures() {
   await freshPage();
   await p.goto(URL);
   await enter("New map");
-  // An engine going round from the first station, so the scene's never still.
+  // An engine running to and fro on the first station (a new map's stations are lone pieces: it turns back at each
+  // end, standing 2 s there to turn), so the scene's never still for long.
   await p.evaluate(() => {
     const w = window.woodrail;
     const station = [...w.stations.values()][0];
@@ -87,8 +88,13 @@ async function pictures() {
   }
   fresh = await counts();
   check("fresh, a train running: every Track-tray item ends up its real picture", allPictures(fresh), JSON.stringify(fresh));
-  const moving = await p.evaluate(() => window.woodrail.sim.trainIds().some((id) => window.woodrail.sim.getTrain(id).speed > 0));
-  check("…and the train was still running", moving);
+  // (Running, not just standing at an end to turn: read once, as before, this caught it turning half the time. Polled
+  // by a timer: under software GL a frame is about 0.1 s of play, so its 2 s turn can be 20 s or more.)
+  const moving = await p
+    .waitForFunction(() => window.woodrail.sim.trainIds().some((id) => window.woodrail.sim.getTrain(id).speed > 0), null, { polling: 250, timeout: 90000 })
+    .then(() => true, () => false);
+  const at = await p.evaluate(() => window.woodrail.sim.trainIds().map((id) => { const t = window.woodrail.sim.getTrain(id); return { speed: Math.round(t.speed), turnback: t.turnback, lever: t.cars[0]?.lever }; }));
+  check("…and the train was still running", moving, JSON.stringify(at));
 
   // Saved once they're all drawn (the trains' too, drawn after the Track tray's): reloaded, they're all there on entering.
   await p.evaluate(() => window.woodrail.trayThumbnailsSaved());

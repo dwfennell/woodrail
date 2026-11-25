@@ -206,10 +206,18 @@ if (!setup.error && setup.engine !== -1) {
     return { flyers: w.economy.depot(mast).flyers, state: w.airships.state(mast) };
   }, setup);
   check("5. town people ride to the mast and board the airship", boarded.flyers === 8 || boarded.state.aboard > 0, JSON.stringify(boarded));
+  // (The airships move on in the game's once-a-second update: a second of play run, then that update waited for, by a
+  // timer: polled on animation frames, as before, a check under SwiftShader's frame or two a second missed a ship long
+  // since up, and one long since down.)
+  const second = async () => {
+    const at = await p.evaluate(() => (window.__run(1), window.woodrail.simSeconds));
+    await p.waitForFunction((t) => window.woodrail.airships.lastUpdate >= t, at, { polling: 100, timeout: 5000 }).catch(() => {});
+    return p.evaluate((m) => window.woodrail.airships.state(m), mast);
+  };
   let touring = null;
   for (let k = 0; k < 20 && !touring; k++) {
-    await p.evaluate(() => window.__run(1));
-    touring = await p.waitForFunction((m) => window.woodrail.airships.state(m).touring && window.woodrail.airships.state(m), mast, { timeout: 1500 }).then((h) => h.jsonValue(), () => null);
+    const s = await second();
+    if (s.touring) touring = s;
   }
   check("…full, it takes off on its tour", !!touring && touring.aboard === 8, JSON.stringify(touring));
   if (touring) {
@@ -228,10 +236,7 @@ if (!setup.error && setup.engine !== -1) {
     await shot("2-airship-touring");
     const c0 = await p.evaluate(() => window.woodrail.progress().coins);
     let landed = false;
-    for (let k = 0; k < 40 && !landed; k++) {
-      await p.evaluate(() => window.__run(1));
-      landed = await p.waitForFunction((m) => !window.woodrail.airships.state(m).touring, mast, { timeout: 1500 }).then(() => true, () => false);
-    }
+    for (let k = 0; k < 60 && !landed; k++) landed = !(await second()).touring;
     const c1 = await p.evaluate(() => window.woodrail.progress().coins);
     check("…it lands, and each rider pays the tour's fare", landed && c1 - c0 === 8 * touring.fare, JSON.stringify({ landed, paid: c1 - c0, fare: touring.fare }));
   }
