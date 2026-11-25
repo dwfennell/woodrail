@@ -2,7 +2,8 @@
 // like a Pixel 10 (412×915, DPR 2.625, touch), in Game mode. Lost for a moment: nothing shows, and when it's back the
 // game draws again (shadows and the environment map made again, the card gone). Lost for good: "The picture stopped",
 // a tap on "Tap to reload", and the game is back in play with the railway as it was (saved as the drawing went), lean
-// from then on (a pixel ratio of 1.5). Idle, it draws nothing, before and after.
+// from then on (a pixel ratio of 1.5); lost again while lean, leanest (1, a 512 shadow map, no multisampling). Idle,
+// it draws nothing, before and after.
 // Crash reports (src/feedback/crash.ts): the first loss sends one, holding only the error and the device (no map, no
 // save); the second sends none (one a session). ☰ "Crash reports: on" switches them off, and an error then sends
 // nothing; on again (a new session), an uncaught error sends one with its stack's links cut short.
@@ -15,7 +16,7 @@
 // A phone frees its drawn-only geometry once uploaded (gpu-only.ts, the mobile tier only), so a loss there goes to the
 // card at once. `npm run e2e:gl-lost-desktop` (GL_LOST_DESKTOP=1) runs on a desktop instead (1440×900, a mouse, the
 // high tier): its copies are kept, and a brief loss comes back in place, the scene drawn again with no card; then it
-// stops (what follows is the phone's: the reload into a lean phone).
+// stops (what follows is the phone's: the reload into a lean phone, and after a loss while lean, into a leanest one).
 //
 // Usage: npm run e2e:gl-lost [-- <out dir>]   (default out: e2e-out/gl-lost)
 import { existsSync, mkdirSync } from "node:fs";
@@ -170,6 +171,8 @@ if (!inPlace) {
   await settle();
   const lum0 = await drawn();
   check("…a tap: reloaded straight into play, and it draws", !(await p.evaluate(() => window.woodrail.title.shown)) && lum0 > 20, `brightness ${lum0.toFixed(0)}`);
+  const ql = await p.evaluate(() => ({ lean: window.woodrail.quality.lean, leanest: window.woodrail.quality.leanest, pr: window.woodrail.renderer.getPixelRatio(), shadow: window.woodrail.stage.sun.shadow.mapSize.x }));
+  check("…lean from now: a pixel ratio of 1.5, a 1024 shadow map", ql.lean && !ql.leanest && ql.pr === 1.5 && ql.shadow === 1024, JSON.stringify(ql));
 } else {
 check("lost: no card at once (it may come back)", !(await cardShown()));
 await p.evaluate(() => window.__lose.restoreContext());
@@ -204,26 +207,35 @@ const pieces = await p.evaluate(() => {
   return { id, count: w.layout.pieceCount };
 });
 check("a piece laid", pieces.id >= 0, JSON.stringify(pieces));
+// (Lean already if the first loss reloaded: then this loss, while lean, makes it leanest.)
+const leanBefore = await p.evaluate(() => window.woodrail.quality.lean);
 await lose();
 await p.waitForTimeout(3500);
 check("lost, not back: “The picture stopped”", await cardShown(), await p.evaluate(() => document.querySelector(".gl-lost")?.textContent ?? ""));
 const btn = await p.evaluate(() => { const r = document.querySelector(".gl-lost button")?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height } : null; });
 check("…its button 44 px or more", !!btn && btn.h >= 44 && btn.w >= 44, JSON.stringify(btn));
 check("…the device kept as lean from now", await p.evaluate(() => Number(localStorage.getItem("woodrail.gpuLost")) > 0));
+if (leanBefore) check("…lost while lean: leanest from now", await p.evaluate(() => Number(localStorage.getItem("woodrail.gpuLostLean")) > 0));
 check("…no second crash report (one a session)", crashes.length === 1, `${crashes.length} sent`);
 await shot("2-card");
 await p.touchscreen.tap(btn.x, btn.y);
 await p.waitForLoadState("load");
 await inPlay();
 await settle();
-const q1 = await p.evaluate(() => ({ lean: window.woodrail.quality.lean, pr: window.woodrail.renderer.getPixelRatio(), shadow: window.woodrail.stage.sun.shadow.mapSize.x, count: window.woodrail.layout.pieceCount, title: window.woodrail.title.shown }));
+const q1 = await p.evaluate(() => ({ lean: window.woodrail.quality.lean, leanest: window.woodrail.quality.leanest, samples: window.woodrail.quality.sceneSamples, pr: window.woodrail.renderer.getPixelRatio(), shadow: window.woodrail.stage.sun.shadow.mapSize.x, count: window.woodrail.layout.pieceCount, title: window.woodrail.title.shown }));
 check("reloaded straight into play, the railway as it was", !q1.title && q1.count === pieces.count, JSON.stringify(q1));
-check("…lean: a pixel ratio of 1.5, a 1024 shadow map", q1.lean && q1.pr === 1.5 && q1.shadow === 1024, JSON.stringify(q1));
+if (leanBefore) {
+  // The leanest settings (an iPad's lot: Safari gives a tab little GPU memory): the screen's own pixels, a 512 shadow
+  // map, no multisampling.
+  check("…leanest: a pixel ratio of 1, a 512 shadow map, no multisampling", q1.leanest && q1.pr === 1 && q1.shadow === 512 && q1.samples === 0, JSON.stringify(q1));
+} else {
+  check("…lean: a pixel ratio of 1.5, a 1024 shadow map", q1.lean && !q1.leanest && q1.pr === 1.5 && q1.shadow === 1024, JSON.stringify(q1));
+}
 const lum2 = await drawn();
 check("…it draws", lum2 > 20, `brightness ${lum2.toFixed(0)}`);
 {
   const n = await idleFrames();
-  check("idle, lean: nothing drawn", n === 0, `${n} frames`);
+  check("idle, lean or leaner: nothing drawn", n === 0, `${n} frames`);
 }
 await shot("3-lean");
 
@@ -245,7 +257,7 @@ const posted = nextCrash(2);
 await p.evaluate(() => setTimeout(() => { throw new Error("e2e: on purpose, on"); }));
 await posted;
 const err = crashes[1] ? JSON.parse(crashes[1]) : null;
-check("on: an uncaught error sends one, its stack's links cut short", crashes.length === 2 && err?.kind === "error" && err.message.includes("on purpose, on") && !/https?:|localhost/.test(err.stack) && err.quality === "mobile-lean", crashes[1] ?? "");
+check("on: an uncaught error sends one, its stack's links cut short", crashes.length === 2 && err?.kind === "error" && err.message.includes("on purpose, on") && !/https?:|localhost/.test(err.stack) && err.quality === (leanBefore ? "mobile-leanest" : "mobile-lean"), crashes[1] ?? "");
 
 // 5. A scene that can't be uploaded again (its CPU copies freed: Game.restoreInPlace false): the card at once, and it
 // stays when the context comes back (only a reload brings the scene back), nothing drawn.

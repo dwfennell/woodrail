@@ -1133,6 +1133,14 @@ export class Game {
   /** The WebGL context is lost (see the constructor): nothing is drawn till it's back. */
   contextLost = false;
   /**
+   * Is the drawing gone, even before the browser's `webglcontextlost` event says so? That event comes a moment after
+   * the loss, and a frame drawn between compiles shaders on a dead context: Safari then throws ("shaderSource must be
+   * an instance of WebGLShader"), and that error, sent as the session's one crash report, hid the loss itself.
+   */
+  get drawingLost(): boolean {
+    return this.contextLost || this.renderer.getContext().isContextLost();
+  }
+  /**
    * Can the scene come back by itself after a lost context? three uploads geometry and textures again from their
    * arrays: true while those are kept. Set false once the CPU copies are freed after upload (they can't be uploaded
    * again): then a loss goes straight to the card to reload (the railway saved), and a context given back changes that.
@@ -1186,6 +1194,8 @@ export class Game {
    * waits for its compile on the main thread (the first tray drag: 3.6 s at 4× CPU in the perf harness).
    */
   warmShaders(objects: readonly Object3D[]): Promise<void> {
+    // (Nothing to compile on a lost context: they're compiled when first drawn, once it's back.)
+    if (this.drawingLost) return Promise.resolve();
     const side = new Scene();
     for (const o of objects) side.add(o);
     // Compiled for a render target, as the scene is drawn (into the post-processing's target: linear, no tone
@@ -1463,7 +1473,7 @@ export class Game {
       return;
     }
     // (No drawing while the context is lost: the frame stays wanted, for when it's back.)
-    if (this.contextLost) return;
+    if (this.drawingLost) return;
     const once = this.dirty;
     // (A change that casts no shadow, `redraw`: drawn, the shadow map kept.)
     const shown = this.redrawn;

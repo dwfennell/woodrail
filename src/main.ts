@@ -539,7 +539,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const withPiece = (type: PieceTypeId) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : kitOf(type) ? game.kitView.model(type) : null);
   const drawThumbnails = (items: readonly TrayItem[], save = true, studio?: ThumbnailStudio): string[] => {
     const subjects = subjectsOf(items);
-    if (subjects.length === 0) return [];
+    // (None on a lost drawing: they'd be blank, and kept. The tray shows the pieces' icons till they're drawn.)
+    if (subjects.length === 0 || game.drawingLost) return [];
     const drawn = renderThumbnails(game.renderer, game.mats, subjects, withPiece, studio);
     for (const [k, v] of drawn) thumbnails.set(k, v);
     if (save) void saveCached("thumbnails", __BUILD_ID__, thumbnails);
@@ -548,7 +549,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** As `drawThumbnails` (unsaved), read back without holding the main thread: the keys drawn, once they're in. */
   const drawThumbnailsAsync = async (items: readonly TrayItem[], studio: ThumbnailStudio): Promise<string[]> => {
     const subjects = subjectsOf(items);
-    if (subjects.length === 0) return [];
+    if (subjects.length === 0 || game.drawingLost) return [];
     const drawn = await renderThumbnailsAsync(studio, game.mats, subjects, withPiece);
     for (const [k, v] of drawn) thumbnails.set(k, v);
     return [...drawn.keys()];
@@ -1741,10 +1742,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       reloadInto(mode);
     } else location.reload();
   });
-  crashDrawing = () => ({ pixelRatio: game.renderer.getPixelRatio(), quality: `${game.quality.tier}${game.quality.lean ? "-lean" : ""}` });
+  crashDrawing = () => ({ pixelRatio: game.renderer.getPixelRatio(), quality: `${game.quality.tier}${game.quality.leanest ? "-leanest" : game.quality.lean ? "-lean" : ""}` });
   game.onContextLost = () => {
     crashes?.report("context-lost", { message: "WebGL context lost" });
-    noteContextLost();
+    noteContextLost(game.quality.lean);
     save();
     lostCard.lost(game.restoreInPlace);
   };

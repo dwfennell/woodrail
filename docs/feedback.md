@@ -93,9 +93,9 @@ Worker's `cloud/src/crash.ts`).
 | `userAgent` | the browser's user agent (browser and OS) |
 | `screen` | `{ width, height, dpr }` |
 | `pixelRatio` | the drawing's pixel ratio then |
-| `quality` | the graphics tier: `high`, `mobile`, or `mobile-lean` |
+| `quality` | the graphics tier: `high`, `mobile`, `mobile-lean` or `mobile-leanest` |
 
-No map, no save, no id of the player. At most one a session (`sessionStorage`), and none once the player switches
+The browser's "ResizeObserver loop…" warnings, which break nothing, aren't sent (`harmless`). No map, no save, no id of the player. At most one a session (`sessionStorage`), and none once the player switches
 them off: ☰ **Crash reports: on / off** (after Copy map; `localStorage` `woodrail.crashReports` = `off`). It shows in a
 build with a Worker to send to, as feedback does, and listens from before the game is made, so a failure while loading
 is sent too. The request is a `text/plain` `no-cors` `fetch` with `keepalive`: no preflight, its answer never read, so a Worker without `/crash` (not deployed yet) fails silently, with no console error and no retry; it goes even as the tab closes.
