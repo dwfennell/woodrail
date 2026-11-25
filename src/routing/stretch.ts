@@ -877,6 +877,9 @@ function branchesOf(t: DTrain, i: number): Branch[] {
   return bs;
 }
 
+/** §16 Q9 in the search: turned close behind one train at the line's end only, never a queue (Q9_ONE=0: any). */
+export const Q9_ONE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_ONE !== "0" };
+
 /** `q9Mirror` per booked way and node. */
 const mirrorCache = new WeakMap<Int32Array[], Map<number, number>>();
 
@@ -1197,6 +1200,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
         const c = close >= 0 ? close : j > 0 ? b.nodes[j - 1] : i;
         if (t.plain[c] || c === i) {
           let filled = true;
+          let by = 0;
           let x = t.succ[c][0] ?? -1;
           for (let n = 0; x >= 0 && !t.turned[x] && n < 400; n++) {
             // (Points on the way, or a stop of its own before the turn: not a dead end it only turns in (Q9 is for those).)
@@ -1208,6 +1212,11 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
               if (t.pos[c].includes(p)) continue;
               const ow = owner[p];
               if (ow === 0 || ow === own) filled = false;
+              // (One train only, standing at the line's end, as the oracle has it: not a queue of them (`Q9_ONE`).)
+              else if (Q9_ONE.on) {
+                if (by === 0) by = ow;
+                else if (ow !== by) filled = false;
+              }
             }
             if (!filled) break;
             x = t.succ[x][0] ?? -1;
