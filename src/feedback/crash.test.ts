@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { cleanStack, CrashReporter, crashPayload, MAX_MESSAGE, setCrashReportsOff } from "./crash";
+import { cleanStack, CrashReporter, crashPayload, harmless, MAX_MESSAGE, setCrashReportsOff } from "./crash";
 
 const about = () => ({ build: "abc", userAgent: "Mozilla/5.0 (Linux; Android 16; Pixel 10)", screen: { width: 412, height: 923, dpr: 2.625 }, pixelRatio: 2, quality: "mobile" });
 
@@ -15,6 +15,12 @@ beforeEach(() => {
 });
 
 describe("crash reports", () => {
+  it("leave out the browser's harmless ResizeObserver warnings", () => {
+    expect(harmless("ResizeObserver loop completed with undelivered notifications.")).toBe(true);
+    expect(harmless("ResizeObserver loop limit exceeded")).toBe(true);
+    expect(harmless("TypeError: x is undefined")).toBe(false);
+  });
+
   it("cut links in a stack to file:line, with no host, query or #map", () => {
     const s = cleanStack("Error: x\n    at f (https://html-classic.itch.zone/html/123/assets/index-Ab.js?v=2:10:5)\n    at g (http://localhost:5173/src/main.ts#load=woodrail-map:1:AAAA:3:1)");
     expect(s).toContain("at f (index-Ab.js:10:5)");

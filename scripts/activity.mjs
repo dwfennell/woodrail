@@ -81,7 +81,12 @@ const browserOf = (ua) => {
   const br = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "other";
   return `${br} on ${os}`;
 };
-const crashes = (await admin("/crash")).reports.map((c) => ({ day: day(c.at), kind: c.kind, build: c.build, browser: browserOf(c.userAgent ?? ""), quality: c.quality, message: (c.message ?? "").slice(0, 120) }));
+// A headless browser's reports are bots and test runs (e2e:gl-lost's own included), not players: left out.
+const crashes = (await admin("/crash")).reports
+  .filter((c) => !/HeadlessChrome/.test(c.userAgent ?? ""))
+  .map((c) => ({ day: day(c.at), kind: c.kind, build: c.build, from: builtBy(c.build), browser: browserOf(c.userAgent ?? ""), quality: c.quality, message: (c.message ?? "").slice(0, 120) }));
+// (A Pages build is ours, as with feedback: counted apart.)
+const theirs = (rows) => rows.filter((c) => !ours(c));
 write("crashes", crashes);
 
 // GitHub: releases (the itch versions) and open issues.
@@ -96,5 +101,5 @@ const [itch] = read("itch-totals", [{}]);
 // One row a day, every source side by side.
 const days = [...new Set([...players, ...minutes, ...itchDaily].map((r) => r.day))].sort();
 const on = (rows, d, key) => rows.find((r) => r.day === d)?.[key] ?? 0;
-write("daily", days.map((d) => ({ day: d, players: on(players, d, "players"), sessions: on(players, d, "sessions"), new_games: on(players, d, "new_games"), minutes: on(minutes, d, "minutes"), itch_views: on(itchDaily, d, "views"), itch_plays: on(itchDaily, d, "plays"), feedback: feedback.filter((f) => f.day === d && !ours(f)).length, snapshots: snapshots.filter((s) => day(s.at) === d).length, crashes: crashes.filter((c) => c.day === d).length })));
-write("summary", [{ as_of: new Date().toISOString().slice(0, 10), days: DAYS, players: totals?.players ?? 0, sessions: totals?.sessions ?? 0, minutes: played?.minutes ?? 0, errors: errors?.times ?? 0, snapshots: snapshots.length, snapshot_players: new Set(snapshots.map((s) => s.id)).size, crashes: crashes.length, crashes_webgl: crashes.filter((c) => c.kind === "context-lost").length, feedback: feedback.filter((f) => !ours(f)).length, feedback_ours: feedback.filter(ours).length, open_issues: issues.length, itch_as_of: itch.as_of ?? "", itch_window: itch.window ?? "", itch_views: itch.views ?? 0, itch_plays: itch.browser_plays ?? 0, itch_collections: itch.collections ?? 0, itch_ratings: itch.ratings ?? 0, itch_impressions_7d: itch.impressions_7d ?? 0, itch_ctr_7d: itch.ctr_7d ?? 0 }]);
+write("daily", days.map((d) => ({ day: d, players: on(players, d, "players"), sessions: on(players, d, "sessions"), new_games: on(players, d, "new_games"), minutes: on(minutes, d, "minutes"), itch_views: on(itchDaily, d, "views"), itch_plays: on(itchDaily, d, "plays"), feedback: feedback.filter((f) => f.day === d && !ours(f)).length, snapshots: snapshots.filter((s) => day(s.at) === d).length, crashes: theirs(crashes).filter((c) => c.day === d).length })));
+write("summary", [{ as_of: new Date().toISOString().slice(0, 10), days: DAYS, players: totals?.players ?? 0, sessions: totals?.sessions ?? 0, minutes: played?.minutes ?? 0, errors: errors?.times ?? 0, snapshots: snapshots.length, snapshot_players: new Set(snapshots.map((s) => s.id)).size, crashes: theirs(crashes).length, crashes_ours: crashes.filter(ours).length, crashes_webgl: theirs(crashes).filter((c) => c.kind === "context-lost").length, feedback: feedback.filter((f) => !ours(f)).length, feedback_ours: feedback.filter(ours).length, open_issues: issues.length, itch_as_of: itch.as_of ?? "", itch_window: itch.window ?? "", itch_views: itch.views ?? 0, itch_plays: itch.browser_plays ?? 0, itch_collections: itch.collections ?? 0, itch_ratings: itch.ratings ?? 0, itch_impressions_7d: itch.impressions_7d ?? 0, itch_ctr_7d: itch.ctr_7d ?? 0 }]);

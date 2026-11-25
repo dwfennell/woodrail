@@ -104,6 +104,9 @@ textures again when it comes, but:
 - **Lean settings** (`quality.ts` `leanOf`) for the mobile tier when the phone reports 4 GB or less
   (`navigator.deviceMemory`), or when this device's drawing was lost in the last 3 days (`noteContextLost`): pixel
   ratio at most 1.5, a 1024 shadow map, 2× multisampling. The desktop tier never goes lean.
+  An iPad starts lean (its Safari says it's a Mac: told by its touch points, `isIPad`), and a device whose drawing was
+  lost while already lean goes **leanest** for 3 days (`leanestOf`, added 2026-11-24 after one iPad lost it in four
+  sessions in a week): pixel ratio 1, a 512 shadow map, no multisampling.
 - **Context loss handled** (`game.ts`, `main.ts`, `ui/context-lost.ts`): on a loss the railway is saved at once and the
   device marked lean; nothing is drawn meanwhile. If the context comes back, the environment map is made again, the
   shadow hook put back, and the game draws on. If it isn't back in 2.5 s, a card: "The picture stopped. Your device ran
