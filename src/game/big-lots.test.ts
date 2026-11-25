@@ -1,9 +1,9 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FEAT_BUILDING, FEAT_NONE, SURF_ROAD, type Landscape } from "../landscape";
 import { LandEditor } from "../landscape/edit";
-import { scaleOf } from "../catalogue/scale";
 import { loadFootprints } from "../props/footprints-testing";
 import type { Footprint } from "../props/placement";
+import { civicRow } from "../props/rows";
 import { fitScale, fitsLot, townModels, townProps } from "../props/towns";
 import { appendPiece, connectorRef } from "../track";
 import { LANDMARKS } from "./landmarks";
@@ -42,7 +42,8 @@ describe("big landmarks on 2×2 lots", () => {
       const b = t.buildings.find((x) => x.landmark === id)!;
       expect(b.cells, id).toHaveLength(4);
       expect(isBlock(w.landscape, b.cells), id).toBe(true);
-      expect(props.find((p) => p.building === b.id)!.asset, id).toBe(LANDMARKS.find((l) => l.id === id)!.models.four![0]);
+      // (Its own model, as rows have it: the one made for a block.)
+      expect(props.find((p) => p.building === b.id)!.asset, id).toBe(civicRow(LANDMARKS.find((l) => l.id === id)!.models.four![0], 4));
     }
     // (Towns build no school or library: the player places a school, a depot beside a town, which grows its own wing.)
     expect(t.buildings.some((x) => x.landmark === "school" || x.landmark === "library")).toBe(false);
@@ -63,10 +64,10 @@ describe("big landmarks on 2×2 lots", () => {
         const prop = props.find((p) => p.building === b.id)!;
         const mark = LANDMARKS.find((l) => l.id === id)!;
         // Its own model, never a stand-in, on two squares: smaller than it's drawn on a block, but no smaller than modelled.
-        if (b.cells.length === 2) expect(prop.asset, `${t.name} ${id}`).toBe(mark.models.two[0]);
-        const k = fitScale(prop.asset, b.cells.length)!;
-        expect(k).toBeGreaterThanOrEqual(1);
-        expect((prop.scale ?? 1) * scaleOf(prop.asset)).toBeCloseTo(k);
+        // (In rows: the model made for two squares, at its own size.)
+        if (b.cells.length === 2) expect(prop.asset, `${t.name} ${id}`).toBe(civicRow(mark.models.two[0], 2));
+        expect(prop.scale, `${t.name} ${id}`).toBeUndefined();
+        expect(fitScale(mark.models.two[0], b.cells.length)).not.toBeNull();
       }
     }
   });

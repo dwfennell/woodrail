@@ -1,3 +1,4 @@
+import { isChurch } from "./rows";
 import { Color, MeshStandardMaterial } from "three";
 import { describe, expect, it } from "vitest";
 import { createWorld } from "../game/world";
@@ -110,15 +111,17 @@ describe("storeys on a map's towns", () => {
   it("a city with no church gets one on its first new house lot of two squares or more", () => {
     let found = 0;
     for (const t of land.towns) {
-      const before = townProps(land, t).filter((p) => p.asset === "bldg-church").length;
-      const city = townProps(land, t, { level: 3 }).filter((p) => p.asset === "bldg-church").length;
+      const before = townProps(land, t).filter((p) => isChurch(p.asset)).length;
+      const city = townProps(land, t, { level: 3 }).filter((p) => isChurch(p.asset)).length;
       if (before === 0 && t.buildings.some((b) => b.cells.length >= 2 && !b.landmark)) {
         expect(city, t.name).toBe(1);
         found++;
       } else expect(city).toBeGreaterThanOrEqual(before);
     }
     // (A town dressed already keeps its models: no church dropped on it.)
-    for (const t of land.towns) expect(townProps(land, t, { level: 3, dressedAs: () => "bldg-villa" })).toEqual(townProps(land, t, { dressedAs: () => "bldg-villa" }));
+    // (…nor a new colour: a building dressed already has its own, `variantOf`.)
+    const dressed = { dressedAs: () => "bldg-villa", variantOf: () => 5 };
+    for (const t of land.towns) expect(townProps(land, t, { level: 3, ...dressed })).toEqual(townProps(land, t, dressed));
     expect(found).toBeGreaterThan(0);
   });
 

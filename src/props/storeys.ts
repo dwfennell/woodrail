@@ -24,7 +24,28 @@ const STACKS: Readonly<Record<string, { storey: number; most: number }>> = {
   "bldg-thatched-cottage": { storey: 20, most: 1 },
   "bldg-bungalow": { storey: 20, most: 1 },
   "bldg-cottage-row": { storey: 20, most: 1 },
+  // Towns in rows (props/rows.ts): a slice is as wide as its lot, so it stays lower than it is wide.
+  "row-pair-a": { storey: 20, most: 2 },
+  "row-pair-b": { storey: 20, most: 2 },
+  "row-pair-c": { storey: 20, most: 2 },
+  "row-wide-a": { storey: 20, most: 3 },
+  "row-wide-b": { storey: 20, most: 3 },
+  "row-wide-c": { storey: 20, most: 3 },
+  "row-low-a": { storey: 20, most: 1 },
+  "row-low-b": { storey: 20, most: 1 },
+  "row-shop": { storey: 20, most: 2 },
+  "row-toy-shop": { storey: 20, most: 2 },
+  "row-corner-shop": { storey: 20, most: 2 },
+  "row-terrace": { storey: 20, most: 2 },
+  "row-bakery": { storey: 20, most: 2 },
+  "row-cafe": { storey: 20, most: 2 },
+  "row-post": { storey: 20, most: 2 },
+  "row-flats": { storey: 24, most: 3 },
+  "row-court": { storey: 20, most: 3 },
 };
+
+/** The most storeys this model can gain (0 if it has no blocks). */
+export const mostStoreys = (asset: string): number => STACKS[asset]?.most ?? 0;
 
 /** Can this model gain storeys (it has storey blocks)? */
 export const stacks = (asset: string): boolean => asset in STACKS;

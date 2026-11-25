@@ -83,7 +83,7 @@
     },
     "fresh.heapMB": {
       "kind": "count",
-      "max": 32
+      "max": 36
     },
     "fresh.load.cold.readyMs": {
       "kind": "time",

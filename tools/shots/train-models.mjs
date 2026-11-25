@@ -1,5 +1,5 @@
-// Every engine and wagon one by one, each beside a town house at the same scale (to judge the models' quality against
-// the towns' houses), drawn by the game on this machine's GPU on a plain slab high over the map:
+// Every engine and wagon one by one, each beside a row house at the same scale (to judge the models' quality against
+// the towns' rows), drawn by the game on this machine's GPU on a plain slab high over the map:
 // `node tools/shots/train-models.mjs [<out dir>] [--only=engine,passenger] [--yaw=2.4] [--pitch=1.15]`: <out>/<name>.jpg
 // and <out>/sheet.jpg. The cars are built as the game builds them (`buildCarModel`), in their own colours.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -45,9 +45,9 @@ const CARS = [
   ["crane", "classic", "wagon-breakdown-crane"],
   ["cleaner", "classic", "wagon-track-cleaner"],
 ].filter(([, , name]) => !only || only.some((o) => name.includes(o)));
-/** The town house each stands beside, and its colours. */
-const BESIDE = "bldg-semi-detached";
-const VARIANT = 0;
+/** The row house each stands beside, and its colours. */
+const BESIDE = "row-pair-a";
+const VARIANT = 9;
 mkdirSync(OUT, { recursive: true });
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5398, strictPort: false }, logLevel: "error" });
 await server.listen();
@@ -88,7 +88,7 @@ try {
         const box = new THREE.Box3().setFromObject(car);
         car.position.y = -box.min.y;
         g.add(car);
-        // The town house behind it.
+        // The row house behind it.
         const m = await w.propLibrary.load(drawnKey(beside, variant, 0));
         for (const part of m.parts) {
           const mesh = new THREE.Mesh(part.geometry, part.material);

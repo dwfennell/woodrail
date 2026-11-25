@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { testClockIn } from "../../scripts/e2e/lib/fast.mjs";
+import { shownToast, toastLogIn, toastMark, toastsSince } from "../../scripts/e2e/lib/toasts.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/train-off-line";
@@ -29,6 +30,8 @@ const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chro
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 testClockIn(b);
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: Number(process.env.E2E_PHONE_DPR ?? 2), hasTouch: true, isMobile: true });
+// (Every toast kept as it shows: one is up a few wall-clock seconds, and a loaded box can look too late.)
+await toastLogIn(ctx);
 await ctx.addInitScript(() => {
   localStorage.setItem("woodrail.helpSeen", "1");
   window.__allClicks = 0;
@@ -123,7 +126,6 @@ const tapEngineStill = async (engine, dist) => {
   }
   return false;
 };
-const toastText = () => p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "));
 /** The game's own sim and economy ticks (as Game.frame runs them, ahead of SwiftShader's few frames). */
 const run = (seconds, forest, mill) =>
   p.evaluate(
@@ -260,10 +262,10 @@ await shot("1-card-on-line");
 
 // ---- 2. Leave line ----------------------------------------------------------------------------------------------
 const secondBefore = await trainState(second);
+const offMark = await toastMark(p);
 await tap(".engine-card:not([hidden]) .route-off");
 // (Toasts take turns: setup's may still be showing.)
-await p.waitForFunction((name) => [...document.querySelectorAll(".toast")].some((t) => t.textContent.includes(`off ${name}`)), setup.lineName, { timeout: 20000 }).catch(() => {});
-const said = await toastText();
+const said = (await shownToast(p, `off ${setup.lineName}`, { from: offMark }))?.text ?? (await toastsSince(p, offMark));
 const justOff = await trainState(first);
 check("2. Leave line: off the line, hand-run", justOff?.line === -1 && !justOff.routed, JSON.stringify(justOff));
 check("2. …the toast says so, and how to put it back", said.includes(`off ${setup.lineName}`) && said.includes("Undo"), said);
@@ -274,8 +276,7 @@ check("2. …it stands where it is (its lever off, still), not on points", stood
 check("2. the line is kept, its other train still on it and running", (await p.evaluate((id) => window.woodrail.economy.lines.has(id), setup.line)) && secondAfter?.line === setup.line && Math.hypot(secondAfter.x - secondBefore.x, secondAfter.z - secondBefore.z) > 50, JSON.stringify({ secondBefore, secondAfter }));
 // (One loop, no passing place: stood on the line's track, it's in the other train's way, and a toast says so once it stands.)
 const firstName = await p.evaluate((e) => window.woodrail.sim.nameOf(e), first);
-await p.waitForFunction((name) => [...document.querySelectorAll(".toast")].some((t) => t.textContent.includes(name) && t.textContent.includes("can't get by")), firstName, { timeout: 20000 }).catch(() => {});
-const inWay = await toastText();
+const inWay = (await shownToast(p, new RegExp(`${firstName}.*can't get by`), { from: offMark }))?.text ?? (await toastsSince(p, offMark));
 check("2. …once it stands on the line's track, a toast says its other train can't get by, and to move it", /stopped on .*track: its other train can't get by\. Move it/.test(inWay) && inWay.includes(firstName), inWay);
 await p.waitForTimeout(500);
 await frames();
@@ -300,6 +301,7 @@ await tap(".lines-row");
 await tap(`.ls-train[data-engine='${second}'] .ls-train-main`);
 check("4. the line's sheet has its other train on its spine; tapped, Take off line", await p.evaluate((e) => document.querySelector(`.ls-train[data-engine='${e}'] .ls-train-off`)?.textContent === "Take off line", second));
 await shot("3-sheet-trains");
+const lastMark = await toastMark(p);
 await tap(`.ls-train[data-engine='${second}'] .ls-train-off`);
 const secondOff = await trainState(second);
 check("4. Take off in the sheet: that train off the line, hand-run (the same as the card's)", secondOff?.line === -1 && !secondOff.routed, JSON.stringify(secondOff));
@@ -309,8 +311,9 @@ check("4. …and it stands, not on points", secondStood?.lever === 0 && secondSt
 // (The line's last train: in nobody's way, so nothing more is said.)
 await p.waitForTimeout(1500);
 const secondName = await p.evaluate((e) => window.woodrail.sim.nameOf(e), second);
-const lastSaid = await toastText();
-check("4. …the line's last train: no toast says it's in the way", !(lastSaid.includes(secondName) && lastSaid.includes("can't get by")), lastSaid);
+// (Every toast since the tap, not only the one up now: none may have said it.)
+const lastSaid = await toastsSince(p, lastMark);
+check("4. …the line's last train: no toast says it's in the way", !new RegExp(`${secondName}[^|]*can't get by`).test(lastSaid), lastSaid);
 await tap(".ls-done");
 await p.waitForFunction(() => { const v = document.querySelector(".lines-view"); return v && !v.hidden; }, null, { timeout: 15000 }).catch(() => {});
 await p.waitForTimeout(600);

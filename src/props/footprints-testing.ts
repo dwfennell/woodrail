@@ -21,8 +21,9 @@ export function stubMaterials(): Materials {
  */
 export async function loadFootprints(files: readonly CatalogueFile[]): Promise<(asset: string) => Footprint | undefined> {
   const lib = new PropLibrary(stubMaterials());
-  for (const file of files) for (const id of (await loadFile(file)).keys()) await lib.load(id);
-  const loaded = new Set(files);
+  // (A town's buildings are its rows, the "row" file: wherever buildings are wanted, they are too.)
+  const loaded = new Set<CatalogueFile>(files.includes("bldg") ? [...files, "row"] : files);
+  for (const file of loaded) for (const id of (await loadFile(file)).keys()) await lib.load(id);
   return (asset) => {
     const file = fileOf(asset);
     if (file && !loaded.has(file)) throw new Error(`loadFootprints: ${asset} is in the "${file}" catalogue file, not loaded (add it to the files)`);

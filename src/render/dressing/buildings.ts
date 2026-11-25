@@ -3,6 +3,7 @@ import { rng } from "../../lib/rng";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_ROAD, SURF_TOWN, type Landscape, type Shed, type Town } from "../../landscape";
 import { onFelt, STREET_FELT_HALF } from "./roads";
+import { rowOpenings } from "../../roads/grow-town";
 import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
 import { addPart } from "../blender-models";
@@ -232,7 +233,7 @@ export function townLooks(seed: number, town: Town): Look[] {
  * themselves are catalogue models placed as props (see `src/props/towns.ts`); their doors are at the middle of their
  * fronts, facing the town centre. Returns nothing to cast contact shadows (props stand on their own).
  */
-export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher): { cx: number; cz: number; w: number; d: number }[] {
+export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher, rows = true): { cx: number; cz: number; w: number; d: number }[] {
   const looks = townLooks(land.seed, town);
   const doors: Point[] = town.buildings.map((bld, k) => {
     const fp = footprintOf(land, town, bld.cells, looks[k], bld.front);
@@ -241,7 +242,19 @@ export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batch
   });
   for (const p of townFurniture(land, town, doors)) furniture(b, mats, p);
   for (const i of townGreens(land, town)) green(land, i, mats, b);
+  // Towns in rows: an opening in a row that no side street has taken is a small paved place, so a street has no holes.
+  if (rows) for (const i of rowOpenings(land.grid, { centre: town.centre, heading: town.station.heading, cells: town.cells, buildings: town.buildings })) pavedPlace(land, i, mats, b);
   return [];
+}
+
+/**
+ * An opening in a row (`rowOpenings`): the rows' pavement carried across it, flat, so the street has no hole. Nothing
+ * stands on it: the player's track or a prop may be there (this dressing sees only the map's squares), and a side
+ * street laid through it later takes its place.
+ */
+function pavedPlace(land: Landscape, i: number, mats: Materials, b: Batcher): void {
+  const g = land.grid;
+  b.add(mats.lacquer("#d8d0bf"), new RoundedBoxGeometry(CELL, 2.4, CELL, 2, 0.6).translate(g.centreX(g.colOf(i)), g.groundY(i) + 1.2, g.centreZ(g.rowOf(i))));
 }
 
 /** A town's greens: its squares with nothing on them (a house moved away, or not yet built on). */
@@ -276,10 +289,24 @@ function green(land: Landscape, i: number, mats: Materials, b: Batcher): void {
 }
 
 /**
+ * How long the station house's roof is flat on top, along the station (mm): the town's sign stands on it, its posts 28
+ * either side of the middle and 2.4 thick (`landscape-view.ts`).
+ */
+export const STATION_ROOF_FLAT = 64;
+
+/** A hipped roof `w` along x by `d`, `h` high about its middle, sloping in on all four sides to a flat top `top` of its size. */
+function hippedRoof(w: number, d: number, h: number, top: number): BufferGeometry {
+  // (A four-sided frustum, a square turned to its sides, stretched to the roof's plan; flat-shaded.)
+  const g = new CylinderGeometry(top * Math.SQRT1_2, Math.SQRT1_2, h, 4, 1).rotateY(Math.PI / 4).scale(w, 1, d).toNonIndexed();
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
  * The fixed station: platform with a yellow edge line, a canopy over both platform and track (trains run under the
  * roof, as with a wooden toy station) and a little beech station house.
  */
-export function buildStation(town: Town, mats: Materials, b: Batcher): void {
+export function buildStation(town: Town, mats: Materials, b: Batcher, rows = true): void {
   const place = stationPlace(town);
   const side = TRACK_WIDTH / 2;
   b.add(mats.blockWood, place(new RoundedBoxGeometry(196, 14, 38, 2, 2.5), 108, side + 21, 7));
@@ -293,8 +320,16 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   const theme = stationTheme(town.name);
   b.add(mats.lacquer(theme.canopy), place(new RoundedBoxGeometry(176, 4, canopyW, 1, 1.5), 108, canopyMid, CANOPY_Y + 2));
   b.add(mats.lacquer("#fbf6ec"), place(new RoundedBoxGeometry(178, 3, canopyW + 2, 1, 1.2), 108, canopyMid, CANOPY_Y - 0.5));
-  b.add(mats.blockWood, place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
-  b.add(mats.lacquer(theme.roof), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));
+  if (rows) {
+    // Towns in rows: the house as the town's buildings are, painted walls over a band in the canopy's colour, under a
+    // hipped roof (its flat top where the lid's was: the town's sign stands on it).
+    b.add(mats.lacquer("#f3e7cb"), place(new RoundedBoxGeometry(70, 46, 30, 2, 2), 108, side + 58, 14 + 23));
+    b.add(mats.lacquer(theme.canopy), place(new RoundedBoxGeometry(70.8, 7, 30.8, 1, 1), 108, side + 58, 14 + 3.5));
+    b.add(mats.lacquer(theme.roof), place(hippedRoof(82, 40, 9, STATION_ROOF_FLAT / 82), 108, side + 58, STATION_ROOF_TOP - 4.5));
+  } else {
+    b.add(mats.blockWood, place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
+    b.add(mats.lacquer(theme.roof), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));
+  }
   // Bunting along the canopy's platform edge: a cord, and little flags hanging from it in the town's colours.
   const edge = side + 34 + 0.8;
   b.add(mats.lacquer("#fbf6ec"), place(new BoxGeometry(170, 0.5, 0.5), 108, edge, CANOPY_Y - 1.2));

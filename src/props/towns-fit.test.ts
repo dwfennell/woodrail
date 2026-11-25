@@ -70,7 +70,8 @@ async function noOverhang(lib: PropLibrary, w: World): Promise<void> {
         const cx = b.cells.map((i) => g.centreX(g.colOf(i)));
         const cz = b.cells.map((i) => g.centreZ(g.rowOf(i)));
         const over = Math.max(Math.min(...cx) - CELL / 2 - Math.min(...xs), Math.max(...xs) - Math.max(...cx) - CELL / 2, Math.min(...cz) - CELL / 2 - Math.min(...zs), Math.max(...zs) - Math.max(...cz) - CELL / 2);
-        expect(over, `${town.name} ${t.asset}`).toBeLessThanOrEqual(0);
+        // (A row fills its lot to the edge: to a rounding's breadth.)
+        expect(over, `${town.name} ${t.asset}`).toBeLessThanOrEqual(1e-6);
         checked++;
       }
     }

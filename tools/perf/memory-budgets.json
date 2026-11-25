@@ -39,14 +39,16 @@
     "mobile.gpu.totalMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 189.9,
-      "max": 201.3
+      "measured": 181.4,
+      "max": 192.3,
+      "why": "Tightened on 2026-11-14: towns in rows draw about a third of the triangles the houses did."
     },
     "mobile.gpu.geometryMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 64.3,
-      "max": 68.2
+      "measured": 57.8,
+      "max": 61.3,
+      "why": "Tightened on 2026-11-14: towns in rows draw about a third of the triangles the houses did."
     },
     "mobile.gpu.texturesMB": {
       "kind": "size",
@@ -69,14 +71,16 @@
     "mobile.js.heapMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 39.9,
-      "max": 43
+      "measured": 42.6,
+      "max": 45.2,
+      "why": "+1.1 MB (mobile), +1.9 MB (desktop) on 2026-11-14: towns in rows. The row model set (rows.glb: 91 models, 1,741 nodes; each house four ways for its storeys, 23 civic models) is held beside the buildings set. Main was 41.5 / 41.6 before it. The GPU's geometry fell 8.7 / 9.5 MB and the ArrayBuffers 11.3 / 11.5 MB with it (a row has about a third of a house's triangles)."
     },
     "mobile.js.arrayBuffersMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 156.9,
-      "max": 166.3
+      "measured": 146.3,
+      "max": 155.1,
+      "why": "Tightened on 2026-11-14: towns in rows draw about a third of the triangles the houses did."
     },
     "mobile.counts.geometries": {
       "kind": "count",
@@ -143,14 +147,16 @@
     "desktop.gpu.totalMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 284.9,
-      "max": 302
+      "measured": 276.7,
+      "max": 293.3,
+      "why": "Tightened on 2026-11-14: towns in rows draw about a third of the triangles the houses did."
     },
     "desktop.gpu.geometryMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 68.3,
-      "max": 72.4
+      "measured": 61.8,
+      "max": 65.5,
+      "why": "Tightened on 2026-11-14: towns in rows draw about a third of the triangles the houses did."
     },
     "desktop.gpu.texturesMB": {
       "kind": "size",
@@ -173,14 +179,16 @@
     "desktop.js.heapMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 40.5,
-      "max": 43
+      "measured": 43.5,
+      "max": 46.1,
+      "why": "+1.1 MB (mobile), +1.9 MB (desktop) on 2026-11-14: towns in rows. The row model set (rows.glb: 91 models, 1,741 nodes; each house four ways for its storeys, 23 civic models) is held beside the buildings set. Main was 41.5 / 41.6 before it. The GPU's geometry fell 8.7 / 9.5 MB and the ArrayBuffers 11.3 / 11.5 MB with it (a row has about a third of a house's triangles)."
     },
     "desktop.js.arrayBuffersMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 171.2,
-      "max": 181.5
+      "measured": 160.6,
+      "max": 170.2,
+      "why": "Tightened on 2026-11-14: towns in rows draw about a third of the triangles the houses did."
     },
     "desktop.counts.geometries": {
       "kind": "count",

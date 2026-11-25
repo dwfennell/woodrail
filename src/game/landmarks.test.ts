@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { loadFootprints } from "../props/footprints-testing";
 import type { Footprint } from "../props/placement";
+import { civicRow, rowFor } from "../props/rows";
 import { townProps } from "../props/towns";
 import { BLUEPRINTS, CITY_SCHOOL_ID, SCHOOL_NEED } from "./blueprints";
 import { techOf, TECHS } from "./tech";
@@ -50,7 +51,8 @@ describe("town landmarks", () => {
     // Its market has its own model (or a stand-in from the catalogue).
     const b = t.buildings.find((x) => x.landmark === "market")!;
     const asset = townProps(w.landscape, t).find((p) => p.building === b.id)!.asset;
-    expect([...LANDMARKS[0].models.two, ...LANDMARKS[0].models.one]).toContain(asset);
+    const made = [2, 4].map((n) => civicRow("bldg-market-hall", n));
+    expect([...made, rowFor("bldg-post-office"), rowFor("bldg-corner-shop")]).toContain(asset);
   });
 
   it("a town that grows by more than one level at once gets every landmark it passed", () => {

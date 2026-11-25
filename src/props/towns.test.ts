@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildStarterWorld, createWorld } from "../game/world";
 import { FEAT_BUILDING, FEAT_NONE, SURF_TOWN } from "../landscape";
 import { deserializeWorld, serializeWorld, type SaveData } from "../persist/save";
+import { rowSquares } from "./rows";
 import { addTownProps, buildingCells, findBuilding, releaseBuilding, townProps } from "./towns";
 
 describe("towns built from catalogue models", () => {
@@ -18,8 +19,7 @@ describe("towns built from catalogue models", () => {
       const g = w.landscape.grid;
       expect([g.cellAtWorld(p!.x - 1, p!.z - 1), g.cellAtWorld(p!.x + 1, p!.z + 1)].some((c) => b.cells.includes(c))).toBe(true);
       // Two-square buildings get two-square models.
-      const two = ["bldg-terrace", "bldg-semi-detached", "bldg-villa", "bldg-cottage-row", "bldg-church", "bldg-post-office", "bldg-cafe", "bldg-apartment-block", "bldg-bakery"];
-      if (b.cells.length > 1) expect(two, p!.asset).toContain(p!.asset);
+      if (b.cells.length > 1) expect(rowSquares(p!.asset), p!.asset).toBeGreaterThanOrEqual(2);
     }
   });
 
@@ -84,5 +84,219 @@ describe("buildings facing their street", () => {
       expect(Math.cos(t.heading)).toBeCloseTo(front.x);
       expect(Math.sin(t.heading)).toBeCloseTo(front.z);
     }
+  });
+});
+
+describe("towns in rows", () => {
+  /** A world whose towns are dressed as they were before rows (an old save's props). */
+  const oldWorld = (seed = 4242) => {
+    const w = createWorld(seed);
+    for (const p of [...w.props.all()]) if (p.building !== undefined) w.props.remove(p.id);
+    addTownProps(w.landscape, w.props, undefined, false);
+    return w;
+  };
+  const rowsWorld = (seed = 4242) => {
+    const w = oldWorld(seed);
+    const before = [...w.props.all()].map((p) => ({ ...p }));
+    addTownProps(w.landscape, w.props, undefined, true);
+    return { w, before };
+  };
+  it("dressed the old way (as an old save's towns are), a town has no rows", () => {
+    const w = oldWorld();
+    const town = [...w.props.all()].filter((p) => p.building !== undefined);
+    expect(town.length).toBeGreaterThan(10);
+    expect(town.some((p) => p.asset.startsWith("row-"))).toBe(false);
+  });
+
+  it("a save from before rows loads with its towns in rows: every building on its squares, its storeys kept; and saves and loads the same again", () => {
+    const w = oldWorld();
+    // (Some of its houses grown, as a played game's are.)
+    const houses = [...w.props.all()].filter((p) => p.building !== undefined);
+    houses.slice(0, 6).forEach((p, k) => w.props.setStoreys(p.id, 1 + (k % 2)));
+    const old = new Map([...w.props.all()].filter((p) => p.building !== undefined).map((p) => [p.building!, { ...p }]));
+    expect([...old.values()].some((p) => p.asset.startsWith("row-"))).toBe(false);
+    const back = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))) as SaveData);
+    expect(back.ok, back.ok ? "" : JSON.stringify(back)).toBe(true);
+    if (!back.ok) return;
+    const now = [...back.value.props.all()].filter((p) => p.building !== undefined);
+    expect(now).toHaveLength(old.size);
+    const g = back.value.landscape.grid;
+    let rows = 0;
+    for (const p of now) {
+      const was = old.get(p.building!)!;
+      expect(p.storeys, `building ${p.building}`).toBe(was.storeys);
+      const { building } = findBuilding(back.value.landscape, p.building!)!;
+      expect([g.cellAtWorld(p.x - 1, p.z - 1), g.cellAtWorld(p.x + 1, p.z + 1)].some((c) => building.cells.includes(c)) || building.cells.length >= 4, `building ${p.building}`).toBe(true);
+      if (p.asset.startsWith("row-")) rows++;
+      else expect(p.asset, `building ${p.building}`).toBe(was.asset);
+    }
+    expect(rows).toBeGreaterThan(old.size * 0.8);
+    // Again: the same props.
+    const again = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(back.value))) as SaveData);
+    expect(again.ok && [...again.value.props.all()]).toEqual([...back.value.props.all()]);
+  });
+
+  it("a game in rows saves and loads again, every house in its colour", () => {
+    const w = createWorld(4242);
+    for (const p of [...w.props.all()]) if (p.building !== undefined) w.props.remove(p.id);
+    addTownProps(w.landscape, w.props, undefined, true);
+    const rows = [...w.props.all()].filter((p) => p.asset.startsWith("row-"));
+    // (Its colours use the whole range: a body and a roof in one number.)
+    expect(Math.max(...rows.map((p) => p.variant ?? 0))).toBeGreaterThan(8);
+    const back = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))) as SaveData);
+    expect(back.ok, back.ok ? "" : JSON.stringify(back)).toBe(true);
+    expect(back.ok && [...back.value.props.all()].filter((p) => p.asset.startsWith("row-"))).toEqual(rows);
+  });
+
+  it("a place in a shop's model becomes that shop's row where its lot is the row's, at its full size", async () => {
+    const { dressInRows } = await import("./towns");
+    const w = createWorld(4242);
+    const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.cells.length === 2))!;
+    const b = town.buildings.find((x) => x.cells.length === 2)!;
+    const old = [...w.props.all()].find((p) => p.building === b.id)!;
+    // A bank: a place in the post office's model, drawn a little small on its lot.
+    b.landmark = "bank";
+    w.props.remove(old.id);
+    const bank = w.props.add("bldg-post-office", { x: old.x, z: old.z, heading: old.heading, y: old.y }, old.id, { building: b.id, town: town.id, scale: 0.8 });
+    dressInRows(w.landscape, w.props);
+    const now = w.props.get(bank.id)!;
+    expect(now.asset).toBe("row-post");
+    expect(now.scale).toBeUndefined();
+    expect(now.building).toBe(b.id);
+  });
+
+  it("a saved landmark becomes the model made for its lot; one with none for its lot stays as it is", async () => {
+    const { dressInRows } = await import("./towns");
+    const w = createWorld(4242);
+    const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.cells.length === 2) && t.buildings.some((b) => b.cells.length === 1))!;
+    const dress = (squares: number, asset: string, landmark: string) => {
+      const b = town.buildings.find((x) => x.cells.length === squares && !x.landmark)!;
+      const old = [...w.props.all()].find((p) => p.building === b.id)!;
+      b.landmark = landmark;
+      w.props.remove(old.id);
+      return w.props.add(asset, { x: old.x, z: old.z, heading: old.heading, y: old.y }, old.id, { building: b.id, town: town.id });
+    };
+    const fire = dress(2, "bldg-fire-station", "fire-station");
+    // (A town hall has no model for one square: it never goes up on one. Were a save to hold one, it stays.)
+    const hall = dress(1, "bldg-town-hall", "town-hall");
+    dressInRows(w.landscape, w.props);
+    expect(w.props.get(fire.id)!.asset).toBe("row-fire-station");
+    expect(w.props.get(hall.id)!.asset).toBe("bldg-town-hall");
+  });
+
+  it("in rows a town's market goes up as the market hall made for its lot", () => {
+    const w = createWorld(4242);
+    const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.cells.length === 2))!;
+    const b = town.buildings.find((x) => x.cells.length === 2)!;
+    b.landmark = "market";
+    const p = townProps(w.landscape, town, { level: 2, rows: true }).find((t) => t.building === b.id)!;
+    expect(p.asset).toBe("row-market-hall");
+    expect(p.scale).toBeUndefined();
+    // On its lot's middle, as a row is.
+    const g = w.landscape.grid;
+    const mid = (f: (c: number) => number) => b.cells.reduce((sum, c) => sum + f(c), 0) / b.cells.length;
+    expect(p.x).toBeCloseTo(mid((c) => g.centreX(g.colOf(c))), 3);
+    expect(p.z).toBeCloseTo(mid((c) => g.centreZ(g.rowOf(c))), 3);
+  });
+
+  it("every house and shop becomes its row, the same prop on the same squares, on its lot's middle", async () => {
+    const { rowFor } = await import("./rows");
+    const { w, before } = rowsWorld();
+    const g = w.landscape.grid;
+    let rows = 0;
+    for (const old of before) {
+      if (old.building === undefined) continue;
+      const p = w.props.get(old.id)!;
+      expect(p, `prop ${old.id}`).toBeDefined();
+      expect(p.building).toBe(old.building);
+      expect(p.storeys).toBe(old.storeys);
+      if (!p.asset.startsWith("row-")) {
+        // (Park furniture, and a model with no row for its lot: as it was.)
+        expect(p).toEqual(old);
+        expect(rowFor(old.asset)).toBeUndefined();
+        continue;
+      }
+      rows++;
+      expect(p.asset).toMatch(/^row-/);
+      // (Its colour number is the one it had: a saved house keeps one steady colour.)
+      expect(p.variant ?? 0).toBe(old.variant ?? 0);
+      const { town, building } = findBuilding(w.landscape, p.building!)!;
+      const cx = building.cells.reduce((a, c) => a + g.centreX(g.colOf(c)), 0) / building.cells.length;
+      const cz = building.cells.reduce((a, c) => a + g.centreZ(g.rowOf(c)), 0) / building.cells.length;
+      if (building.cells.length < 4) {
+        expect(p.x).toBeCloseTo(cx);
+        expect(p.z).toBeCloseTo(cz);
+      }
+      // Facing its street: the square before its front is a street's.
+      if (building.front !== undefined && building.cells.length === 1) {
+        const ahead = g.cellAtWorld(p.x + Math.cos(p.heading) * 72, p.z + Math.sin(p.heading) * 72);
+        expect(g.road[ahead] !== 0 || g.surface[ahead] === 2, `building ${building.id} of ${town.name}`).toBe(true);
+      }
+      if (building.cells.length === 2) expect(rowSquares(p.asset), p.asset).toBe(2);
+    }
+    expect(rows).toBeGreaterThan(10);
+    // Again: nothing more to do.
+    const again = [...w.props.all()].map((p) => ({ ...p }));
+    expect(addTownProps(w.landscape, w.props, undefined, true)).toBe(0);
+    expect([...w.props.all()]).toEqual(again);
+  });
+
+  it("a new building takes a row in a colour none beside it has, the same every time", async () => {
+    const { rowColours } = await import("./rows");
+    const dress = () => {
+      const w = createWorld(4242);
+      for (const p of [...w.props.all()]) if (p.building !== undefined) w.props.remove(p.id);
+      addTownProps(w.landscape, w.props, undefined, true);
+      return w;
+    };
+    const w = dress();
+    expect([...w.props.all()]).toEqual([...dress().props.all()]);
+    const g = w.landscape.grid;
+    const byBuilding = new Map([...w.props.all()].filter((p) => p.building !== undefined).map((p) => [p.building!, p]));
+    let pairs = 0;
+    for (const town of w.landscape.towns) {
+      for (const b of town.buildings) {
+        const p = byBuilding.get(b.id)!;
+        if (!p.asset.startsWith("row-")) continue;
+        for (const c of b.cells) {
+          for (const [dc, dr] of [[1, 0], [0, 1]]) {
+            const i = g.index(g.colOf(c) + dc, g.rowOf(c) + dr);
+            const q = i === -1 || b.cells.includes(i) || g.feature[i] !== FEAT_BUILDING ? undefined : byBuilding.get(g.owner[i]);
+            if (!q || !q.asset.startsWith("row-")) continue;
+            pairs++;
+            expect(rowColours(q.variant ?? 0).body, `${town.name}: ${b.id} beside ${q.building}`).not.toBe(rowColours(p.variant ?? 0).body);
+          }
+        }
+      }
+    }
+    expect(pairs).toBeGreaterThan(3);
+    // More than one house style and more than one roof in a town.
+    const town = w.landscape.towns[0];
+    const own = town.buildings.map((b) => byBuilding.get(b.id)!).filter((p) => p.asset.startsWith("row-"));
+    expect(new Set(own.map((p) => rowColours(p.variant ?? 0).body)).size).toBeGreaterThan(2);
+  });
+
+  it("a building with no front faces the nearest street, else the station", async () => {
+    const { rowFront } = await import("./towns");
+    const w = createWorld(4242);
+    const g = w.landscape.grid;
+    const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.cells.length === 1 && b.front !== undefined))!;
+    const b = town.buildings.find((x) => x.cells.length === 1 && x.front !== undefined)!;
+    const front = b.front!;
+    delete b.front;
+    const e = rowFront(w.landscape, town, b);
+    const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+    const ahead = g.index(g.colOf(b.cells[0]) + dirs[e][0], g.rowOf(b.cells[0]) + dirs[e][1]);
+    expect(g.road[ahead] !== 0 || g.surface[ahead] === 2).toBe(true);
+    b.front = front;
+    // No street near: toward the town's centre, along the axis it lies farther on.
+    // (A square of the map far from any street, east or west of the town's middle by more than it is north or south.)
+    const cell = Array.from({ length: g.cellCount }, (_, i) => i).find((i) => {
+      const near = [1, 2].some((reach) => dirs.some(([dc, dr]) => { const n = g.index(g.colOf(i) + dc * reach, g.rowOf(i) + dr * reach); return n !== -1 && (g.road[n] !== 0 || g.surface[n] === 2); }));
+      return !near && Math.abs(g.centreX(g.colOf(i)) - town.centre.x) > Math.abs(g.centreZ(g.rowOf(i)) - town.centre.z) + 72;
+    });
+    expect(cell).toBeDefined();
+    const far = { id: 99999, cells: [cell!], floors: 1 as const, kind: "house" as const, roof: 0 };
+    expect(rowFront(w.landscape, town, far)).toBe(g.centreX(g.colOf(cell!)) < town.centre.x ? 0 : 2);
   });
 });

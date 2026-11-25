@@ -16,6 +16,8 @@ const FILES = {
   grand: () => import("./assets/grand"),
   // The secret sites (Game mode: hidden on the map until track is laid to them; Sandbox: on the Nature tab).
   secret: () => import("./assets/secrets"),
+  // Towns in rows (props/rows.ts): the models a town's buildings are drawn as.
+  row: () => import("./assets/rows"),
 } as const;
 
 export type CatalogueFile = keyof typeof FILES;
@@ -24,7 +26,7 @@ export type CatalogueFile = keyof typeof FILES;
  * The model sets a file's assets are (the file waits for them as it loads). Fetched first, here: a fetch that fails
  * then fails before the file is imported, so asking again retries, where a failed module would stay failed.
  */
-const MODEL_SETS: Partial<Record<CatalogueFile, ModelSet>> = { life: "life", bldg: "buildings", grand: "grand" };
+const MODEL_SETS: Partial<Record<CatalogueFile, ModelSet>> = { life: "life", bldg: "buildings", grand: "grand", row: "rows" };
 
 const loaded = new Map<CatalogueFile, Promise<Map<string, Asset>>>();
 
