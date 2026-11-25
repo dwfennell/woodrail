@@ -2942,6 +2942,37 @@ export class Sections {
 
   /** Have all a line's trains stood held for one another `SWAP_AFTER`, with none but its own on its track? */
   private stalledForSwap(info: LineInfo, after = SWAP_AFTER): boolean {
+    if (!this.swapShape(info)) return false;
+    const now = this.sim.ticks;
+    for (const e of info.engines) {
+      const st = this.states.get(e);
+      const t = this.sim.findCar(e)?.train;
+      if (!st || !t || !st.wait || st.waitSince < 0 || now - st.waitSince < after || t.speed >= 1) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Could the swap planner take this train's line, as it's laid (its trains all its own, a spare end to trade places
+   * through, no signals)? Whether they're stalled aside (`stalledForSwap`). The dispatcher hands such a line over
+   * (`HANDOFF`), and only such.
+   */
+  couldSwap(engine: number): boolean {
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0) return false;
+    const info = this.line(lineId);
+    return info.engines.includes(engine) && this.swapShape(info);
+  }
+
+  /** Did the swap planner search this train's line, as the track is laid now, and find no plan (`HANDOFF`)? */
+  swapFailed(engine: number): boolean {
+    const lineId = this.host.lineOf(engine);
+    const tried = lineId < 0 ? undefined : this.swapTried.get(lineId);
+    return !!tried && tried.failed && tried.revision === this.layout.revision;
+  }
+
+  /** `stalledForSwap`'s shape: its line's trains, its ends and signals; not yet whether they're stalled. */
+  private swapShape(info: LineInfo): boolean {
     if (info.engines.length < 2 || info.loose.length > 0 || info.foreign.length > 0 || info.users.length !== info.engines.length) return false;
     // (With a spare end to trade places through (no industry on it, none of the line's stops: the plan's `spareEnd`, the
     // user's A1); or a line with no passing loop its room rule holds a train of: the planner overrules that only where
@@ -2959,14 +2990,7 @@ export class Sections {
     const roomHeld = ends >= 3 && info.managed && info.loops === 0 && !(this.loopCount.get(lineId0)?.pinnedLoop ?? false) && info.engines.some((e) => !info.admitted.has(e));
     if (!roomHeld && !this.hasSpareEnd(lineId0, info.topo)) return false;
     // (Nor with signals laid: the plan doesn't heed them (a train held at a green one, the signal fuzz).)
-    if (this.layout.signalCount > 0) return false;
-    const now = this.sim.ticks;
-    for (const e of info.engines) {
-      const st = this.states.get(e);
-      const t = this.sim.findCar(e)?.train;
-      if (!st || !t || !st.wait || st.waitSince < 0 || now - st.waitSince < after || t.speed >= 1) return false;
-    }
-    return true;
+    return this.layout.signalCount === 0;
   }
 
   /** Has the line a spare end: a line end with no industry on it (no depot piece) and none of its stops (the plan's `spareEnd`)? */

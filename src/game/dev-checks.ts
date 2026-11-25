@@ -23,7 +23,8 @@ export function economyWorld(economy: Economy): InvariantWorld {
     routed: (engine) => economy.routeOf(engine) !== undefined,
     target: (engine) => economy.routeTarget(engine),
     owner: (engine) => economy.ownerOf(engine),
-    steerHint: (engine) => (economy.dispatcher ? economy.dispatcher.steerHint(engine) : economy.sections.steerHint(engine)),
+    steerHint: (engine) => (economy.dispatcher && !economy.dispatcher.released(engine) ? economy.dispatcher.steerHint(engine) : economy.sections.steerHint(engine)),
+    dispatched: (train) => !!economy.dispatcher?.holds(train),
     drive: (train) => economy.drive(train),
     busy: (train, engine) => {
       const found = economy.sim.findCar(engine);

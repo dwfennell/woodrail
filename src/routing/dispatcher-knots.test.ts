@@ -101,4 +101,32 @@ describe("the dispatcher's knots", { timeout: 120_000 }, () => {
     const after = run.run(0);
     expect(Math.min(...after.arrivals)).toBeGreaterThanOrEqual(2);
   });
+
+  it("a line it can't move, with a spare end, handed to sections' swap planner: both deliver, never two owners", () => {
+    // (siding-spare 2×one same: forest to forest through one set of points, a spare dead end off them; the two trains
+    // nose to nose on the line. One steps into the spare end and turns there (the user's A1): the swap planner's move.)
+    const run = new HarnessRun(new Layout(), {
+      name: "a spare siding",
+      seconds: 200,
+      build: (layout) => {
+        const [a, ...w] = chain(layout, ["depot-forest", S, S, S]);
+        appendPiece(layout, "buffer-turnback", false, connectorRef(a, 0));
+        const sw = appendPiece(layout, "switch", false, connectorRef(w[2], 1), 0);
+        const spare = chain(layout, ["curve-large", S, S], connectorRef(sw, 2));
+        appendPiece(layout, "buffer-turnback", false, connectorRef(spare[2], 1));
+        const e = chain(layout, [S, S, "depot-forest"], connectorRef(sw, 1));
+        appendPiece(layout, "buffer-turnback", false, connectorRef(e[2], 1));
+        return {
+          trains: [
+            { pieceId: w[0], stops: [a, e[2]], next: 1, line: 1, cars: CARS },
+            { pieceId: e[0], reversed: true, stops: [a, e[2]], next: 0, line: 1, cars: CARS },
+          ],
+        };
+      },
+    });
+    const r = run.run(200);
+    expect(run.dispatcher!.handOffs).toBeGreaterThan(0);
+    expect(Math.min(...r.arrivals)).toBeGreaterThanOrEqual(2);
+    expect(r.broke.twoOwners.count).toBe(0);
+  });
 });

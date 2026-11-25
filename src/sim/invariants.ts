@@ -44,7 +44,7 @@ import { outOfShort, stubRule } from "../routing/stubs";
 import { trainLength } from "./train-cars";
 import { ReservationShadow } from "../routing/shadow";
 
-export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed", "heldFree"] as const;
+export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed", "heldFree", "twoOwners"] as const;
 
 /**
  * The invariants added by the routing redesign's step 0 (docs/superpowers/specs/2026-11-07-routing-redesign.md §4):
@@ -74,6 +74,11 @@ export interface InvariantWorld {
    * not held? (`greenHeld`; default: never.)
    */
   busy?(train: Train, engine: number): boolean;
+  /**
+   * Does the dispatcher hold this train (its cap and steering)? With sections' swap planner taking its line too, two own
+   * it (`twoOwners`; the dispatcher's hand-off, `HANDOFF`). Default: never.
+   */
+  dispatched?(train: Train): boolean;
   /** The steering hint a routed train runs by (default sections'; the dispatcher's when it's on). */
   steerHint?(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined;
 }
@@ -157,6 +162,8 @@ interface TrainMemo {
   greenSaid: boolean;
   netHeld: number;
   netSaid: boolean;
+  /** twoOwners: said for this train. */
+  twoSaid: boolean;
 }
 
 export class Invariants {
@@ -294,7 +301,7 @@ export class Invariants {
       if (t.derailed) continue;
       let m = this.memo.get(key);
       if (!m) {
-        m = { roadTrain: -1, roadSign: 0, roadPiece: -1, lockPiece: -1, still: 0, ghostFrom: -1, ghostSaid: false, seen: tick, green: 0, greenSaid: false, netHeld: 0, netSaid: false };
+        m = { roadTrain: -1, roadSign: 0, roadPiece: -1, lockPiece: -1, still: 0, ghostFrom: -1, ghostSaid: false, seen: tick, green: 0, greenSaid: false, netHeld: 0, netSaid: false, twoSaid: false };
         this.memo.set(key, m);
       }
       m.seen = tick;
@@ -306,6 +313,11 @@ export class Invariants {
       if (full) this.checkStill(t, key, engine, m);
       if (full) this.checkGreen(t, key, engine, m);
       if (full) this.checkNet(t, key, engine, m);
+      // (twoOwners: held by the dispatcher while sections' swap planner has its line: said once a train.)
+      if (full && this.world.dispatched?.(t) && this.world.sections.swapping(engine)) {
+        if (!m.twoSaid) this.break("twoOwners", `${this.name(key, engine)} held by the dispatcher while sections' swap planner has its line`, engine);
+        m.twoSaid = true;
+      }
     }
     this.watchTurns();
     if (this.opts.heldFree) this.checkHeldFree();

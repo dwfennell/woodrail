@@ -748,8 +748,9 @@ export class Economy {
       lapRule: (engine) => this.sections.lapRule(engine),
       owner: (engine) => this.ownerOf(engine),
       drive: (train) => this.drive(train),
-      granted: (engine) => (this.dispatcher ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine)),
-      awaitingGrant: (engine) => (this.dispatcher ? this.dispatcher.awaiting(engine) : this.sections.awaitingGrant(engine)),
+      // (A train the dispatcher handed to sections (`HANDOFF`): sections' steering.)
+      granted: (engine) => (this.dispatcher && !this.dispatcher.released(engine) ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine)),
+      awaitingGrant: (engine) => (this.dispatcher && !this.dispatcher.released(engine) ? this.dispatcher.awaiting(engine) : this.sections.awaitingGrant(engine)),
       grantedWay: (engine) => (this.dispatcher && OWNER.on ? this.dispatcher.grantedWay(engine) : null),
       soon: this.sections.steerSoon,
       fullAt: (engine) => this.fullAt(engine),
@@ -2914,6 +2915,10 @@ export class Economy {
         // (A grant steers it at once, as a sections grant does: the router sets the points ahead.)
         granted: (engine) => this.sections.steerSoon.add(engine),
         overruled: (train) => (this.router.speedCap(train) < 1 ? "points" : this.sim.heldHow(train.id)),
+        lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
+        swapping: (engine) => this.sections.swapping(engine),
+          couldSwap: (engine) => this.sections.couldSwap(engine),
+          swapFailed: (engine) => this.sections.swapFailed(engine),
         pointsWaitBy: (engine) => {
           const w = this.router.waitOf(engine);
           return w && w.kind === "points" && typeof w.by === "number" ? w.by : -1;

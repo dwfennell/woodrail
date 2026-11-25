@@ -132,6 +132,17 @@ const S_PATIENCE_S = Number(((globalThis as { process?: { env: Record<string, st
 /** …only the stretch's own trains' (TAKEN_FIRST_MEMBERS=1, measuring). */
 export const TAKEN_FIRST_MEMBERS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST_MEMBERS === "1" };
 
+/**
+ * A line the dispatcher can't move (every one of its trains standing `HANDOFF_S`), and the swap planner could take (a
+ * spare line end, no signals: `couldSwap`), handed to sections, whose planner trades places through the spare end (the
+ * user's A1); handed back when the track changes (`handBack`). Its trains have no holds meanwhile: sections cap and steer
+ * them, and no train is both (`twoOwners`). On, unless HANDOFF=0: with the dispatcher on the routing cases go wrong 65
+ * times, not 79 (14 cleared: siding-spare, terminus-spare, wye-spare, branch-spare, line1+siding-spare, fuzz seeds 7 and 19;
+ * none new); the reference maps as before (all have signals: never handed over).
+ */
+export const HANDOFF = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HANDOFF !== "0" };
+const HANDOFF_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HANDOFF_S ?? 3);
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -165,6 +176,13 @@ export interface DispatcherHost {
   overruled?(train: Train): string | null;
   /** The train (its engine) the router's points wait for this one names, or −1 (none). */
   pointsWaitBy?(engine: number): number;
+  /** Its line (−1: none), and is sections' swap planner taking that line (`HANDOFF`)? */
+  lineOf?(engine: number): number;
+  swapping?(engine: number): boolean;
+  /** Could the swap planner take its line as laid (a spare end, no signals)? Only such a line is handed over. */
+  couldSwap?(engine: number): boolean;
+  /** Did the swap planner search its line, as laid, and find no plan? Not handed over again then. */
+  swapFailed?(engine: number): boolean;
 }
 
 interface Hold {
@@ -238,6 +256,8 @@ export class Dispatcher {
   reservedRefused = 0;
   /** Grants refused by the safety check (§13.6). */
   unsafeRefused = 0;
+  /** Lines handed to sections (`HANDOFF`). */
+  handOffs = 0;
   /** Grants refused as ending nose to nose with another train. */
   noseRefused = 0;
   /** Grants refused as tying a knot: fewer delivering than waiting would, with the others' granted track free (`KNOT`). */
@@ -262,6 +282,14 @@ export class Dispatcher {
   readonly perTrain = new Map<number, [number, number]>();
   readonly decisionMs: number[] = [];
   private readonly holdsBy = new Map<number, Hold>();
+  /** Trains handed to sections (`HANDOFF`): engine → when (tick). */
+  private readonly handedOff = new Map<number, { at: number; rev: number }>();
+  /** Lines handed over that came back with no plan made: line → the layout's revision then (`handBack`). */
+  private readonly handOffFailed = new Map<number, number>();
+  /** Handed to sections (`HANDOFF`): it caps and steers this one, not the dispatcher. */
+  released(engine: number): boolean {
+    return this.handedOff.has(engine);
+  }
   private sigs = new Map<number, string>();
   /** The signal at each held train's hold's end (joint ref → train id), for `gateAt`. */
   private gate = new Map<number, number>();
@@ -302,6 +330,7 @@ export class Dispatcher {
         if (h) h.stood = -1;
         continue;
       }
+      if (this.handedOff.has(engine.id)) continue;
       // (Granted but standing short of its hold's end (held by something else: a red signal's block, points): after
       // `GIVE_BACK_S` it gives the rest of its hold back, and asks again from where it stands.)
       if (h && t.speed === 0 && h.end !== h.t.at) {
@@ -362,6 +391,7 @@ export class Dispatcher {
       } else if (h) h.stood = -1;
     }
     if (this.cutForNew()) changed = true;
+    if (this.handedOff.size > 0 && this.handBack(live)) changed = true;
     for (const e of [...this.holdsBy.keys()])
       if (!live.has(e)) {
         this.holdsBy.delete(e);
@@ -380,6 +410,60 @@ export class Dispatcher {
     asking.sort((a, b) => (this.holdsBy.get(a)?.stood ?? Infinity) - (this.holdsBy.get(b)?.stood ?? Infinity) || a - b);
     for (const e of asking) this.decide(ts, snaps, e);
     this.refreshGate();
+  }
+
+  /**
+   * Lines handed to sections taken back, all of a line together, once the track changes (as it stands, the dispatcher would
+   * tie it again: sections run it as they would with the dispatcher off, the swap planner trading places when it must);
+   * or at once where the planner searched and found no plan (they can't all deliver: not handed over again till the track
+   * changes, else it went round, the stall said and unsaid each time: branch-spare 3×one opposed). True if any.
+   */
+  private handBack(live: ReadonlySet<number>): boolean {
+    const rev = this.host.layout.revision;
+    let any = false;
+    for (const [e, o] of [...this.handedOff]) {
+      if (!live.has(e)) {
+        this.handedOff.delete(e);
+        continue;
+      }
+      if (this.host.swapping?.(e)) continue;
+      const line = this.host.lineOf?.(e) ?? -1;
+      const mates = [...this.handedOff.keys()].filter((x) => (this.host.lineOf?.(x) ?? -1) === line);
+      const failed = mates.some((x) => this.host.swapFailed?.(x));
+      if (o.rev === rev && !failed) continue;
+      // (Its line's together: one back while another's still the planner's would put two owners on one line.)
+      if (mates.some((x) => this.host.swapping?.(x))) continue;
+      for (const x of mates) this.handedOff.delete(x);
+      if (failed) this.handOffFailed.set(line, rev);
+      any = true;
+    }
+    return any;
+  }
+
+  /**
+   * `HANDOFF`: a train held again, every train of its line (two at least, this one too) standing `HANDOFF_S` (asking, not
+   * busy): the line stalled, handed to sections. True if it was. (`plain` (none able to deliver) isn't asked: refused by a
+   * rule past the search, its stretch counts two of four delivering and it stands for good all the same: terminus-spare.)
+   */
+  private handOff(engine: number): boolean {
+    if (!HANDOFF.on || !this.host.lineOf || !this.host.swapping || !this.host.couldSwap?.(engine)) return false;
+    const line = this.host.lineOf(engine);
+    if (line < 0 || this.handOffFailed.get(line) === this.host.layout.revision) return false;
+    const now = this.host.sim.ticks;
+    const mates = [...this.holdsBy.keys()].filter((e) => this.host.lineOf!(e) === line);
+    if (mates.length < 2) return false;
+    for (const e of mates) {
+      const h = this.holdsBy.get(e)!;
+      if (h.stood < 0 || now - h.stood < HANDOFF_S * 120) return false;
+    }
+    for (const e of mates) {
+      this.handedOff.set(e, { at: now, rev: this.host.layout.revision });
+      this.holdsBy.delete(e);
+      this.sigs.delete(e);
+    }
+    this.holdVer++;
+    this.handOffs++;
+    return true;
   }
 
   /** A train new on the track (put down by hand where another was granted the way): each hold over a piece it's on cut
@@ -443,7 +527,7 @@ export class Dispatcher {
       // its way the booked road with Planks two on it; it stood on the loop's points for good).)
       const onDetour = KEEP_DETOUR.on && !!h && !!h.t.avoid && h.path.some((n) => h.t.detour[n] === 1);
       const t = onDetour ? buildTrain(layout, s, undefined, h!.t.avoid) : buildTrain(layout, s);
-      if (!s.stops || !s.lever) return t;
+      if (!s.stops || !s.lever || this.handedOff.has(s.key)) return t;
       const trainId = sim.findCar(s.key)?.train.id ?? -1;
       if (h) {
         const oldT = h.t;
@@ -879,6 +963,7 @@ export class Dispatcher {
     // (Who it waits for: the train in its move's way, or (its turn not yet) the one the best order lets go first.)
     const firstOther = r.order.find((m) => m.k !== 0);
     h.waitsOn = to >= 0 ? -1 : knotBy >= 0 ? knotBy : singleBy >= 0 ? singleBy : headBy >= 0 ? headBy : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    if (to < 0 && this.handOff(engine)) return;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;

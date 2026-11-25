@@ -325,6 +325,10 @@ export class HarnessRun implements InvariantWorld {
           busy: (train) => train.turnback >= 0,
           drive,
           granted: (engine) => this.sections.steerSoon.add(engine),
+          lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
+          swapping: (engine) => this.sections.swapping(engine),
+          couldSwap: (engine) => this.sections.couldSwap(engine),
+          swapFailed: (engine) => this.sections.swapFailed(engine),
         })
       : null;
     this.dispatcher = d;
@@ -344,8 +348,9 @@ export class HarnessRun implements InvariantWorld {
       lapRule: (engine) => this.sections.lapRule(engine),
       owner: (engine) => this.owner(engine),
       drive,
-      granted: (engine) => (d ? d.steerHint(engine) : this.sections.steerHint(engine)),
-      awaitingGrant: (engine) => (d ? d.awaiting(engine) : this.sections.awaitingGrant(engine)),
+      // (A train the dispatcher handed to sections (`HANDOFF`): sections' steering.)
+      granted: (engine) => (d && !d.released(engine) ? d.steerHint(engine) : this.sections.steerHint(engine)),
+      awaitingGrant: (engine) => (d && !d.released(engine) ? d.awaiting(engine) : this.sections.awaitingGrant(engine)),
       grantedWay: (engine) => (d && OWNER.on ? d.grantedWay(engine) : null),
       soon: this.sections.steerSoon,
     });
@@ -378,8 +383,13 @@ export class HarnessRun implements InvariantWorld {
   }
 
   /** The way a routed train was granted (the dispatcher's, where it's on), for `wrongRoad`. */
+  /** Does the dispatcher hold this train (`twoOwners`)? */
+  dispatched(train: Train): boolean {
+    return !!this.dispatcher?.holds(train);
+  }
+
   steerHint(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined {
-    return this.dispatcher ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine);
+    return this.dispatcher && !this.dispatcher.released(engine) ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine);
   }
 
   drive(train: Train): number {
