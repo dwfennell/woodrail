@@ -792,6 +792,12 @@ export interface SearchOptions {
   /** Pieces no member may have (granted to trains on their way over them: the dispatcher's holds in transit). */
   taken?: ReadonlySet<number>;
   /**
+   * `taken` held for the first moves only (the root's): the trains granted it are on their way over it, and past the
+   * first move of the search's order they're by (it has them where their holds end already). Held for good, a train
+   * granted to a line end stood in the way of everyone after it there (the trap: none could deliver, so any move went).
+   */
+  takenFirst?: boolean | ReadonlySet<number>;
+  /**
    * Per member (by index in `members`): what its delivering counts for (default 1 each; at most 32). The dispatcher
    * weighs long waiters more (fair turns): then `value`, `of`, `plain` and `first` are in these units.
    */
@@ -1023,7 +1029,18 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   trains.forEach((t, i) => {
     if (!isMember[i]) for (const p of t.pos[t.at]) owner[p] = -1;
   });
-  if (opts.taken) for (const p of opts.taken) if (p <= maxP) owner[p] = -1;
+  // (Track in transit, `takenFirst`: those of `taken`'s pieces no still train stands on, freed past the root.)
+  let transit: number[] | null = null;
+  if (opts.taken) {
+    if (opts.takenFirst) transit = [];
+    // (A set: only those of its pieces (the stretch's own trains' track: the others stand where their holds end throughout).)
+    const only = typeof opts.takenFirst === "object" ? opts.takenFirst : null;
+    for (const p of opts.taken)
+      if (p <= maxP && owner[p] === 0) {
+        owner[p] = -1;
+        if (!only || only.has(p)) transit?.push(p);
+      }
+  }
   const goalOf = ts.map((t) => (t.fixed ? Infinity : t.goal));
   const wt = ts.map((_, k) => Math.max(1, Math.min(32, Math.round(opts.weights?.[k] ?? 1))));
   let of = 0;
@@ -1230,7 +1247,11 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
     const from = cur[k];
     step(k, to);
     const nmask = back ? mask | (1 << k) : mask;
+    // (`takenFirst`: past the root's moves, the track in transit free.)
+    const lift = depth === 0 && transit !== null;
+    if (lift) for (const p of transit!) if (owner[p] === -1) owner[p] = 0;
     const cv = value(nmask, backUps, depth + 1) - back;
+    if (lift) for (const p of transit!) if (owner[p] === 0) owner[p] = -1;
     step(k, from);
     if (depth === 0 && !back && Math.ceil(cv / SCORE) > first[k]) {
       first[k] = Math.ceil(cv / SCORE);

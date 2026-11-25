@@ -103,6 +103,16 @@ const DEAD_PATIENCE_S = 20;
  */
 export const KNOT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KNOT === "1" };
 
+/** The others' granted track taken for the search's first moves only (`SearchOptions.takenFirst`): TAKEN_FIRST=1 (measuring). */
+export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST === "1" };
+
+/** …only where the search with it taken for good falls short (TAKEN_FIRST_SHORT=1, measuring). */
+export const TAKEN_FIRST_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST_SHORT === "1" };
+/** How long (s) a train is held for `TAKEN_FIRST_SHORT`'s better order before it goes as the first search would (S_PATIENCE_S). */
+const S_PATIENCE_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).S_PATIENCE_S ?? 1e9);
+/** …only the stretch's own trains' (TAKEN_FIRST_MEMBERS=1, measuring). */
+export const TAKEN_FIRST_MEMBERS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST_MEMBERS === "1" };
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -600,10 +610,16 @@ export class Dispatcher {
     const members = stretchOf(placed, k);
     // (Every other held train's track up to its hold's end, member or not: it's on its way over it.)
     const taken = new Set<number>();
+    // (The stretch's own trains' part of it (`TAKEN_FIRST_MEMBERS`), the track the search frees past its first moves.)
+    const memberSet = TAKEN_FIRST_MEMBERS.on ? new Set(members) : null;
+    const transit = memberSet ? new Set<number>() : null;
     placed.forEach((t, i) => {
       const o = this.holdsBy.get(t.key);
       if (!o || i === k || o.t.pos !== t.pos) return;
-      for (const n of o.path) for (const p of t.pos[n]) taken.add(p);
+      for (const n of o.path) for (const p of t.pos[n]) {
+        taken.add(p);
+        if (memberSet?.has(i)) transit!.add(p);
+      }
     });
     for (const p of placed[k].pos[ts[k].at]) taken.delete(p);
     const order = members.map((_, i) => i).sort((a, b) => (a === 0 ? -1 : b === 0 ? 1 : (this.holdsBy.get(placed[members[a]].key)?.stood ?? Infinity) - (this.holdsBy.get(placed[members[b]].key)?.stood ?? Infinity)));
@@ -613,7 +629,18 @@ export class Dispatcher {
       const st = this.holdsBy.get(placed[i].key)?.stood ?? -1;
       return st < 0 ? 1 : 1 + Math.floor((now - st) / (WEIGH_S * 120));
     });
-    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, weights, oneWay: this.oneWay });
+    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay });
+    // (`TAKEN_FIRST_SHORT`: short of all delivering with the track in transit taken for good, searched again with it taken
+    // for the first moves only, and that one's word taken.)
+    if (TAKEN_FIRST_SHORT.on && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
+      const r2 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, takenFirst: transit ?? true, weights, oneWay: this.oneWay });
+      // (Not for ever: a train held `S_PATIENCE_S` for the better order (the others it waits on may not be able to go: at a
+      // stop, held by something the search doesn't see) goes as the first search would let it.)
+      const grantsNow = r.first[0] >= 0 && r.first[0] >= r.plain;
+      const heldBy2 = !(r2.first[0] >= 0 && r2.first[0] >= r2.plain);
+      const patient = !(grantsNow && heldBy2 && h.stood >= 0 && this.host.sim.ticks - h.stood >= S_PATIENCE_S * 120);
+      if (!r2.capped && patient) r = { ...r2, states: r.states + r2.states };
+    }
     let ways = placed;
     let to = -1;
     if (r.first[0] >= 0 && r.first[0] >= r.plain) to = r.firstTo[0];
@@ -624,7 +651,7 @@ export class Dispatcher {
       // (Stuck: with detours.)
       const dt = withDetours(this.host.layout, snaps, placed, members);
       if (dt) {
-        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, detours: true, weights, oneWay: this.oneWay });
+        const rd = search(dt, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, takenFirst: transit ?? TAKEN_FIRST.on, detours: true, weights, oneWay: this.oneWay });
         if (rd.detourValue > r.plain && rd.firstD[0] >= rd.detourValue && rd.firstToD[0] >= 0) {
           ways = dt;
           r = rd;
