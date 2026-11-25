@@ -78,14 +78,13 @@ describe("why a routed train won't load at its next stop (the engine card)", () 
     expect(w.said()).toBe("Not loading planks at the sawmill: they go on a flatbed. Add one to this train");
   });
 
-  it("a warehouse gives only what it holds: no wagon for planks it has none of says nothing; with planks, it's said", () => {
-    // The user, 2026-11-22 (src/play/bugmaps/teal-warehouse.test.ts): vans at a warehouse of flour, the workshop further
-    // on, were told "Not loading planks at Warehouse 2: they go on a flatbed".
+  /** Along +x: the train, a warehouse, the workshop, a town's station: the user's Teal line 2 in small. */
+  function storeLine(cars: CarKind[]) {
     const layout = new Layout();
     const types: PieceTypeId[] = ["straight-216", "straight-216", "depot-warehouse", "straight-216", "depot-workshop", "straight-216", "station", "straight-216"];
     const ids = types.map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
     const sim = new Sim(layout);
-    const placed = sim.addTrain(["engine", "van", "van"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
+    const placed = sim.addTrain(cars, { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
     if (placed.kind !== "placed") throw new Error("no room");
     const economy = new Economy(layout, sim);
     const store = economy.addDepot("warehouse", ids[2]);
@@ -93,13 +92,51 @@ describe("why a routed train won't load at its next stop (the engine card)", () 
     const town = economy.addDepot("town", ids[6], 0);
     const engine = sim.getTrain(placed.trainId)!.cars[0].id;
     economy.setRoute(engine, { stops: [store, workshop, town].map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
-    store.piles[CARGO.flour.index] = 18;
     const said = () => engineView(sim, economy, engine, (id) => (id === store.id ? "Warehouse 2" : "?")).status;
-    expect(economy.notLoadingAt(placed.trainId)?.kind).not.toBe("planks");
-    expect(said()).not.toMatch(/planks/);
-    store.piles[CARGO.planks.index] = 6;
-    expect(economy.notLoadingAt(placed.trainId)).toMatchObject({ kind: "planks", why: "no-wagon" });
-    expect(said()).toBe("Not loading planks at Warehouse 2: they go on a flatbed. Add one to this train");
+    return { sim, economy, store, workshop, town, engine, trainId: placed.trainId, said };
+  }
+
+  it("a warehouse gives only what it holds: no wagon for planks it has none of says nothing", () => {
+    // The user, 2026-11-22 (src/play/bugmaps/teal-warehouse.test.ts): vans at a warehouse of flour, the workshop further
+    // on, were told "Not loading planks at Warehouse 2: they go on a flatbed".
+    const w = storeLine(["engine", "van", "van"]);
+    w.store.piles[CARGO.flour.index] = 18;
+    expect(w.economy.notLoadingAt(w.trainId)?.kind).not.toBe("planks");
+    expect(w.said()).not.toMatch(/planks/);
+  });
+
+  it("a line carrying other goods isn't told to add a wagon for planks the warehouse holds", () => {
+    // The user, 2026-11-23: Teal line 2's vans, carrying furniture and tools, at a warehouse holding planks with the
+    // workshop further on, were told "Not loading planks at the warehouse 1: they go on a flatbed. Add one to this
+    // train": "I'm not trying to run planks on this route". Its vans are its choice of goods.
+    const w = storeLine(["engine", "van", "van"]);
+    w.store.piles[CARGO.flour.index] = 18;
+    w.store.piles[CARGO.planks.index] = 6;
+    expect(w.economy.notLoadingAt(w.trainId)?.why).not.toBe("no-wagon");
+    expect(w.said()).not.toMatch(/planks|Add one/);
+    // (Furniture and tools at the warehouse instead, for the town: the same.)
+    w.store.piles[CARGO.flour.index] = 0;
+    w.store.piles[CARGO.furniture.index] = 4;
+    w.store.piles[CARGO.tools.index] = 4;
+    expect(w.economy.notLoadingAt(w.trainId)?.why).not.toBe("no-wagon");
+    expect(w.said()).not.toMatch(/planks|Add one/);
+    // (The warehouse run dry of them, the train empty: its line still set some down this month, so it's for them.)
+    w.store.piles[CARGO.furniture.index] = 0;
+    w.store.piles[CARGO.tools.index] = 0;
+    w.economy.lines.set(7, { id: 7, colour: "#0aa", name: "Teal line 2", stops: w.economy.routeOf(w.engine)!.stops });
+    w.economy.lineIdOf.set(w.engine, 7);
+    expect(w.economy.notLoadingAt(w.trainId)?.why).toBe("no-wagon");
+    w.economy.lineLoads.add(7, 0);
+    expect(w.economy.notLoadingAt(w.trainId)?.why).not.toBe("no-wagon");
+    expect(w.said()).not.toMatch(/planks|Add one/);
+  });
+
+  it("…but a train whose wagons move nothing on its line is told what carries the planks there", () => {
+    // (Hoppers: nothing on this line goes in a hopper, so the wrong wagons are worth saying.)
+    const w = storeLine(["engine", "hopper"]);
+    w.store.piles[CARGO.planks.index] = 6;
+    expect(w.economy.notLoadingAt(w.trainId)).toMatchObject({ kind: "planks", why: "no-wagon" });
+    expect(w.said()).toBe("Not loading planks at Warehouse 2: they go on a flatbed. Add one to this train");
   });
 
   it("none at the sawmill, and none being made: says there are none yet", () => {
