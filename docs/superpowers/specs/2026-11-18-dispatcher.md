@@ -794,3 +794,13 @@ should and knots again further on: two trains now west-bound through the loop an
 road refused it as a move onto the line beyond (granting it up to the loop's road, `SINGLE_CUT`, changed no case).
 Left off; the card's words are in (`Turning back: <train> is at the line's end`, for any Q9 turn, sections' too).
 
+**(a), the search (2026-11-25, `Q9S`, off).** The stretch search's move model gains the Q9 move (`SearchOptions.q9`,
+`q9Mirror`): blocked on its way into a dead end it turns at, the rest of the way there filled by other trains and no points,
+a train goes to its node past the turn on the same pieces, facing back. A move the search plans so is granted as `Q9`'s
+grant (`q9End`), the checks for a move along its way not asked of it (its way runs through those trains). Fuzz seed 136
+runs (5/5/5); seed 149 turns behind as planned and then knots where the search's plan is right (the east-bound train into
+the loop's free road, the west-bound pair through) but its move is refused by the single-line rule: the free road's
+waiting point has its front past the loop's far points, on the line the west-bound train comes along. Loop roads as
+waiting places for opposed trains, the next piece, is in the way-building (`buildTrain`'s waiting points: one inside the
+road, short of the far points).
+

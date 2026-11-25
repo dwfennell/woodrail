@@ -787,6 +787,12 @@ export interface SearchOptions {
    * move at all (`"standstill"`: the dispatcher's, "only when the search finds nothing else").
    */
   backUps?: boolean | "standstill";
+  /**
+   * §16 Q9 moves: a train blocked on its way into a dead end it turns at, the rest of the way there filled by other
+   * trains, turns close behind them (that one is its end of the line): it goes to its node past the turn standing where it
+   * stood, facing back (`q9Mirror`).
+   */
+  q9?: boolean;
   /** Detours for stuck trains (default on). */
   detours?: boolean;
   /** Pieces no member may have (granted to trains on their way over them: the dispatcher's holds in transit). */
@@ -869,6 +875,32 @@ function branchesOf(t: DTrain, i: number): Branch[] {
   for (const y of t.succ[i]) walk(y);
   m.set(i, bs);
   return bs;
+}
+
+/** `q9Mirror` per booked way and node. */
+const mirrorCache = new WeakMap<Int32Array[], Map<number, number>>();
+
+/**
+ * §16 Q9: the node past `t`'s next turn where it stands as at node `c`, facing back (turned close behind the train at the
+ * line's end): the first after the turn on the same pieces; −1: none.
+ */
+export function q9Mirror(t: DTrain, c: number): number {
+  let m = mirrorCache.get(t.pos);
+  if (!m) mirrorCache.set(t.pos, (m = new Map()));
+  const hit = m.get(c);
+  if (hit !== undefined) return hit;
+  let out = -1;
+  let x = t.succ[c][0] ?? -1;
+  for (let n = 0; x >= 0 && !t.turned[x] && n < 400; n++) x = t.succ[x][0] ?? -1;
+  for (let y = x, n = 0; y >= 0 && n < 400; n++) {
+    if (y !== c && t.pos[y].length === t.pos[c].length && t.pos[y].every((p) => t.pos[c].includes(p))) {
+      out = y;
+      break;
+    }
+    y = t.succ[y][0] ?? -1;
+  }
+  m.set(c, out);
+  return out;
 }
 
 /** The train (its key) first met on `trains[k]`'s next move, on any road; −1: none. */
@@ -1160,6 +1192,33 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
       const stoppedOneWay = j < b.nodes.length && lastRest === b.nodes[j];
       const close = !stoppedOneWay && j < b.nodes.length && closesUp(k, b.nodes[j]) ? t.closeOf[b.nodes[j]] : -1;
       const to = j === b.nodes.length && b.wait ? b.nodes[j - 1] : close >= 0 ? close : lastRest;
+      // (§16 Q9: blocked, and its way on to its turn all taken by others, with no points: it turns close behind them.)
+      if (opts.q9 && j < b.nodes.length && out[o] < PER) {
+        const c = close >= 0 ? close : j > 0 ? b.nodes[j - 1] : i;
+        if (t.plain[c] || c === i) {
+          let filled = true;
+          let x = t.succ[c][0] ?? -1;
+          for (let n = 0; x >= 0 && !t.turned[x] && n < 400; n++) {
+            if (t.succ[x].length > 1) {
+              filled = false;
+              break;
+            }
+            for (const p of t.pos[x]) {
+              if (t.pos[c].includes(p)) continue;
+              const ow = owner[p];
+              if (ow === 0 || ow === own) filled = false;
+            }
+            if (!filled) break;
+            x = t.succ[x][0] ?? -1;
+          }
+          const m = filled && x >= 0 ? q9Mirror(t, c) : -1;
+          if (m >= 0) {
+            let dup = false;
+            for (let y = 0; y < out[o]; y++) if (out[o + 1 + y] === m) dup = true;
+            if (!dup) out[o + 1 + out[o]++] = m;
+          }
+        }
+      }
       if (to < 0 || out[o] >= PER) continue;
       let dup = false;
       for (let x = 0; x < out[o]; x++) if (out[o + 1 + x] === to) dup = true;

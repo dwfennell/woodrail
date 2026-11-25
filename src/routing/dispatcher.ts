@@ -172,6 +172,9 @@ const TURN_S = Number(((globalThis as { process?: { env: Record<string, string |
 export const ONE_LINE_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_SHORT !== "0" };
 const ONE_LINE_MIN = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_MIN ?? 3);
 
+/** §16 Q9 in the search (§13.12 (a), `SearchOptions.q9`): planned turns close behind trains at the line's end, granted as `Q9`'s: Q9S=1 (measuring). */
+export const Q9S = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9S === "1" };
+
 /** A move refused onto a single line granted up to its last waiting place before it (`decide`): SINGLE_CUT=1 (measuring, off: with Q9 no case changed). */
 export const SINGLE_CUT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SINGLE_CUT === "1" };
 
@@ -885,11 +888,11 @@ export class Dispatcher {
       const st = this.holdsBy.get(placed[i].key)?.stood ?? -1;
       return st < 0 ? 1 : 1 + Math.floor((now - st) / (WEIGH_S * 120));
     });
-    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay });
+    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay, q9: Q9S.on });
     // (`TAKEN_FIRST_SHORT`: short of all delivering with the track in transit taken for good, searched again with it taken
     // for the first moves only, and that one's word taken.)
     if ((TAKEN_FIRST_SHORT.on || (ONE_LINE_SHORT.on && this.oneLine(placed, members) && !(HANDOFF.on && this.host.couldSwap?.(engine)))) && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
-      const r2 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, takenFirst: transit ?? true, weights, oneWay: this.oneWay });
+      const r2 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, takenFirst: transit ?? true, weights, oneWay: this.oneWay, q9: Q9S.on });
       // (Not for ever: a train held `S_PATIENCE_S` for the better order (the others it waits on may not be able to go: at a
       // stop, held by something the search doesn't see) goes as the first search would let it.)
       const grantsNow = r.first[0] >= 0 && r.first[0] >= r.plain;
@@ -921,13 +924,36 @@ export class Dispatcher {
       h.passed++;
       if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - Math.min(...weights) && r.first[0] > 0) to = r.firstTo[0];
     }
+    // (§16 Q9 planned by the search (`Q9S`): its move a turn close behind the train(s) filling its way to the line's end
+    // (its path through them): granted as `Q9`'s grant, up to them, to turn there; else not. The checks below are for a
+    // move along its way, and this one's way runs through those trains: not asked of it.)
+    let q9 = false;
+    if (to >= 0 && Q9S.on) {
+      const w = ways[k];
+      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const path = this.pathTo(tt, to);
+      if (path.some((n) => tt.turned[n])) {
+        const others = new Set<number>();
+        const self = this.host.sim.findCar(engine)?.train;
+        for (const o of this.host.sim.trains()) if (o !== self) for (const b of o.bogies) others.add(b.pieceId);
+        const here = new Set(tt.pos[tt.at]);
+        if (path.some((n) => tt.pos[n].some((p) => !here.has(p) && others.has(p)))) {
+          const end = this.q9End(engine, ts[k]);
+          if (end >= 0) {
+            to = end;
+            q9 = true;
+            this.q9Grants++;
+          } else to = -1;
+        }
+      }
+    }
     // (Short of all delivering with the others' granted track taken for good (the search holds it all the way: a train
     // granted to a line end stands in the way of everyone after it there, though it turns and leaves), weighed again with
     // it free: a move that leaves fewer delivering than waiting would isn't granted. The trap, a line with one passing loop
     // and three trains: with the way to the sawmill taken, none could deliver (0 of 3), so any move went, and the third
     // train took the loop's last road while the one at the sawmill had to come back through it; they stood for good.)
     let knotBy = -1;
-    if (to >= 0 && KNOT.on && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
+    if (to >= 0 && !q9 && KNOT.on && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
       const free = search(ways, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, weights, oneWay: this.oneWay, detours: ways !== placed });
       const best = ways !== placed ? free.detourValue : free.plain;
       const mine = ways !== placed ? free.firstD[0] : free.first[0];
@@ -941,7 +967,7 @@ export class Dispatcher {
     // (through the line to its next waiting place): this one's grant isn't run onto it, cut back to its last rest before.
     // Along it and off it, as it runs now, is fine; onto it again further on isn't (a ring's line, both its ends at one loop).)
     let turnBy = -1;
-    if (to >= 0 && TURNS2.on) {
+    if (to >= 0 && !q9 && TURNS2.on) {
       const w = ways[k];
       const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
       const now = this.host.sim.ticks;
@@ -993,7 +1019,7 @@ export class Dispatcher {
     // is on, or is granted onto, heading for its other end, isn't granted; it waits where it is (its last place clear of
     // points before the line), and the longest waiter goes first (asks are decided longest waiter first).)
     let singleBy = -1;
-    if (to >= 0 && OWNER.on && SINGLE.on) {
+    if (to >= 0 && !q9 && OWNER.on && SINGLE.on) {
       const w = ways[k];
       const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
       const way = this.pathTo(tt, to);
@@ -1018,7 +1044,7 @@ export class Dispatcher {
     // (Points on the move the router has locked for another train, or another train is on: not granted; it waits on that
     // one (dandelion: granted over points 301 held by Rowan, held short by the router at a green signal).)
     let lockedBy = -1;
-    if (to >= 0 && OWNER.on && this.host.sim.pathLocks) {
+    if (to >= 0 && !q9 && OWNER.on && this.host.sim.pathLocks) {
       const w = ways[k];
       const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
       const path = this.pathTo(tt, to);
@@ -1043,13 +1069,13 @@ export class Dispatcher {
     // the points at 426 with Conker standing on its way beyond them, coming the other way). Not for a train on the other's
     // way already: there, refusing it helps nobody (they've met), and the two would hold each other for good.)
     let headBy = -1;
-    if (to >= 0 && OWNER.on && HEAD_AHEAD.on) headBy = this.headOnAhead(engine, ts, placed, ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at }, to);
+    if (to >= 0 && !q9 && OWNER.on && HEAD_AHEAD.on) headBy = this.headOnAhead(engine, ts, placed, ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at }, to);
     if (headBy >= 0) to = -1;
     let noseBy = -1;
     // (Never to stand nose to nose: a move ending with its front against another lever-on train's front on the next piece
     // isn't granted (the sim keeps a gap there and holds it short: netActed; and two noses together is a head-on with
     // no way past). The router's "a train is coming" rule kept them apart before it stood down for held trains.)
-    if (to >= 0 && OWNER.on) {
+    if (to >= 0 && !q9 && OWNER.on) {
       const w = ways[k];
       const ref = w.frontRef[to];
       const nx = ref >= 0 ? next(this.host.layout, pieceOfRef(ref), indexOfRef(ref)) : null;
@@ -1093,7 +1119,7 @@ export class Dispatcher {
     }
     // (Its front on points already (they can't be thrown under it): a move out of them by a road they don't lie for
     // isn't granted; it would go the way they lie, off its grant, into another's (own-03: nose to nose).)
-    if (to >= 0 && OWNER.on) {
+    if (to >= 0 && !q9 && OWNER.on) {
       const w = ways[k];
       const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
       const path = this.pathTo(tt, to);
@@ -1118,7 +1144,7 @@ export class Dispatcher {
     let reservedBy = -1;
     // (Not for ever: refused `RESERVE_TIMEOUT_S` standing, it goes (a train holding the block may itself be held: at
     // its stop, at a signal; complex-2's refusals read as jams).)
-    if (to >= 0 && RESERVE.on && !(h.stood >= 0 && this.host.sim.ticks - h.stood >= RESERVE_TIMEOUT_S * 120)) {
+    if (to >= 0 && !q9 && RESERVE.on && !(h.stood >= 0 && this.host.sim.ticks - h.stood >= RESERVE_TIMEOUT_S * 120)) {
       reservedBy = this.reservedBy(engine, ts, ways, k, to);
       if (reservedBy >= 0) {
         to = -1;
@@ -1128,7 +1154,7 @@ export class Dispatcher {
     // (§13.6, the safety check: a grant that leaves no order in which each of the stretch's trains reaches its stop
     // after next isn't granted, unless the stretch had none before it either (it makes nothing worse).)
     let unsafeBy = -1;
-    if (to >= 0 && SAFE.on) {
+    if (to >= 0 && !q9 && SAFE.on) {
       // (Only where it can wait: safe with it standing where it is till the others are through; refused where it must
       // go first, its waiting helps nobody (rowan-2: refused alone, the trains it would meet came on to it anyway).)
       const before = this.safeOrder(ways, members, -1, -1, k);
@@ -1184,7 +1210,6 @@ export class Dispatcher {
     }
     // (§16 Q9 (`Q9`): its way turns next in a dead end, a train standing at the far end of it: granted up to that one, the
     // sim's own guard holds it close behind (or nose to nose), and it turns there, that train its end of the line.)
-    let q9 = false;
     if (to < 0 && Q9.on) {
       const end = this.q9End(engine, ts[k]);
       if (end >= 0) {
@@ -1631,7 +1656,7 @@ export class Dispatcher {
         // at the buffer may stand there for good (wye 2×mix same: the routed one waited for it on the wye's points).)
         // (Not where this one heads there only to turn too (no stop of its own in it, `Q9`): the one ahead turns at the
         // buffer and this one close behind it (§16 Q9), and this one leads out; they never meet (fuzz seed 149).)
-        if (DEAD_BACK.on && (this.holdsBy.has(key) || o.speed !== 0) && this.endsDead(end) && !(Q9.on && this.holdsBy.has(key) && !(HANDOFF.on && this.host.couldSwap?.(engine)) && this.deadTarget(t, t.at, true) === s)) return key;
+        if (DEAD_BACK.on && (this.holdsBy.has(key) || o.speed !== 0) && this.endsDead(end) && !((Q9.on || Q9S.on) && this.holdsBy.has(key) && !(HANDOFF.on && this.host.couldSwap?.(engine)) && this.deadTarget(t, t.at, true) === s)) return key;
         break;
       }
       // (Granted onto it, heading the other way.)
