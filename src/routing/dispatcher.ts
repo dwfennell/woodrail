@@ -153,6 +153,16 @@ export const TURNS2 = { on: ((globalThis as { process?: { env: Record<string, st
 /** How long (s) a train waits before its move is kept for it: 5 cost the big maps 40-110 stops (every busy wait a turn); 60 is past the stall. */
 const TURN_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_S ?? 30);
 
+/**
+ * `TAKEN_FIRST_SHORT` (searched again with the track in transit taken for the first moves only, where the usual search
+ * falls short) only where three trains or more of one line make the stretch (the trap's shape: three trains, one loop, two
+ * line ends), and not on a line the swap planner could take (`HANDOFF`'s). On, unless ONE_LINE_SHORT=0: with the dispatcher
+ * on the routing cases go wrong 46 times, not 56 (line1 3×one same and its signal variants, line2 3×one same, fuzz seed 91;
+ * none new); the reference maps exactly as before (on them, unlike everywhere, it cost dandelion jams: their stretches mix lines).
+ */
+export const ONE_LINE_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_SHORT !== "0" };
+const ONE_LINE_MIN = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_MIN ?? 3);
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -482,6 +492,13 @@ export class Dispatcher {
     return true;
   }
 
+  /** Do all the stretch's members run one line (two at least)? */
+  private oneLine(placed: readonly DTrain[], members: readonly number[]): boolean {
+    if (members.length < ONE_LINE_MIN || !this.host.lineOf) return false;
+    const l = this.host.lineOf(placed[members[0]].key);
+    return l >= 0 && members.every((m) => this.host.lineOf!(placed[m].key) === l);
+  }
+
   /** A train new on the track (put down by hand where another was granted the way): each hold over a piece it's on cut
    * back to the node before (the held train brakes for it, as for any hold's end). True if one was. */
   private cutForNew(): boolean {
@@ -782,7 +799,7 @@ export class Dispatcher {
     let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay });
     // (`TAKEN_FIRST_SHORT`: short of all delivering with the track in transit taken for good, searched again with it taken
     // for the first moves only, and that one's word taken.)
-    if (TAKEN_FIRST_SHORT.on && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
+    if ((TAKEN_FIRST_SHORT.on || (ONE_LINE_SHORT.on && this.oneLine(placed, members) && !(HANDOFF.on && this.host.couldSwap?.(engine)))) && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
       const r2 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, takenFirst: transit ?? true, weights, oneWay: this.oneWay });
       // (Not for ever: a train held `S_PATIENCE_S` for the better order (the others it waits on may not be able to go: at a
       // stop, held by something the search doesn't see) goes as the first search would let it.)

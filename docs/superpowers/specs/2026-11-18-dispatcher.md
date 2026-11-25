@@ -748,3 +748,14 @@ along it and off it as it stands is fine; coming back onto it further on isn't (
 Measured with the dispatcher on: the routing cases 65 → 56 wrong (ring1 2×one/own opposed, nine; none new); the 22 maps
 as main (rowan-1 +4, no new breaks, decide p98 ≤ 1.2 ms).
 
+### 13.10 The trap's search, for one line (2026-11-25, `ONE_LINE_SHORT`, on)
+
+Three trains of one line on one loop and two line ends (the trap; the routing cases' `line1 3×one same` and its signal
+variants, and most of the fuzz seeds still wrong): the search holds other trains' granted track as taken for its whole
+look-ahead, finds none deliver, and any move goes. `TAKEN_FIRST_SHORT` (§ the switch's note: searched again with that track
+taken for the first moves only, where the usual search falls short) unties it, but on the big maps it cost dandelion jams.
+
+Gated to where it belongs: three trains or more in the stretch, all of one line, and not a line the swap planner could take
+(a spare end: `HANDOFF`'s). On two trains it knotted the ring's signal variants in 7 s (`TURNS2`'s turn is theirs).
+Measured with the dispatcher on: the routing cases 56 → 46 wrong (none new); the 22 maps exactly as main.
+

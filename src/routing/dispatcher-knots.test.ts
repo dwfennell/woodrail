@@ -54,10 +54,11 @@ describe("the dispatcher's knots", { timeout: 120_000 }, () => {
       },
     });
 
-  // (The knot check is off by default: it costs the big maps (`KNOT`'s note). The trap as it stands, and as it would.)
-  it("the trap, as the dispatcher runs today: three trains on one loop and two line ends tie a knot", () => {
-    const r = trap().run(120);
-    expect(r.arrivals).toEqual([0, 0, 0]);
+  // (The knot check is off by default: it costs the big maps (`KNOT`'s note). The trap is untied by ONE_LINE_SHORT; KNOT does too.)
+  it("the trap: three trains of one line on one loop and two line ends all deliver (ONE_LINE_SHORT)", () => {
+    const r = trap().run(330);
+    expect(r.stalls.why).toEqual([null, null, null]);
+    expect(Math.min(...r.arrivals)).toBeGreaterThanOrEqual(10);
   });
 
   it("…which the knot check unties: all three deliver", () => {
