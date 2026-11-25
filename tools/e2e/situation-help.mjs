@@ -28,6 +28,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
 import { testClockIn } from "../../scripts/e2e/lib/fast.mjs";
+import { shownToast, toastLogIn, toastsSince } from "../../scripts/e2e/lib/toasts.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/situation-help";
@@ -43,6 +44,9 @@ pinClocksIn(b);
 stillIndustriesIn(b);
 testClockIn(b, { speed: 8 });
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+// (Every toast kept as it shows, with the goals chip as it was while it was up: a toast is up a few wall-clock seconds,
+// and a loaded box can look too late.)
+await toastLogIn(ctx, () => document.querySelector(".goals-now")?.textContent ?? "");
 await ctx.addInitScript(() => {
   localStorage.setItem("woodrail.helpSeen", "1");
   window.__allClicks = 0;
@@ -91,7 +95,6 @@ const screenOf = (v) =>
 const sim = () => p.evaluate(() => window.woodrail.simSeconds);
 /** Wait (on wall time, `ms` at most) for the page's `fn(arg)` to hold. */
 const until = (fn, arg, ms) => p.waitForFunction(fn, arg, { timeout: ms, polling: 250 }).then(() => true, () => false);
-const toastText = () => p.evaluate(() => document.querySelector(".toast.show")?.textContent ?? "");
 const idleFrames = () =>
   p.evaluate(async () => {
     const w = window.woodrail;
@@ -250,14 +253,15 @@ const diag = () =>
       trains: [...w.sim.trains()].map((tr) => trainState(w.sim, w.economy, tr, 1).kind),
     };
   });
-let toasted = false;
-for (let k = 0; k < 40 && !toasted; k++) {
-  toasted = await until(() => /stuck in a queue/.test(document.querySelector(".toast.show")?.textContent ?? ""), null, 15000);
-  if (!toasted) console.log("  waiting:", JSON.stringify(await diag()));
+let shown1 = null;
+for (let k = 0; k < 40 && !shown1; k++) {
+  shown1 = await shownToast(p, /stuck in a queue/, { ms: 15000 });
+  if (!shown1) console.log("  waiting:", JSON.stringify(await diag()));
 }
-const toast1 = await toastText();
-const chip1 = await p.evaluate(() => document.querySelector(".goals-now")?.textContent ?? "");
-check("1. the follower waits for the whole stretch: a toast says so, once", toasted && /Red line trains are stuck in a queue/.test(toast1) && /Show where/.test(toast1), toast1);
+const toast1 = shown1?.text ?? (await toastsSince(p));
+const chip1 = (shown1?.also ?? []).join(" | ");
+const said1 = await p.evaluate(() => window.__toasts.filter((t) => /stuck in a queue/.test(t.text)).length);
+check("1. the follower waits for the whole stretch: a toast says so, once", !!shown1 && said1 === 1 && /Red line trains are stuck in a queue/.test(toast1) && /Show where/.test(toast1), `${toast1} (said ${said1}×)`);
 check("1. …the chip says it while the toast is up", /💡 Trains queuing/.test(chip1), chip1);
 const before = await p.evaluate(() => Math.round(window.__waits.longest));
 await shot("1-toast");
@@ -339,8 +343,8 @@ await p.evaluate(() => {
   window.__waits.last = window.woodrail.simSeconds;
 });
 await pause(false);
-const fixed = await until(() => /They follow now/.test(document.querySelector(".toast.show")?.textContent ?? ""), null, 600000);
-check("6. the tip goes with \"✓ They follow now\"", fixed, await toastText());
+const fixed = await shownToast(p, /They follow now/, { ms: 600000 });
+check("6. the tip goes with \"✓ They follow now\"", !!fixed, fixed?.text ?? (await toastsSince(p)));
 await shot("6-fixed");
 const logs1 = await p.evaluate(() => window.__logsIn());
 const after = await p.evaluate(() => Math.round(window.__waits.longest));
