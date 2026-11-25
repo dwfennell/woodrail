@@ -337,7 +337,7 @@ export class HarnessRun implements InvariantWorld {
     sim.speedCap = (train) => Math.min(d?.holds(train) ? d.cap(train) : this.sections.cap(train), this.router.speedCap(train));
     sim.waitsAt = (train) => this.router.waitsAt(train);
     sim.standsWithin = (train) => this.sections.standsWithin(train);
-    sim.turnsNose = (train) => this.sections.turnsNose(train);
+    sim.turnsNose = (train) => this.sections.turnsNose(train) || !!d?.q9Turns(train);
     this.router = new Router({
       layout,
       sim,

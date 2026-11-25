@@ -172,6 +172,17 @@ const TURN_S = Number(((globalThis as { process?: { env: Record<string, string |
 export const ONE_LINE_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_SHORT !== "0" };
 const ONE_LINE_MIN = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_MIN ?? 3);
 
+/** A move refused onto a single line granted up to its last waiting place before it (`decide`): SINGLE_CUT=1 (measuring, off: with Q9 no case changed). */
+export const SINGLE_CUT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SINGLE_CUT === "1" };
+
+/**
+ * §16 Q9 under the dispatcher (§13.12, `q9End`): Q9=1 (measuring, off). With the dispatcher on: the routing cases 38 → 37
+ * (fuzz seed 136; none new, once kept off hand-off lines and to routed trains at the end), but the 22 maps: own-10 a new
+ * wrongRoad break (1 seed of 3), own-01 −21, own-03 −3, own-04 −2, own-08 +9. Fuzz seed 149, its aim, turns behind as it
+ * should and then knots again further on (the loop: a train each way and one more coming).
+ */
+export const Q9 = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9 === "1" };
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -244,6 +255,8 @@ interface Hold {
   refsVer?: number;
   /** The train it waits for to clear a single line it's not granted onto (−1: none), for its card. */
   singleWait?: number;
+  /** Granted up to a train standing at the end of a dead end it turns in, to turn there (§16 Q9, `Q9`). */
+  q9?: boolean;
   /** Its move as it waits for it (`TURNS2`, §13.8): the pieces from where it stands to its next waiting place. */
   want?: Set<number>;
   /** Why it was last refused (`TURNS2`): onto a single line, its move's way taken, or another rule. */
@@ -293,6 +306,8 @@ export class Dispatcher {
   unsafeRefused = 0;
   /** Lines handed to sections (`HANDOFF`). */
   handOffs = 0;
+  /** Grants up to a train at a dead end's end, to turn behind it (`Q9`). */
+  q9Grants = 0;
   /** Grants refused as ending nose to nose with another train. */
   noseRefused = 0;
   /** Grants refused as tying a knot: fewer delivering than waiting would, with the others' granted track free (`KNOT`). */
@@ -499,6 +514,66 @@ export class Dispatcher {
     this.holdVer++;
     this.handOffs++;
     return true;
+  }
+
+  /**
+   * `Q9`: the node to grant a train up to, to turn close behind (or nose to nose with) a train standing at the far end of
+   * the dead end its way next turns in, with no stop of its own there (−1: not so). Its way up to there clear of every
+   * other train but that one, none granted onto it, and that one standing with a piece at the line's end.
+   */
+  private q9End(engine: number, t: DTrain): number {
+    // (Not a line the swap planner could take: the hand-off's.)
+    if (HANDOFF.on && this.host.couldSwap?.(engine)) return -1;
+    const s = this.deadTarget(t, t.at, true);
+    if (s < 0) return -1;
+    const seg = this.singleOf();
+    // (Its way up to the node before its turn: its front at the line's end.)
+    let end = -1;
+    const way: number[] = [];
+    for (let i = t.succ[t.at][0] ?? -1, n = 0; i >= 0 && n < 400; n++) {
+      if (t.turned[i]) break;
+      way.push(i);
+      end = i;
+      i = t.succ[i][0] ?? -1;
+    }
+    if (end < 0) return -1;
+    const pieces = new Set<number>();
+    for (const i of way) for (const p of t.pos[i]) pieces.add(p);
+    for (const p of t.pos[t.at]) pieces.delete(p);
+    // (The dead end's part of it: from where its way comes onto the line to the end (the buffer piece too).)
+    const deadPart = new Set<number>();
+    let inDead = false;
+    for (const i of way) {
+      const fp = t.pos[i][t.pos[i].length - 1];
+      if (seg.get(fp) === s) inDead = true;
+      if (inDead) for (const p of t.pos[i]) deadPart.add(p);
+    }
+    const self = this.host.sim.findCar(engine)?.train;
+    let by: Train | null = null;
+    for (const o of this.host.sim.trains()) {
+      if (o === self || o.derailed) continue;
+      const on = o.bogies.some((b) => pieces.has(b.pieceId));
+      if (!on) continue;
+      // (One train on its way: standing, on the dead end's part of it.)
+      if (by || o.speed !== 0 || !o.bogies.every((b) => deadPart.has(b.pieceId) || !pieces.has(b.pieceId))) return -1;
+      by = o;
+    }
+    if (!by) return -1;
+    // (A routed one, the dispatcher's: a hand-run train standing at the buffer may stand there for good.)
+    if (!this.holdsBy.has((by.cars.find((c) => c.kind === "engine") ?? by.cars[0]).id)) return -1;
+    // (None other granted onto its way.)
+    const byEngine = (by.cars.find((c) => c.kind === "engine") ?? by.cars[0]).id;
+    for (const [key, o] of this.holdsBy) {
+      if (key === engine || key === byEngine) continue;
+      for (const n of o.path) if (o.t.pos[n].some((p) => pieces.has(p))) return -1;
+    }
+    return end;
+  }
+
+  /** May this train turn nose to nose with one at the line's end (the sim's `turnsNose`)? Granted so (`Q9`). */
+  q9Turns(train: Train): boolean {
+    const engine = train.cars.find((c) => c.kind === "engine");
+    return !!engine && !!this.holdsBy.get(engine.id)?.q9;
   }
 
   /** Do all the stretch's members run one line (two at least)? */
@@ -921,7 +996,22 @@ export class Dispatcher {
     if (to >= 0 && OWNER.on && SINGLE.on) {
       const w = ways[k];
       const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
-      singleBy = this.singleLineBy(engine, tt, this.pathTo(tt, to));
+      const way = this.pathTo(tt, to);
+      singleBy = this.singleLineBy(engine, tt, way);
+      // (`SINGLE_CUT`: refused onto a single line, granted up to its last waiting place before it (a loop's road), not
+      // held where it stands: fuzz seed 149, the east-bound train's move ran through the loop onto the line a west-bound one
+      // came along; refused whole, it stood on the line before the loop, and that one and the train in the loop waited on it.)
+      if (singleBy >= 0 && SINGLE_CUT.on) {
+        let lastRest = -1;
+        for (let q = 1; q < way.length; q++) {
+          if (this.singleLineBy(engine, tt, way.slice(0, q + 1)) >= 0) break;
+          if (tt.wait[way[q]]) lastRest = way[q];
+        }
+        if (lastRest >= 0) {
+          to = lastRest;
+          singleBy = -1;
+        }
+      }
       if (singleBy < 0 && DEAD.on) singleBy = this.deadEndBy(engine, tt, ts);
       if (singleBy >= 0) to = -1;
     }
@@ -1092,6 +1182,17 @@ export class Dispatcher {
         h.want = want.size > 0 ? want : undefined;
       }
     }
+    // (§16 Q9 (`Q9`): its way turns next in a dead end, a train standing at the far end of it: granted up to that one, the
+    // sim's own guard holds it close behind (or nose to nose), and it turns there, that train its end of the line.)
+    let q9 = false;
+    if (to < 0 && Q9.on) {
+      const end = this.q9End(engine, ts[k]);
+      if (end >= 0) {
+        to = end;
+        q9 = true;
+        this.q9Grants++;
+      }
+    }
     if (to < 0 && this.handOff(engine)) return;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
@@ -1101,6 +1202,7 @@ export class Dispatcher {
       return;
     }
     h.passed = 0;
+    h.q9 = q9;
     this.grants++;
     // (Grants cut back so this move could go (`clearsFirst`), still as they were when it was weighed.)
     for (const c of this.cuts) if (c.h.path === c.path) this.setHold(c.h, c.path[c.k], c.path.slice(0, c.k + 1));
@@ -1527,7 +1629,9 @@ export class Dispatcher {
         // at the forest's buffer at, to turn and come back; nose to nose for good).)
         // (Only one that will: routed (it turns at the line's end), or a hand-run one under way. A hand-run train standing
         // at the buffer may stand there for good (wye 2×mix same: the routed one waited for it on the wye's points).)
-        if (DEAD_BACK.on && (this.holdsBy.has(key) || o.speed !== 0) && this.endsDead(end)) return key;
+        // (Not where this one heads there only to turn too (no stop of its own in it, `Q9`): the one ahead turns at the
+        // buffer and this one close behind it (§16 Q9), and this one leads out; they never meet (fuzz seed 149).)
+        if (DEAD_BACK.on && (this.holdsBy.has(key) || o.speed !== 0) && this.endsDead(end) && !(Q9.on && this.holdsBy.has(key) && !(HANDOFF.on && this.host.couldSwap?.(engine)) && this.deadTarget(t, t.at, true) === s)) return key;
         break;
       }
       // (Granted onto it, heading the other way.)

@@ -769,3 +769,28 @@ two trains. Measured with the dispatcher on: the routing cases 46 → 38 wrong (
 rowan-2 over 6 seeds as main. Wider (round granted track too, or any stretch, or any length) cost rowan-2 32-51 stops over
 6 seeds: seeds 4 and 5 were sent the long way round the map, 150 stops each.
 
+
+### 13.12 Turning close behind a train at the line's end, under the dispatcher (2026-11-25, `Q9`)
+
+The user's §16 Q9: a train pulled up close behind another standing at the end of the line turns there, that train being
+its end of the line. The sim does it (`Sim.endOfLineBehind`: held close behind, or nose to nose where `turnsNose` says),
+and the routing cases' oracle assumes it. Under the dispatcher it never happened (fuzz seed 149 and its kind, three trains
+on one loop and two line ends, all heading first for the same buffer to turn):
+
+1. `DEAD_BACK` refused each train heading for the buffer, counting the other as coming back toward it.
+2. Granted, the second stopped where its grant ended, short of the first: no grant runs up to another train, nose or tail.
+3. Its search had no such move: blocked by the train at the end, it had none.
+
+**The rule.** A train whose way next turns in a dead end (no stop of its own there: `deadTarget`, turn only), blocked by a
+train standing at that dead end's far end, is granted up to it (close behind it, or nose to nose if that one has turned),
+and turns there (`turnsNose` for it). `DEAD_BACK` doesn't refuse it in. Its card: "Turning back: <train> is at the line's
+end". Behind a switch (`Q9`), measured as the others.
+
+**Measured (not kept on).** Built behind `Q9`: the grant up to the train at the end (`q9End`), `DEAD_BACK` letting a
+turn-only train in behind a routed one, `turnsNose` for such a grant. The routing cases with the dispatcher on 38 → 37
+(fuzz seed 136; none new once kept to routed trains and off lines the swap planner could take); but on the 22 maps own-10
+broke `wrongRoad` in one seed, own-01 lost 21 stops, own-03 3, own-04 2 (own-08 +9). Seed 149 itself turns behind as it
+should and knots again further on: two trains now west-bound through the loop and the third east-bound, the loop's free
+road refused it as a move onto the line beyond (granting it up to the loop's road, `SINGLE_CUT`, changed no case).
+Left off; the card's words are in (`Turning back: <train> is at the line's end`, for any Q9 turn, sections' too).
+

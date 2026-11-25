@@ -14,7 +14,7 @@ export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
 export type TrainState =
   | { kind: "derailed" }
   | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading"; onPoints?: boolean }
-  | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean }
+  | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean; behind?: number }
   /** At a red signal; `holding`: held there by the player's hand, for `STUCK_S` or more (signals spec §6). */
   | { kind: "red-signal"; signalId: number; holding?: boolean; by?: number; gated?: boolean }
   /** Standing at a kit's stop (a platform) for its dwell. */
@@ -130,7 +130,11 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   }
   // (No room to turn round, another train in the way, and said stuck: the stuck card below, not "turning back".)
   const turnStuck = train.turnback >= 0 && sim.heldHow(train.id) === "turn" && train.cars.some((c) => c.kind === "engine" && economy.stalls.stuckOf(c.id));
-  if (train.turnback >= 0 && !turnStuck) return { kind: "turning-back", cause: turn?.cause ?? "buffer", pieceId: turn?.pieceId ?? -1 };
+  if (train.turnback >= 0 && !turnStuck) {
+    // (Close behind a train standing at the line's end (§16 Q9): that one is its end of the line, said by name.)
+    const behind = sim.turnedBehind(train);
+    return { kind: "turning-back", cause: turn?.cause ?? "buffer", pieceId: turn?.pieceId ?? -1, ...(behind >= 0 ? { behind } : {}) };
+  }
   const stopAt = economy.kitStops.dwellingAt(train.id);
   if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   const lift = sim.liftState(train.id);
@@ -598,6 +602,7 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (Load in place: no spot there clears the points, so it stands on them as it loads.)
       return s.onPoints ? `${s.work} at ${nameOf(s.depotId)}: too long for its yard, its tail is on the points` : `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
+      if (s.behind !== undefined && s.behind >= 0) return `Turning back: ${trainLabel(sim, s.behind)} is at the line's end`;
       // (Running back, it's no longer where the track ends: "back there".)
       if (s.cause === "open-end") return s.done ? "Turned back: the track ends back there" : "Turning back: the track ends here";
       // (Its line ends at this stop, though the track runs on: the way to its next stop is back the way it came.)

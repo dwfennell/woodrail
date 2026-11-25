@@ -1577,6 +1577,10 @@ export class Sim {
    * By key.
    */
   private readonly endBehind = new Map<number, number>();
+  /** The train (its key: its lowest engine's id) this one is turning back close behind (§16 Q9), or −1. */
+  turnedBehind(train: Train): number {
+    return this.endBehind.get(trainKey(train)) ?? -1;
+  }
 
   /**
    * A train pulled up close behind another standing at the end of the line (the user's decision, routing spec §16 Q9):
