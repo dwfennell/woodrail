@@ -1,4 +1,6 @@
 import { lazy } from "./lib/lazy";
+import { type Load, prefetchWhenIdle } from "./lib/prefetch";
+import { loadBlueprintBoard, loadCreditsSheet, loadExplainerSheet, loadFeedbackSheet, loadPaintSheet, loadStatsCard } from "./ui/lazy-chunks";
 import { CRANE_TEXT } from "./game/crane-text";
 import { placeNear, type Place as NearPlace } from "./game/place-near";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
@@ -2869,7 +2871,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // opened (`setBoardOpen`); till then `board` stands in, shut. (By `lazy`: a fetch that fails, offline or a tab older
   // than the build served, says so and the next tap tries again. A flag of its own once stayed "loading" after a failed
   // fetch, and Research never opened again till a reload.)
-  const boardLazy = lazy(async () => new (await import("./ui/blueprint-board")).BlueprintBoard(document.body, boardHandlers), (e) => lazyFailed(e));
+  const boardLazy = lazy(async () => new (await loadBlueprintBoard()).BlueprintBoard(document.body, boardHandlers), (e) => lazyFailed(e));
   const board = {
     get open(): boolean {
       return boardLazy.now?.open ?? false;
@@ -5929,7 +5931,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // The paint shop's sheet (game/paint-shop.ts): an engine painted from its card.
   // (Its code is loaded the first time it opens.)
-  const paintSheet = lazy(async () => new (await import("./ui/paint-sheet")).PaintSheet({
+  const paintSheet = lazy(async () => new (await loadPaintSheet()).PaintSheet({
     progress: () => progress,
     liveryOf: (id) => game.sim.liveryOf(id),
     nameOf: (id) => game.sim.nameOf(id),
@@ -8089,7 +8091,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { airports, airships, editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => ((id = RENAMED[id] ?? id), progress.learned.add(id), learned(id)), showMe: () => showGoal(), goals: () => goals, stickers: () => stickers, tips: () => tips, situations: () => situations, trayThumbnailsSaved: () => trayThumbnailsSaved, routeShown: () => routeView?.shown ?? [], routeLanes: () => routeView?.laneLength ?? 0, linesShared: () => allLines?.sharedLength ?? 0, lines: { sheetLine: () => sheetLine, sheetEngine: () => sheetEngine }, chainHints, mapSettled: () => mapView.open && !mapMoving, slots });
   // (Its code is loaded the first time it's shown.)
-  const statsCard = stats.available ? lazy(async () => new (await import("./ui/stats-card")).StatsCard(hud.root, stats, (m) => hud.toast(m)), lazyFailed) : null;
+  const statsCard = stats.available ? lazy(async () => new (await loadStatsCard()).StatsCard(hud.root, stats, (m) => hud.toast(m)), lazyFailed) : null;
   if (statsCard) hud.addStatsItem(() => statsCard.use((c) => c.show()));
   // "Report a bug or give feedback" (src/ui/feedback-sheet.ts), in a build with the cloud Worker to send it to.
   const feedbackUrl = ((import.meta.env.VITE_FEEDBACK_URL || import.meta.env.VITE_STATS_URL || import.meta.env.VITE_CLOUD_URL || "") as string).trim();
@@ -8097,7 +8099,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   if (feedbackUrl) {
     // (Its code is loaded the first time it opens.)
     const url = feedbackUrl;
-    const sheet = lazy(async () => new (await import("./ui/feedback-sheet")).FeedbackSheet(hud.root, url, {
+    const sheet = lazy(async () => new (await loadFeedbackSheet()).FeedbackSheet(hud.root, url, {
       map: async () => {
         save();
         return { map: await mapText(mode), mode };
@@ -8110,6 +8112,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.hideCards();
       sheet.use((f) => f.show());
     });
+  }
+  // The sheets most often opened, fetched once the game has gone quiet (src/lib/prefetch.ts): they then open at once,
+  // and still open in a tab older than the deploy now served (whose files may be gone by then). About 38 kB, 15 kB gzipped.
+  // `woodrail.prefetched` is for the e2e (`npm run e2e:prefetch`). Built games only: the dev server has no old deploys to
+  // lose, and its unbundled imports landing mid-test upset the click suite's wheel and tray drag.
+  {
+    const loads: Load[] = [loadBlueprintBoard, loadExplainerSheet, loadPaintSheet, loadCreditsSheet];
+    if (statsCard) loads.push(loadStatsCard);
+    if (feedbackUrl) loads.push(loadFeedbackSheet);
+    const w = (window as unknown as { woodrail: { prefetched?: boolean } }).woodrail;
+    if (!import.meta.env.DEV) void prefetchWhenIdle(loads).then(() => (w.prefetched = true));
   }
   /** The one-time "Help improve Woodrail?" question: put off while something else is being done. */
   function askStats(): void {

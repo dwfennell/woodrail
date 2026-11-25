@@ -31,3 +31,4 @@ activity-out/
 .qa-demos/
 .jams-shadow.json
 .dispatch-report*/
+dist-e2e-prefetch/
