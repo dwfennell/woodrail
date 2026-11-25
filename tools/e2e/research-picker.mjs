@@ -205,7 +205,7 @@ await shot("01-pill-pick-research");
 
 // 2b. The picker's code not fetched the first time (offline, or a tab older than the build served): every tap says so,
 // with a tap to reload, and after the reload it opens. (It once did nothing at all till a reload, saying nothing: the
-// loading flag stayed up. Chromium keeps a failed import() failed for the page's life, so a tap can't simply try again.)
+// loading flag stayed up. A chunk a newer deploy deleted stays gone, so a tap can't simply try again: the reload is the cure.)
 {
   const route = boardRoute;
   const toast = () => p.evaluate(() => (document.querySelector(".toast:not([hidden])")?.getBoundingClientRect().height ? document.querySelector(".toast").textContent : ""));
@@ -213,13 +213,15 @@ await shot("01-pill-pick-research");
   await p.waitForTimeout(800);
   const said = await toast();
   const shut = await p.evaluate(() => !document.querySelector(".board-open"));
-  await p.unroute(route);
   check("the picker's code not fetched: the tap says so, with a tap to reload, and it stays shut", boardRefused > 0 && shut && /Couldn't fetch .*reload/.test(said), JSON.stringify({ refused: boardRefused, shut, said }));
   await p.waitForFunction(() => !document.querySelector(".toast")?.getBoundingClientRect().height, null, { timeout: 15000 }).catch(() => null);
   await tap(".research-pill");
   await p.waitForTimeout(800);
   const again = await toast();
   check("…the next tap says so again (never nothing at all)", /Couldn't fetch/.test(again), JSON.stringify(again));
+  // (Refused till the reload, as a deploy's deleted chunk stays gone: a browser that tries a failed import() again,
+  // as Chromium now does, would otherwise open the picker on this tap, and the toast left fading takes no tap.)
+  await p.unroute(route);
   const reloaded = p.waitForEvent("load", { timeout: 60000 }).then(() => true, () => false);
   await tap(".toast");
   check("…a tap on the toast reloads the page", await reloaded);

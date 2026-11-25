@@ -291,6 +291,9 @@ export class Hud {
   private readonly undoBtn: HTMLButtonElement;
   private readonly redoBtn: HTMLButtonElement;
   private readonly pauseBtn: HTMLButtonElement;
+  /** While paused: a sign over the tray (a tap plays) and a frame round the screen. */
+  private readonly pausedSign = el("button", "paused-sign");
+  private readonly pausedFrame = el("div", "paused-frame");
   /** The time control (src/game/time-scale.ts): "1×", "2×", "3×"; hidden till Clockmaker is learned. */
   private readonly speedBtn: HTMLButtonElement;
   private readonly rerailBtn: HTMLButtonElement;
@@ -579,6 +582,19 @@ export class Hud {
     actions.append(this.menuBtn);
     top.appendChild(actions);
     this.root.appendChild(top);
+    // Paused: a red frame round the screen and a sign over the tray that plays again when tapped (#45: a player who
+    // paused by accident and reported the stopped trains as a bug). Both static: shown by a class, nothing drawn.
+    this.pausedSign.type = "button";
+    this.pausedSign.hidden = true;
+    this.pausedSign.setAttribute("aria-label", "Paused. Tap to play");
+    this.pausedSign.title = "Play (Space)";
+    this.pausedSign.innerHTML = `<span class="ps-bars" aria-hidden="true"></span><span class="ps-word">Paused</span><span class="ps-play">${uiIcon("play")}Play</span>`;
+    this.pausedSign.addEventListener("click", (e) => {
+      e.stopPropagation();
+      h.togglePause();
+    });
+    this.root.prepend(this.pausedFrame);
+    this.root.append(this.pausedSign);
     this.tips = installTooltips(this.root);
     // A long press in the tray shows an item's details: not the browser's own menu or callout as well.
     this.root.addEventListener("contextmenu", (e) => {
@@ -1872,6 +1888,8 @@ export class Hud {
     this.pauseBtn.title = paused ? "Resume (Space)" : "Pause (Space)";
     this.pauseBtn.setAttribute("aria-label", this.pauseBtn.title);
     this.pauseBtn.classList.toggle("active", paused);
+    this.pausedSign.hidden = !paused;
+    this.root.classList.toggle("paused", paused);
   }
 
   /** The paused tip's Show where: the ▶ on the bar pulsed a few times (CSS only, no frames drawn). */
