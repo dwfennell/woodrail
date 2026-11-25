@@ -9,17 +9,27 @@ import { expect, it } from "vitest";
 import { allCases } from "./cases";
 import { judge, type Judged } from "./judge";
 import { KNOWN } from "./known";
+import { KNOWN_ON } from "./known-on";
+import { HarnessRun } from "../harness";
 import { REASONS } from "./reasons";
 
 export const SHARDS = 8;
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const fs = async () => (await import(/* @vite-ignore */ "node:" + "fs")) as { mkdirSync(path: string, o: { recursive: boolean }): void; writeFileSync(path: string, text: string): void };
 
-export function shard(i: number): void {
+/**
+ * Shard `i`; `dispatcher`: the cases with the train dispatcher on (`HarnessRun.dispatch`, as `Economy.useDispatcher`),
+ * judged against their own list (`KNOWN_ON`, known-on.ts; the `cases-on-*.test.ts` files): what it gets wrong that
+ * sections get right is the bar for turning it on in new games (2026-11-25).
+ */
+export function shard(i: number, dispatcher = false): void {
+  // (Each test file runs in a worker of its own: set for the whole file.)
+  if (dispatcher) HarnessRun.dispatch = true;
+  const KNOWN_HERE = dispatcher ? KNOWN_ON : KNOWN;
   const cases = allCases().filter((_, k) => k % SHARDS === i);
   const out: (Judged & { family: string; known: string | null; reason: string | null })[] = [];
   for (const c of cases) {
-    const known = KNOWN[c.id];
+    const known = KNOWN_HERE[c.id];
     it(known ? `${c.id} [known: ${known.join(", ")}${REASONS[c.id] ? `; ${REASONS[c.id]}` : ""}]` : c.id, () => {
       const j = judge(c);
       out.push({ ...j, family: c.family, known: known ? known.join(", ") : null, reason: REASONS[c.id] ?? null });
@@ -32,6 +42,6 @@ export function shard(i: number): void {
   it.runIf(!!ENV.CASES_OUT)("(writes the judgements)", async () => {
     const { mkdirSync, writeFileSync } = await fs();
     mkdirSync(ENV.CASES_OUT!, { recursive: true });
-    writeFileSync(`${ENV.CASES_OUT}/shard-${i}.json`, JSON.stringify(out));
+    writeFileSync(`${ENV.CASES_OUT}/shard-${dispatcher ? "on-" : ""}${i}.json`, JSON.stringify(out));
   });
 }

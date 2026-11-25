@@ -32,6 +32,14 @@ goes wrong in exactly that way. So the suite is green, it lists exactly what's b
 
 Run: `npx vitest run src/routing/cases/`. The table below: `rm -rf .cases; CASES_OUT=.cases npx vitest run src/routing/cases/; node tools/cases-report.mjs .cases`.
 
+## With the train dispatcher on (2026-11-25)
+
+The same cases run a second time with the dispatcher on (`cases-on-*.test.ts`, `shard(i, true)`), judged against their
+own list, `cases/known-on.ts` (`node tools/cases-known.mjs --on <dir>` from a `CASES_OUT` run's `shard-on-*.json`).
+Sections get every case right (`known.ts` is empty); the dispatcher gets 109 wrong (68 with its knot check, `KNOT=1`,
+which is off: it costs the big maps 60-180 stops; `dispatcher-knots.test.ts`). It stays off in new games until `known-on.ts` is empty, or holds only cases the user has
+accepted by name: a new player must never meet a stall today's game gets right.
+
 ## The families (generated, not hand-picked: `cases/cases.ts`)
 
 - **ring** (18): the user's question: two trains the same way round a ring cut into three blocks, by pairs or by

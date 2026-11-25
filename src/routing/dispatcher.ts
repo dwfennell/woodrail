@@ -92,6 +92,17 @@ export const NEXT_LEG = { on: ((globalThis as { process?: { env: Record<string, 
 /** How long a train waits at a dead end of its own for another heading into the one it turns in (`deadEndBy`). */
 const DEAD_PATIENCE_S = 20;
 
+/**
+ * The knot check (`decide`): short of all delivering with the others' granted track taken, weighed again with it free; a
+ * move that leaves fewer delivering than waiting would isn't granted. Off unless KNOT=1 (measured 2026-11-25): it unties
+ * the trap (three trains, one loop, two line ends: 0 loads → 13/14/13 in 330 s), and with the dispatcher on the routing
+ * cases go wrong 68 times, not 109; but the big maps lose (dandelion −158, rowan-3 −155, rowan-2 −61, a deadlock on rowan-1
+ * in 2 seeds of 3), and narrowed (only where none could deliver; only where all could with it free; stretches of three
+ * trains at most) they still lose 70-180 stops on dandelion and rowan-3. Members' granted track not taken at all (the
+ * search has them where their holds end), a move over it checked instead: 84 cases wrong, new ones on plain line.
+ */
+export const KNOT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KNOT === "1" };
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -200,6 +211,8 @@ export class Dispatcher {
   unsafeRefused = 0;
   /** Grants refused as ending nose to nose with another train. */
   noseRefused = 0;
+  /** Grants refused as tying a knot: fewer delivering than waiting would, with the others' granted track free (`KNOT`). */
+  knotRefused = 0;
   /**
    * Seconds granted trains stood short of their grants, by what held them (`DispatcherHost.overruled`; "other": nothing
    * seen): where the layout's own guards and the dispatcher disagree (§13.5 step 1).
@@ -368,7 +381,10 @@ export class Dispatcher {
   private trainsOf(snaps: Snap[]): DTrain[] {
     const { layout, sim } = this.host;
     return snaps.map((s) => {
-      const sig = `${s.stops?.join(",") ?? "-"}.${s.next}.${s.at ? 1 : 0}.${s.lever ? 1 : 0}`;
+      // (The layout's revision in it: track laid or taken up builds every way afresh, so a loop's road the player has
+      // just closed is on it (situation-loops: two trains nose to nose for want of a loop, the loop then laid; their ways
+      // as built before it, neither was ever granted its new road, and they stood for good).)
+      const sig = `${s.stops?.join(",") ?? "-"}.${s.next}.${s.at ? 1 : 0}.${s.lever ? 1 : 0}.${layout.revision}`;
       const h = this.holdsBy.get(s.key);
       if (h && h.sig === sig) {
         // (Along its granted way first: a detour and its booked way can stand alike where they part.)
@@ -622,6 +638,22 @@ export class Dispatcher {
       h.passed++;
       if (h.passed >= FAIR_TURNS && r.first[0] >= r.plain - Math.min(...weights) && r.first[0] > 0) to = r.firstTo[0];
     }
+    // (Short of all delivering with the others' granted track taken for good (the search holds it all the way: a train
+    // granted to a line end stands in the way of everyone after it there, though it turns and leaves), weighed again with
+    // it free: a move that leaves fewer delivering than waiting would isn't granted. The trap, a line with one passing loop
+    // and three trains: with the way to the sawmill taken, none could deliver (0 of 3), so any move went, and the third
+    // train took the loop's last road while the one at the sawmill had to come back through it; they stood for good.)
+    let knotBy = -1;
+    if (to >= 0 && KNOT.on && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
+      const free = search(ways, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, weights, oneWay: this.oneWay, detours: ways !== placed });
+      const best = ways !== placed ? free.detourValue : free.plain;
+      const mine = ways !== placed ? free.firstD[0] : free.first[0];
+      if (!free.capped && best > r.plain && mine < best) {
+        to = -1;
+        knotBy = this.blocker(placed, k);
+        this.knotRefused++;
+      }
+    }
     // (One at a time on a single line (§2.2a): a move onto a stretch of plain track between points that another train
     // is on, or is granted onto, heading for its other end, isn't granted; it waits where it is (its last place clear of
     // points before the line), and the longest waiter goes first (asks are decided longest waiter first).)
@@ -769,7 +801,7 @@ export class Dispatcher {
     pt[to < 0 ? 1 : 0]++;
     // (Who it waits for: the train in its move's way, or (its turn not yet) the one the best order lets go first.)
     const firstOther = r.order.find((m) => m.k !== 0);
-    h.waitsOn = to >= 0 ? -1 : singleBy >= 0 ? singleBy : headBy >= 0 ? headBy : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    h.waitsOn = to >= 0 ? -1 : knotBy >= 0 ? knotBy : singleBy >= 0 ? singleBy : headBy >= 0 ? headBy : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
