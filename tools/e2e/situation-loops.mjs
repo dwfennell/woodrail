@@ -120,10 +120,6 @@ await p.evaluate(() => document.querySelector(".coach:not([hidden]) .coach-skip"
 const setup = await p.evaluate(async () => {
   const w = window.woodrail;
   w.paused = true;
-  // Harness shortcut (setup): the train dispatcher off, as ☰ Train dispatcher turns it and as an old save has it. The
-  // jam this tip is for is the one trains on signals alone get into; a new game has the dispatcher on (`asNewGame`),
-  // which plans the line its own way. Saved off with the game.
-  w.economy.useDispatcher(false);
   for (const id of ["switches", "routes", "signals"]) w.learn(id);
   const { GOALS } = await import("/src/game/goals.ts");
   // (The tutorial's goals marked done, by the tracker's own set: situation tips wait till the tutorial's over.)
