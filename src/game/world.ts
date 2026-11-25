@@ -482,6 +482,19 @@ export const STARTER_SEED = 7;
  * QA's recordings made on such maps. `map`: what the land's to be like (the new-game screen's choices): its hills
  * (`landscape/hills.ts`; a step alone says just those), its water (`landscape/water.ts`) and whether it has the sea.
  */
+/**
+ * A new game's world, as the player starts it (Game or Sandbox, the title's New game, ☰ New map, the starter map with
+ * no save): the train dispatcher on (`routing/dispatcher.ts`, the user 2026-11-25). A save keeps its own setting (an
+ * old save, with no `dispatcher` in it, stays off), and ☰ Train dispatcher turns it off or on for a game.
+ * Headless worlds (`createWorld` and the rest, the tests' and tools') are as they were: off unless asked.
+ */
+export function asNewGame(w: World): World {
+  if (NEW_GAME_DISPATCHER) w.economy.useDispatcher(true);
+  return w;
+}
+/** New games start with the dispatcher on. */
+export const NEW_GAME_DISPATCHER = true;
+
 export function createWorld(seed: number, starter = false, extras = true, sites = true, map: Hilliness | MapChoice = {}): World {
   const { hills, water, coast } = mapChoice(map);
   // (Without extras, a map as older builds made it: its start had all its towns too, `OLD_STARTER_TOWNS`.)

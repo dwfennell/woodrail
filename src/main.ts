@@ -9,7 +9,7 @@ import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/came
 import { viewRoom } from "./ui/view-room";
 import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, createWorld, freshGameWorld, landForSale, newMapSeed, plotsForSale, syncMapDepots } from "./game/world";
+import { asNewGame, buildStarterWorld, createWorld, freshGameWorld, landForSale, newMapSeed, plotsForSale, syncMapDepots } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
 import { connectedPairs, mapSettingsOf, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
@@ -276,9 +276,9 @@ function initialWorld(game: ReturnType<typeof loadFromStorage> | undefined = und
   if (link !== null) {
     const was = saved?.ok ? saved.value.landscape : null;
     const same = !!was && !was.starter && mapCode(mapSettingsOf(was)) === mapCode(link);
-    return { world: same && saved?.ok ? saved.value : createWorld(link.seed, false, true, false, link), mode, linked: true, fromSave: same };
+    return { world: same && saved?.ok ? saved.value : asNewGame(createWorld(link.seed, false, true, false, link)), mode, linked: true, fromSave: same };
   }
-  return { world: saved?.ok ? saved.value : buildStarterWorld(mode === "game"), mode, linked: resumed, fromSave: !!saved?.ok };
+  return { world: saved?.ok ? saved.value : asNewGame(buildStarterWorld(mode === "game")), mode, linked: resumed, fromSave: !!saved?.ok };
 }
 
 const RESUME_KEY = "woodrail.resume";
@@ -655,13 +655,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       newLayout: () =>
         askNewMap(mode, "This map is put away for a new one.", (c, seed) => {
           saveLastBuilt(mode, null);
-          setWorld(createWorld(seed, false, true, mode === "game", c));
+          setWorld(asNewGame(createWorld(seed, false, true, mode === "game", c)));
           cloud?.edited(mode);
           game.frameLayout();
         }),
       resetStarter: () => {
         saveLastBuilt(mode, null);
-        setWorld(buildStarterWorld(mode === "game"));
+        setWorld(asNewGame(buildStarterWorld(mode === "game")));
         cloud?.edited(mode);
         game.frameLayout();
         openingView();
@@ -1464,6 +1464,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction.clearSelection();
     interaction.guideHeld(null);
     hud.hideCards();
+    // (☰ Train dispatcher as this world has it: a new game's on, a save's as saved.)
+    hud.setDispatcher(!!world.economy.dispatcher);
     onChange();
   }
 
@@ -2442,7 +2444,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * ☰ Train dispatcher (beta) on or off, for this game (saved with it). Safe mid-game: on, its holds start where each
+   * ☰ Train dispatcher on or off, for this game (saved with it; a new game's on, `asNewGame`). Safe mid-game: on, its holds start where each
    * train stands (a running train asks at once); off, sections take each train on from where it stands.
    */
   function setDispatcherOn(on: boolean): void {
@@ -7422,7 +7424,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function newGame(choices: NewGameChoices, seed: number): void {
     resetGoals();
     saveLastBuilt("game", null);
-    setWorld(freshGameWorld(Math.random, choices, seed));
+    setWorld(asNewGame(freshGameWorld(Math.random, choices, seed)));
     nameNewGame();
     syncPlaceStyles();
     townLife.reset();
@@ -7455,7 +7457,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh) {
       // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
       if (hasOlderSave(next)) loadFromStorage(next);
-      setWorld(next === "game" ? freshGameWorld(Math.random, choices, seed ?? newMapSeed(true)) : createWorld(seed ?? newMapSeed(false), false, true, false, choices));
+      setWorld(asNewGame(next === "game" ? freshGameWorld(Math.random, choices, seed ?? newMapSeed(true)) : createWorld(seed ?? newMapSeed(false), false, true, false, choices)));
       if (next === "game") nameNewGame();
       restoreSession(next, false);
       cloud?.edited(next);
@@ -7467,7 +7469,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         lockSaves("game");
         hud.toast("That game couldn't be opened by this version of the game. It's kept as it was, and this map won't be saved over it.", false, 10000);
       } else if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
-      setWorld(saved?.ok ? saved.value : buildStarterWorld(next === "game"));
+      setWorld(saved?.ok ? saved.value : asNewGame(buildStarterWorld(next === "game")));
       restoreSession(next, !!saved?.ok);
     }
     enter(next, fresh);

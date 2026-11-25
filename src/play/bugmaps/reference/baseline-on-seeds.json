@@ -1,0 +1,422 @@
+{
+ "complex-1.txt": {
+  "stops": 486.6666666666667,
+  "min": 481,
+  "max": 491,
+  "firstJam": 37.333333333333336,
+  "firstJamMin": 36,
+  "stuckBefore": 81,
+  "jams": 5.333333333333333,
+  "p98": 0.306,
+  "maxMs": 8.266,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 1,
+   "unset": 0,
+   "follow": 0
+  }
+ },
+ "complex-2.txt": {
+  "stops": 487.6666666666667,
+  "min": 484,
+  "max": 490,
+  "firstJam": 37.333333333333336,
+  "firstJamMin": 36,
+  "stuckBefore": 86.66666666666667,
+  "jams": 7,
+  "p98": 0.254,
+  "maxMs": 11.167,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 1
+  }
+ },
+ "complex-3.txt": {
+  "stops": 509,
+  "min": 491,
+  "max": 519,
+  "firstJam": 382.6666666666667,
+  "firstJamMin": 321,
+  "stuckBefore": 41.666666666666664,
+  "jams": 6,
+  "p98": 0.225,
+  "maxMs": 7.573,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 1
+  }
+ },
+ "dandelion.txt": {
+  "stops": 816.6666666666666,
+  "min": 813,
+  "max": 823,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 1,
+  "jams": 0,
+  "p98": 0.879,
+  "maxMs": 50.221,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 4,
+   "follow": 2
+  }
+ },
+ "own-01-single-loops.txt": {
+  "stops": 68,
+  "min": 68,
+  "max": 68,
+  "firstJam": 42.333333333333336,
+  "firstJamMin": 40,
+  "stuckBefore": 99,
+  "jams": 3,
+  "p98": 0.287,
+  "maxMs": 3.095,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 4,
+   "own-cap": 0
+  }
+ },
+ "own-02-figure-eight.txt": {
+  "stops": 136,
+  "min": 136,
+  "max": 136,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 0,
+  "jams": 0,
+  "p98": 1.103,
+  "maxMs": 10.048,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "points": 8,
+   "own-cap": 1
+  }
+ },
+ "own-03-terminus.txt": {
+  "stops": 80.33333333333333,
+  "min": 76,
+  "max": 84,
+  "firstJam": 60.333333333333336,
+  "firstJamMin": 57,
+  "stuckBefore": 83.33333333333333,
+  "jams": 28.333333333333332,
+  "p98": 0.962,
+  "maxMs": 5.806,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 42,
+   "points": 1,
+   "own-cap": 4,
+   "cross": 0
+  }
+ },
+ "own-04-wye.txt": {
+  "stops": 108,
+  "min": 108,
+  "max": 108,
+  "firstJam": 103.33333333333333,
+  "firstJamMin": 96,
+  "stuckBefore": 110.66666666666667,
+  "jams": 2,
+  "p98": 0.235,
+  "maxMs": 8.367,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 5
+  }
+ },
+ "own-05-double-track.txt": {
+  "stops": 85.66666666666667,
+  "min": 85,
+  "max": 87,
+  "firstJam": 58,
+  "firstJamMin": 55,
+  "stuckBefore": 74.66666666666667,
+  "jams": 15.666666666666666,
+  "p98": 0.205,
+  "maxMs": 2.011,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 9,
+   "own-cap": 49
+  }
+ },
+ "own-06-double-close.txt": {
+  "stops": 86,
+  "min": 85,
+  "max": 87,
+  "firstJam": 58,
+  "firstJamMin": 55,
+  "stuckBefore": 74.66666666666667,
+  "jams": 17.333333333333332,
+  "p98": 0.187,
+  "maxMs": 2.387,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 15,
+   "own-cap": 57
+  }
+ },
+ "own-07-ring-opposite.txt": {
+  "stops": 119.66666666666667,
+  "min": 116,
+  "max": 124,
+  "firstJam": 167.66666666666666,
+  "firstJamMin": 163,
+  "stuckBefore": 31,
+  "jams": 22,
+  "p98": 0.197,
+  "maxMs": 3.694,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 0
+  }
+ },
+ "own-08-branch.txt": {
+  "stops": 34.666666666666664,
+  "min": 34,
+  "max": 35,
+  "firstJam": 97.33333333333333,
+  "firstJamMin": 89,
+  "stuckBefore": 86.66666666666667,
+  "jams": 4.666666666666667,
+  "p98": 0.521,
+  "maxMs": 2.679,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 5,
+   "own-cap": 66,
+   "nose": 0
+  }
+ },
+ "own-09-hill.txt": {
+  "stops": 121,
+  "min": 121,
+  "max": 121,
+  "firstJam": 53.333333333333336,
+  "firstJamMin": 49,
+  "stuckBefore": 110.33333333333333,
+  "jams": 23,
+  "p98": 0.473,
+  "maxMs": 6.199,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 11
+  }
+ },
+ "own-10-depots.txt": {
+  "stops": 67,
+  "min": 63,
+  "max": 74,
+  "firstJam": 73.66666666666667,
+  "firstJamMin": 62,
+  "stuckBefore": 136.33333333333334,
+  "jams": 18.333333333333332,
+  "p98": 0.963,
+  "maxMs": 6.833,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 2,
+   "nose": 1,
+   "own-cap": 5,
+   "points": 0,
+   "unset": 0
+  }
+ },
+ "own-11-one-way.txt": {
+  "stops": 255.33333333333334,
+  "min": 255,
+  "max": 256,
+  "firstJam": 179,
+  "firstJamMin": 176,
+  "stuckBefore": 31,
+  "jams": 8,
+  "p98": 0.368,
+  "maxMs": 4.188,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 0,
+   "own-cap": 0
+  }
+ },
+ "own-12-big.txt": {
+  "stops": 82.33333333333333,
+  "min": 74,
+  "max": 97,
+  "firstJam": 136,
+  "firstJamMin": 72,
+  "stuckBefore": 105,
+  "jams": 18.333333333333332,
+  "p98": 1.006,
+  "maxMs": 8.667,
+  "breaks": 3,
+  "firstBreak": "deadlock: train 11 still for 60 s on piece 151",
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 8,
+   "follow": 46,
+   "own-cap": 0
+  }
+ },
+ "rowan-1.txt": {
+  "stops": 479.6666666666667,
+  "min": 476,
+  "max": 484,
+  "firstJam": 293.6666666666667,
+  "firstJamMin": 245,
+  "stuckBefore": 187.66666666666666,
+  "jams": 21.333333333333332,
+  "p98": 1.227,
+  "maxMs": 12.704,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 2,
+   "cross": 0
+  }
+ },
+ "rowan-2.txt": {
+  "stops": 677,
+  "min": 587,
+  "max": 754,
+  "firstJam": 115.66666666666667,
+  "firstJamMin": 38,
+  "stuckBefore": 126.66666666666667,
+  "jams": 16.333333333333332,
+  "p98": 0.853,
+  "maxMs": 10.486,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 3,
+   "follow": 5,
+   "points": 0,
+   "unset": 0
+  }
+ },
+ "rowan-3.txt": {
+  "stops": 818.3333333333334,
+  "min": 814,
+  "max": 821,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 0,
+  "jams": 0,
+  "p98": 0.936,
+  "maxMs": 8.24,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 5,
+   "follow": 4
+  }
+ },
+ "user-2026-11-21.txt": {
+  "stops": 536,
+  "min": 528,
+  "max": 546,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 17,
+  "jams": 0,
+  "p98": 0.387,
+  "maxMs": 6.27,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "follow": 6,
+   "points": 0,
+   "own-cap": 2
+  }
+ },
+ "user-2026-11-22-two-train.txt": {
+  "stops": 177,
+  "min": 176,
+  "max": 178,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 0,
+  "jams": 0,
+  "p98": 0.204,
+  "maxMs": 1.96,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800
+ },
+ "wren.txt": {
+  "stops": 556,
+  "min": 550,
+  "max": 566,
+  "firstJam": 1381,
+  "firstJamMin": 543,
+  "stuckBefore": 72.33333333333333,
+  "jams": 0.3333333333333333,
+  "p98": 0.358,
+  "maxMs": 6.523,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 3,
+   "follow": 1
+  }
+ }
+}

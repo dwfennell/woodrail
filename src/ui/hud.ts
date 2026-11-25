@@ -50,7 +50,7 @@ export interface HudHandlers {
   toggleChainHints?(): void;
   /** ☰ Tips switched on or off (Game mode: the 💡 tips under the goals). */
   toggleTips?(): void;
-  /** ☰ Train dispatcher (beta) switched on or off (this game's, saved with it). */
+  /** ☰ Train dispatcher switched on or off (this game's, saved with it). */
   toggleDispatcher?(): void;
   undo(): void;
   redo(): void;
@@ -383,9 +383,9 @@ export class Hud {
   private readonly chainItem: HTMLButtonElement;
   /** ☰ Tips: on/off (Game mode). */
   private readonly tipsItem: HTMLButtonElement;
-  /** ☰ Train dispatcher (beta): on/off, this game's; its words in `dispatcherWords`, a line of help under them. */
+  /** ☰ Train dispatcher: on/off, this game's; its words in `dispatcherWords`, a line of help under them. */
   private readonly dispatcherItem: HTMLButtonElement;
-  private readonly dispatcherWords = el("span", "", "Train dispatcher (beta): off");
+  private readonly dispatcherWords = el("span", "", "Train dispatcher: on");
   /** A warehouse's goods, each with what it lets trains do with it (`StoreView`), or hidden. */
   private readonly depotStore = el("div", "depot-store");
   /** What the warehouse rows show now (drawn again only when it changes), and its "+ Add a good" picker open. */
@@ -657,12 +657,12 @@ export class Hud {
       this.menu.hidden = true;
       h.toggleTips?.();
     }, "menu-item tips-item");
-    // The dispatcher (routing/dispatcher.ts), a beta: off unless the player turns it on, for this game.
-    this.dispatcherItem = button("", "Train dispatcher (beta): plans who goes first so trains don't block each other", () => {
+    // The dispatcher (routing/dispatcher.ts): on in a new game (`asNewGame`), as saved in an old one; for this game.
+    this.dispatcherItem = button("", "Train dispatcher: plans who goes first so trains don't block each other. Off, trains go by the signals alone", () => {
       this.menu.hidden = true;
       h.toggleDispatcher?.();
     }, "menu-item dispatcher-item");
-    this.dispatcherItem.append(this.dispatcherWords, el("span", "menu-item-help", "Plans who goes first so trains don't block each other"));
+    this.dispatcherItem.append(this.dispatcherWords, el("span", "menu-item-help", "Plans who goes first so trains don't block each other. Off: trains go by the signals alone"));
     onFullscreenChange((on) => this.setFullscreen(on));
     this.linesItem = button("Lines", "Every line: its colour, its name, its trains", () => {
       this.menu.hidden = true;
@@ -2679,7 +2679,7 @@ export class Hud {
 
   /** The ☰ Train dispatcher item's words. */
   setDispatcher(on: boolean): void {
-    const words = on ? "Train dispatcher (beta): on" : "Train dispatcher (beta): off";
+    const words = on ? "Train dispatcher: on" : "Train dispatcher: off";
     if (this.dispatcherWords.textContent !== words) this.dispatcherWords.textContent = words;
   }
 
