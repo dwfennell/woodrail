@@ -36,8 +36,10 @@ Run: `npx vitest run src/routing/cases/`. The table below: `rm -rf .cases; CASES
 
 The same cases run a second time with the dispatcher on (`cases-on-*.test.ts`, `shard(i, true)`), judged against their
 own list, `cases/known-on.ts` (`node tools/cases-known.mjs --on <dir>` from a `CASES_OUT` run's `shard-on-*.json`).
-Sections get every case right (`known.ts` is empty); the dispatcher gets 109 wrong (68 with its knot check, `KNOT=1`,
-which is off: it costs the big maps 60-180 stops; `dispatcher-knots.test.ts`). It stays off in new games until `known-on.ts` is empty, or holds only cases the user has
+Sections get every case right (`known.ts` is empty); the dispatcher got 109 wrong, 79 since a train heading for a
+single line's dead end counts as coming back (`DEAD_BACK`, 2026-11-25). Measured and off: its knot check (`KNOT=1`, 68,
+but it costs the big maps 60-180 stops; `dispatcher-knots.test.ts`), granted track taken for the search's first moves only
+(`TAKEN_FIRST`, 72, dandelion jams), a move made by the road the search found (`ROAD_FREE`, 74 with `DEAD_BACK`, rowan-2 −32). It stays off in new games until `known-on.ts` is empty, or holds only cases the user has
 accepted by name: a new player must never meet a stall today's game gets right.
 
 ## The families (generated, not hand-picked: `cases/cases.ts`)

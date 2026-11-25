@@ -103,6 +103,25 @@ const DEAD_PATIENCE_S = 20;
  */
 export const KNOT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KNOT === "1" };
 
+/**
+ * A train on a single line heading for the end it ends at (a buffer) counts as coming back (`singleLineBy`): on, unless
+ * DEAD_BACK=0. With the dispatcher on, the routing cases go wrong 79 times, not 109 (30 cleared: line1 2× and 3×, line2,
+ * line3, terminus stops:far; two new, wye 2×mix same and wye-spare: a routed train at its stop, its tail on the wye, behind
+ * a hand-run one standing beyond it); the reference maps as before (dandelion, rowan-2, rowan-3, wren over 6 seeds: the same).
+ */
+export const DEAD_BACK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_BACK !== "0" };
+
+/**
+ * A move decided by a road round the others where they stand and are granted, as the search found it (`pathTo`): ROAD_FREE=1
+ * (measuring; =2: round where they stand only). With DEAD_BACK the cases go wrong 74 times, not 79 (line1 2×one same
+ * sig:pair: the search found a loop's other road, the move was made by the booked one into the train there); but rowan-2
+ * over 6 seeds −32 (636 against 668, jams 21.3 against 18.8), dandelion −8, rowan-3 −5, wren −4.
+ */
+export const ROAD_FREE = {
+  on: ["1", "2"].includes(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ROAD_FREE ?? ""),
+  stand: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ROAD_FREE === "2",
+};
+
 /** The others' granted track taken for the search's first moves only (`SearchOptions.takenFirst`): TAKEN_FIRST=1 (measuring). */
 export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST === "1" };
 
@@ -494,6 +513,19 @@ export class Dispatcher {
   /** The nodes from `t.at` to `end` along its way (any road), or [] if it isn't ahead. */
   private pathTo(t: DTrain, end: number): number[] {
     if (end === t.at) return [t.at];
+    // (Deciding a move (`moveAvoid`): by a road clear of the other trains and their grants first, as the search found it
+    // (it gives the node, not the road); else by any. By the booked road always, a move the search found by a loop's
+    // other road, its booked one taken, ran into the train standing there, and the single-line rule refused it: the
+    // two waited on each other for good (line1 2×one same sig:pair).)
+    if (this.moveAvoid) {
+      const out = this.bfs(t, end, this.moveAvoid);
+      if (out.length > 0) return out;
+    }
+    return this.bfs(t, end, null);
+  }
+  /** Pieces a move being decided goes round if it can (`pathTo`): where the other trains stand and are granted. */
+  private moveAvoid: Set<number> | null = null;
+  private bfs(t: DTrain, end: number, avoid: ReadonlySet<number> | null): number[] {
     const prev = new Map<number, number>();
     const todo = [t.at];
     prev.set(t.at, -1);
@@ -501,7 +533,7 @@ export class Dispatcher {
       const i = todo.shift()!;
       if (i === end) break;
       for (const x of t.succ[i])
-        if (!prev.has(x)) {
+        if (!prev.has(x) && !(avoid && t.pos[x].some((p) => avoid.has(p)))) {
           prev.set(x, i);
           todo.push(x);
         }
@@ -575,6 +607,14 @@ export class Dispatcher {
   }
 
   private decide(tsIn: DTrain[], snaps: Snap[], engine: number): void {
+    try {
+      this.decideOne(tsIn, snaps, engine);
+    } finally {
+      this.moveAvoid = null;
+    }
+  }
+
+  private decideOne(tsIn: DTrain[], snaps: Snap[], engine: number): void {
     let ts = tsIn;
     const h = this.holdsBy.get(engine);
     const k = ts.findIndex((t) => t.key === engine);
@@ -622,6 +662,16 @@ export class Dispatcher {
       }
     });
     for (const p of placed[k].pos[ts[k].at]) taken.delete(p);
+    // (`pathTo` while this move is decided: round the others where they stand and where they're granted.)
+    if (ROAD_FREE.on) {
+      // (ROAD_FREE=2: round where they stand only, not where they're granted.)
+      const avoid = new Set<number>(ROAD_FREE.stand ? [] : taken);
+      ts.forEach((o, i) => {
+        if (i !== k) for (const p of o.pos[o.at]) avoid.add(p);
+      });
+      for (const p of ts[k].pos[ts[k].at]) avoid.delete(p);
+      this.moveAvoid = avoid;
+    }
     const order = members.map((_, i) => i).sort((a, b) => (a === 0 ? -1 : b === 0 ? 1 : (this.holdsBy.get(placed[members[a]].key)?.stood ?? Infinity) - (this.holdsBy.get(placed[members[b]].key)?.stood ?? Infinity)));
     // (Fair turns: a train counts for more the longer it has stood waiting, so an order that strands a long waiter loses.)
     const now = this.host.sim.ticks;
@@ -1106,6 +1156,15 @@ export class Dispatcher {
     return -1;
   }
 
+  /** Whether a single line's end (a ref, `singleEnd`) runs onto a buffer, or onto nothing. */
+  private endsDead(ref: number): boolean {
+    if (ref < 0) return false;
+    const layout = this.host.layout;
+    const n = next(layout, pieceOfRef(ref), indexOfRef(ref));
+    const np = n ? layout.getPiece(n.pieceId) : undefined;
+    return !n || !np || getPieceDef(np.type, np.flipped).connectors.length < 2;
+  }
+
   /** Whether single line `s` is a dead end: one of its ends runs onto a buffer, or onto nothing; per layout revision. */
   private deadEnd(s: number): boolean {
     const layout = this.host.layout;
@@ -1242,6 +1301,12 @@ export class Dispatcher {
         const ex = pathExitConnector(getPieceDef(bp.type, bp.flipped), b.pathIndex, net >= 0 ? b.reversed : !b.reversed);
         const end = ex >= 0 ? this.singleEnd(seg, b.pieceId, ex) : -1;
         if (end !== mine.get(s)) return key;
+        // (Heading for the same end, where the line ends (a buffer, or nothing): it turns there and comes back, toward
+        // this one (`DEAD_BACK`; line1 3×one opposed sig:blocks3: granted by a loop's other road onto the line a train stood
+        // at the forest's buffer at, to turn and come back; nose to nose for good).)
+        // (Only one that will: routed (it turns at the line's end), or a hand-run one under way. A hand-run train standing
+        // at the buffer may stand there for good (wye 2×mix same: the routed one waited for it on the wye's points).)
+        if (DEAD_BACK.on && (this.holdsBy.has(key) || o.speed !== 0) && this.endsDead(end)) return key;
         break;
       }
       // (Granted onto it, heading the other way.)
