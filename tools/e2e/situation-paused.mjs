@@ -10,7 +10,9 @@
 //   3. Show where: the ▶ on the bar pulsed, the camera where it was; 0 frames drawn while it pulses.
 //   4. ▶ tapped: the train runs on (the payoff: it moves), and the tip is gone from the row.
 //   5. Paused again, a train tapped after the grace: no tip (once a session).
-// Pictures: situation-paused-2-toast.jpg, -2-row.jpg, -3-pulse.jpg.
+//   6. The Paused sign over the tray (and the red frame round the screen), up all the while it's paused: a tap on it
+//      plays, the sign and frame go, the train runs on.
+// Pictures: situation-paused-2-toast.jpg, -2-row.jpg, -3-pulse.jpg, -6-sign.jpg.
 //
 // Usage: npm run e2e:situation-paused [-- <out dir>]   (default out: e2e-out/situation-paused)
 import { existsSync, mkdirSync } from "node:fs";
@@ -199,6 +201,18 @@ await glide(await enginePos(engine), 2000);
 await tapSel('.actions button[aria-label^="Pause"]');
 const pausedAt = await p.evaluate(() => performance.now());
 check("1. the bar's Pause pauses the game, its button now ▶ (Resume)", (await paused()) && !!(await box('.actions button[aria-label^="Resume"]')));
+const sign = () =>
+  p.evaluate(async () => {
+    const s = document.querySelector(".paused-sign");
+    // (Once it has slid in: it comes up from 14 px lower.)
+    await Promise.all((s?.getAnimations() ?? []).map((a) => a.finished));
+    const f = document.querySelector(".paused-frame");
+    const tray = document.querySelector(".tray")?.getBoundingClientRect();
+    const r = s && !s.hidden ? s.getBoundingClientRect() : null;
+    return { gap: r && tray ? Math.round(tray.top - r.bottom) : null, shown: !!r && r.width > 0, h: r ? Math.round(r.height) : 0, text: s?.textContent ?? "", clear: !!r && !!tray && r.bottom <= tray.top, inView: !!r && r.left >= 0 && r.right <= innerWidth, frame: !!f && getComputedStyle(f).display !== "none" };
+  });
+const s1 = await sign();
+check("1. ... the Paused sign over the tray (Paused, Play; 44 px, clear of the tray, in view) and the red frame", s1.shown && s1.text === "PausedPlay" && s1.h >= 44 && s1.clear && s1.inView && s1.frame, JSON.stringify(s1));
 check("1. a tap on the train: its card", await tapEngine(engine, 2000, true), `${Math.round((await p.evaluate(() => performance.now())) - pausedAt)} ms after Pause`);
 await p.waitForTimeout(1500);
 check("1. ... and no tip in the first seconds after the player paused", (await tipShown()) === null && !(await said()).some((t) => /paused/i.test(t)), JSON.stringify(await said()));
@@ -242,7 +256,7 @@ const idle = await p.evaluate(async () => {
 });
 const cam1 = await p.evaluate(() => window.woodrail.camera.position.toArray().map((v) => Math.round(v)));
 check("3. ... the camera where it was", JSON.stringify(cam0) === JSON.stringify(cam1), `${cam0} → ${cam1}`);
-check("3. ... 0 frames drawn while it pulses, paused", idle === 0, `${idle}`);
+check("3. ... 0 frames drawn while it pulses, paused, the sign up", idle === 0 && (await sign()).shown, `${idle}`);
 await until(() => !document.querySelector(".tip-pulse"), null, 10000);
 
 // ---- 4. ▶: the train runs on, the tip goes ----------------------------------------------------------------------
@@ -264,6 +278,20 @@ await tapEngine(engine);
 await p.waitForTimeout(2500);
 const n1 = (await said()).filter((t) => /The game is paused/.test(t)).length;
 check("5. paused again and a train tapped: no tip (once a session)", n1 === n0 && (await tipShown()) !== "paused", `${n0} → ${n1}`);
+
+// ---- 6. The Paused sign: a tap on it plays ----------------------------------------------------------------------------
+await closeCard();
+await p.waitForTimeout(500);
+check("6. paused again: the sign is up", (await paused()) && (await sign()).shown);
+await shot("6-sign");
+const at2 = await enginePos(engine);
+await tapSel(".paused-sign");
+check("6. a tap on the sign: the game runs, the bar's button back to Pause", !(await paused()) && !!(await box('.actions button[aria-label^="Pause"]')));
+const s6 = await sign();
+check("6. ... the sign and the frame gone", !s6.shown && !s6.frame, JSON.stringify(s6));
+await p.waitForTimeout(3000);
+const at3 = await enginePos(engine);
+check("6. ... the train moves on (the payoff)", Math.hypot(at3.x - at2.x, at3.z - at2.z) > 20, `${Math.round(Math.hypot(at3.x - at2.x, at3.z - at2.z))} mm`);
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "situation-paused: all passed" : `situation-paused: ${failures} failed`);
