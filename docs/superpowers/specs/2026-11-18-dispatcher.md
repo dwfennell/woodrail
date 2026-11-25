@@ -731,3 +731,20 @@ that runs on round the ring through the waiter's next move, so the turn passes b
 can't give that. The next attempt books the whole move: a queued train's turn includes the track from the line's far end
 to its next waiting place, and a train granted past it is cut back to its last rest before (the §2.2a "through to a place
 it can wait", for both). Parked till then.
+
+### 13.9 The turn booked whole (2026-11-25, `TURNS2`, on)
+
+Built as §13.8 proposed. A train waiting `TURN_S` (30 s) on another, refused onto a single line or blocked by that one's
+grant (or its locked points), keeps its move: through the line to its next waiting place, and the whole of each single
+line on it. The other's grants that would come onto it heading toward it are cut back to the last rest before. Running
+along it and off it as it stands is fine; coming back onto it further on isn't (the ring's line, both ends at one loop).
+
+- **Not for a head-on wait** (or nose to nose): there the other must go first. Protected anyway, complex-2's Willow (held
+  head-on by Tansy) had Tansy held for its turn and the two jammed: complex-1/2/3 −41/−50/−29.
+- **Not after 5 s:** every busy wait on the big maps became a turn (rowan-3 −114, dandelion −77, rowan-2 −62). 30 s keeps
+  the ring cases (they starve for minutes); 60 s is past the 60 s stall.
+- **Not only same-way:** following a waiter's way isn't cut (one at a time is per direction).
+
+Measured with the dispatcher on: the routing cases 65 → 56 wrong (ring1 2×one/own opposed, nine; none new); the 22 maps
+as main (rowan-1 +4, no new breaks, decide p98 ≤ 1.2 ms).
+

@@ -143,6 +143,16 @@ export const TAKEN_FIRST_MEMBERS = { on: ((globalThis as { process?: { env: Reco
 export const HANDOFF = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HANDOFF !== "0" };
 const HANDOFF_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HANDOFF_S ?? 3);
 
+/**
+ * The turn booked whole (§13.8, `decide`): a train waiting `TURN_S` on another, refused onto a single line or blocked by
+ * its grant, keeps its move (through the line to its next waiting place, and the whole of each line on it); the other's
+ * grants onto it heading toward it are cut back to the last rest before. On, unless TURNS2=0: with the dispatcher on the
+ * routing cases go wrong 56 times, not 65 (ring1 2× opposed, nine; none new); the reference maps as before (rowan-1 +4).
+ */
+export const TURNS2 = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURNS2 !== "0" };
+/** How long (s) a train waits before its move is kept for it: 5 cost the big maps 40-110 stops (every busy wait a turn); 60 is past the stall. */
+const TURN_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_S ?? 30);
+
 /** How often (ticks) it looks for events (sections' asks' rate). */
 const LOOK_TICKS = 12;
 /** A hold ending at a line end runs on this much (mm) past it: to the end of the track, where the sim turns it. */
@@ -215,6 +225,12 @@ interface Hold {
   refsVer?: number;
   /** The train it waits for to clear a single line it's not granted onto (−1: none), for its card. */
   singleWait?: number;
+  /** Its move as it waits for it (`TURNS2`, §13.8): the pieces from where it stands to its next waiting place. */
+  want?: Set<number>;
+  /** Why it was last refused (`TURNS2`): onto a single line, its move's way taken, or another rule. */
+  waitWhy?: "single" | "blocked" | "other";
+  /** …the single lines on it and the end it heads for on each (line → end ref). */
+  wantLines?: Map<number, number>;
 }
 
 /** §13.6: a train's way (piece → the end its front comes onto it by) along its booked way from node `from`, its next two legs. */
@@ -815,6 +831,58 @@ export class Dispatcher {
         this.knotRefused++;
       }
     }
+    // (Its turn, booked whole (§13.8, `TURNS2`): a train waiting on this one `TURN_S` and longer than it keeps its move
+    // (through the line to its next waiting place): this one's grant isn't run onto it, cut back to its last rest before.
+    // Along it and off it, as it runs now, is fine; onto it again further on isn't (a ring's line, both its ends at one loop).)
+    let turnBy = -1;
+    if (to >= 0 && TURNS2.on) {
+      const w = ways[k];
+      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const now = this.host.sim.ticks;
+      const mine = h.stood >= 0 ? h.stood : now;
+      for (const o of ts) {
+        if (o.key === engine || o.fixed) continue;
+        const oh = this.holdsBy.get(o.key);
+        if (!oh?.want || oh.waitsOn !== engine || oh.stood < 0 || now - oh.stood < TURN_S * 120 || oh.stood >= mine || oh.t.pos !== o.pos) continue;
+        // (Only where it waits its turn: refused onto a single line, or blocked by this one's grant. Held head-on, nose to nose
+        // or at locked points by this one, this one goes first (complex-2: Willow held head-on by Tansy coming its way, Tansy
+        // held for Willow's turn: the two waited on each other, jammed at 322 s).)
+        if (oh.waitWhy !== "single" && oh.waitWhy !== "blocked") continue;
+        const path = this.pathTo(tt, to);
+        // (Onto one of its lines heading for the other end (toward it): following it the same way is one at a time per
+        // direction as ever (§2.2a), and holding followers cost the complex maps 30-50 stops.)
+        const seg = this.singleOf();
+        const toward = (i: number): boolean => {
+          const fp = tt.pos[i][tt.pos[i].length - 1];
+          const x = seg.get(fp);
+          if (x === undefined || x < 0) return false;
+          const theirs = oh.wantLines?.get(x);
+          if (theirs === undefined) return false;
+          const ex = tt.frontRef[i] >= 0 && pieceOfRef(tt.frontRef[i]) === fp ? indexOfRef(tt.frontRef[i]) : tt.frontEn[i] === 0 ? 1 : 0;
+          return this.singleEnd(seg, fp, ex) !== theirs;
+        };
+        let on = tt.pos[tt.at].some((p) => oh.want!.has(p));
+        let lastRest = -1;
+        let cut = false;
+        for (let q = 1; q < path.length; q++) {
+          const i = path[q];
+          const hits = tt.pos[i].some((p) => oh.want!.has(p));
+          if (on && !hits) on = false;
+          else if (!on && hits) {
+            if (toward(i)) {
+              cut = true;
+              break;
+            }
+            on = true;
+          }
+          if (!on && tt.rest[i]) lastRest = i;
+        }
+        if (!cut) continue;
+        turnBy = o.key;
+        to = lastRest;
+        if (to < 0) break;
+      }
+    }
     // (One at a time on a single line (§2.2a): a move onto a stretch of plain track between points that another train
     // is on, or is granted onto, heading for its other end, isn't granted; it waits where it is (its last place clear of
     // points before the line), and the longest waiter goes first (asks are decided longest waiter first).)
@@ -962,7 +1030,37 @@ export class Dispatcher {
     pt[to < 0 ? 1 : 0]++;
     // (Who it waits for: the train in its move's way, or (its turn not yet) the one the best order lets go first.)
     const firstOther = r.order.find((m) => m.k !== 0);
-    h.waitsOn = to >= 0 ? -1 : knotBy >= 0 ? knotBy : singleBy >= 0 ? singleBy : headBy >= 0 ? headBy : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    h.waitsOn = to >= 0 ? -1 : turnBy >= 0 ? turnBy : knotBy >= 0 ? knotBy : singleBy >= 0 ? singleBy : headBy >= 0 ? headBy : lockedBy >= 0 ? lockedBy : noseBy >= 0 ? noseBy : r.first[0] < 0 ? this.blocker(placed, k) : firstOther ? placed[members[firstOther.k]].key : -1;
+    // (Its move as it waits (`TURNS2`): refused with a move free, the move; blocked, its way on to its next waiting place.)
+    if (TURNS2.on) {
+      if (to >= 0) h.want = undefined;
+      else {
+        h.waitWhy = r.first[0] < 0 || (lockedBy >= 0 && headBy < 0 && noseBy < 0) ? "blocked" : singleBy >= 0 && headBy < 0 && noseBy < 0 ? "single" : "other";
+        const w = ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at };
+        const want = new Set<number>();
+        let nodes: number[] = [];
+        if (r.first[0] >= 0 && r.firstTo[0] >= 0) nodes = this.pathTo(w, r.firstTo[0]);
+        else
+          for (let i = w.at, n = 0; i >= 0 && n < 200; n++) {
+            nodes.push(i);
+            if (i !== w.at && w.wait[i]) break;
+            i = w.succ[i][0] ?? -1;
+          }
+        for (const n of nodes) for (const p of w.pos[n]) want.add(p);
+        h.wantLines = this.linesOf(w, nodes);
+        // (The whole of each single line it runs onto: a train let stand anywhere on one faces it there, and the single-line
+        // rule holds it back in turn (a ring's line, half the ring: cut back short of the move but still on it).)
+        const seg = this.singleOf();
+        const lines = new Set<number>();
+        for (const p of want) {
+          const x = seg.get(p);
+          if (x !== undefined && x >= 0) lines.add(x);
+        }
+        if (lines.size > 0) for (const [p, x] of seg) if (lines.has(x)) want.add(p);
+        for (const p of w.pos[w.at]) want.delete(p);
+        h.want = want.size > 0 ? want : undefined;
+      }
+    }
     if (to < 0 && this.handOff(engine)) return;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
@@ -1352,11 +1450,9 @@ export class Dispatcher {
    * Another train on a single line this move runs onto, or granted onto it, heading for its other end (−1: none). Its
    * engine. A train standing on it with no way on but towards this one counts as heading that way.
    */
-  private singleLineBy(engine: number, t: DTrain, path: readonly number[]): number {
+  /** The single lines a move along `path` runs onto, and the end of each it heads for (line → end ref). */
+  private linesOf(t: DTrain, path: readonly number[]): Map<number, number> {
     const seg = this.singleOf();
-    const layout = this.host.layout;
-    const { sim } = this.host;
-    // (The lines its move runs onto, and the end of each it heads for.)
     const mine = new Map<number, number>();
     for (let q = 1; q < path.length; q++) {
       const i = path[q];
@@ -1367,6 +1463,15 @@ export class Dispatcher {
       const end = this.singleEnd(seg, fp, ex);
       if (end >= 0) mine.set(s, end);
     }
+    return mine;
+  }
+
+  private singleLineBy(engine: number, t: DTrain, path: readonly number[]): number {
+    const seg = this.singleOf();
+    const layout = this.host.layout;
+    const { sim } = this.host;
+    // (The lines its move runs onto, and the end of each it heads for.)
+    const mine = this.linesOf(t, path);
     if (mine.size === 0) return -1;
     const self = sim.findCar(engine)?.train;
     for (const o of sim.trains()) {

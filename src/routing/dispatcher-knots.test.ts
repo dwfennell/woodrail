@@ -17,6 +17,7 @@ import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { chain, loopOn } from "../economy/loop-fixtures";
 import { HarnessRun } from "./harness";
 import { KNOT } from "./dispatcher";
+import { allCases, scenarioOf } from "./cases/cases";
 
 const S: PieceTypeId = "straight-216";
 const CARS: CarKind[] = ["engine", "timber", "timber"];
@@ -128,5 +129,15 @@ describe("the dispatcher's knots", { timeout: 120_000 }, () => {
     expect(run.dispatcher!.handOffs).toBeGreaterThan(0);
     expect(Math.min(...r.arrivals)).toBeGreaterThanOrEqual(2);
     expect(r.broke.twoOwners.count).toBe(0);
+  });
+
+  it("a ring with one loop and two trains going opposite ways: they take turns on the single line, both deliver", () => {
+    // (ring1 2×one opposed: the one going round was granted the single line every lap, the other waited at the loop for
+    // good. Its turn kept for it (TURNS2), both run.)
+    const scenario = scenarioOf(allCases().find((c) => c.id === "ring1 2×one opposed")!).scenario;
+    const run = new HarnessRun(new Layout(), scenario);
+    const r = run.run(150);
+    expect(Math.min(...r.arrivals)).toBeGreaterThanOrEqual(3);
+    expect(r.broke.deadlock.count).toBe(0);
   });
 });
