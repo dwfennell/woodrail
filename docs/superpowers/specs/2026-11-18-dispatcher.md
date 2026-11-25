@@ -759,3 +759,13 @@ Gated to where it belongs: three trains or more in the stretch, all of one line,
 (a spare end: `HANDOFF`'s). On two trains it knotted the ring's signal variants in 7 s (`TURNS2`'s turn is theirs).
 Measured with the dispatcher on: the routing cases 56 → 46 wrong (none new); the 22 maps exactly as main.
 
+### 13.11 The road the search found (2026-11-25, `ROAD_FREE`, on)
+
+The search gives a move's node, not its road. The grant was made by the booked road (`pathTo`'s first), so a move the search
+found by a loop's other road, round a train standing on the booked one, ran into that train; the single-line rule refused
+it, and the two waited on each other for good (line1 2×one same sig:pair, and six like it). Now: the booked road unless a
+train stands on it; else the road round, if it's no more than two nodes longer (a loop's other road); only in a stretch of
+two trains. Measured with the dispatcher on: the routing cases 46 → 38 wrong (none new); the 22 maps as main, own-01 +20;
+rowan-2 over 6 seeds as main. Wider (round granted track too, or any stretch, or any length) cost rowan-2 32-51 stops over
+6 seeds: seeds 4 and 5 were sent the long way round the map, 150 stops each.
+

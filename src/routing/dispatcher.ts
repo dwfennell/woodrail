@@ -112,15 +112,24 @@ export const KNOT = { on: ((globalThis as { process?: { env: Record<string, stri
 export const DEAD_BACK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_BACK !== "0" };
 
 /**
- * A move decided by a road round the others where they stand and are granted, as the search found it (`pathTo`): ROAD_FREE=1
- * (measuring; =2: round where they stand only). With DEAD_BACK the cases go wrong 74 times, not 79 (line1 2×one same
- * sig:pair: the search found a loop's other road, the move was made by the booked one into the train there); but rowan-2
- * over 6 seeds −32 (636 against 668, jams 21.3 against 18.8), dandelion −8, rowan-3 −5, wren −4.
+ * A move decided by the road the search found round a train standing on its booked one (`pathTo`): the search gives the
+ * node, not the road, and by the booked road the move ran into the train standing there, the single-line rule refused it,
+ * and the two waited on each other for good (line1 2×one same sig:pair). On (mode 3), unless ROAD_FREE=0: the booked road
+ * unless a train stands on it; only in a stretch of two trains (`ROAD_FREE_MAX`); and no more than `ROAD_FREE_SLACK` nodes
+ * past the booked road (a loop's other road, not the long way round). With the dispatcher on the routing cases go wrong 38
+ * times, not 46 (line1 2×one/own same with signals, seven; ring1 sig:beforePoints; none new); the reference maps as before
+ * (own-01 +20; rowan-2 over 6 seeds the same). Measured: round granted track too (=1), or in any stretch, rowan-2 −32 to
+ * −51 over 6 seeds (seeds 4 and 5 −150: the long way round the map). =1 / =2 (round where they stand) kept for measuring.
  */
+const ROAD_MODE = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ROAD_FREE ?? "3";
 export const ROAD_FREE = {
-  on: ["1", "2"].includes(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ROAD_FREE ?? ""),
-  stand: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ROAD_FREE === "2",
+  on: ["1", "2", "3"].includes(ROAD_MODE),
+  stand: ["2", "3"].includes(ROAD_MODE),
+  blocked: ROAD_MODE === "3",
 };
+/** `ROAD_FREE`: the most trains its stretch has, and the most nodes past the booked road the road round may run. */
+const ROAD_FREE_MAX = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ROAD_FREE_MAX ?? 2);
+const ROAD_FREE_SLACK = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ROAD_FREE_SLACK ?? 2);
 
 /** The others' granted track taken for the search's first moves only (`SearchOptions.takenFirst`): TAKEN_FIRST=1 (measuring). */
 export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST === "1" };
@@ -635,8 +644,13 @@ export class Dispatcher {
     // other road, its booked one taken, ran into the train standing there, and the single-line rule refused it: the
     // two waited on each other for good (line1 2×one same sig:pair).)
     if (this.moveAvoid) {
+      // (ROAD_FREE=3: the booked road unless a train stands on it; only then round.)
+      const booked = ROAD_FREE.blocked ? this.bfs(t, end, null) : null;
+      if (booked && !booked.some((n) => t.pos[n].some((p) => this.moveAvoid!.has(p)))) return booked;
       const out = this.bfs(t, end, this.moveAvoid);
-      if (out.length > 0) return out;
+      // (A loop's other road, not the long way round: no more than a couple of nodes past the booked road (rowan-2 seeds 4
+      // and 5: a way round the far side of the map, 150 stops lost).)
+      if (out.length > 0 && !(booked && booked.length > 0 && out.length > booked.length + ROAD_FREE_SLACK)) return out;
     }
     return this.bfs(t, end, null);
   }
@@ -780,7 +794,7 @@ export class Dispatcher {
     });
     for (const p of placed[k].pos[ts[k].at]) taken.delete(p);
     // (`pathTo` while this move is decided: round the others where they stand and where they're granted.)
-    if (ROAD_FREE.on) {
+    if (ROAD_FREE.on && members.length <= ROAD_FREE_MAX) {
       // (ROAD_FREE=2: round where they stand only, not where they're granted.)
       const avoid = new Set<number>(ROAD_FREE.stand ? [] : taken);
       ts.forEach((o, i) => {

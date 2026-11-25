@@ -141,4 +141,13 @@ describe("the dispatcher's knots", { timeout: 120_000 }, () => {
     expect(Math.min(...r.arrivals)).toBeGreaterThanOrEqual(3);
     expect(r.broke.deadlock.count).toBe(0);
   });
+
+  it("two trains on a line with one loop and a pair of signals: the move goes by the loop's free road, both deliver", () => {
+    // (line1 2×one same sig:pair: the search found the loop's other road round the train standing on the booked one; the
+    // move was made by the booked road, into it, and refused. ROAD_FREE: by the road found.)
+    const scenario = scenarioOf(allCases().find((c) => c.id === "line1 2×one same sig:pair")!).scenario;
+    const r = new HarnessRun(new Layout(), scenario).run(150);
+    expect(Math.min(...r.arrivals)).toBeGreaterThanOrEqual(3);
+    expect(r.stalls.why).toEqual([null, null]);
+  });
 });

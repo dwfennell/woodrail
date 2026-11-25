@@ -42,7 +42,8 @@ end is handed to sections' swap planner (`HANDOFF`: the user's A1; no train held
 train waiting 30 s for its turn on a single line keeps its move (`TURNS2`: the rings with two trains going opposite
 ways). 46 since
 three trains or more of one line are searched again with the track in transit taken for their first moves only, where
-the usual search falls short (`ONE_LINE_SHORT`: the trap, three trains on one loop). Measured and off: its knot check (`KNOT=1`, 68,
+the usual search falls short (`ONE_LINE_SHORT`: the trap, three trains on one loop). 38 since a two-train
+move goes by the road the search found round a train standing on its booked one (`ROAD_FREE`). Measured and off: its knot check (`KNOT=1`, 68,
 but it costs the big maps 60-180 stops; `dispatcher-knots.test.ts`), granted track taken for the search's first moves only
 (`TAKEN_FIRST`, 72, dandelion jams), a move made by the road the search found (`ROAD_FREE`, 74 with `DEAD_BACK`, rowan-2 −32). It stays off in new games until `known-on.ts` is empty, or holds only cases the user has
 accepted by name: a new player must never meet a stall today's game gets right.
