@@ -2127,21 +2127,6 @@ export class Sections {
     if (!piece) return false;
     const path = getPieceDef(piece.type, piece.flipped).paths[f.pathIndex];
     let exit = f.reversed ? path.from : (path.to ?? -1);
-    // (`TAIL_AGAINST`: running in with no move (it just came into its slot), any of its axles on the way going against it (its front
-    // just into a loop road beside, its tail still over the points and the track the way runs out by): it isn't ahead
-    // the same way, it's in the way. (With a move, its steps say: below.) Else the
-    // other was let out onto it, and stood held short of the points by the tail (the two-train map, netActed).)
-    if (TAIL_AGAINST && t.speed > 0 && !this.states.get(u)?.move)
-      for (const b of t.bogies) {
-        const on = along.get(b.pieceId);
-        if (on === undefined) continue;
-        const bp = this.layout.getPiece(b.pieceId);
-        if (!bp) continue;
-        const bpath = getPieceDef(bp.type, bp.flipped).paths[b.pathIndex];
-        // (Going out by the end the way comes in by (`along` holds entries): head on to it, as the front's test below.)
-        const out = b.reversed === net > 0 ? bpath.from : (bpath.to ?? -1);
-        if (out === on) return false;
-      }
     const e = along.get(f.pieceId);
     if (e !== undefined) {
       if (exit === e) return false;
@@ -2165,7 +2150,25 @@ export class Sections {
       }
     }
     const m = this.states.get(u)?.move;
-    return !m || !m.steps.some((s) => along.get(s.pieceId) === this.exitOf(s));
+    if (m) return !m.steps.some((s) => along.get(s.pieceId) === this.exitOf(s));
+    // (`TAIL_AGAINST`: running in with no move (its front just into its slot, a loop road beside), any of its axles
+    // behind on the way going against it (its tail still over the points and the track the way runs out by): it isn't
+    // ahead the same way, it's in the way. Else the other was let out onto it, and stood held short of the points by
+    // the tail (the two-train map, netActed).)
+    if (TAIL_AGAINST && t.speed > 0)
+      for (const b of t.bogies) {
+        const on = along.get(b.pieceId);
+        if (on === undefined) continue;
+        const bp = this.layout.getPiece(b.pieceId);
+        if (!bp) continue;
+        const bpath = getPieceDef(bp.type, bp.flipped).paths[b.pathIndex];
+        // (Going out by the end the way comes in by (`along` holds entries): head on to it, as the front's test above.)
+        const out = b.reversed === net > 0 ? bpath.from : (bpath.to ?? -1);
+        if (out === on) {
+          return false;
+        }
+      }
+    return true;
   }
 
   /**
