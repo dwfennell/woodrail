@@ -23,7 +23,7 @@ const ONLY = ENV.JAMS_MAPS ? new Set(ENV.JAMS_MAPS.split(",")) : null;
 const SECONDS = Number(ENV.JAMS_SECONDS ?? 1800);
 
 /** A stand logged (JAMS_STANDS): over this long (s). */
-const STAND_S = 20;
+const STAND_S = Number(ENV.JAMS_STAND_S ?? 20);
 /** Busy where it stands by its own choice (dev-checks' `BUSY`): no stand. */
 const STAND_BUSY: ReadonlySet<string> = new Set(["worked", "at-stop", "spacing", "turning-back", "lift", "lift-bridge", "too-heavy", "no-power", "rack", "stopped", "starting", "derailed"]);
 interface StandRec {

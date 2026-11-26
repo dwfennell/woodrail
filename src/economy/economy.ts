@@ -570,6 +570,13 @@ const NO_RIDERS: Riders = { count: 0, from: -1 };
 const NO_PLACES: readonly number[] = [];
 
 /**
+ * A routed train pulls up at a stop its line ends at on through track even with nothing to do there, and turns
+ * (`endsHere`): on (LINE_END_STOP=0: off). Else, run through, it went on round the loops beyond (the user's two-train
+ * map: Conker's line, 5 stops in 10 minutes for 30 with the dispatcher on).
+ */
+export const LINE_END_STOP = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).LINE_END_STOP !== "0";
+
+/**
  * Depots, their piles and the cargo riding on wagons. Pure and deterministic: everything advances in whole sim
  * ticks from `tick()`, called once after every `Sim.tick()`.
  */
@@ -3031,7 +3038,9 @@ export class Economy {
     if (!train.cars.some((car) => !s.done.has(car.id) && this.needsService(d, car.id))) {
       // But a routed train's "Wait here till full" stop never is: it pulls up (goods may yet come), while a wagon could
       // take some. (Pulled up, with none coming (the depot idle), it goes on.)
-      if (s.stood || !this.waitsHere(train, d)) {
+      // (Nor is a stop its line ends at on through track (`turnAtLineEnds`, `LINE_END_STOP`): it pulls up to turn there,
+      // work or none, else it ran on round the loops beyond, the long way to its next stop or never there.)
+      if (s.stood || !(this.waitsHere(train, d) || (LINE_END_STOP && this.endsHere(train)))) {
         // Its work here done after a halt: it sets off (the guard's flag).
         if (s.halted) this.departed(s);
         s.phase = NONE;
@@ -3954,6 +3963,26 @@ export class Economy {
    * dispatcher on, or ran round the loops beyond for good with it off (the user's two-train map, 2026-11-22). Looked at
    * once a visit (its next stop, the track, its last turn, which way it's driven): a plan search or two then.
    */
+  /**
+   * Has `turnAtLineEnds` found this routed train's stop, the one it's at, its line's end on through track (it turns
+   * there)? A map lookup; what it decided for the train as it stands now (its next stop, the track, its last turn, the
+   * way it's driven).
+   */
+  private endsHere(train: Train): boolean {
+    if (this.turnLooked.size === 0) return false;
+    let was: string | undefined;
+    let r: Route | undefined;
+    for (const car of train.cars) {
+      was = this.turnLooked.get(car.id);
+      if (was !== undefined) {
+        r = this.routes.get(car.id);
+        break;
+      }
+    }
+    if (was === undefined || !was.endsWith(":turn") || !r?.at) return false;
+    const net = this.drive(train);
+    return was === `${r.next}:${this.layout.revision}:${train.lastTurn?.tick ?? -1}:${Math.sign(net)}:turn`;
+  }
   private turnAtLineEnds(): void {
     for (const [engine, r] of this.routes) {
       if (!r.at || r.stops.length < 2) {

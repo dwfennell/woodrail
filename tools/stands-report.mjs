@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * The stands `scripts/jams-stands.mjs` logged, sorted proper or needless and counted by class (what the train's card
- * said most of the stand). Proper: it ended, and the train it named moved for at least half of it (it used the track).
+ * said most of the stand). Proper: it ended, and the train it named moved, or was worked at its stop, for at least half of it (it used the track).
  * Needless: `deadlock` (cleared as a jam, or still standing at the end), `blocker-still` (the train named stood too),
  * `long` (named one moved for under half of it), `none-named` (nothing named: the way ahead was free, or the card
  * couldn't say).
@@ -18,8 +18,10 @@ const top = (o) => Object.entries(o).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "?";
 export function verdict(s) {
   if (s.end === "cleared" || s.end === "end") return "deadlock";
   if (s.by < 0) return "none-named";
-  if (s.byMovingS === 0) return "blocker-still";
-  if (s.byMovingS < s.seconds / 2) return "long";
+  // (The named train using the track: moving, or worked where it stands (loading at its stop).)
+  const using = s.byMovingS + (s.byKinds?.worked ?? 0) + (s.byKinds?.["at-stop"] ?? 0);
+  if (using === 0) return "blocker-still";
+  if (using < s.seconds / 2) return "long";
   return "proper";
 }
 const all = [];
