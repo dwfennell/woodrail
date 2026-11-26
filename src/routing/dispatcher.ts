@@ -137,6 +137,8 @@ export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<strin
 /** A train that has just turned round asks at once, its way built again from the way it now faces (`tick`): on (TURN_ASK=0: off). */
 /** A hand-run train's facing points thrown to a free road ahead of it, the road they lie for a routed train's (`tick`): on (HAND_AHEAD=0: off). */
 export const HAND_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HAND_AHEAD !== "0" };
+/** A grant kept through a rebuild only onto pieces it was granted (`trainsOf`): KEEP_PIECES=1 (measuring). */
+export const KEEP_PIECES = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_PIECES === "1" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
@@ -764,6 +766,12 @@ export class Dispatcher {
         const refs = new Set<number>();
         // (The joints it was granted past: each node's but the last's, its hold's end.)
         for (let k = 0; k + 1 < oldPath.length; k++) if (oldT.frontRef[oldPath[k]] >= 0) refs.add(oldT.frontRef[oldPath[k]]);
+        // (And the pieces it was granted: a node kept is on them all (`KEEP_PIECES`; ring1 short: granted the loop's free
+        // road, rebuilt as its via moved on, kept along its booked road one node past the points, onto the road the
+        // other train stood on: it stood on the points for good).)
+        const oldPieces = new Set<number>();
+        if (KEEP_PIECES.on) for (const n of oldPath) for (const p of oldT.pos[n]) oldPieces.add(p);
+        const granted = (j: number) => !KEEP_PIECES.on || t.pos[j].every((p) => oldPieces.has(p));
         // (The kept way's nodes from where it stands, by the road it was granted where roads part: a loop's other road
         // or a detour's, as well as the booked one (own-10: Logs two, granted loop 2's free road as it left the
         // sawmill, kept only along its booked road, the one Planks two stood on: it stood on the loop's points for good).)
@@ -772,12 +780,12 @@ export class Dispatcher {
         for (let i = t.at; refs.has(t.frontRef[i]) && seq.length <= t.pos.length; ) {
           let nx = -1;
           if (roads) {
-            for (const j of t.succ[i]) if ((j === i + 1 || j >= t.main) && (t.detour[j] === 0 || onDetour) && refs.has(t.frontRef[j])) {
+            for (const j of t.succ[i]) if ((j === i + 1 || j >= t.main) && (t.detour[j] === 0 || onDetour) && refs.has(t.frontRef[j]) && granted(j)) {
               nx = j;
               if (j === i + 1) break;
             }
           }
-          if (nx < 0 && i + 1 < t.main && t.succ[i].includes(i + 1)) nx = i + 1;
+          if (nx < 0 && i + 1 < t.main && t.succ[i].includes(i + 1) && granted(i + 1)) nx = i + 1;
           if (nx < 0) break;
           seq.push(nx);
           i = nx;
