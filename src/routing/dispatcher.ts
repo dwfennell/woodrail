@@ -172,15 +172,15 @@ const TURN_S = Number(((globalThis as { process?: { env: Record<string, string |
 export const ONE_LINE_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_SHORT !== "0" };
 const ONE_LINE_MIN = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ONE_LINE_MIN ?? 3);
 
-/** A move out of a dead end to a waiting place short of the occupied dead end it turns in next not held (`deadEndBy`): DEAD_LOOP=1 (measuring). */
-export const DEAD_LOOP = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_LOOP === "1" };
+/** A move out of a dead end to a waiting place short of the occupied dead end it turns in next not held (`deadEndBy`): on (DEAD_LOOP=0: off). */
+export const DEAD_LOOP = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_LOOP !== "0" };
 
-/** §16 Q9 in the search (§13.12 (a), `SearchOptions.q9`): planned turns close behind trains at the line's end, granted as `Q9`'s: Q9S=1 (measuring). */
-export const Q9S = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9S === "1" };
-/** …with `DEAD_BACK` letting a turn-only train in behind a routed one (Q9S_IN=1). */
+/** §16 Q9 in the search (§13.12 (a), `SearchOptions.q9`): planned turns close behind trains at the line's end, granted as `Q9`'s: on (Q9S=0: off). */
+export const Q9S = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9S !== "0" };
+/** …with `DEAD_BACK` letting a turn-only train in behind a routed one (on; Q9S_IN=0: off). */
+export const Q9S_IN = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9S_IN !== "0" };
 /** …the planned turn waits for the train(s) ahead to stand: granted up close behind them till then (Q9_WAIT=0: off). */
 export const Q9_WAIT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_WAIT !== "0" };
-export const Q9S_IN = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9S_IN === "1" };
 
 /** A move refused onto a single line granted up to its last waiting place before it (`decide`): SINGLE_CUT=1 (measuring, off: with Q9 no case changed). */
 export const SINGLE_CUT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SINGLE_CUT === "1" };
@@ -866,17 +866,16 @@ export class Dispatcher {
       return o && o.t.pos === t.pos && o.end !== t.at && !(Q9_WAIT.on && o.q9) ? { ...t, at: o.end } : t;
     });
     const members = stretchOf(placed, k);
-    if (this.debug && (globalThis as any).process?.env?.DBG_T && this.notes.length < 400) {
-      const t = placed[k];
-      const rows: string[] = [];
-      for (let i = t.at, n = 0; i >= 0 && n < 30; n++) { rows.push(`${i}[${t.pos[i].join(",")}]${t.turned[i] ? "T" : ""}${t.succ[i].length > 1 ? "P" : ""}${t.arrivals.includes(i) ? "A" : ""}${t.plain[i] ? "" : "!"}`); i = t.succ[i][0] ?? -1; }
-      this.notes.push(`DBG ${engine} arrivals ${t.arrivals} way ${rows.join(" ")} others ${placed.filter((o) => o !== t).map((o) => o.key + ":" + o.pos[o.at].join(",")).join(" ")}`);
-    }
     // (Every other held train's track up to its hold's end, member or not: it's on its way over it.)
     const taken = new Set<number>();
     // (The stretch's own trains' part of it (`TAKEN_FIRST_MEMBERS`), the track the search frees past its first moves.)
     const memberSet = TAKEN_FIRST_MEMBERS.on ? new Set(members) : null;
     const transit = memberSet ? new Set<number>() : null;
+    // (Those granted on through their turn at a line's end, or up to it with no stop there (the sim turns them as they
+    // come to it): none of them stands there facing it, to turn behind (the trap).)
+    let q9Turning: Set<number> | undefined;
+    if (Q9S.on)
+      for (const [key, o] of this.holdsBy) if (key !== engine && (o.t.turned[o.end] || o.path.some((n) => o.t.turned[n]) || (o.t.turned[o.t.succ[o.end]?.[0] ?? -1] === 1 && !o.t.arrivals.includes(o.end)))) (q9Turning ??= new Set()).add(key);
     placed.forEach((t, i) => {
       const o = this.holdsBy.get(t.key);
       if (!o || i === k || o.t.pos !== t.pos) return;
@@ -903,11 +902,11 @@ export class Dispatcher {
       const st = this.holdsBy.get(placed[i].key)?.stood ?? -1;
       return st < 0 ? 1 : 1 + Math.floor((now - st) / (WEIGH_S * 120));
     });
-    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay, q9: Q9S.on });
+    let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay, q9: Q9S.on, q9Turning });
     // (`TAKEN_FIRST_SHORT`: short of all delivering with the track in transit taken for good, searched again with it taken
     // for the first moves only, and that one's word taken.)
     if ((TAKEN_FIRST_SHORT.on || (ONE_LINE_SHORT.on && this.oneLine(placed, members) && !(HANDOFF.on && this.host.couldSwap?.(engine)))) && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
-      const r2 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, takenFirst: transit ?? true, weights, oneWay: this.oneWay, q9: Q9S.on });
+      const r2 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, takenFirst: transit ?? true, weights, oneWay: this.oneWay, q9: Q9S.on, q9Turning });
       // (Not for ever: a train held `S_PATIENCE_S` for the better order (the others it waits on may not be able to go: at a
       // stop, held by something the search doesn't see) goes as the first search would let it.)
       const grantsNow = r.first[0] >= 0 && r.first[0] >= r.plain;
@@ -1290,7 +1289,6 @@ export class Dispatcher {
     }
     h.passed = 0;
     h.q9 = q9;
-    if (this.debug && this.notes.length < 400) this.notes.push(`${(this.host.sim.ticks / 120).toFixed(1)}s train ${engine} GRANT at ${ts[k].at} to ${to} [${(ways[k].pos[to] ?? []).join(",")}] q9 ${q9} plain ${r.plain}/${r.of} order ${r.order.map((m) => placed[members[m.k]].key + "@" + m.to).join(",")}`);
     this.grants++;
     // (Grants cut back so this move could go (`clearsFirst`), still as they were when it was weighed.)
     for (const c of this.cuts) if (c.h.path === c.path) this.setHold(c.h, c.path[c.k], c.path.slice(0, c.k + 1));

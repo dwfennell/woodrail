@@ -14,8 +14,6 @@ export const KNOWN_ON: Record<string, string[]> = {
   "fuzz seed 111": ["stalls-live"],
   "fuzz seed 125": ["stalls-live"],
   "fuzz seed 126": ["stalls-live"],
-  "fuzz seed 136": ["stalls-live"],
-  "fuzz seed 149": ["stalls-live"],
   "fuzz seed 165": ["stalls-live"],
   "fuzz seed 189": ["stalls-live:siding"],
   "line1+siding 2×one same": ["stalls-live"],
