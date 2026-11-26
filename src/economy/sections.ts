@@ -55,6 +55,9 @@ const CLAIM_TICKS = 3 * 12;
 /** How far ahead (mm) a train in a section looks for points to stand short of (`edgeAhead`). */
 const EDGE_LOOK = 600;
 /** A waiting train stands this far (mm) short of the end of its slot. */
+/** Sections ask the dispatcher's grant for a train it holds, not their own move for it (`dispatchedWay`): on (DISP_SECTIONS=0: off). */
+export const DISP_SECTIONS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DISP_SECTIONS !== "0" };
+
 export const STAND_SHORT = 6;
 /** A loop road must be this much (mm) longer than a train for the train to stand on it, clear of both switches. */
 export const ROAD_MARGIN = 2 * STAND_SHORT;
@@ -159,6 +162,12 @@ export interface SectionsHost {
   lap?(engine: number): readonly number[];
   /** The ways a routed engine's line keeps (stickiness: the router's `ways`), so a move is granted the way it'll take. */
   keep?(engine: number): KeepTest | undefined;
+  /**
+   * A train the dispatcher holds (its engine): the track it's granted (where it stands and its hold); undefined: not the
+   * dispatcher's. Sections' own move for it goes stale (it isn't steered by sections): in a section by this, and where
+   * it stands, only (`DISP_SECTIONS`).
+   */
+  dispatchedWay?(engine: number): ReadonlySet<number> | undefined;
 }
 
 /** One step of a move's way: a piece, the path along it, and the end it comes in by. */
@@ -680,6 +689,9 @@ interface LineInfo {
    */
   zone: { slots: ReadonlyMap<number, number>; sections: ReadonlyMap<number, number> };
 }
+
+/** A train on no line not held far back for a slot the dispatcher's train holds (`recover`): on (LOOSE_PASS=0: off). */
+const LOOSE_PASS = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).LOOSE_PASS !== "0";
 
 export class Sections {
   /** Off: nothing is held (for comparisons). */
@@ -2567,8 +2579,16 @@ export class Sections {
       // (Coming out of a dead end: a train standing outside, waiting to go in, isn't in its way unless it stands on its
       // way out (it takes a road clear of one facing it: `outOfDeadEnd`); one ahead the same way, it follows.)
       if (along && this.standing(u) && this.comingOut(engine) && this.clearOrAhead(u, along)) continue;
-      const m = this.states.get(u)?.move;
-      if (m && m.sections.includes(section)) return u;
+      // (The dispatcher's (`dispatchedWay`): its grant, not sections' own stale move (crossing 2×mix: a hand-run train
+      // waited for good on the line's one section, held by the routed train's move sections last made for it).)
+      const dw = DISP_SECTIONS.on ? this.host.dispatchedWay?.(u) : undefined;
+      if (dw) {
+        // (Where its way through the section is known (`along`), only on that: a section can be most of the map.)
+        for (const p of dw) if (info.topo.sectionOf.get(p) === section && (!along || along.has(p))) return u;
+      } else {
+        const m = this.states.get(u)?.move;
+        if (m && m.sections.includes(section)) return u;
+      }
       const t = this.sim.findCar(u)?.train;
       if (t && t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) return u;
     }
@@ -2603,6 +2623,15 @@ export class Sections {
       return false;
     }
     let u = section === undefined ? -1 : this.sectionUser(info, section, st.engine);
+    // (The dispatcher's train (`dispatchedWay`): weighed again along its way through the section, as for a train on no line.)
+    let alongD: Map<number, number> | undefined;
+    if (u !== -1 && DISP_SECTIONS.on && this.host.dispatchedWay?.(u)) {
+      const w = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
+      if (w && w.dest !== DEAD_END) {
+        alongD = this.alongOf(w.steps, topo);
+        u = this.sectionUser(info, section!, st.engine, alongD);
+      }
+    }
     // (Only trains the line has no room for standing in it: a dead end short of them; it waits here for them.)
     const short = u === -1 || section === undefined ? null : this.heldIn(info, section, st.engine);
     // (Trains on no line about: those in it going its way ahead of it, it may follow (`follows`).)
@@ -2962,6 +2991,22 @@ export class Sections {
     if (lineId < 0) return false;
     const info = this.line(lineId);
     return info.engines.includes(engine) && this.swapShape(info);
+  }
+
+  /**
+   * Has this train's line a spare end to step aside into (no industry, none of its stops: the user's A1), and no signals
+   * laid? The dispatcher hands a stalled stretch to sections' stepping aside then (`ASIDE`).
+   */
+  couldStepAside(engine: number): boolean {
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0 || this.layout.signalCount > 0) return false;
+    return this.hasSpareEnd(lineId, this.line(lineId).topo);
+  }
+
+  /** Is this train stepped aside, or letting another by from where it waits (`ASIDE`'s hand back waits for it)? */
+  asideNow(engine: number): boolean {
+    const st = this.states.get(engine);
+    return !!st && (st.aside !== null || st.lettingBy !== -1);
   }
 
   /** Did the swap planner search this train's line, as the track is laid now, and find no plan (`HANDOFF`)? */
@@ -3381,6 +3426,11 @@ export class Sections {
       // outside the mouth and stands short of them.)
       if (way.mouth) st.edge = this.edgeOn(way.steps);
       const by = way.blockedBy !== -1 ? way.blockedBy : this.inWayOf(way, train, info);
+      // (`LOOSE_PASS`: a train on no line, its way into a slot the dispatcher's train holds (the points ahead lying for
+      // that road): not held here, however far back. It runs on to the points, where the router throws them for it to
+      // a free road (`HAND_AHEAD`) or stands it short (ring fuzz seed 12: three hand-run trains held round the ring for the
+      // routed one standing in a loop road, it waiting for the last of them to clear the loop's far points).)
+      if (LOOSE_PASS && info.loose.includes(st.engine) && by !== -1 && this.host.dispatchedWay?.(by)) return true;
       if (this.stepAside(st, info, by, { pieceId: front.pieceId, entry, path: front.pathIndex })) return true;
       return this.recoverWait(st, by, info);
     }

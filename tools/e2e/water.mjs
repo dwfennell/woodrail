@@ -312,7 +312,10 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     if (process.env.WATER_DEBUG) await shot("debug-landing-tap");
     const card = await p.evaluate(() => document.querySelector(".depot-card:not(.boat-card):not([hidden]) .card-title")?.textContent ?? null);
     if (process.env.WATER_DEBUG) console.log("cards", await p.evaluate(() => [...document.querySelectorAll(".card:not([hidden])")].map((c) => c.className + ":" + c.textContent.slice(0, 60)).join(" || ")));
-    check("a tap on the landing opens its card", card === "River landing", String(card));
+    // (Under its place's name, as its stops and the boat's say it: the town nearest it, "Rookhurst landing"; its kind
+    // under the name.)
+    const kind = await p.evaluate(() => document.querySelector(".depot-card:not(.boat-card):not([hidden]) .depot-kind")?.textContent ?? null);
+    check("a tap on the landing opens its card, under its place's name, River landing under it", /^[A-Z].* landing$/.test(card ?? "") && kind === "River landing", JSON.stringify({ card, kind }));
     await shot("2-landing-card");
     // A boatyard from the Water shelf onto the bank (the tray still turned to face the water).
     // (Refused, a player moves it a little nearer the water and tries again: the yard's grab point is its model's
@@ -371,8 +374,8 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     check("…the rest in: the tug and its barge slide into the river at the yard (the payoff)", !!launched && launched.home === C.depot && launched.barges === 1, JSON.stringify(launched));
     await p.waitForTimeout(1200);
     await shot("4-launched");
-    // Its route: from the boat's chip on the yard's card, ✎ Route, the two landings, Done; the first landing set to
-    // drop and pick up (a tap on its chip).
+    // Its route: from the boat's chip on the yard's card, ✎ Route, the two landings, Done. Each landing tapped is
+    // Drop and pick up from the start (as a train line's stop is: a fresh route with only Only drop never loaded).
     await tapButton(".landing-boat-chips .chip");
     // (A boat with no route yet opens planning: ✎ Route only if it didn't.)
     await p.waitForSelector(".boat-card:not([hidden]) .route-plan", { timeout: 20000 });
@@ -383,9 +386,8 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     await tapWorld(quay(B));
     await shot("5-planning");
     await tapButton(".boat-card .route-plan.on");
-    // (No chip tapped: a new stop is Drop and pick up, as a train line's. Both Only drop, it never loaded: 2026-11-26.)
     const route = await p.evaluate(() => [...window.woodrail.economy.boats.values()][0].stops);
-    check("the route planned by taps: the yard, then both landings Drop and pick up (as a train line's stops)", route.length === 3 && route[0].depotId === C.depot && route[1].depotId === A.depot && route[2].depotId === B.depot && route[1].action === "both" && route[2].action === "both", JSON.stringify(route));
+    check("the route planned by taps: the yard, then both landings, each Drop and pick up from the start", route.length === 3 && route[0].depotId === C.depot && route[1].depotId === A.depot && route[2].depotId === B.depot && route[1].action === "both" && route[2].action === "both", JSON.stringify(route));
     // It sails, by game time, and drops the logs at the second landing.
     await look({ x: (A.x + B.x) / 2 + 108, z: A.z + 120 }, 2200);
     await p.evaluate(() => window.woodrail.hud.hideCards());
@@ -450,14 +452,14 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     await look(quay(C), 1100);
     await tapWorld(quay(C));
     await tapButton(".landing-boat-chips .chip");
-    await p.waitForSelector(".boat-card:not([hidden]) .route-chip", { timeout: 20000 }).catch(() => {});
+    await p.waitForSelector(".boat-card:not([hidden]) .boat-stop-action", { timeout: 20000 }).catch(() => {});
     // (Scrolled into view as a finger would, and past the card's tap guard: the card is drawn again after each tap.)
     const chipAt = async (i) => {
-      await p.evaluate((i) => document.querySelectorAll(".boat-card:not([hidden]) .route-chip")[i]?.scrollIntoView({ block: "nearest", inline: "nearest" }), i);
+      await p.evaluate((i) => document.querySelectorAll(".boat-card:not([hidden]) .boat-stop-action")[i]?.scrollIntoView({ block: "nearest", inline: "nearest" }), i);
       await frames();
       await p.waitForTimeout(400);
       return p.evaluate((i) => {
-        const e = document.querySelectorAll(".boat-card:not([hidden]) .route-chip")[i];
+        const e = document.querySelectorAll(".boat-card:not([hidden]) .boat-stop-action")[i];
         if (!e) return null;
         const r = e.getBoundingClientRect();
         return [r.left + r.width / 2, r.top + r.height / 2];
@@ -473,7 +475,7 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
       const at = await chipAt(2);
       if (at) await tapped(() => p.touchscreen.tap(...at));
     }
-    const chips = await p.evaluate(() => [...document.querySelectorAll(".boat-card:not([hidden]) .route-chip .route-goods")].map((e) => e.textContent));
+    const chips = await p.evaluate(() => [...document.querySelectorAll(".boat-card:not([hidden]) .boat-stop-action")].map((e) => e.textContent));
     check("by taps on its chips: the first landing Pick up, the second Only drop", (await actionOf(1)) === "pick" && (await actionOf(2)) === "drop", JSON.stringify(chips));
     const aboard = await playUntil(
       () => {

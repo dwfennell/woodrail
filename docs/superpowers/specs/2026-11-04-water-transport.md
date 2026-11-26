@@ -314,8 +314,9 @@ The user picked A for all six (§10) and asked the cargo ship to hold its contai
 - **A boat's card is its own** (src/ui/boat-card.ts), laid out as the engine card, not the engine card itself: route
   chips (a tap changes Drop and pick up / Pick up / Only drop; ✕ while planning), ✎ Route / Done, + Barge, Go/Stop,
   Sell. Planning goes through the train planner's own hook (`Interaction.onPickPlace`). New stops: Drop and pick up, as a
-  train line's (2026-11-26: they were the first Pick up, the rest Only drop, so a boat built at a boatyard and routed to
-  two landings had both Only drop and never loaded). No undo for boat routes yet, and no ribbon on the water (the stops' chips say the route).
+  train line's (the first of an empty route Pick up), and at such a stop only goods another stop takes are picked up
+  (2026-11-26: they were the first Pick up, the rest Only drop, so a boat built at a boatyard and routed to two landings
+  had both Only drop and never loaded). No undo for boat routes yet, and no ribbon on the water (the stops' chips say the route).
 - **The ferry holds the train where it stands** (`Economy.held`: its speed cap 0) and draws a copy on the ferry's deck,
   rather than taking it off the track: nothing in the sim or the routing changes for a trip. Imports are paid for at
   a town's price (as many as the coins go to), so a trip isn't free money.

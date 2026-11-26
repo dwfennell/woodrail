@@ -107,6 +107,31 @@ describe("boats", () => {
     expect(w.economy.boatDelivered).toBe(2 * BARGE_LOADS);
   });
 
+  it("default a stop to Drop and pick up, and carry goods one way with two such stops (not back and forth)", () => {
+    // The player's route (2026-11-26): the boatyard's stop taken off, the two landings tapped after it left. They were
+    // Only drop, and the barge never loaded.
+    const { w, A, B, fleet } = setup();
+    const from = w.economy.depot(A)!;
+    const to = w.economy.depot(B)!;
+    from.piles[CARGO.log.index] = 10;
+    const boat = fleet.launch(A)!;
+    fleet.addStop(boat.id, B);
+    fleet.addStop(boat.id, A);
+    fleet.removeStop(boat.id, 0);
+    expect(boat.stops.map((s) => [s.depotId, s.action])).toEqual([[B, "both"], [A, "both"]]);
+    // At A: logs picked up (B takes them).
+    fleet.serve(boat, boat.stops[1]);
+    expect(boat.load.log).toBe(BARGE_LOADS);
+    // At B: dropped, and not picked back up.
+    fleet.serve(boat, boat.stops[0]);
+    expect([boat.load.log ?? 0, to.piles[CARGO.log.index]]).toEqual([0, BARGE_LOADS]);
+    // Back at A with nothing: A's own logs again, never dropped back where they came from.
+    fleet.serve(boat, boat.stops[1]);
+    expect([boat.load.log, from.piles[CARGO.log.index]]).toEqual([BARGE_LOADS, 10 - 2 * BARGE_LOADS]);
+    fleet.serve(boat, boat.stops[1]);
+    expect(boat.load.log).toBe(BARGE_LOADS);
+  });
+
   it("carry any goods but the post: planks and stone go aboard, mail stays on the jetty", () => {
     const { w, A, fleet } = setup();
     const from = w.economy.depot(A)!;
@@ -117,14 +142,6 @@ describe("boats", () => {
     fleet.serve(boat, boat.stops[0]);
     expect(boat.load).toEqual({ planks: 2, stone: 1 });
     expect(from.piles[CARGO.mail.index]).toBe(3);
-  });
-
-  it("take new stops as Drop and pick up, as a train line's (two landings tapped from a boatyard: both loaded)", () => {
-    const { A, B, fleet } = setup();
-    const boat = fleet.launch(A)!;
-    fleet.addStop(boat.id, B);
-    fleet.addStop(boat.id, A);
-    expect(boat.stops.map((s) => s.action)).toEqual(["pick", "both", "both"]);
   });
 
   it("carry paint from a landing to a town's landing: Pick up there, Drop at the town's, and it's delivered", () => {
@@ -154,6 +171,8 @@ describe("boats", () => {
     w.economy.depot(B)!.piles[CARGO.planks.index] = 1;
     const boat = fleet.launch(A)!;
     fleet.addStop(boat.id, B);
+    // (Both stops Drop and pick up: B's planks are picked up, as A takes them; B's paint just dropped isn't.)
+    boat.stops[0].action = "both";
     fleet.serve(boat, boat.stops[0]);
     const done = fleet.serve(boat, boat.stops[1]);
     expect(done).toEqual({ dropped: 2, picked: 1 });

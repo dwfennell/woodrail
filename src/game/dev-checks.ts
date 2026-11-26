@@ -25,6 +25,7 @@ export function economyWorld(economy: Economy): InvariantWorld {
     owner: (engine) => economy.ownerOf(engine),
     steerHint: (engine) => (economy.dispatcher && !economy.dispatcher.released(engine) ? economy.dispatcher.steerHint(engine) : economy.sections.steerHint(engine)),
     dispatched: (train) => !!economy.dispatcher?.holds(train),
+    heldEngines: () => economy.dispatcher?.heldEngines() ?? [],
     drive: (train) => economy.drive(train),
     busy: (train, engine) => {
       const found = economy.sim.findCar(engine);
