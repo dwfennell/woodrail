@@ -35,7 +35,7 @@ async function boot() {
   await server.listen();
   PAGE = server.resolvedUrls.local[0];
   const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--mute-audio", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 }
 
 /** A new Game on a fresh page (Hilly, as the other suites), past the camera coach. */

@@ -19,7 +19,7 @@ const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config
 await server.listen();
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const gl = process.platform === "darwin" ? ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] : ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
-const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", ...gl] });
+const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--mute-audio", ...gl] });
 
 /** In the page: the map's share of the screen, what covers the rest, and the clear band down the middle. */
 function measure() {

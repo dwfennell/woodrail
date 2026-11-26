@@ -25,7 +25,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
     <circle cx="9" cy="24" r="1.4" fill="#e6b52c"/><circle cx="23" cy="24" r="1.4" fill="#e6b52c"/>
   </g>
 </svg>`;
-const b = await chromium.launch({ executablePath: CHROMIUM });
+const b = await chromium.launch({ executablePath: CHROMIUM, args: ["--mute-audio"] });
 for (const size of [180, 192, 512]) {
   const p = await b.newPage({ viewport: { width: size, height: size }, deviceScaleFactor: 1 });
   await p.setContent(`<html><body style="margin:0">${svg.replace("<svg ", `<svg width="${size}" height="${size}" `)}</body></html>`);
