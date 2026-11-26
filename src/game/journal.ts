@@ -59,6 +59,21 @@ export interface JournalData {
 }
 
 export const JOURNAL_CAP = 50;
+/**
+ * The longest an entry's text, key and outline are saved (the save's schema holds them to these: a longer one would
+ * turn the whole session away). The game's own entries are far shorter; `toJSON` cuts any that aren't.
+ */
+export const JOURNAL_TEXT_MAX = 2000;
+export const JOURNAL_KEY_MAX = 500;
+export const JOURNAL_POINTS_MAX = 64;
+
+/** An entry as it's saved: held to the save's limits. */
+function savedEntry(e: JournalEntry): JournalEntry {
+  const out = { ...e, text: e.text.length > JOURNAL_TEXT_MAX ? e.text.slice(0, JOURNAL_TEXT_MAX) : e.text };
+  if (out.key !== undefined && out.key.length > JOURNAL_KEY_MAX) out.key = out.key.slice(0, JOURNAL_KEY_MAX);
+  if (out.place?.points && out.place.points.length > JOURNAL_POINTS_MAX) out.place = { ...out.place, points: out.place.points.slice(0, JOURNAL_POINTS_MAX) };
+  return out;
+}
 export const MERGE_WINDOW_MS = 60_000;
 
 export class Journal {
@@ -112,7 +127,7 @@ export class Journal {
 
   /** The entries and what's been read, to save beside the railway. */
   toJSON(): JournalData {
-    return { entries: this.list.map((e) => ({ ...e })), seq: this.seq, readSeq: this.readSeq };
+    return { entries: this.list.map(savedEntry), seq: this.seq, readSeq: this.readSeq };
   }
 
   /** Back as saved (`toJSON`): newest first, no more than the cap. */

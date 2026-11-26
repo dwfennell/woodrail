@@ -53,7 +53,8 @@ export const landscapeSchema = z.object({
           front: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
           corner: z.boolean().optional(),
           landmark: z.string().optional(),
-          born: z.number().int().min(0).max(99).optional(),
+          // (No limit: a town grows past its table for ever, `townLevel`.)
+          born: z.number().int().min(0).optional(),
         }),
       ),
       claimed: cells.optional(),

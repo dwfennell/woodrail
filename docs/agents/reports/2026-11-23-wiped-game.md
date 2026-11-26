@@ -45,3 +45,38 @@ Their text from about 10 minutes before the wipe (`2026-11-23-teal-line-double-t
 5. The starter-map game left in the old slot can be deleted from Your games.
 
 Anything played in the last 10 minutes before the wipe is lost.
+
+## The root cause closed (2026-11-26, branch `claude/save-limits-guard`)
+
+The wipe needed two things: a schema limit out of step with the game (`MAX_PILE` 40 against a stacked 72), and a
+start-up that saved over a game it couldn't read. Both are now guarded by tests:
+
+- **Every limit against what the game reaches** (`src/persist/save-limits.test.ts`). `schemaBounds` walks the save's
+  and session's schemas and lists every upper bound by path (~65). Each must have a row in `REACH`: the most the game
+  can put there, worked out from its own constants (`capAt` with `LIFT_STACK` and `MAX_SHEDS`, `SEATS`, `waitingCap`
+  with everything learned, `loungeCap`, `MAX_TRACKS`, `MAX_ENGINE_NAME`, the longest catalogue id…). The test fails
+  on a bound with no row, a row with no bound, a reach over its bound, or a bound on a count the game never caps
+  (`UNBOUNDED`: trains, cars, pieces, towns and their squares, deliveries, coins, the clock, ships built…). Setting
+  `MAX_PILE` back to 40 fails it three ways.
+- **The round trip at the maxima** (`src/persist/save-maxima.test.ts`). It builds a Game world with everything learned
+  and every industry's piece laid (depots by `syncIndustries`). Piles are full to `capAt`, a harbour has all its sheds
+  and landed goods, heavy wagons are full, coaches have every seat taken, there are 12 boats of 3 full barges, plus the
+  longest names, a long train and long lines. It must pass the schema unmended and load back the same.
+- **The wipe at start-up** (`src/persist/unreadable-startup.test.ts`). Game mode's start-up and autosave now live in
+  `src/persist/startup.ts` (`openGameSave`, `autosaveGame`; main.ts calls them). The test puts a save that fails for a
+  reason other than a limit in the live keys, starts up, runs one autosave, and checks the player's keys are parked
+  byte for byte. It also checks the same with no room to park them, when nothing is written.
+
+What was out of step:
+
+- **Heavy wagons lost goods on every reload.** A loaded save's wagons were filled through `setCargo`, which cuts to the
+  economy's `wagonCapacity`. Until the research is applied after the load, that is the plain wagon's 3, so the Smithy's
+  5 came back as 3. The loader now restores cargo at `MAX_WAGON_CAPACITY`. Found by the round trip.
+- **Caps the game never enforces** were dropped: `built.ships` / `built.ferries` ≤ 999 (built as long as they're paid
+  for) and a town building's `born` ≤ 99 (town levels go on past the table for ever, `townLevel`).
+- **The Journal** had text, key and outline limits in the schema (2000, 500, 64) but nothing in the game held to them.
+  A longer one would have turned away the whole session. `Journal.toJSON` now cuts to `JOURNAL_TEXT_MAX`,
+  `JOURNAL_KEY_MAX` and `JOURNAL_POINTS_MAX`, and the schema uses them.
+
+Everything else was within its limit, often far within (piles 156 against the fullest 156, riders 24 against 8 seats,
+waiting 24 against 12, speed 1000 against about 218).
