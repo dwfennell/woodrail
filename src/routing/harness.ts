@@ -330,6 +330,8 @@ export class HarnessRun implements InvariantWorld {
           lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
           swapping: (engine) => this.sections.swapping(engine),
           couldSwap: (engine) => this.sections.couldSwap(engine),
+          couldStepAside: (engine) => this.sections.couldStepAside(engine),
+          asideNow: (engine) => this.sections.asideNow(engine),
           swapFailed: (engine) => this.sections.swapFailed(engine),
         })
       : null;

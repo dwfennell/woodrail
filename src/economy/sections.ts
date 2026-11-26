@@ -2990,6 +2990,22 @@ export class Sections {
     return info.engines.includes(engine) && this.swapShape(info);
   }
 
+  /**
+   * Has this train's line a spare end to step aside into (no industry, none of its stops: the user's A1), and no signals
+   * laid? The dispatcher hands a stalled stretch to sections' stepping aside then (`ASIDE`).
+   */
+  couldStepAside(engine: number): boolean {
+    const lineId = this.host.lineOf(engine);
+    if (lineId < 0 || this.layout.signalCount > 0) return false;
+    return this.hasSpareEnd(lineId, this.line(lineId).topo);
+  }
+
+  /** Is this train stepped aside, or letting another by from where it waits (`ASIDE`'s hand back waits for it)? */
+  asideNow(engine: number): boolean {
+    const st = this.states.get(engine);
+    return !!st && (st.aside !== null || st.lettingBy !== -1);
+  }
+
   /** Did the swap planner search this train's line, as the track is laid now, and find no plan (`HANDOFF`)? */
   swapFailed(engine: number): boolean {
     const lineId = this.host.lineOf(engine);

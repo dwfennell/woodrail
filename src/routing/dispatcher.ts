@@ -141,6 +141,11 @@ export const HAND_AHEAD = { on: ((globalThis as { process?: { env: Record<string
 export const KEEP_PIECES = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_PIECES !== "0" };
 /** A held train's blocker looked for where trains stand on its way on, a signal's block included (`blocker`): on (NAME_BLOCKER=0: off). */
 export const NAME_BLOCKER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NAME_BLOCKER !== "0" };
+/** A stalled stretch handed to sections to step one aside into a spare end (`handAside`): ASIDE=1 (measuring). */
+export const ASIDE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE === "1" };
+/** `ASIDE`: how long (s) the stretch stands first, and the most it stays sections'. */
+const ASIDE_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE_S ?? 2);
+const ASIDE_MAX_S = 120;
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
@@ -247,6 +252,9 @@ export interface DispatcherHost {
   swapping?(engine: number): boolean;
   /** Could the swap planner take its line as laid (a spare end, no signals)? Only such a line is handed over. */
   couldSwap?(engine: number): boolean;
+  /** `ASIDE`: a spare end on this train's line to step aside into (sections' `couldStepAside`), and is it aside now. */
+  couldStepAside?(engine: number): boolean;
+  asideNow?(engine: number): boolean;
   /** Did the swap planner search its line, as laid, and find no plan? Not handed over again then. */
   swapFailed?(engine: number): boolean;
 }
@@ -361,7 +369,7 @@ export class Dispatcher {
   readonly decisionMs: number[] = [];
   private readonly holdsBy = new Map<number, Hold>();
   /** Trains handed to sections (`HANDOFF`): engine → when (tick). */
-  private readonly handedOff = new Map<number, { at: number; rev: number }>();
+  private readonly handedOff = new Map<number, { at: number; rev: number; aside?: { group: number[]; next: number } }>();
   /** Lines handed over that came back with no plan made: line → the layout's revision then (`handBack`). */
   private readonly handOffFailed = new Map<number, number>();
   /** Handed to sections (`HANDOFF`): it caps and steers this one, not the dispatcher. */
@@ -566,6 +574,18 @@ export class Dispatcher {
         this.handedOff.delete(e);
         continue;
       }
+      // (`ASIDE`'s: back together once one of them has got on to its next stop, or the track changes, or `ASIDE_MAX_S`
+      // has gone, and none is stepped aside or letting another by just then (sections' run of it finished).)
+      if (o.aside) {
+        if (!this.handedOff.has(e)) continue;
+        const g = o.aside.group;
+        const moved = g.some((x) => (this.host.route(x)?.next ?? -1) !== (this.handedOff.get(x)?.aside?.next ?? -1));
+        const due = moved || o.rev !== rev || this.host.sim.ticks - o.at >= ASIDE_MAX_S * 120;
+        if (!due || g.some((x) => this.host.asideNow?.(x))) continue;
+        for (const x of g) this.handedOff.delete(x);
+        any = true;
+        continue;
+      }
       if (this.host.swapping?.(e)) continue;
       const line = this.host.lineOf?.(e) ?? -1;
       const mates = [...this.handedOff.keys()].filter((x) => (this.host.lineOf?.(x) ?? -1) === line);
@@ -598,6 +618,33 @@ export class Dispatcher {
     }
     for (const e of mates) {
       this.handedOff.set(e, { at: now, rev: this.host.layout.revision });
+      this.holdsBy.delete(e);
+      this.sigs.delete(e);
+    }
+    this.holdVer++;
+    this.handOffs++;
+    return true;
+  }
+
+  /**
+   * `ASIDE`: a train held again, its stretch's trains (two at least) all standing `ASIDE_S`, a spare end on its line to
+   * step aside into (the user's A1) and no swap planner for it: the stretch handed to sections, which step one aside to
+   * let the other by (as with the dispatcher off: siding-spare 2×own, a line each, head on either side of the points to
+   * the spare siding, stood for good). Taken back by `handBack`. True if it was.
+   */
+  private handAside(engine: number, group: number[]): boolean {
+    if (!ASIDE.on || !this.host.couldStepAside?.(engine) || group.length < 2) return false;
+    // (Trains of lines apart only: two of one line are the swap planner's (`HANDOFF`), and sections' stepping aside
+    // let three of one line stand for good (terminus-spare 3×one same).)
+    const lines = new Set(group.map((e) => this.host.lineOf?.(e) ?? -1));
+    if (lines.size !== group.length || lines.has(-1)) return false;
+    const now = this.host.sim.ticks;
+    for (const e of group) {
+      const h = this.holdsBy.get(e);
+      if (!h || h.stood < 0 || now - h.stood < ASIDE_S * 120 || this.handedOff.has(e)) return false;
+    }
+    for (const e of group) {
+      this.handedOff.set(e, { at: now, rev: this.host.layout.revision, aside: { group, next: this.host.route(e)?.next ?? -1 } });
       this.holdsBy.delete(e);
       this.sigs.delete(e);
     }
@@ -1382,7 +1429,7 @@ export class Dispatcher {
         this.q9Grants++;
       }
     }
-    if (to < 0 && this.handOff(engine)) return;
+    if (to < 0 && (this.handOff(engine) || this.handAside(engine, members.map((m) => placed[m].key)))) return;
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
