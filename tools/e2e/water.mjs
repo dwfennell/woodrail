@@ -482,16 +482,20 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     check("the tow takes the paint aboard at the first landing (barges carry any goods)", !!aboard && aboard.load.paint > 0, JSON.stringify(aboard));
     check("…its card says what it carries", !!aboard && /paint/i.test(aboard.card ?? ""), String(aboard?.card));
     // On its deck: crates of paint, drawn by the depots' instanced loads (no draw call of their own).
-    await p.waitForTimeout(1500);
+    // (Paused for its picture: the camera on the tow, which holds still while it's taken.)
+    await p.evaluate(() => (window.woodrail.paused = true));
     const tugSail = await p.evaluate(() => {
-      const o = window.woodrail.riverBoats.tugOf([...window.woodrail.economy.boats.keys()][0]);
-      return o ? { x: o.position.x, z: o.position.z } : null;
+      const w = window.woodrail;
+      const parts = w.fleet.poses([...w.economy.boats.values()][0], 0);
+      const n = parts.length;
+      return n ? { x: parts.reduce((a, q) => a + q.x, 0) / n, z: parts.reduce((a, q) => a + q.z, 0) / n } : null;
     });
-    if (tugSail) await look(tugSail, 700);
-    await frames();
+    if (tugSail) await look(tugSail, 600);
+    await settle();
     const drawnPaint = await p.evaluate(() => window.woodrail.depotView.units.paint.n);
     check("…the paint shown as crates on the barge's deck", drawnPaint > 0, `${drawnPaint} drawn`);
     await shot("8b-paint-aboard");
+    await p.evaluate(() => (window.woodrail.paused = false));
     const paintIn = await playUntil(
       async (B) => {
         const { CARGO } = await import("/src/economy/cargo.ts");
