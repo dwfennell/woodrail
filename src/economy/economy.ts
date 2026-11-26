@@ -1134,9 +1134,16 @@ export class Economy {
   roadsOf(depotId: number): readonly DepotState[] {
     const t = this.tracks.get(depotId);
     if (!t) return NO_ROADS;
+    // (Kept per layout revision, pieces, joints and tracks version: asked many times a tick.)
+    const L = this.layout;
+    const had = this.roadsKept.get(depotId);
+    if (had && had.rev === L.revision && had.pieces === L.piecesVersion && had.joints === L.jointsVersion && had.tracks === this.tracksVersion) return had.roads;
     const yard = this.depots[depotId];
-    return t.roads.filter((r) => this.onMap(r) && (!yard || besideYard(this.layout, yard.pieceId, r.pieceId)));
+    const roads = t.roads.filter((r) => this.onMap(r) && (!yard || besideYard(L, yard.pieceId, r.pieceId)));
+    this.roadsKept.set(depotId, { rev: L.revision, pieces: L.piecesVersion, joints: L.jointsVersion, tracks: this.tracksVersion, roads });
+    return roads;
   }
+  private readonly roadsKept = new Map<number, { rev: number; pieces: number; joints: number; tracks: number; roads: readonly DepotState[] }>();
 
   /** How many tracks a depot has now: its own, and its roads on the map. */
   trackCount(depotId: number): number {
