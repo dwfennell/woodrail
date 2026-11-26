@@ -2174,6 +2174,16 @@ export class Dispatcher {
     return !!h && h.end === h.t.at;
   }
 
+  /**
+   * Held where it stands with no move on from there at all, whoever else is on the track (its way round its line has
+   * none: a stop further on out of reach). Not waiting on a train: for its card, which named none ("something's in
+   * the way", the user's 2026-11-26 map: Clover held at Sawmill 2).
+   */
+  noWayOn(engine: number): boolean {
+    const h = this.holdsBy.get(engine);
+    return !!h && h.waitsOn < 0 && h.end === h.t.at && (h.t.succ[h.t.at]?.length ?? 0) === 0;
+  }
+
   /** The train (its engine) a held train waits for, its move's way taken by it (stall detection's wait graph). */
   waitingOn(engine: number): { engine: number } | null {
     const h = this.holdsBy.get(engine);

@@ -6,6 +6,8 @@ import { storeSkipText } from "./warehouse-text";
 import { keptText, notLoadingText } from "./workshop-text";
 import { loadHint, loadHintText } from "./chains";
 import { RACK_WAIT } from "./engines";
+import { legFromCursor } from "./route-path";
+import { flipCursor, type Cursor } from "../sim/cursor";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
 export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
@@ -484,6 +486,35 @@ function shortEndText(short: { depotId: number; at: number }, nameOf: (depotId: 
 /** The fix for a stop on another railway than its line's train (`Economy.apartSkipOf`). */
 export const APART_FIX = "Join its track to this line's, or take it off the line";
 
+/**
+ * The name of a routed train's next stop (standing at one, the stop after) when no way leads from its front to any of
+ * its tracks, whatever the switches, the way it would go; null when one does, or it has none. A walk of the track: only
+ * for a card saying why a train stands, not per tick.
+ */
+function noWayTo(sim: Sim, economy: Economy, engineCarId: number, nameOf: (depotId: number) => string): string | null {
+  const found = sim.findCar(engineCarId);
+  const r = economy.routeOf(engineCarId);
+  if (!found || !r || r.stops.length === 0) return null;
+  const n = r.stops.length;
+  let i = r.next % n;
+  if (r.at) {
+    const here = r.stops[i].depotId;
+    for (let k = 0; k < n && r.stops[i].depotId === here; k++) i = (i + 1) % n;
+  }
+  const d = economy.liveDepot(r.stops[i].depotId);
+  if (!d) return null;
+  const t = found.train;
+  const engine = t.cars[found.index];
+  const way = (engine.lever || 1) * engine.facing;
+  const front: Cursor = { ...(way > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };
+  if (way < 0) flipCursor(economy.layout, front);
+  for (const p of economy.reachableTracks(d)) if (front.pieceId === p || legFromCursor(economy.layout, front, p) !== null) return null;
+  return nameOf(d.id);
+}
+
+/** Held by the dispatcher with no way on round its line from where it stands (`Dispatcher.noWayOn`): what its card says. */
+export const NO_WAY_ON = "Waiting: no way on round its line from here, though no train is in the way. A stop further on may be out of reach: check its line";
+
 /** A stop passed over as it's on another railway than the train (`Economy.apartSkipOf`): what its card says. */
 export function apartText(apart: { depotId: number; none?: true }, nameOf: (depotId: number) => string): string {
   return `${apart.none ? "Can't reach" : "Skips"} ${nameOf(apart.depotId)}: no track joins it to the track this train is on. ${APART_FIX}`;
@@ -727,8 +758,16 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (Room for them all, its line's ends counted: it waits its turn, and no loop is asked for.)
       if (s.more <= 0) return "Waiting its turn on the line";
       return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? (s.other ? OR_MOVE_OTHER : OR_MOVE) : OR_REMOVE}`;
-    case "held-up":
-      return who ? `Waiting: ${inTheWay(who, place)}` : "Waiting: something's in the way";
+    case "held-up": {
+      if (who) return `Waiting: ${inTheWay(who, place)}`;
+      // (Held with no train named: where no way leads from it to where it's aimed, said, with the stop: the user's
+      // 2026-11-26 map, Clover held at Sawmill 2 by the dispatcher, "this train being stopped makes no sense".)
+      const to = noWayTo(sim, economy, engineCarId, nameOf);
+      if (to) return `Waiting: no track it can take leads to ${to} from here`;
+      // (Held by the dispatcher with no way on round its line from here, no train in it: a stop further on.)
+      if (economy.dispatcher?.noWayOn(engineCarId)) return NO_WAY_ON;
+      return "Waiting: something's in the way";
+    }
     case "line-wait-for": {
       const to = placeLabel(nameOf, s.to);
       // (Others have gone first in this wait: said steadily, with how many, not each one in turn as it holds it (Wren's
