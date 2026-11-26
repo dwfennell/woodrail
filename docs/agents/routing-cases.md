@@ -47,7 +47,9 @@ move goes by the road the search found round a train standing on its booked one 
 a turn close behind a train facing the line's end (§16 Q9: `Q9S`, `Q9_WAIT`, `Q9_ONE`, `Q9_FACE`; fuzz seeds 136, 149). 31 since
 two trains, the other granted into a dead end, are searched again with its granted track free (`DEAD_SHORT`: line1+siding).
 29 since a train that has just turned round asks again at once (`TURN_ASK`: turned at a buffer that isn't its stop, it
-ran on past its grant: the wyes' mixes, fuzz seeds 13 and 37). Measured and off: its knot check (`KNOT=1`, 68,
+ran on past its grant: the wyes' mixes, fuzz seeds 13 and 37). 26 since a hand-run train's facing points are thrown to
+a free road on to more points when the road they lie for meets a routed train standing there or granted it coming the
+other way (`HAND_AHEAD`, the router's give-way done early: the line2/line3 mixes). Measured and off: its knot check (`KNOT=1`, 68,
 but it costs the big maps 60-180 stops; `dispatcher-knots.test.ts`), granted track taken for the search's first moves only
 (`TAKEN_FIRST`, 72, dandelion jams), a move made by the road the search found (`ROAD_FREE`, 74 with `DEAD_BACK`, rowan-2 −32). It stays off in new games until `known-on.ts` is empty, or holds only cases the user has
 accepted by name: a new player must never meet a stall today's game gets right.
