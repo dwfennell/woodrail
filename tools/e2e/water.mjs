@@ -451,13 +451,18 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     await tapWorld(quay(C));
     await tapButton(".landing-boat-chips .chip");
     await p.waitForSelector(".boat-card:not([hidden]) .route-chip", { timeout: 20000 }).catch(() => {});
-    const chipAt = (i) =>
-      p.evaluate((i) => {
+    // (Scrolled into view as a finger would, and past the card's tap guard: the card is drawn again after each tap.)
+    const chipAt = async (i) => {
+      await p.evaluate((i) => document.querySelectorAll(".boat-card:not([hidden]) .route-chip")[i]?.scrollIntoView({ block: "nearest", inline: "nearest" }), i);
+      await frames();
+      await p.waitForTimeout(400);
+      return p.evaluate((i) => {
         const e = document.querySelectorAll(".boat-card:not([hidden]) .route-chip")[i];
         if (!e) return null;
         const r = e.getBoundingClientRect();
         return [r.left + r.width / 2, r.top + r.height / 2];
       }, i);
+    };
     const actionOf = (i) => p.evaluate((i) => [...window.woodrail.economy.boats.values()][0].stops[i].action, i);
     // (A chip goes Drop and pick up → Pick up → Only drop.)
     for (let n = 0; n < 3 && (await actionOf(1)) !== "pick"; n++) {
