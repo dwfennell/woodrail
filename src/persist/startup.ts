@@ -1,6 +1,6 @@
 import type { World } from "../game/world";
 import { lockSaves, loadFromStorage, newLoadReport, readSave, saveProgress, saveSession, saveToStorage, savesLocked, serializeWorld, writeSave, type LoadReport, type SessionData } from "./save";
-import { nameOfSave, UNREADABLE_PREFIX, type SlotStore } from "./slots";
+import { nameOfSave, tagOfSession, UNREADABLE_PREFIX, type SlotStore } from "./slots";
 import type { Backup, BackupStore } from "./backups";
 import { railFacts, tripText, type RailFacts, type Trip, type WriteGuard } from "./write-guard";
 
@@ -107,7 +107,8 @@ async function keepAfterTrip(trip: Trip, slots: SlotStore, safety: SaveSafety): 
   safety.pending = true;
   const stored = slots.liveKeys();
   const raw = stored[slots.keys.save];
-  const name = slots.openEntry()?.name ?? nameOfSave(raw);
+  // (Named as the railway kept calls itself: its session's tag, else its map; not whatever's in play now.)
+  const name = tagOfSession(stored[slots.keys.session])?.name || nameOfSave(raw);
   let kept: Backup | null = null;
   try {
     kept = raw === undefined ? null : await safety.backups.take(slots.openId ?? "unslotted", stored, "kept");

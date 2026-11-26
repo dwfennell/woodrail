@@ -281,14 +281,14 @@ suite.add("guard", async () => {
   check("guard: a straight laid from the tray", await layStraight(p, cdp));
   const said = await shownToast(p, "is kept safe", { from: mark, ms: 30000 });
   await shot(p, "guard-1-toast");
-  check("guard: the toast says the game is kept, and where", !!said && /the starter map was about to be saved over it/.test(said.text) && /Your games, Earlier versions/.test(said.text), said?.text ?? (await toastsSince(p, mark)));
+  check("guard: the toast says the game is kept (by its name), and where", !!said && /^“770187-gentle” is kept safe/.test(said.text) && /the starter map was about to be saved over it/.test(said.text) && /Your games, Earlier versions/.test(said.text), said?.text ?? (await toastsSince(p, mark)));
   const kept = await backups(p, id);
   check("guard: the kept copy is the user's game, byte for byte (10 trains, 267 pieces)", kept.length === 1 && kept[0].kind === "kept" && kept[0].save === USERS[SAVE] && kept[0].trains === TRAINS && kept[0].pieces === PIECES, JSON.stringify(kept.map(({ save, ...c }) => ({ ...c, same: save === USERS[SAVE] }))));
   const shown = await earlierOf(p, id);
   await shot(p, "guard-2-earlier");
   check("guard: Restore an earlier version lists it: 10 trains, 267 pieces, Kept safe", shown.length === 1 && /· 10 trains · 267 pieces · \d+ 🪙 · Kept safe$/.test(shown[0].facts), JSON.stringify(shown));
   check("guard: Add as a game is a tap", await tap(p, `.games-row[data-id="${id}"] .games-copy-add`));
-  await p.waitForTimeout(800);
+  await p.waitForFunction(() => /^Added/.test(document.querySelector(".games-sheet:not([hidden]) .games-note:not([hidden])")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
   const s1 = await state(p);
   const added = s1.games.find((g) => g.id !== id);
   const note = await p.evaluate(() => document.querySelector(".games-sheet:not([hidden]) .games-note:not([hidden])")?.textContent ?? "");
