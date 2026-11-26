@@ -570,6 +570,14 @@ const NO_RIDERS: Riders = { count: 0, from: -1 };
 const NO_PLACES: readonly number[] = [];
 
 /**
+ * A signal shows red while the train standing at it is held there by the router or by sections, the dispatcher off
+ * (`heldGateAt`): on (HELD_RED=0: off). Else it showed clear (its block free) with the train standing at it: greenHeld.
+ */
+export const HELD_RED = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HELD_RED !== "0";
+/** How near (mm, nose to the joint, past the front axle's inset) a held train stands to a signal to be at it. */
+const HELD_RED_NEAR = 80;
+
+/**
  * A routed train pulls up at a stop its line ends at on through track even with nothing to do there, and turns
  * (`endsHere`): on (LINE_END_STOP=0: off). Else, run through, it went on round the loops beyond (the user's two-train
  * map: Conker's line, 5 stops in 10 minutes for 30 with the dispatcher on).
@@ -768,7 +776,14 @@ export class Economy {
     sim.pathLocks = { locks: (t, points, choice) => router.pathLocks(t, points, choice), way: (t, id, entry) => router.pathWay(t, id, entry), version: () => router.locksVersion };
     // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
     const sections = this.sections;
-    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
+    sim.signalGate = {
+      at: (ref) => {
+        const g = sections.gateAt(ref);
+        return g !== -1 || !HELD_RED ? g : this.heldGateAt(ref);
+      },
+      version: () => sections.gateVersion() * 65536 + (HELD_RED ? this.heldGateVer : 0),
+      callOn: (ref, trainId) => sections.callOnAt(ref, trainId),
+    };
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.dispatcher?.waitingOn(engine) ?? this.router.waitingOn(engine),
@@ -2992,6 +3007,57 @@ export class Economy {
     }
   }
   private gateBefore: Sim["signalGate"] = null;
+
+  /** Signals (`Signal.at`) a train stands at held by the router or sections (`HELD_RED`): the train's id. */
+  private heldGate = new Map<number, number>();
+  private heldGateNext = new Map<number, number>();
+  private heldGateTick = -1;
+  private heldGateVer = 0;
+  /**
+   * The train standing at the signal at `ref` (its nose at the mark's stop point, facing it), held there by the router
+   * (short of points set or locked for another train) or by sections (a line's wait), or −1. With the dispatcher off the
+   * sim showed such a signal clear, its block free, while the train stood at it: greenHeld (eight reference maps).
+   * Worked out once a tick, from the waits; a map lookup a signal after.
+   */
+  private heldGateAt(ref: number): number {
+    if (this.heldGateTick !== this.sim.ticks) this.refreshHeldGate();
+    return this.heldGate.get(ref) ?? -1;
+  }
+  private refreshHeldGate(): void {
+    this.heldGateTick = this.sim.ticks;
+    const now = this.heldGateNext;
+    now.clear();
+    if (this.layout.signalCount > 0 && (this.routes.size > 0 || this.sections.enabled))
+      for (const t of this.sim.trains()) {
+        if (t.speed !== 0 || t.derailed || t.bogies.length === 0) continue;
+        const net = this.drive(t);
+        if (net === 0) continue;
+        let held = false;
+        for (const c of t.cars) if (c.kind === "engine" && (this.router.waitOf(c.id) || this.sections.waitOf(c.id))) held = true;
+        if (!held) continue;
+        const forward = net > 0;
+        const b = forward ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+        const p = this.layout.getPiece(b.pieceId);
+        if (!p) continue;
+        const def = getPieceDef(p.type, p.flipped);
+        const exit = pathExitConnector(def, b.pathIndex, forward ? b.reversed : !b.reversed);
+        if (exit === -1) continue;
+        const ref = connectorRef(b.pieceId, exit);
+        const mark = this.layout.signalAt(ref);
+        if (!mark || mark.held || mark.forced) continue;
+        const len = pathLength(def.paths[b.pathIndex].geom);
+        const toJoint = forward ? len - b.s : b.s;
+        const inset = CAR_SPECS[(forward ? t.cars[0] : t.cars[t.cars.length - 1]).kind].bogieInset;
+        if (toJoint > HELD_RED_NEAR + inset) continue;
+        now.set(mark.at, t.id);
+      }
+    let same = now.size === this.heldGate.size;
+    if (same) for (const [k, v] of now) if (this.heldGate.get(k) !== v) same = false;
+    if (same) return;
+    this.heldGateNext = this.heldGate;
+    this.heldGate = now;
+    this.heldGateVer++;
+  }
 
   /**
    * The speed limit a depot puts on a powered train: on an automatic depot where one of its cars has work, it pulls up
