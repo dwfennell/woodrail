@@ -53,7 +53,8 @@ other way (`HAND_AHEAD`, the router's give-way done early: the line2/line3 mixes
 dispatcher holds by its grant (`DISP_SECTIONS`: the crossing and ring2 mixes). 23 since a grant kept through a rebuild
 keeps only pieces it was granted (`KEEP_PIECES`: ring1 short). 14 since a stalled pair of trains of lines apart, a spare
 end on their line, is handed to sections to step one aside (`ASIDE`, the user's A1: the -spare 2×own set, fuzz seeds 94
-and 189). Measured and off: its knot check (`KNOT=1`, 68,
+and 189). 10 since a move onto track a train in a dead end comes back over after its turn isn't granted, with no signals
+laid (`DEAD_COME`: the line1+siding 3× and terminus/wye-spare 3×one opposed). Measured and off: its knot check (`KNOT=1`, 68,
 but it costs the big maps 60-180 stops; `dispatcher-knots.test.ts`), granted track taken for the search's first moves only
 (`TAKEN_FIRST`, 72, dandelion jams), a move made by the road the search found (`ROAD_FREE`, 74 with `DEAD_BACK`, rowan-2 −32). It stays off in new games until `known-on.ts` is empty, or holds only cases the user has
 accepted by name: a new player must never meet a stall today's game gets right.
