@@ -170,7 +170,6 @@ const chip = await p.evaluate(() => {
   const r = (e) => e.getBoundingClientRect();
   const b = [...document.querySelectorAll("button")].find((x) => x.textContent === "Re-rail" && !x.hidden);
   const goals = document.querySelector(".goals");
-  const text = document.querySelector(".goals-now");
   return b && goals ? { chip: r(b).toJSON(), goals: r(goals).toJSON() } : null;
 });
 // (Under its foot, clear of it, whatever the goal's height (one line or two), and the goals bar the width it was before

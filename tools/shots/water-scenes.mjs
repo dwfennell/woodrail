@@ -202,7 +202,7 @@ export default {
     await p.waitForTimeout(1500);
     await hud(p, "Send a train abroad");
     await p.evaluate(() => {
-      const { x, z, fx, fz } = window.__ferry;
+      const { x, z } = window.__ferry;
       window.__tag(x, 20, z - 60, "Ferry slip", 70, -10);
       window.__card(`
         <div class="route-head"><span class="route-swatch" style="background:#c8442f"></span><b style="font-size:1.1em">Bluebell</b>&nbsp;<span class="route-none">on the ferry</span></div>

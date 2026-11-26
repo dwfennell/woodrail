@@ -97,7 +97,7 @@ await p.evaluate(async () => {
       window.__box(bx, 14, bz, 86, 4, 46, 0x7a4e28, heading);
       window.__box(bx, 14, bz, 78, 4, 38, 0x5c3a1e, heading);
       const at = (u, v) => [bx + c * u - s * v, bz + s * u + c * v];
-      if (load === "log") for (const [v, y] of [[-12, 21], [0, 21], [12, 21], [-6, 29], [6, 29], [0, 37]]) { const [lx, lz] = at(0, v); const m = window.__cyl(lx, y, lz, 5, 68, 0xb07a45, "x", heading); }
+      if (load === "log") for (const [v, y] of [[-12, 21], [0, 21], [12, 21], [-6, 29], [6, 29], [0, 37]]) { const [lx, lz] = at(0, v); window.__cyl(lx, y, lz, 5, 68, 0xb07a45, "x", heading); }
       if (load === "stone") for (const [u, v, h] of [[-22, -8, 10], [0, 6, 13], [20, -4, 9], [6, -9, 8], [-12, 9, 8], [26, 9, 8]]) { const [lx, lz] = at(u, v); window.__box(lx, 16, lz, 13, h, 12, 0x9a958c, heading + u); }
       if (load === "coal") { const [lx, lz] = at(0, 0); window.__box(lx, 16, lz, 70, 10, 32, 0x2d2a28, heading); window.__box(lx, 24, lz, 46, 8, 22, 0x2d2a28, heading); }
       if (load === "grain") { const [lx, lz] = at(0, 0); window.__box(lx, 16, lz, 70, 10, 32, 0xe2c25a, heading); window.__box(lx, 24, lz, 46, 7, 20, 0xe9cd6d, heading); }

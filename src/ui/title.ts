@@ -172,7 +172,7 @@ export class TitleScreen {
   }
 }
 
-function button(label: string, title: string, cls: string, onClick: () => void): HTMLButtonElement {
+function button(label: string, title: string, cls: string, onClick: () => void | Promise<void>): HTMLButtonElement {
   const b = document.createElement("button");
   b.className = cls;
   b.textContent = label;
@@ -191,7 +191,7 @@ function button(label: string, title: string, cls: string, onClick: () => void):
     down = null;
     if (!tap || b.disabled || !b.isConnected || b.closest("[hidden]")) return;
     actedAt = e.timeStamp;
-    onClick();
+    void onClick();
   });
   window.addEventListener("pointercancel", (e) => {
     if (down && e.pointerId === down.id) down = null;
@@ -200,7 +200,7 @@ function button(label: string, title: string, cls: string, onClick: () => void):
   b.addEventListener("click", (e) => {
     e.stopPropagation();
     if (e.timeStamp - actedAt < 1000) return;
-    onClick();
+    void onClick();
   });
   return b;
 }

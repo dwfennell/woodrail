@@ -51,10 +51,8 @@ const open = async ({ phone = true } = {}) => {
   return { ctx, page, session: await ctx.newCDPSession(page) };
 };
 let { ctx, page: p, session: cdp } = await open();
-let failures = 0;
 const results = [];
 const check = (what, ok, detail = "") => {
-  if (!ok) failures++;
   results.push({ name: what, ok: !!ok });
   console.log(ok ? "PASS" : "FAIL", what, detail);
 };
@@ -261,7 +259,7 @@ const layLoopLine = () => p.evaluate(async () => {
   const l1 = loopOn(w.layout, connectorRef(w1, 1), [S, S], [S]);
   const mid = chain(w.layout, Array(10).fill(S), connectorRef(l1.s2, 0));
   const l2 = loopOn(w.layout, connectorRef(mid[9], 1), [S, S], [S]);
-  const [e1, bb] = chain(w.layout, [S, "depot-sawmill"], connectorRef(l2.s2, 0));
+  const [, bb] = chain(w.layout, [S, "depot-sawmill"], connectorRef(l2.s2, 0));
   appendPiece(w.layout, "buffer-turnback", false, connectorRef(bb, 1));
   const forest = w.economy.addDepot("forest", a).id;
   const mill = w.economy.addDepot("sawmill", bb).id;

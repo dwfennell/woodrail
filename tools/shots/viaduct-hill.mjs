@@ -59,7 +59,7 @@ const scenes = await p.evaluate(async (s) => {
   const W = window.woodrail;
   const { setHeights } = await import("/src/landscape/edit.ts");
   const { SURF_RIVER, SURF_GRASS } = await import("/src/landscape/grid.ts");
-  const { getPieceDef, RISER_HEIGHT } = await import("/src/track/index.ts");
+  const { getPieceDef } = await import("/src/track/index.ts");
   const { trackBlock } = await import("/src/game/track-rules.ts");
   const g = W.world.landscape.grid;
   // Three bands of rows (z), each its own profile of hill levels along x (columns 0..11); R: a river at the felt.

@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": ["src/**/*.{ts,js,mjs}", "cloud/**/*.{ts,js,mjs}", "scripts/**/*.{ts,js,mjs}", "tools/**/*.{ts,js,mjs}", "bench/**/*.{ts,js,mjs}", "catalogue/**/*.{ts,js,mjs}", "*.ts"]
+  },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "none",
+      "correctness": {
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error",
+        "noUnusedLabels": "error",
+        "noUnsafeOptionalChaining": "error",
+        "noConstantCondition": "error",
+        "noUnreachable": "error",
+        "noSelfAssign": "error",
+        "noInvalidUseBeforeDeclaration": "error",
+        "noSwitchDeclarations": "error"
+      },
+      "suspicious": {
+        "noDoubleEquals": "error",
+        "noConstantBinaryExpressions": "error",
+        "noDuplicateObjectKeys": "error",
+        "noDuplicateCase": "error",
+        "noDuplicateElseIf": "error",
+        "noSelfCompare": "error",
+        "noRedeclare": "error",
+        "noShadowRestrictedNames": "error",
+        "noConfusingLabels": "error",
+        "noAsyncPromiseExecutor": "error",
+        "noCompareNegZero": "error",
+        "noDebugger": "error",
+        "noSparseArray": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error"
+      }
+    }
+  }
+}

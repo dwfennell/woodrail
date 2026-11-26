@@ -42,7 +42,7 @@ and the unit tests before them: a unit failure is cheaper to find.
 Every changed source file is "comments only", "words only" or "paint only" in `e2e:affected`'s output.
 
 ```
-npm run typecheck                                    # ~1 min
+npm run typecheck && npm run lint                  # ~1 min (lint: Biome, ~2 s)
 npx vitest run <the unit tests of those files>       # seconds; grep src for the old words: a unit test may assert them
 npm run e2e:affected -- --run                        # the suites that refer to the words, and the smoke (~5-10 min)
 ```
@@ -57,7 +57,7 @@ changed (affected.mjs already calls that code), or a label is new rather than re
 ### UI behaviour: the HUD, cards, tray, menus, input
 
 ```
-npm run typecheck
+npm run typecheck && npm run lint
 npm test                                             # ~6 min (all of it: cheap next to the browser)
 npm run e2e:affected -- --run                        # the HUD's suites, and touch's TOUCH_UI / TOUCH_INPUT groups
 ```
@@ -70,7 +70,7 @@ Escalate to **wide** when: `src/main.ts`'s wiring, `src/ui/hud.ts`'s structure o
 ### Rendering and models: src/render, src/catalogue, props, geometry, materials
 
 ```
-npm run typecheck
+npm run typecheck && npm run lint
 npm test                                             # includes the model tests (model-overlaps, buildability)
 npm run e2e:affected -- --run                        # picks the visual suites (kits, life, low-bridge, gl-lost, …)
 npm run build && npm run perf:check                  # ~16 min: frames, draw calls, memory against the budgets
@@ -83,7 +83,7 @@ with the numbers (AGENTS.md, Budgets). Take a look at the pictures the suites wr
 ### Sim, routing, economy: src/sim, src/routing, src/game, src/economy, src/track
 
 ```
-npm run typecheck
+npm run typecheck && npm run lint
 npm test                                             # includes the harness fuzz (8 seeds) and src/play/bugmaps
 npm run e2e:affected -- --run                        # signals, depot-tracks, sandbox-chains, touch's route groups, …
 ```
@@ -108,7 +108,7 @@ The diff touches several tiers' areas, many e2e scripts, `src/persist` (save for
 landscape (`src/landscape`), `scripts/e2e/lib`, or the build (`vite.config.ts`, `package.json`).
 
 ```
-npm run typecheck && npm test && npm run build
+npm run typecheck && npm run lint && npm test && npm run build
 npm run e2e:affected -- --run
 npm run e2e:affected -- --nightly --run              # touch and click whole (~80 min)
 npm run build && npm run perf:check                  # if anything drawn or loaded changed
@@ -133,7 +133,7 @@ End with a block like this, so the lander can see what ran and decide without re
 
 ```
 Tier: copy (src/ui/hud.ts words only; main.ts, style.css comments only)
-- typecheck: clean
+- typecheck, lint: clean
 - unit: 6136 passed, 15 skipped (355 files), 5m41s
 - e2e (from e2e:affected): train-summary 24/24 passed (4m12s); touch game-shelves,train-card 9/9 (1m30s)
 - not run: perf:check (nothing drawn changed), fuzz (no sim change)

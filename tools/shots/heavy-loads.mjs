@@ -137,7 +137,8 @@ try {
     await settle();
     const drawn = await p.evaluate(() => {
       const w = window.woodrail;
-      return { calls: (w.renderer ?? w.view?.renderer).info.render.calls, triangles: w.renderer.info.render.triangles };
+      const r = w.renderer ?? w.view.renderer;
+      return { calls: r.info.render.calls, triangles: r.info.render.triangles };
     });
     console.log(`${n} a wagon: ${drawn.calls} draw calls, ${drawn.triangles} triangles (the last frame)`);
     for (let k = 0; k < cars.length; k++) {

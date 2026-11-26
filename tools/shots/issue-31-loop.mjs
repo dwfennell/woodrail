@@ -32,16 +32,6 @@ const look = async (pieces, dist, phi = 0.9, theta) => {
   }, [pieces, dist, phi, theta]);
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
 };
-const report = async () => console.log(await p.evaluate(() => {
-  const w = window.woodrail;
-  const lines = [`t=${w.simSeconds.toFixed(1)}`];
-  for (const id of w.sim.trainIds()) {
-    const t = w.sim.getTrain(id); const e = t.cars.find((c) => c.kind === "engine");
-    lines.push(`train ${id} engine ${e.id} piece ${t.bogies[0].pieceId} s ${t.bogies[0].s.toFixed(2)} v ${Math.round(t.speed)} redAhead ${w.sim.redSignalKeyAhead(id)}`);
-  }
-  lines.push("marks " + w.sim.signalList().map((s) => `${s.key}@${s.pieceId}:${s.clear ? "G" : "R"}`).join(" "));
-  return lines.join("\n");
-}));
 /** Tick the sim and economy `s` seconds in the page (paused: the frame loop doesn't), then draw. */
 const tickFor = async (s) => {
   await p.evaluate((s) => { const w = window.woodrail; for (let i = 0; i < s * 120; i++) { w.sim.tick(); w.economy.tick(); } w.invalidate(); }, s);

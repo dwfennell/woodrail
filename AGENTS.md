@@ -7,6 +7,7 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run dev`: dev server
 - `npm test`: unit tests (Vitest)
 - `npm run typecheck`
+- `npm run lint`: Biome (`biome.json`), about 2 s over src, cloud, scripts, tools, bench and catalogue: only correctness rules that catch real bugs (unused variables and imports, `==`, unsafe `?.`, constant conditions, floating or misused promises), no style rules and no formatter; CI's `lint` job runs it. A handler that may be async is typed `() => void | Promise<void>` and called with `void` (a rejection reaches the page's `unhandledrejection` reporters). A false positive gets a `// biome-ignore lint/<group>/<rule>: <why>` on the line above
 - `npm run build`
 - `npm run build:artifact`: a build to publish as a claude.ai Artifact (see `docs/artifact-builds.md`)
 - `npm run build:itch`: a build for itch.io, zipped (`woodrail-itch.zip`); releases push it there (see `docs/itch-builds.md`)

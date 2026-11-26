@@ -1,6 +1,6 @@
 // Mock staging: Game mode on a 390×844 phone, an oval with forest, sawmill, workshop; two lines, three trains.
 // Then for each "scene" in scenes.mjs: set up UI state and inject mock DOM, screenshot.
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 

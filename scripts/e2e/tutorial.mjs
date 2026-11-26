@@ -57,12 +57,6 @@ const box = (p) =>
 const until = async (p, n, act) => {
   for (let k = 0; k < 12 && ((await coach(p))?.done ?? 99) < n; k++) await act();
 };
-const hold = async (p, key, ms) => {
-  await p.keyboard.down(key);
-  await new Promise((r) => setTimeout(r, ms));
-  await p.keyboard.up(key);
-  await settle(p);
-};
 
 // ---- desktop: keys and the wheel ----
 {

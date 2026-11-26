@@ -92,7 +92,6 @@ const screenOf = (v) =>
     const r = w.canvas.getBoundingClientRect();
     return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
   }, v);
-const sim = () => p.evaluate(() => window.woodrail.simSeconds);
 /** Wait (on wall time, `ms` at most) for the page's `fn(arg)` to hold. */
 const until = (fn, arg, ms) => p.waitForFunction(fn, arg, { timeout: ms, polling: 250 }).then(() => true, () => false);
 const idleFrames = () =>

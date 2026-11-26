@@ -5,6 +5,7 @@
 #           balanced by rough duration (scripts/e2e/ci.mjs, scripts/e2e/durations.json); build dist/ once
 #   shard   one per runner: its suites as the landing gate runs them, one retry each
 #   unit    vitest, sharded
+#   lint    Biome's correctness rules (npm run lint), a couple of seconds
 #   e2e     the one check: passes only when every shard did; a table in the job summary and e2e-results.json
 name: e2e
 
@@ -154,6 +155,26 @@ jobs:
       - if: steps.nm.outputs.cache-hit != 'true'
         run: npm ci --no-audit --no-fund
       - run: npx vitest run --shard=${{ matrix.shard }}/4
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.REF }}", fetch-depth: 0, filter: "blob:none" }
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.sha }}", path: .ci, sparse-checkout: ".github/actions", sparse-checkout-cone-mode: false }
+      - uses: ./.ci/.github/actions/merge-main
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - id: nm
+        uses: actions/cache@v4
+        with: { path: node_modules, key: "nm-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}" }
+      - if: steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+      - name: Biome lint (biome.json; a GitHub annotation on each finding)
+        run: npx biome lint --reporter=github --max-diagnostics=none .
 
   e2e:
     name: e2e

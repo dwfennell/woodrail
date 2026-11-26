@@ -55,7 +55,7 @@ export function sourceKey() {
       const file = join(ROOT, path);
       h.update(existsSync(file) ? readFileSync(file) : "(deleted)");
     }
-  } catch (e) {
+  } catch {
     // (Not a git checkout: no key, so nothing is ever skipped.)
     return (memoKey = `nogit-${Date.now()}`);
   }

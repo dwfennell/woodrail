@@ -97,7 +97,7 @@ export class BoatCard {
     v.stops.forEach((s, i) => {
       const chip = button(`chip text route-chip has-goods${s.current ? " next" : ""}`, "", `Stop ${i + 1}: ${s.label}. Tap to change what the boat does here`, () => this.h.cycleStop(i));
       chip.style.setProperty("--line", BOAT_LINE);
-      chip.innerHTML = `<span class="route-num">${i + 1}</span> ${escape(s.label)}<span class="route-goods">${ACTION_LABEL[s.action]}</span>`;
+      chip.innerHTML = `<span class="route-num">${i + 1}</span> ${escapeHtml(s.label)}<span class="route-goods">${ACTION_LABEL[s.action]}</span>`;
       stops.append(chip);
       if (v.planning && v.stops.length > 1) stops.append(button("chip text boat-unstop", "✕", `Take ${s.label} off the route`, () => this.h.removeStop(i)));
     });
@@ -138,6 +138,6 @@ function button(cls: string, html: string, title: string, onClick: () => void): 
   return b;
 }
 
-function escape(s: string): string {
+function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }

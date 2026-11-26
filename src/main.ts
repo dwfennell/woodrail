@@ -7542,6 +7542,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * mode starts and never in Sandbox. Once in, the depots' goods and yards are rebuilt with them and the industries'
    * tray pictures drawn; until then the depots show their stand-ins. A failed fetch is tried again on the next entry.
    */
+  // biome-ignore lint/correctness/noUnusedVariables: read by `??=` below (Biome counts it as a write only)
   let gameModels: Promise<void> | null = null;
   function ensureGameModels(): void {
     gameModels ??= loadGameModels().then(

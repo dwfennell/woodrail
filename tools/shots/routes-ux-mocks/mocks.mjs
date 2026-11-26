@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
-import { openCard, tapSel, look, clearToasts } from "./scenes.mjs";
+import { openCard, tapSel, clearToasts } from "./scenes.mjs";
 const CSS = readFileSync(new URL("./mock.css", import.meta.url), "utf8");
 const PL = "", LOG = "🪵";
 const RED = "#e0533d", BLUE = "#2f6db5", GREEN = "#3c9a5f", YEL = "#e6b52c";
 async function css(p) { await p.addStyleTag({ content: CSS }); }
 async function reset(p) {
-  await p.evaluate(() => { const g = document.querySelector(".goals-panel, .goals"); const x = [...document.querySelectorAll(".goals-tabs button")].find((b) => !b.classList.contains("goals-tab")); if (x && x.offsetParent) x.click(); });
+  await p.evaluate(() => { const x = [...document.querySelectorAll(".goals-tabs button")].find((b) => !b.classList.contains("goals-tab")); if (x && x.offsetParent) x.click(); });
   await p.evaluate(() => { document.querySelectorAll(".mk-inj").forEach((e) => e.remove()); document.querySelectorAll(".mk-hide").forEach((e) => e.classList.remove("mk-hide")); });
   await p.evaluate(() => [...document.querySelectorAll(".lines-view .chip")].find((b) => b.textContent === "Done" && b.offsetParent)?.click());
   await p.keyboard.press("Escape"); await p.waitForTimeout(300); await p.keyboard.press("Escape"); await p.waitForTimeout(300);
@@ -37,7 +37,6 @@ async function openLinesView(p) {
   await p.evaluate(() => [...document.querySelectorAll(".menu button")].find((b) => b.textContent === "Lines")?.click());
   await p.waitForTimeout(1500);
 }
-const goals = `<span class="mk-good">${LOG} logs</span>`;
 const lineRow = (c, name, stops, trains, carries, pill, extra) => `
   <div class="mk-line" style="--line:${c}"><i class="bar"></i>
     <div class="name">${name}</div><span class="chev">›</span>

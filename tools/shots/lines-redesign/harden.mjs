@@ -6,7 +6,6 @@ import { tapSel, clearToasts, look } from "./scenes.mjs";
 const ALL = ["phone", "narrow", "side", "desktop"];
 async function reset(p) {
   await p.evaluate(() => {
-    const w = window.woodrail;
     if (!document.querySelector(".line-sheet").hidden) document.querySelector(".ls-done")?.click();
   });
   await p.keyboard.press("Escape");

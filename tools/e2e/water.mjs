@@ -470,7 +470,6 @@ const sea = await p.evaluate(async () => {
   const { plotsForSale, syncIndustries } = await import("/src/game/world.ts");
   const { siteWhy } = await import("/src/game/industries.ts");
   const { QUAY } = await import("/src/game/harbours.ts");
-  const { CARGO } = await import("/src/economy/cargo.ts");
   const coast = w.world.landscape.coast;
   for (const q of plotsForSale(w.world.landscape)) if ((coast.side === "s" && q.pz === coast.plot) || (coast.side === "n" && q.pz === -coast.plot) || (coast.side === "e" && q.px === coast.plot) || (coast.side === "w" && q.px === -coast.plot)) w.unlockPlot(q.px, q.pz);
   for (const r of ["warehouses", "bridges", "harbours", "shipyards", "cargo-ships", "lighthouse", "junctions", "ferry"]) w.learn(r);

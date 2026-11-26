@@ -56,7 +56,6 @@ const mid = await p.evaluate(async () => {
     break;
   }
   w.trackChanged?.();
-  const m = laid[Math.floor(laid.length / 2)];
   const r = w.sim.addTrain(["engine", "passenger", "passenger", "caboose"], { pieceId: laid[Math.floor(laid.length / 2) - 1], pathIndex: 0, reversed: false, s: 100 });
   w.paused = true;
   const pa = w.layout.getPiece(sa).pose, pz = w.layout.getPiece(sz).pose;
