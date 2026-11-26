@@ -203,6 +203,8 @@ const DEAD_END = -2;
 /** How far on (pieces) a train whose front is off another's way is followed, to see if it comes onto it head on (`sameWayAhead`). */
 const FOLLOW_LOOK = 48;
 /** `sameWayAhead` takes a train with an axle on the way going against it as in the way, not ahead: on (TAIL_AGAINST=0: off). */
+/** How recent (s) a line-end turn is for `TAIL_AGAINST`: its wait in the road it turned in, and a little more. */
+const TURNED_S = 60;
 export const TAIL_AGAINST = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAIL_AGAINST !== "0";
 /** The room (mm) a train following another into a slot leaves (the sim's `FOLLOW_GAP`, and some to stop in). */
 const FOLLOW_ROOM = 150;
@@ -2117,7 +2119,13 @@ export class Sections {
    * out by the end `along` comes in by (the same way, or joining it at points), and any move it holds never along it
    * the other way round? False if its front isn't on it (it may be coming onto it from elsewhere, or standing across it).
    */
-  private sameWayAhead(u: number, along: ReadonlyMap<number, number>): boolean {
+  /** Did `engine`'s train turn at its line's end at a stop (`Sim.turnBackHere`) in the last `TURNED_S`? */
+  private justTurned(engine: number): boolean {
+    if (engine < 0) return false;
+    const turn = this.sim.findCar(engine)?.train.lastTurn;
+    return turn?.cause === "stop" && this.sim.ticks - turn.tick < TURNED_S * SIM_HZ;
+  }
+  private sameWayAhead(u: number, along: ReadonlyMap<number, number>, asker = -1): boolean {
     const t = this.sim.findCar(u)?.train;
     if (!t) return false;
     const net = this.host.drive(t);
@@ -2151,11 +2159,13 @@ export class Sections {
     }
     const m = this.states.get(u)?.move;
     if (m) return !m.steps.some((s) => along.get(s.pieceId) === this.exitOf(s));
-    // (`TAIL_AGAINST`: running in with no move (its front just into its slot, a loop road beside), any of its axles
-    // behind on the way going against it (its tail still over the points and the track the way runs out by): it isn't
-    // ahead the same way, it's in the way. Else the other was let out onto it, and stood held short of the points by
-    // the tail (the two-train map, netActed).)
-    if (TAIL_AGAINST && t.speed > 0)
+    // (`TAIL_AGAINST`: for an asker just turned at its line's end on through track (`Economy.turnAtLineEnds`: it faces
+    // back the way trains come in), a train running in with no move (its front just into its slot, a loop road beside)
+    // with any of its axles behind on the way going against it (its tail still over the points and the track the way
+    // runs out by) isn't ahead the same way, it's in the way. Else the asker was let out onto it, and stood held short of
+    // the points by the tail (the two-train map, netActed). For every asker it held trains a moment where the sim's
+    // guards had let them roll up: dandelion -13, rowan-2 -29, rowan-3 -8 stops on 6 seeds' means.)
+    if (TAIL_AGAINST && t.speed > 0 && this.justTurned(asker))
       for (const b of t.bogies) {
         const on = along.get(b.pieceId);
         if (on === undefined) continue;
@@ -2591,7 +2601,7 @@ export class Sections {
       // in a line end too short for it, its front out in the junction past it, waiting on Dandelion; Dandelion waiting on
       // it as the junction's user, though its way through it, one piece, was clear of Conker).)
       if (along && this.waitsHere(u, engine) && !this.sim.findCar(u)?.train.bogies.some((b) => along.has(b.pieceId))) continue;
-      if (along && this.follows(info, engine, u) && this.sameWayAhead(u, along)) continue;
+      if (along && this.follows(info, engine, u) && this.sameWayAhead(u, along, engine)) continue;
       if (along && info.loose.includes(u) && this.clearOfCircling(u, along)) continue;
       // (Coming out of a dead end: a train standing outside, waiting to go in, isn't in its way unless it stands on its
       // way out (it takes a road clear of one facing it: `outOfDeadEnd`); one ahead the same way, it follows.)
