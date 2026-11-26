@@ -39,6 +39,9 @@ export const CLIP_FILES = Object.fromEntries(
   Object.entries(FILES).map(([name, file]) => [name, `${import.meta.env.BASE_URL}sounds/${file}.m4a`]),
 ) as Record<ClipName, string>;
 
+/** The clips whose files are in public/sounds/: only these are fetched (a name not here would just 404). Filled as files are added. */
+export const AVAILABLE_CLIPS: readonly ClipName[] = [];
+
 /**
  * The decoded clips. `load` fetches and decodes each once; one that can't be fetched or decoded stays null for good
  * (no retry, nothing logged), and the caller plays its synthesised sound instead.
@@ -47,12 +50,15 @@ export class ClipBank {
   private readonly buffers = new Map<ClipName, AudioBuffer>();
   private started = false;
 
-  constructor(private readonly fetchFn: typeof fetch = (...a) => fetch(...a)) {}
+  constructor(
+    private readonly fetchFn: typeof fetch = (...a) => fetch(...a),
+    private readonly available: readonly ClipName[] = AVAILABLE_CLIPS,
+  ) {}
 
   load(ctx: BaseAudioContext): void {
     if (this.started) return;
     this.started = true;
-    for (const name of Object.keys(CLIP_FILES) as ClipName[]) void this.loadOne(ctx, name);
+    for (const name of this.available) void this.loadOne(ctx, name);
   }
 
   get(name: ClipName): AudioBuffer | null {

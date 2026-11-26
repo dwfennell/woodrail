@@ -16,6 +16,9 @@ export const SOUND_SIZE_MM: Record<SoundKind, number> = {
 /** On-screen size (CSS px) of a source: under `silent` it is inaudible, at `clear` and over it full volume. */
 export const HEAR_PX = { silent: 4, clear: 14 } as const;
 
+/** The loudest a source can be heard (a clear one): near the old synth levels, which fell off with distance. */
+export const HEAR_GAIN = 0.6;
+
 /** 0 at or under `HEAR_PX.silent`, 1 at or over `HEAR_PX.clear`, linear between. */
 export function audibility(px: number): number {
   if (px <= HEAR_PX.silent) return 0;
@@ -23,7 +26,7 @@ export function audibility(px: number): number {
   return (px - HEAR_PX.silent) / (HEAR_PX.clear - HEAR_PX.silent);
 }
 
-/** How audible a source of `kind` at (x, y, z) is from this frame's view: 0 off screen (a little past the edge counts). */
+/** How loud a source of `kind` at (x, y, z) is from this frame's view: 0 off screen (a little past the edge counts), `HEAR_GAIN` at most. */
 export function hear(
   eye: Pick<AmbientEye, "sees" | "pixels">,
   kind: SoundKind,
@@ -33,5 +36,5 @@ export function hear(
 ): number {
   const size = SOUND_SIZE_MM[kind];
   if (!eye.sees(x, y, z, size, 0, size * 2)) return 0;
-  return audibility(eye.pixels(x, y, z, size));
+  return HEAR_GAIN * audibility(eye.pixels(x, y, z, size));
 }

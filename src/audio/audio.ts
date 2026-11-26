@@ -47,6 +47,7 @@ export class ToyAudio {
   private readonly clips = new ClipBank();
   private lastClack = 0;
   private humLevel = 0;
+  private humPace = 0;
   muted = false;
   /**
    * A page driven by automation (Playwright's e2e suites, shot and clip scripts: `navigator.webdriver`) makes no
@@ -367,7 +368,7 @@ export class ToyAudio {
 
   /**
    * A toy engine's whistle: two reedy notes a third apart, a breath of air under them, a short pip then a longer
-   * toot (an engine passing a whistle post). `volume` and `pan` as `listen` hears the engine: nearer the camera,
+   * toot (an engine passing a whistle post). `volume` and `pan` as `listen` hears the engine: bigger on screen,
    * louder. Rate-limited, so trains passing posts together don't blare: within 0.6 s of one only a clearly louder
    * (nearer) whistle is heard, and the one before it fades out under it. Returns whether it was heard.
    */
@@ -581,26 +582,31 @@ export class ToyAudio {
   }
 
   /**
-   * Motor hum level 0..1 from the number and nearness of running engines: the recorded loop once its clip has loaded,
-   * else a synthesised hum. A hum already running when the clip arrives fades out at the next change of level.
+   * Motor hum level 0..1 from the number and size on screen of running engines, and `pace` 0..1 (how fast they run, of
+   * top speed) for the loop's pitch: the recorded loop once its clip has loaded (gain follows level, rate follows
+   * pace), else a synthesised hum (level only). A hum already running when the clip arrives fades out at the next change of level.
    */
-  setHum(level: number): void {
+  setHum(level: number, pace = 0): void {
     const ctx = this.ctx;
     const lvl = this.muted ? 0 : Math.min(1, Math.max(0, level));
     const target = lvl * 0.045;
-    // (Called each frame trains run: a level that's hardly changed, or silence that's already silent, does nothing.)
-    if (!ctx || !this.master || target === this.humLevel || (target > 0 && Math.abs(target - this.humLevel) < 0.0005) || (!this.hum && !this.loop && target === 0)) return;
+    const rate = Math.min(1, Math.max(0, pace));
+    // (Called each frame trains run: a level and pace that've hardly changed, or silence that's already silent, does nothing.)
+    const levelSame = target === this.humLevel || (target > 0 && Math.abs(target - this.humLevel) < 0.0005);
+    const paceSame = Math.abs(rate - this.humPace) < 0.01;
+    if (!ctx || !this.master || (levelSame && paceSame) || (!this.hum && !this.loop && target === 0)) return;
     this.humLevel = target;
+    this.humPace = rate;
     this.wake(600);
     const buffer = this.clips.get("engineLoop");
     if (buffer) {
       this.retireHum(ctx);
-      this.driveLoop(ctx, this.master, buffer, lvl);
+      this.driveLoop(ctx, this.master, buffer, lvl, rate);
     } else this.driveSawHum(ctx, this.master, target);
   }
 
   /** The loop at `lvl` (0..1): started when there's none, and at 0 faded out and stopped, so nothing keeps the context awake. */
-  private driveLoop(ctx: AudioContext, master: GainNode, buffer: AudioBuffer, lvl: number): void {
+  private driveLoop(ctx: AudioContext, master: GainNode, buffer: AudioBuffer, lvl: number, pace: number): void {
     const t = ctx.currentTime;
     if (!this.loop) {
       if (lvl === 0) return;
@@ -614,7 +620,7 @@ export class ToyAudio {
       this.loop = { gain, src };
     }
     const { gain, src } = this.loop;
-    src.playbackRate.setTargetAtTime(0.8 + 0.5 * lvl, t, 0.15);
+    src.playbackRate.setTargetAtTime(0.8 + 0.5 * pace, t, 0.15);
     gain.gain.setTargetAtTime(lvl * 0.12, t, 0.15);
     if (lvl === 0) {
       src.stop(t + 0.15 * 5);

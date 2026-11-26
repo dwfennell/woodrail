@@ -102,20 +102,48 @@ describe("the recorded engine loop replaces the hum", () => {
     expect(ctx.oscillators).toBe(0);
   });
 
-  it("one looping source however often the level is set, rate and gain following the level", () => {
+  it("one looping source however often the level is set, gain following the level and rate following the pace", () => {
     loadLoop(true);
-    audio.setHum(0.5);
-    audio.setHum(0.5);
+    audio.setHum(0.5, 0.5);
+    audio.setHum(0.5, 0.5);
     expect(loops()).toHaveLength(1);
     expect(ctx.oscillators).toBe(0);
     const src = loops()[0];
     expect(src.started).toBe(1);
     expect(src.playbackRate.targets.at(-1)![0]).toBeCloseTo(0.8 + 0.5 * 0.5);
-    audio.setHum(1);
+    audio.setHum(1, 1);
     expect(loops()).toHaveLength(1);
     expect(src.playbackRate.targets.at(-1)![0]).toBeCloseTo(1.3);
-    audio.setHum(7); // past 1 is clamped
+    audio.setHum(7, 9); // past 1 is clamped
     expect(src.playbackRate.targets.at(-1)![0]).toBeCloseTo(1.3);
+  });
+
+  it("zooming (the level changes, the pace doesn't) leaves the rate alone; a speed change moves it; tiny pace changes are ignored", () => {
+    loadLoop(true);
+    audio.setHum(0.3, 0.5);
+    const src = loops()[0];
+    const rates = () => src.playbackRate.targets.length;
+    audio.setHum(0.9, 0.5);
+    expect(src.playbackRate.targets.at(-1)![0]).toBeCloseTo(0.8 + 0.5 * 0.5);
+    audio.setHum(0.9, 1);
+    expect(src.playbackRate.targets.at(-1)![0]).toBeCloseTo(1.3);
+    const n = rates();
+    audio.setHum(0.9, 1.004); // under 0.01 and the same level: a no-op
+    expect(rates()).toBe(n);
+    audio.setHum(0.9, 0.2);
+    expect(src.playbackRate.targets.at(-1)![0]).toBeCloseTo(0.9);
+  });
+
+  it("muting while the loop plays stops it, zeroes the level and lets the context sleep", () => {
+    loadLoop(true);
+    audio.setHum(0.5, 0.5);
+    const src = loops()[0];
+    audio.setMuted(true);
+    expect(src.stops).toHaveLength(1);
+    expect((audio as unknown as { humLevel: number }).humLevel).toBe(0);
+    expect((audio as unknown as { loop: unknown }).loop).toBeNull();
+    vi.advanceTimersByTime(IDLE_SUSPEND_MS * 2 + 1000);
+    expect(ctx.state).toBe("suspended");
   });
 
   it("level 0 ramps it out and stops the source after, and the context sleeps", () => {

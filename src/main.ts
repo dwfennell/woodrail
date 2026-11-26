@@ -1,3 +1,4 @@
+import { ENGINE_SPEED } from "./sim/brakes";
 import { lazy } from "./lib/lazy";
 import { type Load, prefetchWhenIdle } from "./lib/prefetch";
 import { loadBlueprintBoard, loadCreditsSheet, loadExplainerSheet, loadFeedbackSheet, loadPaintSheet, loadStatsCard } from "./ui/lazy-chunks";
@@ -7709,7 +7710,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const crossingBells = new CrossingBells();
   /**
    * Which engine by a whistle post whistles in a frame, and how loud: heard from the camera as `listen` hears its
-   * clacks (louder and more central the nearer it is), the nearest train's whistle winning over a far one's.
+   * clacks (louder the bigger it is on screen), the most audible train's whistle winning over a fainter one's (audibility saturates when close, and ties go to the first).
    */
   const whistleCalls = new WhistleCalls();
   const playWhistle = (v: number, pan: number) => audio.whistle(v, pan);
@@ -8023,6 +8024,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       mapViewSeen[0] = NaN;
     }
     let hum = 0;
+    let humPace = 0; // the heard engines' speed, of top speed, weighted by how audible each is
     // Whistle posts' near track: worked out again only when the props or the track change.
     whistles.sync(game.layout, game.props, game.trackVersion);
     if (telegraphWires.sync(game.props, interaction.telegraph?.() ?? false)) game.invalidate();
@@ -8049,16 +8051,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else if (e.kind === "buffer") audio.magnet(v * 0.6, pan);
     }
     whistleCalls.flush(now, playWhistle, trainAlive);
-    // Level crossings: a soft "ding ding" as barriers come down, for one on the screen and near the camera's focus.
-    const rung = crossingBells.ring(game.crossingsView.closing, now, (x, z) => {
-      return listen("crossing", x, z);
-    });
+    // Level crossings: a soft "ding ding" as barriers come down, for one on the screen and big enough to see.
+    const rung = crossingBells.ring(game.crossingsView.closing, now, (x, z) => listen("crossing", x, z));
     if (rung) audio.crossingBell(rung[0], rung[1]);
     for (const t of game.sim.trains()) {
       if (t.derailed || t.speed < 5 || !t.cars.some((c) => c.kind === "engine" && c.lever !== 0)) continue;
-      hum += hear(game.eye, "car", t.world[0].x, 0, t.world[0].z);
+      const heard = hear(game.eye, "car", t.world[0].x, 0, t.world[0].z);
+      if (heard === 0) continue;
+      hum += heard;
+      humPace += heard * Math.min(1, t.speed / (game.sim.topSpeed ? game.sim.topSpeed(t) : ENGINE_SPEED));
     }
-    audio.setHum(game.paused ? 0 : hum);
+    audio.setHum(game.paused ? 0 : hum, hum > 0 ? humPace / hum : 0);
     // Train lifts: a clunk as one sets off and as it gets there, and its gear winding while it rides (paused, its ride
     // holds, quiet). Nothing riding and none heard riding: one comparison.
     const riding = game.sim.ridingLifts();

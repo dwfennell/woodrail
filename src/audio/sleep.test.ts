@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GUARD_WHISTLE_GAP_MS, IDLE_SUSPEND_MS, ToyAudio } from "./audio";
+import { ClipBank } from "./clips";
 
 /** Any node or param the synth asks for: every method returns another such stub (connect() chains). */
 const stub = (): unknown =>
@@ -153,6 +154,8 @@ describe("recorded clips load after the first tap, only when heard", () => {
   const start = (muted = false) => {
     const audio = new ToyAudio();
     audio.muted = muted;
+    // (The real bank fetches AVAILABLE_CLIPS, none yet: a bank over a few names stands in.)
+    (audio as unknown as { clips: ClipBank }).clips = new ClipBank(undefined, ["clack1", "bell"]);
     return audio;
   };
 
@@ -171,7 +174,7 @@ describe("recorded clips load after the first tap, only when heard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("fetches nothing before a gesture, then every clip once", () => {
+  it("fetches nothing before a gesture, then each available clip once", () => {
     start();
     expect(fetchFn).not.toHaveBeenCalled();
     listeners.pointerdown();

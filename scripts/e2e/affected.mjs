@@ -187,6 +187,8 @@ export const RULES = [
   // Build and page.
   [["package.json", "package-lock.json", "vite.config.ts", "tsconfig.json", "index.html", "public/**"], [...SMOKE, "tray"]],
   ["src/main.ts", SMOKE],
+  // The sound follows the view (`hear`, `listen` in main.ts): a whistle post whistles only for an engine on screen.
+  [["src/main.ts", "src/audio/hearing.ts"], ["kits"]],
   ["src/style.css", [...SMOKE, TOUCH_UI, "names", "locked", "focus-ring"]],
   ["cloud/**", ["cloud", "stats", "touch:feedback", "click:feedback"]],
   // Crash reports: sent on a lost drawing and on errors, and the ☰ switch (e2e:gl-lost).
@@ -214,7 +216,7 @@ export const RULES = [
   ["src/feedback/**", ["touch:feedback", "click:feedback"]],
   ["src/stats/**", ["stats"]],
   ["src/catalogue/**", ["tray", "names", "kits", "kits-game", "decks", "click:model-train", "hopper-load"]],
-  ["src/audio/**", ["life", "station-touches"]],
+  ["src/audio/**", ["life", "station-touches", "kits"]],
   ["src/lib/**", SMOKE],
   ["src/debug/**", ["copy-map"]],
   ["src/icons/**", [...SMOKE, "locked"]],
