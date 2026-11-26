@@ -141,8 +141,8 @@ export const HAND_AHEAD = { on: ((globalThis as { process?: { env: Record<string
 export const KEEP_PIECES = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_PIECES !== "0" };
 /** A held train's blocker looked for where trains stand on its way on, a signal's block included (`blocker`): on (NAME_BLOCKER=0: off). */
 export const NAME_BLOCKER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NAME_BLOCKER !== "0" };
-/** A stalled stretch handed to sections to step one aside into a spare end (`handAside`): ASIDE=1 (measuring). */
-export const ASIDE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE === "1" };
+/** A stalled stretch handed to sections to step one aside into a spare end (`handAside`): on (ASIDE=0: off). */
+export const ASIDE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE !== "0" };
 /** `ASIDE`: how long (s) the stretch stands first, and the most it stays sections'. */
 const ASIDE_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE_S ?? 2);
 const ASIDE_MAX_S = 120;
@@ -369,6 +369,8 @@ export class Dispatcher {
   readonly decisionMs: number[] = [];
   private readonly holdsBy = new Map<number, Hold>();
   /** Trains handed to sections (`HANDOFF`): engine → when (tick). */
+  /** `ASIDE`: groups (their engines, sorted) handed back with none got on, and the layout's revision then. */
+  private readonly asideFailed = new Map<string, number>();
   private readonly handedOff = new Map<number, { at: number; rev: number; aside?: { group: number[]; next: number } }>();
   /** Lines handed over that came back with no plan made: line → the layout's revision then (`handBack`). */
   private readonly handOffFailed = new Map<number, number>();
@@ -582,6 +584,9 @@ export class Dispatcher {
         const moved = g.some((x) => (this.host.route(x)?.next ?? -1) !== (this.handedOff.get(x)?.aside?.next ?? -1));
         const due = moved || o.rev !== rev || this.host.sim.ticks - o.at >= ASIDE_MAX_S * 120;
         if (!due || g.some((x) => this.host.asideNow?.(x))) continue;
+        // (Back with none got on (sections couldn't step one aside either): not handed over again till the track changes,
+        // else it goes round, the stall said and unsaid each time (fuzz seed 22).)
+        if (!moved && o.rev === rev) this.asideFailed.set([...g].sort((a, b) => a - b).join(","), rev);
         for (const x of g) this.handedOff.delete(x);
         any = true;
         continue;
@@ -638,6 +643,7 @@ export class Dispatcher {
     // let three of one line stand for good (terminus-spare 3×one same).)
     const lines = new Set(group.map((e) => this.host.lineOf?.(e) ?? -1));
     if (lines.size !== group.length || lines.has(-1)) return false;
+    if (this.asideFailed.get([...group].sort((a, b) => a - b).join(",")) === this.host.layout.revision) return false;
     const now = this.host.sim.ticks;
     for (const e of group) {
       const h = this.holdsBy.get(e);
