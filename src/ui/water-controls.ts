@@ -1,6 +1,7 @@
 import { describe as describeGoods } from "../economy/goods";
 import type { BoatState } from "../economy";
-import { BULK, capacityOf, depotLabel, loaded, MAX_BARGES, type Fleet } from "../game/boats";
+import { BULK, capacityOf, loaded, MAX_BARGES, type Fleet } from "../game/boats";
+import { depotLabel } from "../game/route-stops";
 import { BUILD_LABEL, cancel as cancelOrder, isYard, order as orderBuild, progressOf, stillNeeds, tickYards, whyNotOrder, YARD_BUILDS, YARD_COSTS } from "../game/yards";
 import type { YardBuild } from "../economy";
 import type { Game } from "../game/game";
@@ -107,7 +108,7 @@ export function attachWater(ctx: WaterContext): WaterControls {
       barges: b.barges,
       maxBarges: MAX_BARGES,
       load,
-      status: fleet.status(b),
+      status: fleet.status(b, (id) => depotLabel(game, id)),
       stops: b.stops.map((s, i) => ({ label: depotLabel(game, s.depotId), action: s.action, current: i === current })),
       planning,
       more: b.barges < MAX_BARGES ? "More barges: build them at a boatyard (each carries 4 loads)." : "",

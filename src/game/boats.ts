@@ -4,7 +4,6 @@ import type { Pose } from "../track";
 import { depotPoint, QUAY } from "./harbours";
 import type { World } from "./world";
 import { addTo } from "../economy/goods";
-import { placeName } from "./route-stops";
 
 /**
  * Boats the player routes (Game mode's River barges; docs/superpowers/specs/2026-11-04-water-transport.md §3): a tug
@@ -397,9 +396,12 @@ export class Fleet {
     return out;
   }
 
-  /** What it's doing, for its card. */
-  status(b: BoatState): string {
-    const name = (id: number) => this.world().economy.depot(id) && depotLabel(this.world(), id);
+  /**
+   * What it's doing, for its card, its docks named by `nameOf` (`depotLabel`, from the card: this module doesn't import
+   * the names', which import the world's, which import this: a cycle).
+   */
+  status(b: BoatState, nameOf: (depotId: number) => string): string {
+    const name = (id: number) => this.world().economy.depot(id) && nameOf(id);
     if (b.stops.length < 2) return "Waiting for a route: tap ✎ Route, then landings on this river";
     if (!b.going) return "Stopped";
     if (b.docked) return `At ${name(b.stops[b.from].depotId) ?? "its dock"}`;
@@ -524,11 +526,6 @@ export class Fleet {
       return !!d && RECIPES[d.role].takes.includes(k) && (d.role !== "landing" || storeLetsIn(d, k));
     });
   }
-}
-
-/** A dock's name for a boat's card: its place's name, as everywhere ("Foxley landing": `placeName`). */
-export function depotLabel(world: Waters, depotId: number): string {
-  return world.economy.depot(depotId) ? placeName(world, depotId) : "a dock";
 }
 
 /** How far across from a landing's line its boats tie up: the first of a few steps out from its jetty that's water. */

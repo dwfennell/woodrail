@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DepotRole } from "../economy";
-import { depotLabel } from "./boats";
 import { mapMarkers } from "./map-markers";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
-import { nextStop, placeCardTitle, placeName, routeStops } from "./route-stops";
+import { depotLabel, nextStop, placeCardTitle, placeName, routeStops } from "./route-stops";
 import { buildStarterWorld, DEPOT_NAMES, syncIndustries } from "./world";
 
 describe("route stops", () => {

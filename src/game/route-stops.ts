@@ -132,3 +132,8 @@ export function lostStopName(w: Pick<World, "landscape" | "economy">, depotId: n
 export function lostStopWords(name: string): string {
   return `${name} was taken up, so it's off the route`;
 }
+
+/** A dock's name for a boat's card: its place's name, as everywhere ("Foxley landing"), or "a dock". */
+export function depotLabel(w: Places, depotId: number): string {
+  return w.economy.depot(depotId) ? placeName(w, depotId) : "a dock";
+}
