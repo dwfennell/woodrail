@@ -701,8 +701,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (max-width: 640px) and (orientation: portrait) {
   .tray-fold { display: grid; place-items: center; position: absolute; left: 50%; top: -17px; transform: translateX(-50%); width: 56px; height: 18px; padding: 0 0 1px; border: 0; border-radius: 10px 10px 0 0; cursor: pointer; color: var(--wood-ink-soft); background: var(--wood-panel); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 -3px 4px -2px rgba(40, 22, 6, 0.3); }
   .tray-fold::after { content: ""; position: absolute; inset: -26px 6px 0; }
-  /* Not while a card stands on the tray: its foot is just over the tray's edge, where the pull's reach would take its
-     buttons' taps (e2e:learn-more's Learn more), and the card covers the map anyway. */
+  /* Not while a card stands on the tray (a train's, a town's): its foot is just over the tray's edge, where the
+     pull's reach would take the taps of the buttons there, and the card covers the map anyway. */
   .hud:has(.card:not([hidden])) .tray-fold { display: none; }
   /* The Paused sign stands clear of the pull, and over the tray, so a tap on it is always the sign's (e2e:situation-
      paused: its tap went to the pull's reach). */

@@ -3,7 +3,8 @@
 //   fold: the tray's pull (a finger's 44 px) folds it to its tabs and tools, and the map's share of the screen grows by
 //         a tenth or more (elementFromPoint on a grid: what a finger reaches); 0 frames drawn while it stands folded;
 //         kept after a reload; a tab tapped opens the tray on that tab, and a piece dragged from its shelf onto the map
-//         is laid (the payoff: the tray still lays track); the goal bar one line a finger tall, under the top bar.
+//         is laid (the payoff: the tray still lays track); with a card open the pull steps aside; the goal bar one line
+//         a finger tall, under the top bar.
 //   home-screen: on an iPhone (its user agent) ☰ has "Play full screen", which says how to add Woodrail to the home
 //         screen; the page's manifest is served (standalone, with its icons); an Android phone's ☰ has no such item.
 //   wide: at 1440×900 there's no pull, and the tray is as it was.
@@ -155,15 +156,17 @@ suite.add("fold", async () => {
     const after = await p.evaluate(() => window.woodrail.layout.pieceCount);
     check("the tray still lays track: a straight dragged from its shelf onto the map is laid", after === before + 1, `${before} → ${after}`);
   }
-  // A tap on a tile opens its card over the tray: the pull steps aside (its reach would take the card's taps).
-  const tile2 = await box(p, ".tray .scroller .tray-item:not(.tray-back)");
-  if (tile2) await p.touchscreen.tap(tile2.x, tile2.y);
-  await p.waitForTimeout(700);
-  const withCard = await p.evaluate(() => ({ card: [...document.querySelectorAll(".hud .card")].some((c) => !c.hidden && c.getBoundingClientRect().height > 0), pull: document.querySelector(".tray-fold").getBoundingClientRect().height }));
+  // A town's card over the tray: the pull steps aside (its reach is over the card's foot, where its buttons are).
+  // (Opened as a tap on its station does: the e2e for that tap is station-upgrade's.)
+  const town = await p.evaluate(() => window.woodrail.economy.allDepots().find((d) => d.role === "town")?.id);
+  await p.evaluate((id) => window.woodrail.interaction.openDepotCard(id), town);
+  await p.waitForFunction(() => { const c = document.querySelector(".depot-card"); return c && !c.hidden; }, null, { timeout: 30000 }).catch(() => {});
+  await p.waitForTimeout(400);
+  const withCard = await p.evaluate(() => ({ card: !document.querySelector(".depot-card").hidden, pull: document.querySelector(".tray-fold").getBoundingClientRect().height }));
   check("with a card open over the tray, the pull steps aside", withCard.card && withCard.pull === 0, JSON.stringify(withCard));
   await p.keyboard.press("Escape");
-  await p.evaluate(() => document.querySelectorAll(".hud .card:not([hidden]) .card-close, .hud .card:not([hidden]) .close").forEach((b) => b.click()));
-  await p.waitForTimeout(500);
+  await p.waitForFunction(() => document.querySelector(".depot-card").hidden, null, { timeout: 10000 }).catch(() => {});
+  await p.waitForTimeout(400);
   // Folded again, an open card stands on the folded tray, not where the open one ended.
   await p.touchscreen.tap(pull.x, (await box(p, ".tray-fold")).y);
   await p.waitForTimeout(500);
