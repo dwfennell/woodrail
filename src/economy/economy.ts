@@ -570,6 +570,12 @@ const NO_RIDERS: Riders = { count: 0, from: -1 };
 const NO_PLACES: readonly number[] = [];
 
 /**
+ * The player is shown a signal red while the train standing at it is held there by the router or by sections
+ * (`Sim.shownRed`; display only, the sim's aspect as it was): on (SHOWN_RED=0: off). Else, the dispatcher off, it
+ * showed clear (its block free) with the train standing at it: greenHeld (18 breaks on eight reference maps).
+ */
+export const SHOWN_RED = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SHOWN_RED !== "0";
+/**
  * A signal shows red while the train standing at it is held there by the router or by sections, the dispatcher off
  * (`heldGateAt`): off (HELD_RED=1: on). Else it showed clear (its block free) with the train standing at it: greenHeld
  * (18 breaks on eight reference maps; 3 with it on). Off: the red is the sim's too, not only what the player sees, and
@@ -793,6 +799,16 @@ export class Economy {
       },
       callOn: (ref, trainId) => sections.callOnAt(ref, trainId),
     };
+    // (Shown red, display only: the train held standing at a signal: `SHOWN_RED`.)
+    sim.shownRed = SHOWN_RED
+      ? {
+          at: (ref) => this.heldGateAt(ref),
+          version: () => {
+            if (this.heldGateTick !== this.sim.ticks) this.refreshHeldGate();
+            return this.heldGateVer;
+          },
+        }
+      : null;
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.dispatcher?.waitingOn(engine) ?? this.router.waitingOn(engine),
@@ -3036,7 +3052,8 @@ export class Economy {
     this.heldGateTick = this.sim.ticks;
     const now = this.heldGateNext;
     now.clear();
-    if (this.layout.signalCount > 0 && (this.routes.size > 0 || this.sections.enabled))
+    // (With the dispatcher on, its own aspects say it: `Sim.signalOwner`.)
+    if (this.layout.signalCount > 0 && !this.dispatcher && (this.routes.size > 0 || this.sections.enabled))
       for (const t of this.sim.trains()) {
         if (t.speed !== 0 || t.derailed || t.bogies.length === 0) continue;
         const net = this.drive(t);
