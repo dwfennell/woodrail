@@ -481,6 +481,14 @@ function shortEndText(short: { depotId: number; at: number }, nameOf: (depotId: 
   const at = placeLabel(nameOf, short.at);
   return `Can't reach ${nameOf(short.depotId)}: ${at ? `the line end at ${at}` : "a line end on the way"} is too short for it to turn and take the other road. ${SHORT_END_FIX}`;
 }
+/** The fix for a stop on another railway than its line's train (`Economy.apartSkipOf`). */
+export const APART_FIX = "Join its track to this line's, or take it off the line";
+
+/** A stop passed over as it's on another railway than the train (`Economy.apartSkipOf`): what its card says. */
+export function apartText(apart: { depotId: number; none?: true }, nameOf: (depotId: number) => string): string {
+  return `${apart.none ? "Can't reach" : "Skips"} ${nameOf(apart.depotId)}: no track joins it to the track this train is on. ${APART_FIX}`;
+}
+
 /** The fix for a signal inside a passing loop holding a train over the points (issue #31): the engine and signal cards. */
 export const LOOP_SIGNAL_FIX = "Move that signal to the loop's end";
 /** The fix for a train kept waiting on a long single track lines share (`single-track`): somewhere to pass. */
@@ -535,6 +543,13 @@ export function engineView(
   }
   // Passing (or standing at) a stop that takes goods it carries, and keeping them: why (not on its route, full, set to
   // share, not needed now). Each stop takes what it takes in turn; nothing is held back for one further on.
+  // Running on past a stop of its line on another railway (no track joins them): said before the goods it passes, as
+  // the line itself needs the player (the user's 2026-11-26 map: "Not loading flour at the mill: the warehouse is full"
+  // for a warehouse the train could never get to).
+  if (s.kind === "running") {
+    const apart = economy.apartSkipOf(engineCarId);
+    if (apart) return { status: apartText(apart, nameOf), blocker: null };
+  }
   if (s.kind === "running" || s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || s.kind === "starting") {
     const kept = economy.keptAt(found.train.id);
     if (kept) {
@@ -737,6 +752,9 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // naming both, and the fix.)
       const short = economy.shortSkipOf(engineCarId);
       if (short) return shortEndText(short, nameOf);
+      // (Gone on past a stop on another railway, never joined to its own: said, naming it, and the fix.)
+      const apart = economy.apartSkipOf(engineCarId);
+      if (apart) return apartText(apart, nameOf);
       // (Heading for a stop beyond a train its line has no room for: it'll turn back short of it. Say why.)
       const full = economy.sections.unreachable(engineCarId) ? economy.sections.fullness(engineCarId) : null;
       if (full) return `Can't reach ${nameOf(route.stops[i].depotId)}: ${fullText(full)}`;

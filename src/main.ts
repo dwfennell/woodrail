@@ -60,7 +60,7 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
 import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
-import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, legStop, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
+import { bestInsert, railwaysOf, stopApart, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, legStop, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
 import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui/line-sheet";
 import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
@@ -73,7 +73,7 @@ import { ribbonScale, RouteView, type DiscSpec, type GapSpec, type InsertSpec, t
 import { decoupleWords } from "./game/decouple-words";
 import { addTipped, emptyWords, type Tipped } from "./game/empty-words";
 import { canContinue, continueOn } from "./game/continue-on";
-import { blockerOf, engineView, FOLLOW_TIP, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
+import { APART_FIX, blockerOf, engineView, FOLLOW_TIP, fullLineToast, headOnTip, trainsForReport, trainState, type Blocker, type CantMove } from "./game/engine-status";
 import { givesBlockText, STORE_NO_ROUTE, WAGON_SAME_DONE, storeBlockText, storeStopText } from "./game/warehouse-text";
 import { keptText } from "./game/workshop-text";
 import { planIcons } from "./game/route-plan-text";
@@ -6591,6 +6591,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             const text = between ? `Added ${placeName(depotId)} between ${before} and ${placeName(stops[at + 1].depotId)}` : `Added ${placeName(depotId)} at the end, after ${before}`;
             justAdded = { key: stopsKey(stops), k: at, text, toEnd: smart && between };
           }
+          // (A place on a railway none of the line's other stops is on: said at once, not left for a train to find.)
+          if (at !== -1 && stopApart(game.economy, sheetStops(), at)) hud.toast(`No track joins ${placeName(depotId)} to the rest of this line: join them, or trains can't get there`);
           sheetTab = "stops";
           showSheet();
           // The whole line stays in view, not just the place tapped (audit F5). Measured once the sheet has grown.
@@ -6921,18 +6923,27 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (ribbonFor.carId === carId && stopsKey.startsWith(ribbonFor.stops) && line.stops.length === ribbonFor.stops.split(",").filter(Boolean).length + 1) routeView.pop(line.stops.length - 1, now);
       if (ribbonFor.carId !== carId || ribbonFor.next !== next) routeView.pulse(now);
       ribbonFor = { carId, stops: stopsKey, next };
-      const out = line.stops.findIndex((_, k) => unreachable(k));
+      // Which stop the card names: one on another railway than the train's (no track joins it, whatever the switches:
+      // the user's 2026-11-26 map named Farm yard, beside the train, for Warehouse 2 on the main line next door, as the
+      // way on from a stop out of reach is out of reach too); else the next stop, where the train has no way to it;
+      // else the first, from the next on, whose stop before has a way into it.
+      const railway = game.economy.railwayOf(lead.pieceId);
+      const apart = (k: number) => pieces[k] !== -1 && !railwaysOf(game.economy, line.stops[k].depotId).has(railway);
+      const order = line.stops.map((_, i) => (next + i) % n);
+      const out = order.find((k) => unreachable(k) && apart(k)) ?? (unreachable(next) ? next : (order.find((k) => unreachable(k) && !unreachable((k - 1 + n) % n)) ?? order.find((k) => unreachable(k)) ?? -1));
       if (out !== -1) {
         const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";
         // (Track may lead there from the stop before, just not on from the way the train comes into it: it turns round
         // only at the end of the track, so a way that needs it to reverse mid-line isn't one.)
         const before = out === next ? [front] : stopCursors(game.layout, pieces[(out - 1 + n) % n]);
         const turnOnly = !pinnedFor.has(out) && before.some((c) => legFromCursor(game.layout, c, pieces[out]) !== null);
-        cantReachText = pinnedFor.has(out)
-          ? `Can't reach ${name}: a pinned switch sends trains the other way. Hold its lever to unpin it`
-          : turnOnly
-            ? `Can't reach ${name} on the way the train comes: it only turns round at the end of the track`
-            : `Can't reach ${name}: no track leads there`;
+        cantReachText = apart(out)
+          ? `Can't reach ${name}: no track joins it to the track this train is on. ${APART_FIX}`
+          : pinnedFor.has(out)
+            ? `Can't reach ${name}: a pinned switch sends trains the other way. Hold its lever to unpin it`
+            : turnOnly
+              ? `Can't reach ${name} on the way the train comes: it only turns round at the end of the track`
+              : `Can't reach ${name}: no track leads there`;
         // With the card open (not planning), the stop that can't be reached is shown, once: not left off screen or
         // under the card.
         const spot = pieceSpot(pieces[out]);

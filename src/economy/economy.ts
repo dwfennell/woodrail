@@ -850,9 +850,12 @@ export class Economy {
       if (this.sim.pieceOccupied(p)) return true;
       for (const [e, t] of this.trackOf) {
         if (e === engine || t.pieceId !== p) continue;
-        // (Given to a train still heading there: its route's next stop is this depot.)
+        // (Given to a train still heading there: its route's next stop is this depot. Not one on another railway, which
+        // can never come: the user's 2026-11-26 map, Sprocket aimed from its own loop at Warehouse 2 on the main line
+        // held its one track for good, and Teal line 2 waited at its points for it, the main line jammed behind.)
         const r = this.routes.get(e);
-        if (r && r.stops.length > 0 && r.stops[r.next % r.stops.length].depotId === t.depotId && this.sim.findCar(e)) return true;
+        const other = r && r.stops.length > 0 && r.stops[r.next % r.stops.length].depotId === t.depotId ? this.sim.findCar(e) : undefined;
+        if (other && this.networkOf(other.train.bogies[0].pieceId) === this.networkOf(p)) return true;
       }
       return false;
     };
@@ -2900,14 +2903,32 @@ export class Economy {
           // (A depot of several tracks: its next stop is the track it's sent to (`trackFor`, as the router and sections
           // steer for), or stands on; as its own piece, own-10's Logs one was planned onto the sawmill's track a Planks
           // train stood on, with its second track free, and the four trains knotted in 10 s.)
-          const i = route.next % route.stops.length;
-          const stops = route.stops.map((x, k) => {
-            const d = this.depots[x.depotId];
-            if (!d || !this.onMap(d)) return -1;
-            if (k !== i || !TRACKS_IN_DISPATCH.on || !this.tracks.has(d.id)) return d.pieceId;
-            return route.at ? this.trackAt(e, d) : this.trackFor(e, d);
-          });
-          return stops.every((p) => p >= 0) ? { stops, next: route.next, at: !!route.at } : null;
+          const n = route.stops.length;
+          const i = route.next % n;
+          // (Not a stop on another railway than the train's: no way leads there (`skipApart`), and planned round by it
+          // the train was held for good on the mill's track, the user's 2026-11-26 map with the dispatcher on. Its next
+          // is the next stop kept.)
+          const t = this.sim.findCar(e)?.train;
+          const net = t ? this.networkOf(t.bogies[0].pieceId) : -1;
+          const kept = (k: number) => net === -1 || this.stopOnRailway(route.stops[k].depotId, net);
+          const stops: number[] = [];
+          let next = -1;
+          for (let j = 0; j < n && next === -1; j++) if (kept((i + j) % n)) next = (i + j) % n;
+          if (next === -1) return null;
+          let at = 0;
+          for (let k = 0; k < n; k++) {
+            if (!kept(k)) continue;
+            if (k === next) at = stops.length;
+            const d = this.depots[route.stops[k].depotId];
+            if (!d || !this.onMap(d)) return null;
+            // (A further stop of several tracks: one of them on the train's railway, where its own isn't (the user's
+            // 2026-11-26 map: Warehouse 1's own track on the main line, its second on the green line Pink line 3 and
+            // Teal line 3 run on; planned round by its own, they stood for good).
+            const own = k !== i && this.tracks.has(d.id) && net !== -1 && this.networkOf(d.pieceId) !== net ? this.reachableTracks(d).find((p) => this.networkOf(p) === net) : undefined;
+            stops.push(own !== undefined ? own : k !== i || !TRACKS_IN_DISPATCH.on || !this.tracks.has(d.id) ? d.pieceId : route.at ? this.trackAt(e, d) : this.trackFor(e, d));
+          }
+          // (All kept, as nearly always: as before, its own next.)
+          return { stops, next: stops.length === n ? route.next : at, at: !!route.at && next === i };
         },
         // (Busy: the depot or a kit's stop holds it (working, its dwell), or it's turning back: it asks for nothing.)
         busy: (train) => train.turnback >= 0 || this.depotCap(train) === 0 || this.kitStops.cap(train) === 0,
@@ -3499,6 +3520,7 @@ export class Economy {
     this.work();
     this.kitStops.tick();
     if (this.routes.size > 0) this.advanceRoutes();
+    if (this.routes.size > 0) this.skipApart();
     if (this.routes.size > 0) this.skipShort();
     if (this.routes.size > 0) this.turnAtLineEnds();
     // (Trains taken off their line, stopping once clear of points.)
@@ -3948,6 +3970,104 @@ export class Economy {
       if (here && this.sim.turnBackHere(t.id, here.pieceId)) this.turnLooked.set(engine, `${key}:turned`);
     }
   }
+  /**
+   * A routed train whose next stop is on another railway than its own (no track of the stop's, its yard's or a further
+   * one, joined to the track the train is on: the user's 2026-11-26 map, Warehouse 2 moved onto the main line beside
+   * Orange line 2's loop, never joined to it) goes on to the next of its stops on its railway, and its card says why
+   * (`apartSkipOf`): no search could find a way there, whatever the switches. Else it ran round its loop for good past
+   * its own farm, dairy, bakery and mill, the whole line dead for the one stop, and the card named the wrong stop. None
+   * of its stops on its railway: it runs on as it was, the card saying so. A map lookup a routed train a tick (`networkOf`
+   * is kept per joints and pieces version), nothing allocated; the stops looked at only when its next stop, its railway
+   * or the track changes.
+   */
+  private skipApart(): void {
+    const joints = this.layout.jointsVersion;
+    const pieces = this.layout.piecesVersion;
+    for (const [engine, r] of this.routes) {
+      if (r.at || r.stops.length < 2) continue;
+      const t = this.sim.findCar(engine)?.train;
+      if (!t || t.derailed) continue;
+      const net = this.networkOf(t.bogies[0].pieceId);
+      const was = this.apartLooked.get(engine);
+      if (was && was.next === r.next && was.joints === joints && was.pieces === pieces && was.net === net) continue;
+      const look = { next: r.next, joints, pieces, net };
+      this.apartLooked.set(engine, look);
+      const stop = r.stops[r.next % r.stops.length];
+      if (this.stopOnRailway(stop.depotId, net)) continue;
+      let i = -1;
+      for (let k = 1; k < r.stops.length; k++) {
+        const j = (r.next + k) % r.stops.length;
+        if (r.stops[j].depotId !== stop.depotId && this.stopOnRailway(r.stops[j].depotId, net)) {
+          i = j;
+          break;
+        }
+      }
+      if (i === -1) {
+        // (None of its stops on its railway: nothing to go on to. Said, as it runs.)
+        this.apartSkips.set(engine, { depotId: stop.depotId, next: r.next % r.stops.length, none: true });
+        continue;
+      }
+      r.next = i;
+      this.nextStamp++;
+      resetVias(r);
+      this.apartSkips.set(engine, { depotId: stop.depotId, next: i });
+      look.next = r.next;
+    }
+  }
+  private readonly apartLooked = new Map<number, { next: number; joints: number; pieces: number; net: number }>();
+  private readonly apartSkips = new Map<number, { depotId: number; next: number; none?: true }>();
+
+  /**
+   * Is stop `depotId` on railway `net` (`railwayOf`): any of its tracks a train can reach (`reachableTracks`). A depot
+   * off the map (picked up, in the hand) counts as on it: nothing is said or skipped for it.
+   */
+  private stopOnRailway(depotId: number, net: number): boolean {
+    const d = this.liveDepot(depotId);
+    if (!d) return true;
+    // (Kept per joints, pieces and tracks version: asked a tick by the dispatcher's routes.)
+    const k = this.railsKey;
+    if (k[0] !== this.layout.jointsVersion || k[1] !== this.layout.piecesVersion || k[2] !== this.tracksVersion) {
+      k[0] = this.layout.jointsVersion;
+      k[1] = this.layout.piecesVersion;
+      k[2] = this.tracksVersion;
+      this.rails.clear();
+    }
+    let nets = this.rails.get(depotId);
+    if (!nets) this.rails.set(depotId, (nets = new Set(this.reachableTracks(d).map((p) => this.networkOf(p)))));
+    return nets.has(net);
+  }
+  private readonly railsKey = [-1, -1, -1];
+  private readonly rails = new Map<number, Set<number>>();
+
+  /**
+   * The stop a routed train passes over as it's on another railway (`skipApart`), while it heads for the stop after
+   * (`none`: none of its stops is on its railway). For its card. Null: none.
+   */
+  apartSkipOf(engine: number): { depotId: number; none?: true } | null {
+    const s = this.apartSkips.get(engine);
+    if (!s) return null;
+    const r = this.routes.get(engine);
+    if (!r || r.stops.length === 0 || r.next % r.stops.length !== s.next || r.stops.every((st) => st.depotId !== s.depotId)) {
+      this.apartSkips.delete(engine);
+      return null;
+    }
+    // (Joined since: it goes there next lap.)
+    const t = this.sim.findCar(engine)?.train;
+    if (t && this.stopOnRailway(s.depotId, this.networkOf(t.bogies[0].pieceId))) {
+      this.apartSkips.delete(engine);
+      return null;
+    }
+    return s;
+  }
+
+  /**
+   * Which railway (track joined to one another, whatever the switches) a piece is on: a number every piece of it shares,
+   * −1 for none. Two stops with no railway in common can't be on one line's way.
+   */
+  railwayOf(pieceId: number): number {
+    return this.networkOf(pieceId);
+  }
+
   private readonly turnLooked = new Map<number, string>();
   private readonly shortLooked = new Map<number, string>();
   private readonly shortSkips = new Map<number, { depotId: number; next: number; at: number; stood?: true }>();

@@ -435,7 +435,7 @@ function* routedEngines(w: World) {
 
 /**
  * Can't reach a stop (detector #6): a routed train that skips a stop for a line end too short for it to turn in
- * (`Economy.shortSkipOf`), or whose stop is beyond a train of its own line it has no room for (`Sections.unreachable`).
+ * (`Economy.shortSkipOf`), or on another railway than its own (`Economy.apartSkipOf`), or whose stop is beyond a train of its own line it has no room for (`Sections.unreachable`).
  * Its card says so already: only for a train whose card hasn't been open in the last minute.
  */
 export const UNREACHABLE: Detector = {
@@ -461,6 +461,22 @@ export const UNREACHABLE: Detector = {
           more: "routes",
           fixed: `✓ It reaches ${ctx.nameOf(short.depotId)} now`,
           pieces: [end?.pieceId ?? -1, frontPiece(w, engine)].filter((p) => p >= 0),
+          engine,
+        };
+      }
+      const apart = w.economy.apartSkipOf(engine);
+      if (apart) {
+        const at = w.economy.depot(apart.depotId);
+        return {
+          id: "unreachable",
+          key: `apart:${line.id}:${apart.depotId}`,
+          title: `The ${line.name} ${apart.none ? "can't reach" : "skips"} ${ctx.nameOf(apart.depotId)}`,
+          short: "A stop on another railway",
+          text: `No track joins ${ctx.nameOf(apart.depotId)} to the track the ${line.name} runs on. Join them, or take it off the line.`,
+          toast: `The ${line.name} can't reach ${ctx.nameOf(apart.depotId)}`,
+          more: "routes",
+          fixed: `✓ It reaches ${ctx.nameOf(apart.depotId)} now`,
+          pieces: [at?.pieceId ?? -1, frontPiece(w, engine)].filter((p) => p >= 0),
           engine,
         };
       }
