@@ -806,6 +806,11 @@ export interface SearchOptions {
    */
   takenFirst?: boolean | ReadonlySet<number>;
   /**
+   * `taken`'s pieces that are a member's own granted track, by its key: no bar to that member itself (it's placed where
+   * its hold ends; the track it runs over to get there is behind it, its own way back) (`TAKEN_OWN`).
+   */
+  takenOwn?: ReadonlyMap<number, number>;
+  /**
    * Per member (by index in `members`): what its delivering counts for (default 1 each; at most 32). The dispatcher
    * weighs long waiters more (fair turns): then `value`, `of`, `plain` and `first` are in these units.
    */
@@ -1093,6 +1098,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   for (const t of ts) if (t.maxPiece > maxP) maxP = t.maxPiece;
   const owner = buffer(0, maxP + 1);
   const isMember = new Uint8Array(trains.length);
+  const ownTaken = opts.takenOwn && opts.takenOwn.size > 0 ? new Int32Array(maxP + 1) : null;
   for (const i of members) isMember[i] = 1;
   trains.forEach((t, i) => {
     if (!isMember[i]) for (const p of t.pos[t.at]) owner[p] = -1;
@@ -1106,6 +1112,11 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
     for (const p of opts.taken)
       if (p <= maxP && owner[p] === 0) {
         owner[p] = -1;
+        const ok = opts.takenOwn?.get(p);
+        if (ok !== undefined) {
+          const m = ts.findIndex((t) => t.key === ok);
+          if (m >= 0) ownTaken![p] = m + 1;
+        }
         if (!only || only.has(p)) transit?.push(p);
       }
   }
@@ -1147,7 +1158,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
   let capped = false;
   let done = false;
   const freeNode = (k: number, i: number) => {
-    for (const p of ts[k].pos[i]) if ((owner[p] !== 0 && owner[p] !== k + 1) || (owner2[p] !== 0 && owner2[p] !== k + 1)) return false;
+    for (const p of ts[k].pos[i]) if ((owner[p] !== 0 && owner[p] !== k + 1 && !(owner[p] === -1 && ownTaken !== null && ownTaken[p] === k + 1)) || (owner2[p] !== 0 && owner2[p] !== k + 1)) return false;
     return true;
   };
   /** The gap (mm) kept up close behind a standing train's tail (the sim's `STOP_GAP`, and some). */
@@ -1176,7 +1187,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
     } else return false;
     if (en !== t.frontEn[c] || cover + CLOSE_GAP >= t.frontLen[c]) return false;
     // (The rest of it where it was a node back: its own, or free.)
-    for (const p of t.pos[c]) if (p !== q && ((owner[p] !== 0 && owner[p] !== k + 1) || (owner2[p] !== 0 && owner2[p] !== k + 1))) return false;
+    for (const p of t.pos[c]) if (p !== q && ((owner[p] !== 0 && owner[p] !== k + 1 && !(owner[p] === -1 && ownTaken !== null && ownTaken[p] === k + 1)) || (owner2[p] !== 0 && owner2[p] !== k + 1))) return false;
     return true;
   };
   // (Each member's forward moves in a state, a depth's worth: per member a count and up to `PER` nodes. A child's are
@@ -1225,7 +1236,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
         for (let q = b.off[j]; q < b.off[j + 1]; q++) {
           const ow = owner[b.flat[q]];
           const ow2 = owner2[b.flat[q]];
-          if ((ow !== 0 && ow !== own) || (ow2 !== 0 && ow2 !== own)) {
+          if ((ow !== 0 && ow !== own && !(ow === -1 && ownTaken !== null && ownTaken[b.flat[q]] === own)) || (ow2 !== 0 && ow2 !== own)) {
             blocked = true;
             break;
           }
