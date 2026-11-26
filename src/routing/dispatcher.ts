@@ -176,6 +176,14 @@ export const TAKEN_POS = { on: ((globalThis as { process?: { env: Record<string,
  * own-12 6, dandelion 6, clover-pink3 7, dispatcher on, 3 seeds).
  */
 export const STOP_IN = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).STOP_IN === "1" };
+/**
+ * A hand-run train under way (or turning at a buffer) whose way, by the points as they lie, runs onto a single line's far
+ * end within `HAND_COME_PIECES` (or back out of a line end it heads into): coming at a move onto it: on (HAND_COME=0: off).
+ * `HAND_COME_STILL=1` (measuring) counts a standing one with its lever on too; it cost fuzz 17 and 34 their stops.
+ */
+export const HAND_COME = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HAND_COME !== "0" };
+const HAND_COME_PIECES = 6;
+const HAND_COME_STILL = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HAND_COME_STILL === "1";
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
@@ -2088,7 +2096,40 @@ export class Dispatcher {
       }
       // (Granted onto it, heading the other way.)
       const h = this.holdsBy.get(key);
-      if (!h) continue;
+      if (!h) {
+        // (`HAND_COME`: a hand-run train under way toward the line, its way on by the points as they lie: onto it within
+        // a few pieces, heading for the end this move comes in by, it's coming at this one (fuzz seed 17: granted onto the
+        // stretch between two points as a hand-run one ran onto its far points the other way; nose to nose for good).)
+        if (HAND_COME.on && net !== 0 && (o.speed > 0 || o.turnback >= 0 || HAND_COME_STILL) && !o.bogies.some((b) => { const x = seg.get(b.pieceId); return x !== undefined && mine.has(x); })) {
+          // (Its way on from a bogie, by the points as they lie: onto the line heading for its other end (`key`), onto it
+          // the same way (`same`), or not met: at a line's end (`end`, it turns there and comes back) or none.)
+          const walk = (lb: Cursor, fwd: boolean): "key" | "same" | "end" | "none" => {
+            const lp = layout.getPiece(lb.pieceId);
+            let at = lb.pieceId;
+            let ex = lp ? pathExitConnector(getPieceDef(lp.type, lp.flipped), lb.pathIndex, fwd ? lb.reversed : !lb.reversed) : -1;
+            for (let q = 0; q < HAND_COME_PIECES; q++) {
+              if (ex < 0) return "end";
+              const nx = next(layout, at, ex);
+              if (!nx) return "end";
+              const ways = waysFrom(layout, nx.pieceId, nx.entry);
+              if (ways.length === 0) return "end";
+              const w = ways.length > 1 ? ways.find((x) => x.option === pointsWayFrom(layout, nx.pieceId, nx.entry, ways.length)) : ways[0];
+              if (!w) return "none";
+              const x = seg.get(nx.pieceId);
+              if (x !== undefined && mine.has(x)) return this.singleEnd(seg, nx.pieceId, w.exit) !== mine.get(x) ? "key" : "same";
+              if (w.exit < 0) return "end";
+              at = nx.pieceId;
+              ex = w.exit;
+            }
+            return "none";
+          };
+          const ahead = walk(net > 0 ? o.bogies[0] : o.bogies[o.bogies.length - 1], net >= 0);
+          if (ahead === "key") return key;
+          // (Heading into a line's end: it turns there and comes back the other way, onto the line (fuzz seed 34).)
+          if (ahead === "end" && walk(net > 0 ? o.bogies[o.bogies.length - 1] : o.bogies[0], net < 0) === "key") return key;
+        }
+        continue;
+      }
       for (let q = 1; q < h.path.length; q++) {
         const i = h.path[q];
         const fp = h.t.pos[i][h.t.pos[i].length - 1];
