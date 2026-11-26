@@ -37,6 +37,11 @@ export class ToyAudio {
   private lastClack = 0;
   private humLevel = 0;
   muted = false;
+  /**
+   * A page driven by automation (Playwright's e2e suites, shot and clip scripts: `navigator.webdriver`) makes no
+   * sound: everything is played as usual, at no volume, so a suite that counts sounds still counts them.
+   */
+  private readonly silent = typeof navigator !== "undefined" && navigator.webdriver === true;
 
   /** When (performance.now(), ms) everything scheduled so far will have died away. */
   private quietAt = 0;
@@ -93,7 +98,7 @@ export class ToyAudio {
     const ctx = new Ctor();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = 0.8;
+    this.master.gain.value = this.silent ? 0 : 0.8;
     const comp = ctx.createDynamicsCompressor();
     this.master.connect(comp).connect(ctx.destination);
     const len = ctx.sampleRate * 0.5;
@@ -109,7 +114,7 @@ export class ToyAudio {
 
   setMuted(m: boolean): void {
     this.muted = m;
-    if (this.master) this.master.gain.value = m ? 0 : 0.8;
+    if (this.master) this.master.gain.value = m || this.silent ? 0 : 0.8;
     // (Its winding's level is set again by the next frame that hears a lift ride.)
     if (m) {
       this.setWinding(0);
