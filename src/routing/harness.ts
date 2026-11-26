@@ -275,6 +275,7 @@ export class HarnessRun implements InvariantWorld {
   private wire(): void {
     const { layout, sim } = this;
     this.sections = new Sections(layout, sim, {
+      dispatchedWay: (engine) => this.dispatcher?.grantedWay(engine)?.pieces,
       lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
       live: (lineId) => {
         const live: number[] = [];

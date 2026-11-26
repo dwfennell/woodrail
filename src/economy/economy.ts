@@ -689,6 +689,7 @@ export class Economy {
     sim.standsWithin = (train) => this.sections.standsWithin(train);
     sim.turnsNose = (train) => this.sections.turnsNose(train) || !!this.dispatcher?.q9Turns(train);
     this.sections = new Sections(layout, sim, {
+      dispatchedWay: (engine) => this.dispatcher?.grantedWay(engine)?.pieces,
       lineOf: (engine) => {
         const id = this.lineIdOf.get(engine);
         return id !== undefined && this.lines.has(id) && this.routes.has(engine) ? id : -1;
