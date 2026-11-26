@@ -168,6 +168,8 @@ function wayAt(w: DTrain, placedK: DTrain, now: DTrain): DTrain {
 /** Its move blocked outright (no first move at all): detours searched after `DETOUR_SOON_S`, not `REROUTE_AFTER_S` (DETOUR_SOON=1, measuring; off: in any form it cost rowan-2 −46, wren −18, clover −81). */
 export const DETOUR_SOON = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DETOUR_SOON === "1" };
 const DETOUR_SOON_S = 2;
+/** Short of all delivering, searched again with the others' holds free where they stand (`takenHere`): on (TAKEN_POS=0: off). */
+export const TAKEN_POS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_POS !== "0" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
@@ -1054,10 +1056,13 @@ export class Dispatcher {
     let q9Turning: Set<number> | undefined;
     if (Q9S.on)
       for (const [key, o] of this.holdsBy) if (key !== engine && (o.t.turned[o.end] || o.path.some((n) => o.t.turned[n]) || (o.t.turned[o.t.succ[o.end]?.[0] ?? -1] === 1 && !o.t.arrivals.includes(o.end)))) (q9Turning ??= new Set()).add(key);
+    const takenHere = new Set<number>();
     placed.forEach((t, i) => {
       const o = this.holdsBy.get(t.key);
       if (!o || i === k || o.t.pos !== t.pos) return;
+      const here = TAKEN_POS.on ? t.pos[t.at] : null;
       for (const n of o.path) for (const p of t.pos[n]) {
+        if (here?.includes(p)) takenHere.add(p);
         taken.add(p);
         if (memberSet?.has(i)) transit!.add(p);
       }
@@ -1091,6 +1096,18 @@ export class Dispatcher {
       const heldBy2 = !(r2.first[0] >= 0 && r2.first[0] >= r2.plain);
       const patient = !(grantsNow && heldBy2 && h.stood >= 0 && this.host.sim.ticks - h.stood >= S_PATIENCE_S * 120);
       if (!r2.capped && patient) r = { ...r2, states: r.states + r2.states };
+    }
+    // (`TAKEN_POS`: short of all delivering, searched again with the others' holds free where they're placed. They stand
+    // there in the search themselves; taken, those pieces stayed taken once they moved off them in it, and the search
+    // found no plan where there was one (fuzz seeds 34, 111, 126, 165, line1+siding-spare 3×one opposed: from none of
+    // three delivering to all three). Taken where it does better, and only where nothing delivered without it or this
+    // train moves first in it: told to wait for another where it was granted (ring1 2×one opposed sig:pair), the other
+    // waited for it in turn and they stood.)
+    if (TAKEN_POS.on && r.plain < r.of && takenHere.size > 0 && r.states < DISPATCH_STATES) {
+      const free = new Set(taken);
+      for (const p of takenHere) free.delete(p);
+      const r3 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken: free, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay, q9: Q9S.on, q9Turning });
+      if (!r3.capped && r3.plain > r.plain && (r.plain === 0 || r3.first[0] >= r3.plain)) r = { ...r3, states: r.states + r3.states };
     }
     let ways = placed;
     let to = -1;
