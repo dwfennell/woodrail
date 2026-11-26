@@ -1097,7 +1097,7 @@ export class Dispatcher {
     if (r.first[0] >= 0 && r.first[0] >= r.plain) to = r.firstTo[0];
     // (At most every `DETOUR_EVERY_S` a train: a stuck one asks again every `RETRY_TICKS`, and the detour search is the
     // costliest part of a decision (rowan-1's p98).)
-    else if (r.plain < r.of && h.stood >= 0 && this.host.sim.ticks - h.stood >= (DETOUR_SOON.on && r.first[0] < 0 ? DETOUR_SOON_S : REROUTE_AFTER_S) * 120 && r.states < DISPATCH_STATES && this.host.sim.ticks - (h.detourAt ?? -Infinity) >= DETOUR_EVERY_S * 120) {
+    else if (r.plain < r.of && h.stood >= 0 && this.host.sim.ticks - h.stood >= (DETOUR_SOON.on && r.first[0] < 0 && r.plain === 0 ? DETOUR_SOON_S : REROUTE_AFTER_S) * 120 && r.states < DISPATCH_STATES && this.host.sim.ticks - (h.detourAt ?? -Infinity) >= DETOUR_EVERY_S * 120) {
       h.detourAt = this.host.sim.ticks;
       // (Stuck: with detours.)
       const dt = withDetours(this.host.layout, snaps, placed, members);
