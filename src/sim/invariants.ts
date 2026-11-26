@@ -527,6 +527,11 @@ export class Invariants {
           const pa = pathsOf(ids[i]);
           const pb = pathsOf(ids[j]);
           if (!pa.some((a) => pb.some((b) => meet(a, b)))) continue;
+          // (One following the other through on the same path, nose to its tail: not two on the points.)
+          if (this.followsThrough(ids[i], ids[j], pieceId) || this.followsThrough(ids[j], ids[i], pieceId)) {
+            this.followsExcused++;
+            continue;
+          }
           const k = `${pieceId}:${Math.min(ids[i], ids[j])}:${Math.max(ids[i], ids[j])}`;
           now.add(k);
           if (this.owners.has(k)) continue;
@@ -538,6 +543,36 @@ export class Invariants {
         }
     }
     this.owners = now;
+  }
+
+  /** oneOwner: ticks a pair was excused as one following the other through (`followsThrough`). */
+  followsExcused = 0;
+
+  /**
+   * oneOwner's one excuse: train `f` follows train `l` through points `pieceId` nose to tail, going its way. `l` has no
+   * axle left on them (a car over them only), is moving, and has an axle on the piece past the end `f` leaves them by;
+   * `f`'s axles on them are all on one path, driven toward that end. (own-12, 748 s: Puffin a coupler's gap behind
+   * Muffin, Muffin's last axle just off points 33, Puffin's first just on.)
+   */
+  private followsThrough(f: number, l: number, pieceId: number): boolean {
+    const { sim, layout } = this.world;
+    const lt = sim.getTrain(l);
+    const ft = sim.getTrain(f);
+    if (!lt || !ft || lt.speed === 0 || lt.bogies.some((b) => b.pieceId === pieceId)) return false;
+    const mine = ft.bogies.filter((b) => b.pieceId === pieceId);
+    if (mine.length === 0 || mine.some((b) => b.pathIndex !== mine[0].pathIndex)) return false;
+    const net = this.world.drive(ft);
+    if (net === 0) return false;
+    const p = layout.getPiece(pieceId);
+    if (!p) return false;
+    const def = getPieceDef(p.type, p.flipped);
+    const b = mine[0];
+    const exit = pathExitConnector(def, b.pathIndex, net > 0 ? b.reversed : !b.reversed);
+    if (exit === -1) return false;
+    const past = layout.joinedConnector(connectorRef(pieceId, exit));
+    if (past === -1) return false;
+    const beyond = pieceOfRef(past);
+    return lt.bogies.some((x) => x.pieceId === beyond);
   }
 
   /** oneOwner: the pieces and pairs said, while they last. */
