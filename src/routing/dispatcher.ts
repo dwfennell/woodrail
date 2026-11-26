@@ -27,7 +27,7 @@ import { next, waysFrom } from "./graph";
 import { isPoints } from "./router";
 import { passingOf } from "./blocks";
 import { STAND_SHORT } from "../economy/sections";
-import { q9Mirror, blockerOf, bodyOf, buildTrain, PLAN_FROM_ROAD, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
+import { q9Mirror, blockerOf, bodyOf, branchesOf, buildTrain, PLAN_FROM_ROAD, DISPATCH_STATES, FAIR_TURNS, relocate, REROUTE_AFTER_S, search, snapsOf, stretchOf, withDetours, type DTrain, type RouteView, type Snap } from "./stretch";
 
 /** §13.5 step 2, the dispatcher owning the points on its grants: on, unless OWNER=0 (for comparing runs). */
 export const OWNER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).OWNER !== "0" };
@@ -139,6 +139,8 @@ export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<strin
 export const HAND_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HAND_AHEAD !== "0" };
 /** A grant kept through a rebuild only onto pieces it was granted (`trainsOf`): on (KEEP_PIECES=0: off). */
 export const KEEP_PIECES = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_PIECES !== "0" };
+/** A held train's blocker looked for where trains stand on its way on, a signal's block included (`blocker`): NAME_BLOCKER=1 (measuring). */
+export const NAME_BLOCKER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NAME_BLOCKER === "1" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
@@ -1417,6 +1419,19 @@ export class Dispatcher {
     for (const [key, o] of this.holdsBy) {
       if (key === t.key) continue;
       for (const n of o.path) for (const p of o.t.pos[n]) if (mine.has(p)) return key;
+    }
+    // (A train on the track of its way on as it really stands (not where its hold ends), a signal's block ahead
+    // included (`branchesOf`'s pieces): named, not left "something's in the way" (the user's maps, 2026-11-26: held at
+    // a signal for a train in its block, its card said nothing of whom).)
+    if (NAME_BLOCKER.on) {
+      const ahead = new Set<number>();
+      for (const b of branchesOf(t, t.at)) for (const p of b.flat) ahead.add(p);
+      for (const p of t.pos[t.at]) ahead.delete(p);
+      const self = this.host.sim.findCar(t.key)?.train;
+      for (const o of this.host.sim.trains()) {
+        if (o === self || o.derailed) continue;
+        if (o.bogies.some((bg) => ahead.has(bg.pieceId))) return (o.cars.find((c) => c.kind === "engine") ?? o.cars[0]).id;
+      }
     }
     return -1;
   }
