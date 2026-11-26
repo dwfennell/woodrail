@@ -19,7 +19,6 @@ export const KNOWN_ON: Record<string, string[]> = {
   "line1+siding 3×one same": ["stalls-live"],
   "line1+siding-spare 3×one opposed": ["stalls-live"],
   "ring1 2×mix opposed": ["break:deadlock"],
-  "ring1 2×one opposed short": ["stalls-live","waits-on-points"],
   "siding-spare 2×own opposed": ["stalls-live:siding"],
   "siding-spare 2×own same": ["stalls-live:siding"],
   "terminus-spare 2×own opposed": ["stalls-live:siding"],
