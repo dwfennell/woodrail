@@ -3,8 +3,8 @@
  * as a player would play it, each jam cleared as a player would clear it, counting the jams and the stops made.
  *
  * A jam: a train stuck (stalls.ts) for `JAM_S` seconds, give or take a flicker (not stuck again within `FLICKER_S`).
- * The player's fix: that train taken off the track (`putAway`), and put back `BACK_S` later at its line's first stop,
- * on its line, set going. (Stalls' "stuck" comes and goes every few seconds on some rings; counted from the first.)
+ * The player's fix: that train taken off the track (`putAway`), and put back `BACK_S` later at its line's first stop
+ * where it fits (else the next stop of its line, either way round), on its line, set going. (Stalls' "stuck" comes and goes every few seconds on some rings; counted from the first.)
  *
  * Run by `npm run jams` (scripts/jams.mjs) over the maps in src/play/bugmaps/reference/; the numbers each map gave on
  * main are in its baseline.json, the floor a routing change must not fall below.
@@ -46,6 +46,10 @@ export interface JamsRun {
   names: Record<number, string>;
   /** Each jam: when (s), the train cleared, its line, and the stall's kind. */
   log: { at: number; engine: number; line: number; kind: string }[];
+  /** Trains on the track at the end of each minute (a run that keeps more trains going does more work per stop). */
+  running: number[];
+  /** Trains on the track, the mean over the run's seconds. */
+  runningMean: number;
   seconds: number;
 }
 
@@ -94,7 +98,10 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
         sim.setLever(c.id, 0);
       }
   }
-  const pending: { at: number; kinds: CarKind[]; piece: number; lineId: number; stops: RouteStopDef[] }[] = [];
+  const running: number[] = [];
+  let runningSum = 0;
+  let runningN = 0;
+  const pending: { at: number; kinds: CarKind[]; pieces: number[]; lineId: number; stops: RouteStopDef[] }[] = [];
   const stuckSince = new Map<number, number>();
   const lastStuck = new Map<number, number>();
   const log: JamsRun["log"] = [];
@@ -121,16 +128,24 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
           }
         }
       hooks.second?.(now);
+      const on = sim.trainIds().length;
+      runningSum += on;
+      runningN++;
+      if (now > 0 && now % 60 === 0) running.push(on);
       for (const e of economy.lineIdOf.keys()) if (!names.has(e)) names.set(e, sim.nameOf(e) || String(e));
       // (Put back, where there's room: at its line's first stop, on its line, set going.)
       for (let k = pending.length - 1; k >= 0; k--) {
         const q = pending[k];
         if (now < q.at) continue;
-        for (const s of [100, 300, 50, 500]) {
+        // (Its first stop first, facing either way (one way its cars run back onto a buffer: no room, own-01's forest,
+        // never put back), then its line's other stops.)
+        const spots: { piece: number; reversed: boolean; s: number }[] = [];
+        for (const piece of q.pieces) for (const reversed of [false, true]) for (const s of [100, 300, 50, 500]) spots.push({ piece, reversed, s });
+        for (const { piece, reversed, s } of spots) {
           // (On the piece: a spot past its far end left the train's front on a cursor off it.)
-          const pc = world.layout.getPiece(q.piece);
+          const pc = world.layout.getPiece(piece);
           if (!pc || s >= pathLength(getPieceDef(pc.type, pc.flipped).paths[0].geom)) continue;
-          const placed = sim.addTrain(q.kinds, { pieceId: q.piece, pathIndex: 0, reversed: false, s });
+          const placed = sim.addTrain(q.kinds, { pieceId: piece, pathIndex: 0, reversed, s });
           if (placed.kind !== "placed") continue;
           // (Not onto a piece another train is on (the sim places it over points another is crossing): off again, the
           // next spot tried, as a player would put it down clear.)
@@ -176,9 +191,14 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
         if (!route || route.stops.length === 0 || lineId === undefined) continue;
         const first = economy.depot(route.stops[0].depotId);
         if (!first) continue;
+        const pieces = [first.pieceId];
+        for (const st of route.stops) {
+          const d = economy.depot(st.depotId);
+          if (d && !pieces.includes(d.pieceId)) pieces.push(d.pieceId);
+        }
         hooks.jam?.(now, e, stuckSince.get(e)!);
         log.push({ at: now, engine: e, line: lineId, kind: st.kind });
-        pending.push({ at: now + BACK_S, kinds: t.cars.map((c) => c.kind), piece: first.pieceId, lineId, stops: route.stops.map((s) => ({ ...s })) });
+        pending.push({ at: now + BACK_S, kinds: t.cars.map((c) => c.kind), pieces, lineId, stops: route.stops.map((s) => ({ ...s })) });
         putAway(sim, economy, e);
         stuckSince.delete(e);
         break;
@@ -189,5 +209,5 @@ export function runJams(world: World, seconds: number, hooks: JamsHooks = {}, se
   for (const n of r.arrivals.values()) arrivals += n;
   let longest = 0;
   for (const s of r.longestStand.values()) longest = Math.max(longest, s);
-  return { jams: log.length, arrivals, byEngine: Object.fromEntries(r.arrivals), names: Object.fromEntries([...r.arrivals.keys()].map((e) => [e, names.get(e) ?? (sim.nameOf(e) || String(e))])), longestStand: longest, firstJam: log.length > 0 ? log[0].at : seconds, stuckBefore, firstBreak: r.first ? `${r.first.invariant}: ${r.first.what}` : null, log, seconds };
+  return { jams: log.length, arrivals, byEngine: Object.fromEntries(r.arrivals), names: Object.fromEntries([...r.arrivals.keys()].map((e) => [e, names.get(e) ?? (sim.nameOf(e) || String(e))])), longestStand: longest, firstJam: log.length > 0 ? log[0].at : seconds, stuckBefore, firstBreak: r.first ? `${r.first.invariant}: ${r.first.what}` : null, log, running, runningMean: runningN > 0 ? runningSum / runningN : 0, seconds };
 }

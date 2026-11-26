@@ -1,43 +1,49 @@
 {
   "complex-1.txt": {
-    "jams": 8,
-    "arrivals": 546,
-    "longestStand": 48,
+    "jams": 14,
+    "arrivals": 493,
+    "longestStand": 50,
+    "running": 4.54,
     "firstBreak": null,
     "seconds": 1800
   },
   "complex-2.txt": {
-    "jams": 18,
-    "arrivals": 460,
-    "longestStand": 108,
+    "jams": 14,
+    "arrivals": 498,
+    "longestStand": 56,
+    "running": 4.53,
     "firstBreak": null,
     "seconds": 1800
   },
   "complex-3.txt": {
-    "jams": 10,
-    "arrivals": 558,
-    "longestStand": 40,
+    "jams": 9,
+    "arrivals": 550,
+    "longestStand": 46,
+    "running": 4.7,
     "firstBreak": "greenHeld: train 18 stood 5 s at signal -42, which shows clear (piece 96)",
     "seconds": 1800
   },
   "dandelion.txt": {
     "jams": 18,
-    "arrivals": 554,
+    "arrivals": 586,
     "longestStand": 155,
-    "firstBreak": null,
+    "running": 8.4,
+    "firstBreak": "greenHeld: train 160 stood 5 s at signal -81, which shows clear (piece 329)",
     "seconds": 1800
   },
   "rowan-1.txt": {
-    "jams": 29,
-    "arrivals": 425,
+    "jams": 34,
+    "arrivals": 430,
     "longestStand": 192,
+    "running": 7.87,
     "firstBreak": "greenHeld: train 170 stood 5 s at signal -85, which shows clear (piece 329)",
     "seconds": 1800
   },
   "rowan-2.txt": {
-    "jams": 21,
-    "arrivals": 577,
-    "longestStand": 190,
+    "jams": 32,
+    "arrivals": 493,
+    "longestStand": 156,
+    "running": 7.97,
     "firstBreak": "greenHeld: train 109 stood 5 s at signal -81, which shows clear (piece 329)",
     "seconds": 1800
   },
@@ -45,27 +51,31 @@
     "jams": 7,
     "arrivals": 688,
     "longestStand": 146,
+    "running": 8.77,
     "firstBreak": null,
     "seconds": 1800
   },
   "wren.txt": {
-    "jams": 16,
-    "arrivals": 275,
-    "longestStand": 181,
+    "jams": 17,
+    "arrivals": 304,
+    "longestStand": 357,
+    "running": 5.43,
     "firstBreak": null,
     "seconds": 1800
   },
   "user-2026-11-21.txt": {
-    "jams": 19,
-    "arrivals": 272,
-    "longestStand": 155,
-    "firstBreak": null,
+    "jams": 23,
+    "arrivals": 301,
+    "longestStand": 156,
+    "running": 5.24,
+    "firstBreak": "greenHeld: train 67 stood 5 s at signal -78, which shows clear (piece 144)",
     "seconds": 1800
   },
   "own-01-single-loops.txt": {
-    "jams": 3,
-    "arrivals": 68,
-    "longestStand": 72,
+    "jams": 19,
+    "arrivals": 57,
+    "longestStand": 97,
+    "running": 3.36,
     "firstBreak": null,
     "seconds": 1800
   },
@@ -73,76 +83,87 @@
     "jams": 0,
     "arrivals": 132,
     "longestStand": 18,
+    "running": 4,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-03-terminus.txt": {
-    "jams": 14,
-    "arrivals": 66,
-    "longestStand": 130,
+    "jams": 17,
+    "arrivals": 68,
+    "longestStand": 131,
+    "running": 4.46,
     "firstBreak": "greenHeld: train 22 stood 5 s at signal -27, which shows clear (piece 5)",
     "seconds": 1800
   },
   "own-04-wye.txt": {
-    "jams": 1,
-    "arrivals": 101,
-    "longestStand": 54,
+    "jams": 28,
+    "arrivals": 67,
+    "longestStand": 113,
+    "running": 3.07,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-05-double-track.txt": {
-    "jams": 2,
-    "arrivals": 76,
-    "longestStand": 1793,
+    "jams": 29,
+    "arrivals": 70,
+    "longestStand": 271,
+    "running": 4.02,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-06-double-close.txt": {
-    "jams": 2,
-    "arrivals": 84,
-    "longestStand": 1795,
-    "firstBreak": null,
+    "jams": 30,
+    "arrivals": 71,
+    "longestStand": 271,
+    "running": 4.01,
+    "firstBreak": "greenHeld: train 50 stood 5 s at signal -2, which shows clear (piece 5)",
     "seconds": 1800
   },
   "own-07-ring-opposite.txt": {
-    "jams": 10,
-    "arrivals": 168,
+    "jams": 2,
+    "arrivals": 138,
     "longestStand": 155,
+    "running": 2.93,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-08-branch.txt": {
     "jams": 3,
-    "arrivals": 100,
+    "arrivals": 104,
     "longestStand": 60,
+    "running": 3.9,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-09-hill.txt": {
-    "jams": 33,
-    "arrivals": 120,
-    "longestStand": 114,
+    "jams": 37,
+    "arrivals": 116,
+    "longestStand": 194,
+    "running": 3.76,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-10-depots.txt": {
-    "jams": 3,
-    "arrivals": 98,
+    "jams": 4,
+    "arrivals": 96,
     "longestStand": 89,
+    "running": 3.86,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-11-one-way.txt": {
-    "jams": 10,
-    "arrivals": 214,
-    "longestStand": 219,
+    "jams": 20,
+    "arrivals": 113,
+    "longestStand": 977,
+    "running": 3.34,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-12-big.txt": {
-    "jams": 33,
+    "jams": 31,
     "arrivals": 52,
-    "longestStand": 278,
+    "longestStand": 393,
+    "running": 7.99,
     "firstBreak": "greenHeld: train 28 stood 5 s at signal -59, which shows clear (piece 179)",
     "seconds": 1800
   },
@@ -150,6 +171,7 @@
     "jams": 0,
     "arrivals": 91,
     "longestStand": 28,
+    "running": 2,
     "firstBreak": null,
     "seconds": 1800
   }
