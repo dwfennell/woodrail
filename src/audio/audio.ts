@@ -36,6 +36,8 @@ export class ToyAudio {
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private hum: { gain: GainNode; osc: OscillatorNode; lfo: OscillatorNode } | null = null;
+  /** The recorded engine loop (one for all trains, at their summed level), when its clip has loaded. */
+  private loop: { gain: GainNode; src: AudioBufferSourceNode } | null = null;
   private readonly clips = new ClipBank();
   private lastClack = 0;
   private humLevel = 0;
@@ -136,7 +138,7 @@ export class ToyAudio {
   playClip(name: ClipName, volume: number, pan: number, rate = 1): boolean {
     const ctx = this.ctx;
     const buffer = this.clips.get(name);
-    if (!ctx || !this.master || !buffer || this.muted || volume <= 0.001) return false;
+    if (!ctx || !this.master || !buffer || this.muted || volume <= 0.001 || rate <= 0 || document.hidden) return false;
     this.wake((buffer.duration / rate) * 1000);
     const panner = ctx.createStereoPanner();
     panner.pan.value = Math.max(-1, Math.min(1, pan));
@@ -539,14 +541,60 @@ export class ToyAudio {
     this.winding.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.08);
   }
 
-  /** Motor hum level 0..1 from the number and nearness of running engines. */
+  /**
+   * Motor hum level 0..1 from the number and nearness of running engines: the recorded loop once its clip has loaded,
+   * else a synthesised hum. A hum already running when the clip arrives fades out at the next change of level.
+   */
   setHum(level: number): void {
     const ctx = this.ctx;
-    const target = this.muted ? 0 : Math.min(1, Math.max(0, level)) * 0.045;
+    const lvl = this.muted ? 0 : Math.min(1, Math.max(0, level));
+    const target = lvl * 0.045;
     // (Called each frame trains run: a level that's hardly changed, or silence that's already silent, does nothing.)
-    if (!ctx || !this.master || target === this.humLevel || (target > 0 && Math.abs(target - this.humLevel) < 0.0005) || (!this.hum && target === 0)) return;
+    if (!ctx || !this.master || target === this.humLevel || (target > 0 && Math.abs(target - this.humLevel) < 0.0005) || (!this.hum && !this.loop && target === 0)) return;
     this.humLevel = target;
     this.wake(600);
+    const buffer = this.clips.get("engineLoop");
+    if (buffer) {
+      this.retireHum(ctx);
+      this.driveLoop(ctx, this.master, buffer, lvl);
+    } else this.driveSawHum(ctx, this.master, target);
+  }
+
+  /** The loop at `lvl` (0..1): started when there's none, and at 0 faded out and stopped, so nothing keeps the context awake. */
+  private driveLoop(ctx: AudioContext, master: GainNode, buffer: AudioBuffer, lvl: number): void {
+    const t = ctx.currentTime;
+    if (!this.loop) {
+      if (lvl === 0) return;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      src.connect(gain).connect(master);
+      src.start();
+      this.loop = { gain, src };
+    }
+    const { gain, src } = this.loop;
+    src.playbackRate.setTargetAtTime(0.8 + 0.5 * lvl, t, 0.15);
+    gain.gain.setTargetAtTime(lvl * 0.12, t, 0.15);
+    if (lvl === 0) {
+      src.stop(t + 0.15 * 5);
+      this.loop = null;
+    }
+  }
+
+  /** The synthesised hum fades out and goes (the recorded loop has taken over). */
+  private retireHum(ctx: AudioContext): void {
+    const hum = this.hum;
+    if (!hum) return;
+    this.hum = null;
+    const t = ctx.currentTime;
+    hum.gain.gain.setTargetAtTime(0, t, 0.15);
+    hum.osc.stop(t + 0.15 * 5);
+    hum.lfo.stop(t + 0.15 * 5);
+  }
+
+  private driveSawHum(ctx: AudioContext, master: GainNode, target: number): void {
     if (!this.hum) {
       const osc = ctx.createOscillator();
       osc.type = "sawtooth";
@@ -561,7 +609,7 @@ export class ToyAudio {
       const lfoGain = ctx.createGain();
       lfoGain.gain.value = 6;
       lfo.connect(lfoGain).connect(osc.frequency);
-      osc.connect(lp).connect(gain).connect(this.master);
+      osc.connect(lp).connect(gain).connect(master);
       osc.start();
       lfo.start();
       this.hum = { gain, osc, lfo };
