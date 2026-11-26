@@ -884,6 +884,35 @@ function branchesOf(t: DTrain, i: number): Branch[] {
 export const Q9_FACE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_FACE !== "0" };
 export const Q9_ONE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_ONE !== "0" };
 
+/** `q9RunOf` per booked way and node. */
+const runCache = new WeakMap<Int32Array[], Map<number, Int32Array | null>>();
+
+/**
+ * §16 Q9: the pieces of `t`'s way from node `c` on to its next turn, past those it stands on at `c`, if that way is plain
+ * (no points) with no stop of its own on it and the turn has its mirror (`q9Mirror`); null: not a dead end it only turns in.
+ */
+export function q9RunOf(t: DTrain, c: number): Int32Array | null {
+  let m = runCache.get(t.pos);
+  if (!m) runCache.set(t.pos, (m = new Map()));
+  const hit = m.get(c);
+  if (hit !== undefined) return hit;
+  const out: number[] = [];
+  let ok = true;
+  let x = t.succ[c][0] ?? -1;
+  for (let n = 0; x >= 0 && !t.turned[x] && n < 400; n++) {
+    // (Points on the way, or a stop of its own before the turn: not a dead end it only turns in (Q9 is for those).)
+    if (t.succ[x].length > 1 || t.arrivals.includes(x)) {
+      ok = false;
+      break;
+    }
+    for (const p of t.pos[x]) if (!t.pos[c].includes(p) && !out.includes(p)) out.push(p);
+    x = t.succ[x][0] ?? -1;
+  }
+  const r = ok && x >= 0 && q9Mirror(t, c) >= 0 ? Int32Array.from(out) : null;
+  m.set(c, r);
+  return r;
+}
+
 /** `q9Mirror` per booked way and node. */
 const mirrorCache = new WeakMap<Int32Array[], Map<number, number>>();
 
@@ -1217,32 +1246,24 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
       if (opts.q9 && j < b.nodes.length && out[o] < PER) {
         const c = close >= 0 ? close : j > 0 ? b.nodes[j - 1] : i;
         if (t.plain[c] || c === i) {
-          let filled = true;
+          // (Its way on to the turn, plain and with no stop of its own (`q9RunOf`, per way and node): each piece another's.)
+          const run = q9RunOf(t, c);
+          let filled = run !== null;
           let by = 0;
-          let x = t.succ[c][0] ?? -1;
-          for (let n = 0; x >= 0 && !t.turned[x] && n < 400; n++) {
-            // (Points on the way, or a stop of its own before the turn: not a dead end it only turns in (Q9 is for those).)
-            if (t.succ[x].length > 1 || t.arrivals.includes(x)) {
-              filled = false;
-              break;
-            }
-            for (const p of t.pos[x]) {
-              if (t.pos[c].includes(p)) continue;
-              const ow = owner[p];
+          if (run)
+            for (let q = 0; q < run.length && filled; q++) {
+              const ow = owner[run[q]];
               if (ow === 0 || ow === own) filled = false;
               // (One train only, standing at the line's end, as the oracle has it: not a queue of them (`Q9_ONE`).)
-              else if (Q9_ONE.on) {
-                if (by === 0) by = ow;
-                else if (ow !== by) filled = false;
+              else if (ow !== by) {
+                if (Q9_ONE.on && by !== 0) filled = false;
+                // (That one facing the end, its turn still ahead of it, as the oracle has it (`Q9_FACE`): turned there
+                // already, it faces this one, nose to nose; a turn there is no turn behind it (the trap).)
+                else if (Q9_FACE.on && ow > 0 && !facesEnd(ow - 1)) filled = false;
+                by = ow;
               }
-              // (That one facing the end, its turn still ahead of it, as the oracle has it (`Q9_FACE`): turned there
-              // already, it faces this one, nose to nose; a turn there is no turn behind it (the trap).)
-              if (filled && Q9_FACE.on && ow > 0 && !facesEnd(ow - 1)) filled = false;
             }
-            if (!filled) break;
-            x = t.succ[x][0] ?? -1;
-          }
-          const m = filled && x >= 0 ? q9Mirror(t, c) : -1;
+          const m = filled ? q9Mirror(t, c) : -1;
           if (m >= 0) {
             let dup = false;
             for (let y = 0; y < out[o]; y++) if (out[o + 1 + y] === m) dup = true;
