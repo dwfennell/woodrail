@@ -2127,10 +2127,11 @@ export class Sections {
     if (!piece) return false;
     const path = getPieceDef(piece.type, piece.flipped).paths[f.pathIndex];
     let exit = f.reversed ? path.from : (path.to ?? -1);
-    // (`TAIL_AGAINST`: any of its axles on the way going against it (its front just into a loop road beside, its tail
-    // still over the points and the track the way runs out by): it isn't ahead the same way, it's in the way. Else the
+    // (`TAIL_AGAINST`: with no move (it just came into its slot), any of its axles on the way going against it (its front
+    // just into a loop road beside, its tail still over the points and the track the way runs out by): it isn't ahead
+    // the same way, it's in the way. (With a move, its steps say: below.) Else the
     // other was let out onto it, and stood held short of the points by the tail (the two-train map, netActed).)
-    if (TAIL_AGAINST)
+    if (TAIL_AGAINST && !this.states.get(u)?.move)
       for (const b of t.bogies) {
         const on = along.get(b.pieceId);
         if (on === undefined) continue;
