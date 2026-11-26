@@ -1,6 +1,6 @@
 import { describe as describeGoods } from "../economy/goods";
 import type { BoatState } from "../economy";
-import { BULK, capacityOf, depotLabel, loaded, MAX_BARGES, type Fleet } from "../game/boats";
+import { BARGE_GOODS, capacityOf, depotLabel, loaded, MAX_BARGES, type Fleet } from "../game/boats";
 import { BUILD_LABEL, cancel as cancelOrder, isYard, order as orderBuild, progressOf, stillNeeds, tickYards, whyNotOrder, YARD_BUILDS, YARD_COSTS } from "../game/yards";
 import type { YardBuild } from "../economy";
 import type { Game } from "../game/game";
@@ -91,8 +91,8 @@ export function attachWater(ctx: WaterContext): WaterControls {
 
   function viewOf(b: BoatState): BoatCardView {
     const n = loaded(b);
-    const what = BULK.filter((k) => (b.load[k] ?? 0) > 0);
-    const load = n === 0 ? "Empty: barges carry logs, stone, coal, ore and grain" : `Carrying ${n} of ${capacityOf(b)}: ${describeGoods(Object.fromEntries(what.map((k) => [k, b.load[k]])))}`;
+    const what = BARGE_GOODS.filter((k) => (b.load[k] ?? 0) > 0);
+    const load = n === 0 ? "Empty: barges carry any goods" : `Carrying ${n} of ${capacityOf(b)}: ${describeGoods(Object.fromEntries(what.map((k) => [k, b.load[k]])))}`;
     const current = b.docked || b.stops.length < 2 ? b.from : (b.from + 1) % b.stops.length;
     return {
       id: b.id,

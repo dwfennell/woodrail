@@ -1,4 +1,4 @@
-import { capAt, CARGO, RECIPES, storeLetsIn, storeLetsOut, type BoatState, type BoatStop, type BoatStopAction, type CargoKind, type DepotState, type Economy } from "../economy";
+import { capAt, CARGO, CARGO_KINDS, POSTAL, RECIPES, storeLetsIn, storeLetsOut, type BoatState, type BoatStop, type BoatStopAction, type CargoKind, type DepotState, type Economy } from "../economy";
 import { isWater, type Landscape } from "../landscape";
 import type { Pose } from "../track";
 import { depotPoint, QUAY } from "./harbours";
@@ -8,12 +8,17 @@ import { addTo } from "../economy/goods";
 /**
  * Boats the player routes (Game mode's River barges; docs/superpowers/specs/2026-11-04-water-transport.md §3): a tug
  * and its barges, bought at a river landing, sailing between docks (landings, harbours) on the same water by the
- * water's own squares, dropping and picking up bulk goods at each as its stops say. Kinematic: a boat is a distance
+ * water's own squares, dropping and picking up goods at each as its stops say. Kinematic: a boat is a distance
  * along a way worked out once per pair of docks, moved on by game time (`tick`, once a second of play, as the harbours'
  * boats are). They pass under every bridge (toys on felt).
  */
 
-/** What barges carry: what comes in heaps (spec §5, choice D1). */
+/**
+ * What barges carry: any freight good, what a wagon carries but the post (spec §5, choice D2, from players' feedback,
+ * 2026-11-26: "why can't barges carry stuff like paint?"). People and mail don't go by barge.
+ */
+export const BARGE_GOODS: readonly CargoKind[] = CARGO_KINDS.filter((k) => !POSTAL.has(k));
+/** What comes in heaps: a barge of it shows its heap model (`water-barge-logs`…); made goods ride on its deck as units. */
 export const BULK: readonly CargoKind[] = ["log", "stone", "coal", "ore", "grain"];
 /** Loads one barge holds (a wagon holds 3). */
 export const BARGE_LOADS = 4;
@@ -45,6 +50,9 @@ export type Waters = Pick<World, "economy" | "layout" | "landscape">;
 export const isDock = (d: DepotState | undefined): d is DepotState => d?.role === "landing" || d?.role === "harbour" || d?.role === "boatyard";
 
 /** A good barges carry. */
+export const bargeCarries = (kind: CargoKind): boolean => BARGE_GOODS.includes(kind);
+
+/** A good that comes in heaps (its barge shows a heap). */
 export const isBulk = (kind: CargoKind): boolean => BULK.includes(kind);
 
 /** How many loads a boat holds: its barges'. */
@@ -53,7 +61,7 @@ export const capacityOf = (b: BoatState): number => b.barges * BARGE_LOADS;
 /** How many loads it has on. */
 export function loaded(b: BoatState): number {
   let n = 0;
-  for (const k of BULK) n += b.load[k] ?? 0;
+  for (const k of BARGE_GOODS) n += b.load[k] ?? 0;
   return n;
 }
 
@@ -290,7 +298,8 @@ export class Fleet {
     if (!this.reaches(boatId, depotId)) return `${b.name} can't get there: it's on other water`;
     const last = b.stops[b.stops.length - 1];
     if (last?.depotId === depotId) return null;
-    b.stops.push({ depotId, action: b.stops.length === 0 ? "pick" : "drop" });
+    // (Drop and pick up, as a train line's stops are: Only drop at both landings, a tow never loaded.)
+    b.stops.push({ depotId, action: "both" });
     return null;
   }
 
@@ -466,16 +475,18 @@ export class Fleet {
   }
 
   /**
-   * At a dock: drop what the dock takes (unless the stop says only pick up), then pick up bulk goods it gives (unless
-   * only drop), up to what the barges hold. Goods it picked up here aren't dropped here again.
+   * At a dock: drop what the dock takes (unless the stop says only pick up), then pick up goods it gives (unless only
+   * drop), up to what the barges hold. What it dropped here isn't picked up again in the same call (a landing takes and
+   * gives every good: it would load its paint straight back on).
    */
   serve(b: BoatState, stop: BoatStop): { dropped: number; picked: number } {
     const d = this.economy.depot(stop.depotId);
     if (!d) return { dropped: 0, picked: 0 };
     let dropped = 0;
     let picked = 0;
+    let droppedKinds = 0;
     if (stop.action !== "pick") {
-      for (const k of BULK) {
+      for (const k of BARGE_GOODS) {
         const have = b.load[k] ?? 0;
         if (have <= 0 || !RECIPES[d.role].takes.includes(k)) continue;
         if (d.role === "landing" && !storeLetsIn(d, k)) continue;
@@ -485,12 +496,14 @@ export class Fleet {
         d.piles[i] += n;
         b.load[k] = have - n;
         dropped += n;
+        droppedKinds |= 1 << i;
         if (b.loadedAt[k] !== undefined && b.loadedAt[k] !== d.id) this.economy.boatDelivered += n;
         if (b.load[k] === 0) delete b.loadedAt[k];
       }
     }
     if (stop.action !== "drop") {
-      for (const k of BULK) {
+      for (const k of BARGE_GOODS) {
+        if (droppedKinds & (1 << CARGO[k].index)) continue;
         if (!RECIPES[d.role].gives.includes(k) || (d.role === "landing" && !storeLetsOut(d, k))) continue;
         const i = CARGO[k].index;
         const room = capacityOf(b) - loaded(b);

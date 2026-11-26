@@ -5,7 +5,9 @@
 //     "+ New barge" tapped (coins paid, the barge loads the logs, planning starts with this landing stop 1); the second
 //     landing tapped (stop 2), Done; the boat sails by game time and drops the logs at the second landing (the payoff),
 //     "Float goods down the river" ticked; a tap on the boat opens its card; + Barge; paused, it holds still; 0 frames
-//     drawn idle with every boat tied up.
+//     drawn idle with every boat tied up. Made goods too: paint on the first landing, the stops' chips tapped to Pick up
+//     and Only drop, the paint aboard (crates on the deck, the card saying so) and dropped at the second landing (the
+//     payoff); empty, the card says "Empty: barges carry any goods". New stops are Drop and pick up, as a line's.
 //  2. ship: the coast bought; Harbours and Cargo ships learned; a harbour by the sea (put down as the workshop would),
 //     a lighthouse dragged from the Water shelf beside it (its card says so); planks on the quay; the cargo ship calls,
 //     takes them and pays a town's full price (the payoff), "Send a ship abroad" ticked.
@@ -381,15 +383,9 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     await tapWorld(quay(B));
     await shot("5-planning");
     await tapButton(".boat-card .route-plan.on");
-    const chip2 = await p.evaluate(() => {
-      const e = document.querySelectorAll(".boat-card .route-chip")[1];
-      if (!e) return null;
-      const r = e.getBoundingClientRect();
-      return [r.left + r.width / 2, r.top + r.height / 2];
-    });
-    if (chip2) await tapped(() => p.touchscreen.tap(...chip2));
+    // (No chip tapped: a new stop is Drop and pick up, as a train line's. Both Only drop, it never loaded: 2026-11-26.)
     const route = await p.evaluate(() => [...window.woodrail.economy.boats.values()][0].stops);
-    check("the route planned by taps: the yard, the first landing (drop and pick up), the second (only drop)", route.length === 3 && route[0].depotId === C.depot && route[1].depotId === A.depot && route[2].depotId === B.depot && route[1].action === "both" && route[2].action === "drop", JSON.stringify(route));
+    check("the route planned by taps: the yard, then both landings Drop and pick up (as a train line's stops)", route.length === 3 && route[0].depotId === C.depot && route[1].depotId === A.depot && route[2].depotId === B.depot && route[1].action === "both" && route[2].action === "both", JSON.stringify(route));
     // It sails, by game time, and drops the logs at the second landing.
     await look({ x: (A.x + B.x) / 2 + 108, z: A.z + 120 }, 2200);
     await p.evaluate(() => window.woodrail.hud.hideCards());
@@ -438,6 +434,93 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     await bringTo(C.depot, { planks: 8 });
     const barges = await playUntil(() => ([...window.woodrail.economy.boats.values()][0].barges === 2 ? 2 : null), null, 10);
     check("a barge built at the boatyard from 8 planks joins the tug", barges === 2, String(barges));
+    // ——— Made goods by barge (2026-11-26: "why can't barges carry stuff like paint?") ———
+    // Paint on the first landing's jetty (setup: as a train from a dye works would leave it). The player sets the first
+    // landing to Pick up and the second to Only drop, by taps on the boat's chips; the tow takes the paint down the
+    // river on its deck (crates drawn with the wagons' loads) and drops it at the second landing (the payoff).
+    await p.evaluate(async ([a, b]) => {
+      const { CARGO } = await import("/src/economy/cargo.ts");
+      const w = window.woodrail;
+      w.economy.depot(a).piles[CARGO.paint.index] = 6;
+      w.economy.depot(a).piles[CARGO.log.index] = 2;
+      w.economy.depot(b).piles[CARGO.paint.index] = 0;
+    }, [A.depot, B.depot]);
+    const paintBefore = await p.evaluate(() => window.woodrail.economy.boatDelivered);
+    const tugNow = await p.evaluate(() => {
+      const o = window.woodrail.riverBoats.tugOf([...window.woodrail.economy.boats.keys()][0]);
+      return o ? { x: o.position.x, y: 10, z: o.position.z } : null;
+    });
+    if (tugNow) {
+      await look(tugNow, 900);
+      await tapWorld(tugNow);
+    }
+    const chipAt = (i) =>
+      p.evaluate((i) => {
+        const e = document.querySelectorAll(".boat-card:not([hidden]) .route-chip")[i];
+        if (!e) return null;
+        const r = e.getBoundingClientRect();
+        return [r.left + r.width / 2, r.top + r.height / 2];
+      }, i);
+    const actionOf = (i) => p.evaluate((i) => [...window.woodrail.economy.boats.values()][0].stops[i].action, i);
+    // (A chip goes Drop and pick up → Pick up → Only drop.)
+    for (let n = 0; n < 3 && (await actionOf(1)) !== "pick"; n++) {
+      const at = await chipAt(1);
+      if (at) await tapped(() => p.touchscreen.tap(...at));
+    }
+    for (let n = 0; n < 3 && (await actionOf(2)) !== "drop"; n++) {
+      const at = await chipAt(2);
+      if (at) await tapped(() => p.touchscreen.tap(...at));
+    }
+    const chips = await p.evaluate(() => [...document.querySelectorAll(".boat-card:not([hidden]) .route-chip .route-goods")].map((e) => e.textContent));
+    check("by taps on its chips: the first landing Pick up, the second Only drop", (await actionOf(1)) === "pick" && (await actionOf(2)) === "drop", JSON.stringify(chips));
+    const aboard = await playUntil(
+      () => {
+        const w = window.woodrail;
+        const bt = [...w.economy.boats.values()][0];
+        return (bt.load.paint ?? 0) > 0 && !bt.docked ? { load: { ...bt.load }, card: document.querySelector(".boat-card:not([hidden]) .boat-load")?.textContent ?? null } : null;
+      },
+      null,
+      400,
+    );
+    check("the tow takes the paint aboard at the first landing (barges carry any goods)", !!aboard && aboard.load.paint > 0, JSON.stringify(aboard));
+    check("…its card says what it carries", !!aboard && /paint/i.test(aboard.card ?? ""), String(aboard?.card));
+    // On its deck: crates of paint, drawn by the depots' instanced loads (no draw call of their own).
+    await p.waitForTimeout(1500);
+    const tugSail = await p.evaluate(() => {
+      const o = window.woodrail.riverBoats.tugOf([...window.woodrail.economy.boats.keys()][0]);
+      return o ? { x: o.position.x, z: o.position.z } : null;
+    });
+    if (tugSail) await look(tugSail, 700);
+    await frames();
+    const drawnPaint = await p.evaluate(() => window.woodrail.depotView.units.paint.n);
+    check("…the paint shown as crates on the barge's deck", drawnPaint > 0, `${drawnPaint} drawn`);
+    await shot("8b-paint-aboard");
+    const paintIn = await playUntil(
+      async (B) => {
+        const { CARGO } = await import("/src/economy/cargo.ts");
+        const w = window.woodrail;
+        const n = w.economy.depot(B).piles[CARGO.paint.index];
+        return n > 0 ? { n, delivered: w.economy.boatDelivered } : null;
+      },
+      B.depot,
+      400,
+    );
+    check("the paint comes off at the second landing, delivered by barge (the payoff)", !!paintIn && paintIn.n > 0 && paintIn.delivered > paintBefore, JSON.stringify({ paintIn, paintBefore }));
+    await look(quay(B), 1000);
+    await shot("8c-paint-delivered");
+    // Emptied there (Only drop), its card says what barges carry: the boat tapped again, its card read.
+    await playUntil(() => Object.values([...window.woodrail.economy.boats.values()][0].load).every((n) => !n), null, 60);
+    const tugEnd = await p.evaluate(() => {
+      const o = window.woodrail.riverBoats.tugOf([...window.woodrail.economy.boats.keys()][0]);
+      return o ? { x: o.position.x, y: 10, z: o.position.z } : null;
+    });
+    if (tugEnd && !(await p.evaluate(() => document.querySelector(".boat-card")?.hidden === false))) {
+      await look(tugEnd, 900);
+      await tapWorld(tugEnd);
+    }
+    await frames();
+    const empty = await p.evaluate(() => (document.querySelector(".boat-card")?.hidden === false ? document.querySelector(".boat-card .boat-load")?.textContent : null));
+    check("empty, its card says barges carry any goods", empty === "Empty: barges carry any goods", String(empty));
     // Paused: it holds still (its place by game time).
     await p.evaluate(() => (window.woodrail.paused = true));
     const at0 = await p.evaluate(() => JSON.stringify(window.woodrail.fleet.poses([...window.woodrail.economy.boats.values()][0], 0)));
