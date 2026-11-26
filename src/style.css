@@ -704,6 +704,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* Not while a card stands on the tray: its foot is just over the tray's edge, where the pull's reach would take its
      buttons' taps (e2e:learn-more's Learn more), and the card covers the map anyway. */
   .hud:has(.card:not([hidden])) .tray-fold { display: none; }
+  /* The Paused sign stands clear of the pull, and over the tray, so a tap on it is always the sign's (e2e:situation-
+     paused: its tap went to the pull's reach). */
+  .paused-sign { z-index: 1; bottom: calc(var(--tray-room, 156px) + 26px); }
   .tray-fold .ui-icon { width: 18px; height: 18px; transition: transform 0.2s ease-out; }
   .tray.folded .tray-fold .ui-icon { transform: rotate(180deg); }
   /* Folded: the tabs and tools only (Draw still draws: its line goes on the map, not the shelves). */
