@@ -693,6 +693,7 @@ interface LineInfo {
 /** A train on no line not held far back for a slot the dispatcher's train holds (`recover`): on (LOOSE_PASS=0: off). */
 const LOOSE_PASS = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).LOOSE_PASS !== "0";
 
+const ASIDE_SIG = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE_SIG !== "0";
 export class Sections {
   /** Off: nothing is held (for comparisons). */
   enabled = true;
@@ -2999,7 +3000,7 @@ export class Sections {
    */
   couldStepAside(engine: number): boolean {
     const lineId = this.host.lineOf(engine);
-    if (lineId < 0 || this.layout.signalCount > 0) return false;
+    if (lineId < 0 || (this.layout.signalCount > 0 && !ASIDE_SIG)) return false;
     return this.hasSpareEnd(lineId, this.line(lineId).topo);
   }
 
