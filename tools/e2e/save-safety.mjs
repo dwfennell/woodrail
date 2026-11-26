@@ -293,7 +293,9 @@ suite.add("guard", async () => {
   const added = s1.games.find((g) => g.id !== id);
   const note = await p.evaluate(() => document.querySelector(".games-sheet:not([hidden]) .games-note:not([hidden])")?.textContent ?? "");
   check("guard: …added beside it, saying so", !!added && /^770187-gentle \(\d+ \w{3} \d\d:\d\d\)$/.test(added.name) && /^Added “.*”\. Open it to play\.$/.test(note), JSON.stringify({ games: s1.games, note }));
+  const nav = p.waitForNavigation({ timeout: 120000 });
   check("guard: Open it", await tap(p, `.games-row[data-id="${added?.id}"] .games-open`));
+  await nav;
   await inGame(p);
   await settle(p);
   const s2 = await state(p);
