@@ -170,6 +170,8 @@ export const DETOUR_SOON = { on: ((globalThis as { process?: { env: Record<strin
 const DETOUR_SOON_S = 2;
 /** Short of all delivering, searched again with the others' holds free where they stand (`takenHere`): on (TAKEN_POS=0: off). */
 export const TAKEN_POS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_POS !== "0" };
+/** The stop-now rule for a train held where it stands only once it's wholly there, its tail car clear of the joint behind: on (STOP_IN=0: off). */
+export const STOP_IN = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).STOP_IN !== "0" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
@@ -1567,7 +1569,22 @@ export class Dispatcher {
     // it twice in three: unset grants overruled 221.)
     // (Held where it stands (no move granted), another train on the piece just beyond its front: it stops now, not at
     // its front piece's end against that one (own-01: turned at its line's end, it ran on nose to nose: netActed).)
-    if (h.end === h.t.at && OWNER.on) {
+    // (`STOP_IN`: only once it's in its place, every axle on its pieces: still running in, its tail back over the points
+    // behind, it runs on to its front piece's end (ring fuzz seed 6: stopped as it came into a loop's road with its tail
+    // on the points, the hand-run trains round the ring waited for it to clear them, and it for one of them).)
+    let inPlace = !STOP_IN.on || train.bogies.every((b) => h.t.pos[h.end].includes(b.pieceId));
+    if (STOP_IN.on && inPlace) {
+      // (…its tail car's end too, not still over the joint behind (its axle just onto its last piece).)
+      const tb = net > 0 ? train.bogies[train.bogies.length - 1] : train.bogies[0];
+      const tc = net > 0 ? train.cars[train.cars.length - 1] : train.cars[0];
+      const tp = layout.getPiece(tb.pieceId);
+      if (tp) {
+        const tlen = pathLength(getPieceDef(tp.type, tp.flipped).paths[tb.pathIndex].geom);
+        const into = net > 0 ? tb.s : tlen - tb.s;
+        if (into < CAR_SPECS[tc.kind].bogieInset + STAND_SHORT) inPlace = false;
+      }
+    }
+    if (h.end === h.t.at && OWNER.on && inPlace) {
       const ref = h.t.frontRef[h.end];
       const nx = ref >= 0 ? next(layout, pieceOfRef(ref), indexOfRef(ref)) : null;
       if (nx) for (const o of this.host.sim.trains()) if (o !== train && o.bogies.some((b) => b.pieceId === nx.pieceId)) return 0;
