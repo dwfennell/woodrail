@@ -26,7 +26,7 @@ describe("crash reports", () => {
     expect(got).not.toHaveProperty("map");
     expect(got).not.toHaveProperty("save");
     expect((got as { stack: string }).stack.length).toBe(MAX_STACK);
-    expect(parseCrash({ ...crash(), kind: "bug" })).toBe("kind must be error, rejection or context-lost");
+    expect(parseCrash({ ...crash(), kind: "bug" })).toBe("kind must be error, rejection, context-lost or save-mended");
   });
 
   it("stores a report from itch.io, listed newest first for the admin", async () => {

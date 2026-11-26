@@ -54,6 +54,7 @@ export const SUITES = {
   "new-game": { script: "e2e:new-game", minutes: 8 },
   saves: { script: "e2e:saves", minutes: 6 },
   "lost-save": { script: "e2e:lost-save", minutes: 3 },
+  "save-safety": { script: "e2e:save-safety", minutes: 5 },
   civic: { script: "e2e:civic", minutes: 5 },
   "paint-picker": { script: "e2e:paint-picker", minutes: 4 },
   stickers: { script: "e2e:stickers" },
@@ -373,6 +374,7 @@ export const RULES = [
   // Your games: several Game-mode games side by side (the slots, the list, the title's and ☰'s ways in, the cloud's).
   [["src/persist/slots.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/persist/cloud.ts", "src/ui/title.ts", "src/ui/new-game.ts", "src/ui/hud.ts", "src/main.ts"], ["saves"]],
   [["src/persist/slots.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/persist/save-limits.ts", "src/persist/bug-map.ts", "src/main.ts", "tools/e2e/lost-save.mjs"], ["lost-save"]],
+  [["src/persist/slots.ts", "src/persist/backups.ts", "src/persist/write-guard.ts", "src/persist/startup.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/main.ts", "tools/e2e/save-safety.mjs"], ["save-safety"]],
   [["src/persist/slots.ts", "src/persist/cloud.ts"], ["cloud", "new-game", "stats"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).
   ["src/test-setup.ts", []],

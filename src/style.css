@@ -853,6 +853,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .games-buttons .chip { flex: 1 1 0; min-width: 72px; min-height: 44px; justify-content: center; }
 .games-playing { flex: 1 1 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; color: var(--green); }
 .games-ask { flex: 1 1 100%; margin: 0; font-weight: 800; color: var(--stamp-red); }
+.games-row > .games-earlier-open { min-height: 44px; justify-content: center; }
+.games-earlier { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 8px; background: var(--mottle); box-shadow: inset 0 0 0 2px var(--maple-cut); }
+.games-earlier-none { margin: 0; font-size: 14px; line-height: 1.35; color: #5c4632; }
+.games-copy-item { display: flex; flex-direction: column; gap: 6px; }
+.games-copy-item + .games-copy-item { padding-top: 8px; border-top: 2px dashed var(--maple-cut); }
+.games-copy-facts { margin: 0; font-size: 14px; font-weight: 800; line-height: 1.35; color: var(--wood-ink); }
 @media (max-height: 500px) { .games-sheet .games-back { height: 44px; } .games-body { width: min(820px, 100%); padding-top: 8px; } }
 @media (prefers-reduced-motion: reduce) { .games-sheet:not([hidden]) { animation: none; } }
 /* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening. The

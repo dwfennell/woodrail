@@ -19,7 +19,7 @@ import { mapCode, parseMapCode, type MapSettings } from "./landscape/water";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText, readMapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
-import { deserializeWorld, GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, lockSaves, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
+import { describeLoad, deserializeWorld, GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, lockSaves, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, reportLine, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
@@ -153,7 +153,9 @@ import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hin
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
 import { nameOfLand, PICTURE_MAX_CHARS, SlotStore } from "./persist/slots";
-import { autosaveGame, openGameSave } from "./persist/startup";
+import { autosaveGame, openGameSave, type SaveSafety } from "./persist/startup";
+import { BackupStore } from "./persist/backups";
+import { WriteGuard } from "./persist/write-guard";
 import { GamesSheet, smallPicture } from "./ui/games-sheet";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
@@ -244,11 +246,21 @@ let olderSave = false;
  * game says, once, as it's entered. It's never saved over (`keepUnreadableGame`).
  */
 let unreadableNote: string | null = null;
+/** The open game loaded, but not all of it (`LoadReport`): what's said as it's entered, once, and sent as a crash report. */
+let lossyLoad: { say: string; line: string } | null = null;
+/** The open game loaded cleanly: its backup, taken a little after the game starts (`BackupStore`). */
+let backupAtLoad: (() => Promise<unknown>) | null = null;
 
 /** At start-up: the open Game save loaded once, one that won't load kept and never saved over (`openGameSave`). */
 async function keepUnreadableGame(): Promise<ReturnType<typeof loadFromStorage>> {
-  const { saved, note } = await openGameSave(slots);
+  const { saved, note, report, backup } = await openGameSave(slots, saveSafety);
   unreadableNote = note;
+  backupAtLoad = backup;
+  const say = describeLoad(report);
+  if (say) {
+    lossyLoad = { say, line: reportLine(report) };
+    console.warn(`Woodrail: the game's save loaded lossily: ${lossyLoad.line}`);
+  }
   return saved;
 }
 
@@ -270,6 +282,10 @@ function initialWorld(game: ReturnType<typeof loadFromStorage> | undefined = und
 }
 
 const RESUME_KEY = "woodrail.resume";
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** How long after start-up the open game's backup is taken (ms): off the loading's path, the keys as they loaded. */
+const BACKUP_AFTER_MS = 4000;
 
 /** Reload the page, then go straight back into this mode (saved first) rather than to the title. */
 function reloadInto(mode: GameMode, url?: string): void {
@@ -297,27 +313,33 @@ function takeResume(): string | null {
  * Game mode's games ("Your games": persist/slots.ts): the open one in the game's keys, the others parked. Mended (an
  * old single save made game 1) before anything reads them, the cloud too.
  */
-const slots = new SlotStore(
-  {
-    getItem: (k) => {
-      try {
-        return localStorage.getItem(k);
-      } catch {
-        return null;
-      }
-    },
-    setItem: (k, v) => localStorage.setItem(k, v),
-    removeItem: (k) => {
-      try {
-        localStorage.removeItem(k);
-      } catch {
-        // no storage
-      }
-    },
+const slotStorage = {
+  getItem: (k: string) => {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
   },
-  GAME_SLOT_KEYS,
-);
+  setItem: (k: string, v: string) => localStorage.setItem(k, v),
+  removeItem: (k: string) => {
+    try {
+      localStorage.removeItem(k);
+    } catch {
+      // no storage
+    }
+  },
+};
+const slots = new SlotStore(slotStorage, GAME_SLOT_KEYS);
 slots.startUp();
+
+/**
+ * Save safety (spec docs/superpowers/specs/2026-11-26-save-safety.md): each Game game's last good copies (`BackupStore`,
+ * beside Your games), and the write guard on Game mode's autosave. What it says goes to the HUD's toasts once the game
+ * is made (`sayToPlayer`).
+ */
+let sayToPlayer: (text: string) => void = (text) => console.warn(`Woodrail: ${text}`);
+const saveSafety: SaveSafety = { guard: new WriteGuard(), backups: new BackupStore(slotStorage, GAME_SLOT_KEYS), say: (text) => sayToPlayer(text) };
 
 /**
  * Cloud saves (see persist/cloud.ts), in a build with a cloud to save to (`VITE_CLOUD_URL`; not the artifact build):
@@ -1612,7 +1634,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     } else {
       // (The railway, its session tagged with the open game, and its progress: `autosaveGame`.)
       const data = progress.toJSON();
-      autosaveGame(game.world, slots, { ...session, situations: situations.toJSON() }, data);
+      autosaveGame(game.world, slots, { ...session, situations: situations.toJSON() }, data, saveSafety);
       // (Your games' goals and coins for it: now and then.)
       if (performance.now() - factsAt > FACTS_EVERY_MS) {
         factsAt = performance.now();
@@ -1779,6 +1801,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") || games > 0 }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") }, games);
   }
 
+  // Save safety's say goes to the toasts now; the game loaded cleanly at start: its backup, off the start-up path.
+  sayToPlayer = (text) => hud.toast(text, false, 12000);
+  if (backupAtLoad) {
+    const take = backupAtLoad;
+    backupAtLoad = null;
+    setTimeout(() => void take().catch((e: unknown) => console.warn("Woodrail: the game's backup wasn't taken", e)), BACKUP_AFTER_MS);
+  }
+
   /** Your games: every Game-mode game kept on the device. */
   const gamesSheet = new GamesSheet(document.body, {
     list: () => slots.list(),
@@ -1794,6 +1824,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     },
     remove: (id) => {
       slots.remove(id);
+      saveSafety.backups.removeGame(id);
       if (title.shown) showTitleCards();
     },
     addFromText: async (text) => {
@@ -1819,7 +1850,48 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (playing) game.paused = gamesPaused;
       hud.setPaused(game.paused);
     },
+    earlier: (id) => saveSafety.backups.list(id),
+    restoreAsGame: async (id, n) => {
+      const keys = await saveSafety.backups.read(id, n);
+      if (!keys) return { ok: false, say: "That copy couldn't be read back." };
+      const at = saveSafety.backups.list(id).find((b) => b.n === n)?.at ?? Date.now();
+      const d = new Date(at);
+      const r = await slots.add(keys, `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+      if (!r.ok) return { ok: false, say: r.error };
+      if (title.shown) showTitleCards();
+      return { ok: true, say: `Added “${r.value.name}”. Open it to play.` };
+    },
+    restoreOver: (id, n) => restoreOver(id, n),
   });
+
+  /**
+   * Your games' Replace on an earlier version: the game as it is now kept as a `replaced` copy first (read back: with
+   * no room for it, nothing's replaced), then its keys written (the open game's page starting again on them).
+   */
+  async function restoreOver(id: string, n: number): Promise<{ ok: boolean; say: string }> {
+    const keys = await saveSafety.backups.read(id, n);
+    if (!keys) return { ok: false, say: "That copy couldn't be read back." };
+    const isOpen = id === slots.openId;
+    if (isOpen && playing && mode === "game") save();
+    const now = await slots.keysOf(id);
+    if (now && !(await saveSafety.backups.take(id, now, "replaced"))) return { ok: false, say: "No room to keep the game as it is now, so nothing was replaced: delete a game first." };
+    if (isOpen) {
+      await flushCloud();
+      switching = true;
+    }
+    const r = await slots.replace(id, keys);
+    if (!r.ok) {
+      switching = false;
+      return { ok: false, say: r.error };
+    }
+    if (!isOpen) return { ok: true, say: "Replaced. What it was is kept as an earlier version." };
+    cloud?.edited("game");
+    playing = false;
+    clearTimeout(saveTimer);
+    saveLastMode("game");
+    reloadInto("game");
+    return { ok: true, say: "" };
+  }
   /** Paused or not when Your games was opened in play (it pauses the game: nothing's drawn behind it). */
   let gamesPaused = false;
   function openGames(note?: string): void {
@@ -7627,6 +7699,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (unreadableNote !== null) {
       hud.toast(unreadableNote, false, 12000);
       unreadableNote = null;
+    }
+    // (The game loaded, but not all of it: said, and sent as a crash report's counts and names, never the map.)
+    if (lossyLoad !== null && next === "game") {
+      hud.toast(lossyLoad.say, false, 12000);
+      crashes?.report("save-mended", { message: `save loaded lossily: ${lossyLoad.line}` });
+      lossyLoad = null;
     }
     if (olderSave) {
       olderSave = false;

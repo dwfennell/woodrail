@@ -6,6 +6,7 @@
  */
 import type { GameEntry } from "../persist/slots";
 import { NAME_MAX } from "../persist/slots";
+import type { Backup } from "../persist/backups";
 
 export interface GamesHandlers {
   list(): GameEntry[];
@@ -24,6 +25,15 @@ export interface GamesHandlers {
   addFromText?(text: string): Promise<{ ok: boolean; say: string }>;
   /** The sheet closed. */
   closed?(): void;
+  /** A game's earlier versions (its backups: spec 2026-11-26-save-safety.md), the newest first. */
+  earlier?(id: string): Backup[];
+  /** An earlier version added as a game beside the others (nothing replaced). What to say; `ok` when added. */
+  restoreAsGame?(id: string, n: number): Promise<{ ok: boolean; say: string }>;
+  /**
+   * The game replaced by an earlier version (the sheet asked first), what it is now kept as an earlier version before.
+   * What to say, if it couldn't (nothing changed); the open game's page starts again on it.
+   */
+  restoreOver?(id: string, n: number): Promise<{ ok: boolean; say: string }>;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
@@ -63,6 +73,20 @@ export function playedFor(ms: number): string {
   if (min < 60) return `${min} min`;
   const h = Math.floor(min / 60);
   return min % 60 === 0 ? `${h} h` : `${h} h ${min % 60} min`;
+}
+
+/** An earlier version's when: "Today 14:02", "16 Nov 09:30". */
+export function copyWhen(at: number, now = Date.now()): string {
+  const d = new Date(at);
+  return `${playedWhen(at, now)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Why a copy was kept, in a word or two. */
+const COPY_KIND: Record<Backup["kind"], string> = { load: "Opened", day: "Day's copy", kept: "Kept safe", replaced: "Before a restore" };
+
+/** An earlier version's line: when, its trains, pieces and coins, and why it was kept. */
+export function copyFacts(b: Backup, now = Date.now()): string {
+  return `${copyWhen(b.at, now)} · ${b.trains === 1 ? "1 train" : `${b.trains} trains`} · ${b.pieces} pieces · ${b.coins} 🪙 · ${COPY_KIND[b.kind]}`;
 }
 
 /** A game's line under its name. */
@@ -214,7 +238,58 @@ export class GamesSheet {
     buttons.append(chip("Rename", "games-rename", () => this.renaming(row, g)), copy);
     if (!isPlaying) buttons.append(chip("Delete", "games-delete", () => this.confirming(row, g)));
     row.append(top, buttons);
+    if (this.h.earlier) {
+      const shown = this.earlierOpen === g.id;
+      const toggle = chip(shown ? "Hide earlier versions" : "Restore an earlier version", "games-earlier-open", () => {
+        this.earlierOpen = shown ? null : g.id;
+        this.draw();
+      });
+      toggle.setAttribute("aria-expanded", String(shown));
+      row.append(toggle);
+      if (shown) row.append(this.earlier(g, now));
+    }
     return row;
+  }
+
+  /** The game whose earlier versions are shown (one at a time), or null. */
+  private earlierOpen: string | null = null;
+
+  /** A game's earlier versions: each with Add as a game and Replace (which asks first). */
+  private earlier(g: GameEntry, now: number): HTMLElement {
+    const box = el("div", "games-earlier");
+    const copies = this.h.earlier!(g.id);
+    if (copies.length === 0) {
+      box.append(el("p", "games-earlier-none", "No earlier versions yet. One is kept each time the game opens, and one a day."));
+      return box;
+    }
+    const run = async (b: HTMLButtonElement, go: () => Promise<{ ok: boolean; say: string }>) => {
+      for (const x of this.listEl.querySelectorAll("button")) x.disabled = true;
+      b.classList.add("busy");
+      let r: { ok: boolean; say: string };
+      try {
+        r = await go();
+      } finally {
+        b.classList.remove("busy");
+      }
+      if (this.root.hidden) return;
+      this.draw();
+      this.say(r.say, r.ok);
+      this.root.querySelector(".games-body")?.scrollTo({ top: 0 });
+    };
+    for (const c of copies) {
+      const item = el("div", "games-copy-item");
+      item.dataset.n = String(c.n);
+      const buttons = el("div", "games-buttons");
+      const add: HTMLButtonElement = chip("Add as a game", "games-copy-add", () => void run(add, () => this.h.restoreAsGame!(g.id, c.n)));
+      const replace = chip("Replace", "games-copy-replace", () => {
+        const yes: HTMLButtonElement = chip("Replace", "danger games-copy-confirm", () => void run(yes, () => this.h.restoreOver!(g.id, c.n)));
+        buttons.replaceChildren(el("p", "games-ask", `Replace “${g.name}” with this copy? What it is now is kept as an earlier version.`), yes, chip("Keep", "games-copy-keep", () => this.draw()));
+      });
+      buttons.append(add, replace);
+      item.append(el("p", "games-copy-facts", copyFacts(c, now)), buttons);
+      box.append(item);
+    }
+    return box;
   }
 
   /** Rename: the name becomes a box, with Save and Cancel. */

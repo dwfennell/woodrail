@@ -315,14 +315,75 @@ export function mendTooBig(data: unknown, issues: readonly { code: string; path:
   return copy;
 }
 
-/** Rebuild a world from saved data. Never throws on bad input. */
-export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}): Result<World, string> {
+/**
+ * What a load brought down to a limit (`clamped`) or left out (`dropped`), by what it was, counted: a load that keeps
+ * everything leaves both empty (spec 2026-11-26-save-safety.md, layer 4). Said in a toast and sent as a crash report's
+ * counts and names (never the map).
+ */
+export interface LoadReport {
+  clamped: Record<string, number>;
+  dropped: Record<string, number>;
+}
+
+export const newLoadReport = (): LoadReport => ({ clamped: {}, dropped: {} });
+
+/** How many things a load clamped or dropped. */
+export const reportCount = (r: LoadReport): number => [...Object.values(r.clamped), ...Object.values(r.dropped)].reduce((a, n) => a + n, 0);
+
+/** A schema path as a report's name: the indices left out ("depots.3.piles.0" is "depots.piles"). */
+export const pathName = (path: readonly PropertyKey[]): string => path.filter((k) => typeof k === "string" && !/^\d+$/.test(k)).join(".") || "save";
+
+const note = (to: Record<string, number> | undefined, what: string, n = 1): void => {
+  if (to && n > 0) to[what] = (to[what] ?? 0) + n;
+};
+
+const NAMES: Record<string, readonly [string, string]> = {
+  trains: ["train", "trains"],
+  piles: ["pile", "piles"],
+  loads: ["wagon load", "wagon loads"],
+  riders: ["coach's riders", "coaches' riders"],
+  signals: ["signal", "signals"],
+  joints: ["joint", "joints"],
+  boats: ["boat", "boats"],
+  "yard orders": ["yard order", "yard orders"],
+  ruins: ["ruin", "ruins"],
+  "town records": ["town record", "town records"],
+  "landed goods": ["quay's goods", "quays' goods"],
+  "barge loads": ["barge load", "barge loads"],
+};
+
+/** One count of a report, in words: "1 train", "2 piles", "1 number (depots.waiting)". */
+function counted(what: string, n: number): string {
+  const name = NAMES[what] ?? NAMES[what.split(".").pop()!];
+  return name ? `${n} ${name[n === 1 ? 0 : 1]}` : `${n} ${n === 1 ? "number" : "numbers"} (${what})`;
+}
+
+/** What a load lost, for the player: null when it lost nothing. */
+export function describeLoad(r: LoadReport): string | null {
+  const cut = Object.entries(r.clamped).map(([k, n]) => `${counted(k, n)} cut to the limit`);
+  const left = Object.entries(r.dropped).map(([k, n]) => `${counted(k, n)} left out`);
+  const all = [...left, ...cut];
+  return all.length === 0 ? null : `Your game loaded, but this version couldn't keep all of it: ${all.join(", ")}.`;
+}
+
+/** A report's counts and names alone, for a crash report ("dropped trains×1; clamped depots.piles×2"): never the map. */
+export function reportLine(r: LoadReport): string {
+  const part = (label: string, o: Record<string, number>) => (Object.keys(o).length ? [`${label} ${Object.entries(o).map(([k, n]) => `${k}×${n}`).join(", ")}`] : []);
+  return [...part("dropped", r.dropped), ...part("clamped", r.clamped)].join("; ");
+}
+
+/** Rebuild a world from saved data. Never throws on bad input. `report`: what it clamped or dropped, counted. */
+export function deserializeWorld(data: unknown, opts: { sandbox?: boolean; report?: LoadReport } = {}): Result<World, string> {
+  const clamped = opts.report?.clamped;
+  const dropped = opts.report?.dropped;
   // An older save: turned away (not migrated); a v12 one is read as it is (the same shape).
   const version = (data as { version?: unknown } | null)?.version;
   if (typeof version === "number" && version < MIGRATES_FROM) return err(OLDER_SAVE);
   const oldStoreys = typeof version === "number" && version < TOWN_STOREYS_FROM;
   if (typeof version === "number" && version < SAVE_VERSION) data = { ...(data as object), version: SAVE_VERSION };
   let parsed = saveSchemas().saveSchema.safeParse(data);
+  /** Where numbers were brought down to a schema limit (counted once: not again as cut to a pile's cap). */
+  const mendedAt = new Set<string>();
   if (!parsed.success) {
     // Only numbers over a limit (a count an upgrade took past what the schema allows: 2026-11-23, a stacked
     // warehouse's 72 planks against 40)? Brought down to the limit, and the save loads, rather than all of it lost.
@@ -331,6 +392,10 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       const again = saveSchemas().saveSchema.safeParse(mended);
       if (again.success) {
         console.warn(`Woodrail: save mended: ${parsed.error.issues.map((i) => `${i.path.join(".")} → ${(i as { maximum?: unknown }).maximum}`).join(", ")}`);
+        for (const i of parsed.error.issues) {
+          note(clamped, pathName(i.path));
+          mendedAt.add(i.path.join("."));
+        }
         parsed = again;
       }
     }
@@ -348,7 +413,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   }
   // Joined as they were when saved (QA: joints a drawn line closed a little past the tolerance held while playing,
   // then were refused on loading, and the line split). Pieces that meet within it, and aren't in the list, seat anyway.
-  for (const [pa, ia, pb, ib] of save.joints ?? []) layout.restoreJoint(connectorRef(pa, ia), connectorRef(pb, ib));
+  for (const [pa, ia, pb, ib] of save.joints ?? []) if (!layout.restoreJoint(connectorRef(pa, ia), connectorRef(pb, ib))) note(dropped, "joints");
   // (A save from before the wye's three levers: its one lever set every corner alike.)
   const leversOf = (id: number, state: number): number => {
     const p = save.wyeLevers === undefined ? layout.getPiece(id) : undefined;
@@ -390,6 +455,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       continue;
     }
     site.cleared = true;
+    note(dropped, "ruins");
     const g = landscape.grid;
     g.forEachCell((i) => {
       if (g.feature[i] === FEAT_RUIN && g.owner[i] === site.id) {
@@ -401,7 +467,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   // An older save's joints past the tolerance (parted by seating afresh), joined again before the trains go on.
   const broughtBack = save.joints ? [] : layout.seatNearMisses();
   // (Marks go on joints: after every joint is back. One whose joint didn't come back is dropped.)
-  for (const [pieceId, index, style, mode] of save.signals ?? []) layout.addSignal(connectorRef(pieceId, index), style, mode === "green" ? "green" : mode);
+  for (const [pieceId, index, style, mode] of save.signals ?? []) if (layout.addSignal(connectorRef(pieceId, index), style, mode === "green" ? "green" : mode) < 0) note(dropped, "signals");
   const sim = new Sim(layout);
   // The economy's depots as they were, in order: one on each depot piece and station.
   const economy = new Economy(layout, sim);
@@ -452,7 +518,12 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     const kept = pilesOf(state.role);
     // (A warehouse's piles may have stacked higher with Lift and load, set again with the research after the load.)
     const cap = state.role === "warehouse" ? capAt(state) * LIFT_STACK : capAt(state);
-    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(cap, d.piles[CARGO[kind].index] ?? 0) : 0;
+    for (const kind of CARGO_KINDS) {
+      const n = d.piles[CARGO[kind].index] ?? 0;
+      state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(cap, n) : 0;
+      if (!kept.includes(kind)) note(dropped, "piles", n > 0 ? 1 : 0);
+      else if (n > cap && !mendedAt.has(`depots.${i}.piles.${CARGO[kind].index}`)) note(clamped, "piles");
+    }
     state.timer = d.timer;
     if (d.role === "town" || d.role === "airport") state.waiting = d.waiting ?? 0;
     if (d.role === "town" && d.vanYard) {
@@ -469,39 +540,45 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     // Bought goods on a harbour's quay stay landed (the next boat doesn't take them back).
     if (d.landed) for (const kind of CARGO_KINDS) {
       const n = Math.min(d.landed[CARGO[kind].index] ?? 0, state.piles[CARGO[kind].index]);
+      if ((d.landed[CARGO[kind].index] ?? 0) > n) note(clamped, "landed goods");
       if (n > 0) {
         state.piles[CARGO[kind].index] -= n;
         economy.land(state, kind, n);
       }
     }
   }
-  for (const [townId, n] of save.delivered) if (landscape.towns.some((t) => t.id === townId)) economy.delivered.set(townId, n);
+  const isTown = (townId: number): boolean => {
+    const there = landscape.towns.some((t) => t.id === townId);
+    if (!there) note(dropped, "town records");
+    return there;
+  };
+  for (const [townId, n] of save.delivered) if (isTown(townId)) economy.delivered.set(townId, n);
   for (const [townId, bag] of save.deliveredGoods ?? []) {
-    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    if (!isTown(townId)) continue;
     const goods: Bag = {};
     for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
     economy.deliveredGoods.set(townId, goods);
   }
   for (const [townId, id, bag] of save.placePlans ?? []) {
-    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    if (!isTown(townId)) continue;
     const got: Bag = {};
     for (const k of CARGO_KINDS) if (bag[k]) got[k] = bag[k];
     economy.placePlans.set(townId, { id, got });
   }
   for (const [id, townId, stage, bag, prop, riders] of save.grandPlans ?? []) {
-    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    if (!isTown(townId)) continue;
     const got: Bag = {};
     for (const k of CARGO_KINDS) if (bag[k]) got[k] = bag[k];
     economy.grandPlans.set(id, { townId, stage, got, prop, ...(riders ? { riders } : {}) });
   }
   for (const [townId, bag] of save.grandGift ?? []) {
-    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    if (!isTown(townId)) continue;
     const goods: Bag = {};
     for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
     economy.grandGift.set(townId, goods);
   }
   for (const [townId, bag] of save.roadGot ?? []) {
-    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    if (!isTown(townId)) continue;
     const goods: Bag = {};
     for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
     economy.roadGot.set(townId, goods);
@@ -516,12 +593,17 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   sim.setIdCounters({ car: Math.max(save.ids?.car ?? 1, top + 1), train: save.ids?.train ?? 1 });
   for (const t of save.trains) {
     const lead = layout.getPiece(t.lead.pieceId);
-    if (!lead) continue;
-    const path = getPieceDef(lead.type, lead.flipped).paths[t.lead.pathIndex];
-    if (!path || t.lead.s < 0 || t.lead.s > pathLength(path.geom)) continue;
+    const path = lead ? getPieceDef(lead.type, lead.flipped).paths[t.lead.pathIndex] : undefined;
+    if (!path || t.lead.s < 0 || t.lead.s > pathLength(path.geom)) {
+      note(dropped, "trains");
+      continue;
+    }
     const ids = t.cars.every((c) => c.id !== undefined && !used.has(c.id)) && new Set(t.cars.map((c) => c.id)).size === t.cars.length ? t.cars.map((c) => c.id!) : undefined;
     const placed = sim.putBack(t.cars.map((c) => c.kind), t.lead, ids);
-    if (placed.kind !== "placed") continue;
+    if (placed.kind !== "placed") {
+      note(dropped, "trains");
+      continue;
+    }
     if (ids) for (const id of ids) used.add(id);
     const train = sim.getTrain(placed.trainId)!;
     // Running on as it was (only where it was saved: a train put back elsewhere starts at rest).
@@ -541,6 +623,8 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
         if (economy.lineIdOf.get(car.id) === on.id) economy.sections.restorePlace(car.id, on.id, on);
       }
       const cargo = t.cars[i].cargo;
+      if (cargo && !canCarry(car.kind, cargo.kind)) note(dropped, "loads");
+      if (cargo && cargo.count > MAX_WAGON_CAPACITY) note(clamped, "loads");
       if (cargo && canCarry(car.kind, cargo.kind)) {
         // (A heavy wagon's load, the Smithy's 5, kept whole: the economy's capacity is the plain wagon's until the
         // research is applied after the load, and its 2 more were lost on every reload. Save limits' guard, 2026-11-26.)
@@ -554,6 +638,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       // A wagon's goods switched off on its card (only goods it can carry).
       for (const kind of t.cars[i].off ?? []) if (canCarry(car.kind, kind)) economy.setCarTakes(car.id, kind, false);
       const riders = t.cars[i].riders;
+      if (riders && !(car.kind === "passenger" && economy.depot(riders.from)?.role === "town")) note(dropped, "riders");
       if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") {
         economy.setRiders(car.id, riders.count, riders.from);
         // (Their places, spec 2026-11-15-passenger-destinations.md: an old save's riders want anywhere.)
@@ -570,7 +655,10 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   for (const y of save.yards ?? []) {
     const role = economy.depot(y.depot)?.role;
     const fits = (role === "boatyard" && (y.build === "tug" || y.build === "barge")) || (role === "shipyard" && (y.build === "ship" || y.build === "ferry"));
-    if (!fits) continue;
+    if (!fits) {
+      note(dropped, "yard orders");
+      continue;
+    }
     const got: Partial<Record<CargoKind, number>> = {};
     for (const [k, n] of Object.entries(y.got)) if ((CARGO_KINDS as readonly string[]).includes(k)) got[k as CargoKind] = n;
     economy.yardOrders.set(y.depot, { build: y.build, got });
@@ -581,12 +669,16 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
   let boatId = 1;
   for (const b of save.boats ?? []) {
     const stops = b.stops.filter(([d]) => isDock(economy.depot(d))).map(([depotId, action]) => ({ depotId, action }));
-    if (stops.length === 0) continue;
+    if (stops.length === 0) {
+      note(dropped, "boats");
+      continue;
+    }
     const load: BoatState["load"] = {};
     let room = b.barges * BARGE_LOADS;
     for (const [k, n] of Object.entries(b.load)) {
       if (!(CARGO_KINDS as readonly string[]).includes(k) || !isBulk(k as CargoKind)) continue;
       const take = Math.min(n, room);
+      if (take < n) note(clamped, "barge loads");
       if (take > 0) load[k as CargoKind] = take;
       room -= take;
     }
@@ -651,11 +743,31 @@ export const savesLocked = (mode: GameMode): boolean => locked.has(mode);
 
 export function saveToStorage(world: World, mode: GameMode = "sandbox"): boolean {
   if (locked.has(mode)) return false;
+  return writeSave(mode, JSON.stringify(serializeWorld(world)));
+}
+
+/** The mode's railway as stored (its text), or null. */
+export function readSave(mode: GameMode): string | null {
   try {
-    localStorage.setItem(STORAGE_KEYS[mode], JSON.stringify(serializeWorld(world)));
-    return true;
+    return localStorage.getItem(STORAGE_KEYS[mode]);
   } catch {
-    return false;
+    return null;
+  }
+}
+
+/**
+ * Write a railway's text as the mode's save (not while its saves are locked). `freeRoom`: when it doesn't fit, asked to
+ * make room (a backup let go: `BackupStore.freeOne`) and tried again while it does. True when it's written.
+ */
+export function writeSave(mode: GameMode, raw: string, freeRoom?: () => boolean): boolean {
+  if (locked.has(mode)) return false;
+  for (;;) {
+    try {
+      localStorage.setItem(STORAGE_KEYS[mode], raw);
+      return true;
+    } catch {
+      if (!freeRoom?.()) return false;
+    }
   }
 }
 
@@ -692,7 +804,7 @@ export function hasSave(mode: GameMode): boolean {
   }
 }
 
-export function loadFromStorage(mode: GameMode = "sandbox"): Result<World, string> | null {
+export function loadFromStorage(mode: GameMode = "sandbox", report?: LoadReport): Result<World, string> | null {
   let raw: string | null = null;
   try {
     raw = localStorage.getItem(STORAGE_KEYS[mode]);
@@ -706,7 +818,7 @@ export function loadFromStorage(mode: GameMode = "sandbox"): Result<World, strin
   } catch {
     return err("autosave is not valid JSON");
   }
-  const loaded = deserializeWorld(data, { sandbox: mode === "sandbox" });
+  const loaded = deserializeWorld(data, { sandbox: mode === "sandbox", report });
   // A save turned away (an older one, or one this build can't read): kept under a key of its own, so the fresh map's
   // autosave doesn't overwrite it. (Game mode also parks it in Your games: `SlotStore.keepUnreadable`.)
   if (!loaded.ok) keepAside(raw, loaded.error === OLDER_SAVE ? backupKey(mode, (data as { version: number }).version) : unreadableKey(mode, raw));
