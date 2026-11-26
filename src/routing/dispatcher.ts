@@ -137,8 +137,8 @@ export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<strin
 /** A train that has just turned round asks at once, its way built again from the way it now faces (`tick`): on (TURN_ASK=0: off). */
 /** A hand-run train's facing points thrown to a free road ahead of it, the road they lie for a routed train's (`tick`): on (HAND_AHEAD=0: off). */
 export const HAND_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HAND_AHEAD !== "0" };
-/** A grant kept through a rebuild only onto pieces it was granted (`trainsOf`): KEEP_PIECES=1 (measuring). */
-export const KEEP_PIECES = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_PIECES === "1" };
+/** A grant kept through a rebuild only onto pieces it was granted (`trainsOf`): on (KEEP_PIECES=0: off). */
+export const KEEP_PIECES = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_PIECES !== "0" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
