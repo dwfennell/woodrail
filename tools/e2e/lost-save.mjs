@@ -131,7 +131,8 @@ try {
   check("3. Load a map from text", await tap(p, ".games-sheet .games-load-open"));
   await p.fill(".games-load-text", TEXT);
   check("3. Add to Your games", await tap(p, ".games-sheet .games-load-add"));
-  await p.waitForTimeout(600);
+  // (The add gzips the game: on a slow page that's seconds, so wait for its note, not a set time.)
+  await p.waitForFunction(() => /Added|Couldn't|No room/.test(document.querySelector(".games-sheet:not([hidden]) .games-note:not([hidden])")?.textContent ?? ""), null, { timeout: 60000 }).catch(() => {});
   s = await parked();
   await shot(p, "3-added");
   const added = s.games.find((g) => g.name === "770187-gentle (from text)");
