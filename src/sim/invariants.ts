@@ -431,7 +431,8 @@ export class Invariants {
       return;
     }
     const at = this.signalFaced(t, net > 0);
-    if (at === null || !sim.signalList().find((g) => g.key === at)?.clear) {
+    // (As the player is shown it: red for a train held standing at it, `Sim.shownRed`.)
+    if (at === null || !sim.signalList().find((g) => g.key === at)?.clear || sim.shownRedAt(at)) {
       m.green = 0;
       m.greenSaid = false;
       return;

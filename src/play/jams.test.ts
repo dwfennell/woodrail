@@ -22,6 +22,27 @@ const MAPS = Object.fromEntries(
 const ONLY = ENV.JAMS_MAPS ? new Set(ENV.JAMS_MAPS.split(",")) : null;
 const SECONDS = Number(ENV.JAMS_SECONDS ?? 1800);
 
+/** A stand logged (JAMS_STANDS): over this long (s). */
+const STAND_S = Number(ENV.JAMS_STAND_S ?? 20);
+/** Busy where it stands by its own choice (dev-checks' `BUSY`): no stand. */
+const STAND_BUSY: ReadonlySet<string> = new Set(["worked", "at-stop", "spacing", "turning-back", "lift", "lift-bridge", "too-heavy", "no-power", "rack", "stopped", "starting", "derailed"]);
+interface StandRec {
+  engine: number;
+  name: string;
+  at: number;
+  seconds: number;
+  kinds: Record<string, number>;
+  piece: number;
+  end: string;
+  by: number;
+  byName: string;
+  byMoved: number;
+  byMovingS: number;
+  byKinds: Record<string, number>;
+  /** The most seconds any other train moved during it. */
+  anyMovingS: number;
+}
+
 /** Decision times (ms): p50, p98, max. */
 const msOf = (xs: readonly number[]) => {
   const s = [...xs].sort((a, b) => a - b);
@@ -47,6 +68,7 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
       world.economy.useDispatcher(DISPATCHER);
       if (DISPATCHER && ENV.JAMS_DEBUG) world.economy.dispatcher!.debug = true;
       const t0 = performance.now();
+      let hooksEnd: ((now: number) => void) | null = null;
       // (JAMS_SHADOW: the dispatcher's first report (routing/dispatch-shadow.ts): each jam judged now and as it stood
       // `BEFORE_S` before it began, from where every train stood each second.)
       const shadow: { at: number; engine: number; verdict: string; now: Judgement; before: Judgement | null; backUp?: { best: number; by: number; tried: number; ms: number } }[] = [];
@@ -127,8 +149,80 @@ describe.skipIf(!ENV.JAMS)("the jams bar: the reference maps, each jam cleared a
           dispatch!.tick();
         };
       }
+      // (JAMS_STANDS: every routed train's stand over `STAND_S` (lever on, still, not busy by its own choice), with what
+      // its card said (by the seconds), the train it named, and how far that train moved meanwhile: a proper wait has
+      // the other train using the track; a needless one has it standing too, or none named.)
+      const stands: StandRec[] = [];
+      if (ENV.JAMS_STANDS) {
+        const eco = world.economy;
+        const sim = world.sim;
+        type Open = { engine: number; name: string; at: number; seconds: number; kinds: Record<string, number>; piece: number; by: Map<number, number>; moved: Map<number, number>; movingS: Map<number, number>; byKinds: Record<string, number> };
+        const open = new Map<number, Open>();
+        const trainOfId = (id: number) => sim.findCar(id)?.train ?? sim.getTrain(id) ?? null;
+        const close = (e: number, _now: number, how: string) => {
+          const o = open.get(e)!;
+          open.delete(e);
+          if (o.seconds < STAND_S) return;
+          let top = -1;
+          let n = 0;
+          for (const [b, k] of o.by) if (k > n) [top, n] = [b, k];
+          stands.push({ engine: o.engine, name: o.name, at: o.at, seconds: o.seconds, kinds: o.kinds, piece: o.piece, end: how, by: top, byName: top >= 0 ? sim.nameOf(top) || String(top) : "", byMoved: top >= 0 ? Math.round(o.moved.get(top) ?? 0) : 0, byMovingS: top >= 0 ? (o.movingS.get(top) ?? 0) : 0, byKinds: o.byKinds, anyMovingS: Math.max(0, ...o.movingS.values()) });
+        };
+        const second = hooks.second;
+        hooks.second = (now) => {
+          second?.(now);
+          const seen = new Set<number>();
+          for (const t of sim.trains()) {
+            const eng = t.cars.find((c) => c.kind === "engine");
+            if (!eng || eng.lever === 0 || t.derailed || !eco.lineIdOf.has(eng.id)) continue;
+            const st = trainState(sim, eco, t, eng.lever);
+            const busy = STAND_BUSY.has(st.kind);
+            if (t.speed !== 0 || busy) {
+              if (open.has(eng.id)) close(eng.id, now, "moved");
+              continue;
+            }
+            seen.add(eng.id);
+            let o = open.get(eng.id);
+            if (!o) {
+              o = { engine: eng.id, name: sim.nameOf(eng.id) || String(eng.id), at: now, seconds: 0, kinds: {}, piece: t.bogies[0].pieceId, by: new Map(), moved: new Map(), movingS: new Map(), byKinds: {} };
+              open.set(eng.id, o);
+            }
+            o.seconds++;
+            const k = st.kind === "stuck" ? `stuck:${st.why}` : st.kind;
+            o.kinds[k] = (o.kinds[k] ?? 0) + 1;
+            const byId = (st as { by?: number }).by ?? sim.heldBy(t.id) ?? undefined;
+            const bt = byId === undefined ? null : sim.findCar(byId)?.train ?? sim.getTrain(byId) ?? null;
+            if (bt && bt.id !== t.id) {
+              const be = bt.cars.find((c) => c.kind === "engine")?.id ?? bt.cars[0].id;
+              o.by.set(be, (o.by.get(be) ?? 0) + 1);
+              const bs = trainState(sim, eco, bt, bt.cars.find((c) => c.kind === "engine")?.lever ?? 0);
+              const bk = bs.kind === "stuck" ? `stuck:${bs.why}` : bs.kind;
+              o.byKinds[bk] = (o.byKinds[bk] ?? 0) + 1;
+            }
+            // (Every other train's motion this second, so the named one's is known once the stand closes.)
+            for (const ot of sim.trains()) {
+              if (ot.id === t.id) continue;
+              const oe = ot.cars.find((c) => c.kind === "engine")?.id ?? ot.cars[0].id;
+              if (ot.speed !== 0) {
+                o.moved.set(oe, (o.moved.get(oe) ?? 0) + Math.abs(ot.speed));
+                o.movingS.set(oe, (o.movingS.get(oe) ?? 0) + 1);
+              }
+            }
+          }
+          for (const e of [...open.keys()]) if (!seen.has(e)) close(e, now, trainOfId(e) ? "busy" : "cleared");
+        };
+        const jam = hooks.jam;
+        hooks.jam = (now, engine, since) => {
+          jam?.(now, engine, since);
+          if (open.has(engine)) close(engine, now, "cleared");
+        };
+        hooksEnd = (now) => {
+          for (const e of [...open.keys()]) close(e, now, "end");
+        };
+      }
       const r = runJams(world, SECONDS, hooks, seed);
-      const line = { map: file, seed, jams: r.jams, arrivals: r.arrivals, byEngine: Object.fromEntries(Object.entries(r.byEngine).map(([e, n]) => [`${e} ${r.names[Number(e)]}`, n])), longestStand: r.longestStand, runningMean: Math.round(r.runningMean * 100) / 100, running: r.running, firstJam: r.firstJam, stuckBefore: r.stuckBefore, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}), ...(world.economy.dispatcher ? { dispatcher: { decisions: world.economy.dispatcher.decisions, reserved: world.economy.dispatcher.reservedRefused, unsafeRefused: world.economy.dispatcher.unsafeRefused, grants: world.economy.dispatcher.grants, detours: world.economy.dispatcher.detours, timedGo: world.economy.dispatcher.timedGo, timedWhy: Object.fromEntries(world.economy.dispatcher.timedWhy), overruled: Object.fromEntries([...world.economy.dispatcher.overruled].map(([k, v]) => [k, Math.round(v)])), heldBlocked: world.economy.dispatcher.heldBlocked, ms: msOf(world.economy.dispatcher.decisionMs), heldOrder: world.economy.dispatcher.heldOrder, notes: world.economy.dispatcher.notes, perTrain: Object.fromEntries(world.economy.dispatcher.perTrain), offWay: world.economy.dispatcher.offWay, givenBack: world.economy.dispatcher.givenBack, offNotes: world.economy.dispatcher.offNotes } } : {}) };
+      hooksEnd?.(SECONDS);
+      const line = { map: file, seed, jams: r.jams, arrivals: r.arrivals, byEngine: Object.fromEntries(Object.entries(r.byEngine).map(([e, n]) => [`${e} ${r.names[Number(e)]}`, n])), longestStand: r.longestStand, runningMean: Math.round(r.runningMean * 100) / 100, running: r.running, firstJam: r.firstJam, stuckBefore: r.stuckBefore, firstBreak: r.firstBreak, seconds: r.seconds, ms: Math.round(performance.now() - t0), log: r.log, ...(ENV.JAMS_SHADOW ? { shadow } : {}), ...(ENV.JAMS_STANDS ? { stands } : {}), ...(ENV.JAMS_STRETCH ? { stretch } : {}), ...(dispatch ? { dispatch: dispatch.summary() } : {}), ...(world.economy.dispatcher ? { dispatcher: { decisions: world.economy.dispatcher.decisions, reserved: world.economy.dispatcher.reservedRefused, unsafeRefused: world.economy.dispatcher.unsafeRefused, grants: world.economy.dispatcher.grants, detours: world.economy.dispatcher.detours, timedGo: world.economy.dispatcher.timedGo, timedWhy: Object.fromEntries(world.economy.dispatcher.timedWhy), overruled: Object.fromEntries([...world.economy.dispatcher.overruled].map(([k, v]) => [k, Math.round(v)])), heldBlocked: world.economy.dispatcher.heldBlocked, ms: msOf(world.economy.dispatcher.decisionMs), heldOrder: world.economy.dispatcher.heldOrder, notes: world.economy.dispatcher.notes, perTrain: Object.fromEntries(world.economy.dispatcher.perTrain), offWay: world.economy.dispatcher.offWay, givenBack: world.economy.dispatcher.givenBack, offNotes: world.economy.dispatcher.offNotes } } : {}) };
       (globalThis as { process?: { stdout: { write(s: string): void } } }).process?.stdout.write(`\nJAMS ${JSON.stringify(line)}\n`);
     }, 3_600_000);
   }

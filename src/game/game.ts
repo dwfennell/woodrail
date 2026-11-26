@@ -1835,9 +1835,10 @@ export class Game {
   private markAspects(): { markClear(id: number): boolean; readonly signalsVersion: number } {
     const game = this;
     return {
-      markClear: (id) => game.sim.markClear(id),
+      // (As the player is shown them: a train held standing at one shows it red, `Sim.shownRed`.)
+      markClear: (id) => game.sim.markShown(id),
       get signalsVersion() {
-        return game.sim.signalsVersion;
+        return game.sim.shownVersion;
       },
     };
   }
