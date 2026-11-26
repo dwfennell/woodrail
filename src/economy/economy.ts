@@ -1,4 +1,4 @@
-import { connectorRef, getPieceDef, indexOfRef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathExitConnector, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { connectorRef, DOUBLE_TRACK_SPACING, getPieceDef, indexOfRef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathExitConnector, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, brakeTo, CAR_SPECS, COUPLER_GAP, flipCursor, SIM_DT, SIM_HZ, walkTrack, type Cursor, type Sim, type Train } from "../sim";
 import { LineTally } from "./line-tally";
 
@@ -1125,10 +1125,17 @@ export class Economy {
     return this.tracks.get(depotId);
   }
 
-  /** A depot's further tracks on the map now (its roads, in order: track 2, track 3). */
+  /**
+   * A depot's further tracks on the map now, beside its yard (its roads, in order: track 2, track 3). One left behind
+   * when the yard was moved isn't one of its tracks (the user's 2026-11-26 map: Warehouse 2 moved onto the main line,
+   * its second and third tracks lying loose where it was, so its card said "It has 3 tracks already" and offered no
+   * second track beside it where it stands now); moved back beside it, it is again.
+   */
   roadsOf(depotId: number): readonly DepotState[] {
     const t = this.tracks.get(depotId);
-    return t ? t.roads.filter((r) => this.onMap(r)) : NO_ROADS;
+    if (!t) return NO_ROADS;
+    const yard = this.depots[depotId];
+    return t.roads.filter((r) => this.onMap(r) && (!yard || besideYard(this.layout, yard.pieceId, r.pieceId)));
   }
 
   /** How many tracks a depot has now: its own, and its roads on the map. */
@@ -4329,4 +4336,23 @@ export function riderStop(d: Pick<DepotState, "role">): boolean {
 /** The "town" a rider stop is for: its town's id, or for an airport its own (no town's: −2 less its depot id). */
 function stopTown(d: Pick<DepotState, "role" | "townId" | "id">): number {
   return d.role === "airport" || d.role === "mast" ? -2 - d.id : d.townId;
+}
+
+/** How far beside a yard (mm, across it) its further tracks may lie: its third track's place and a track's width more. */
+const ROAD_ACROSS = 3 * DOUBLE_TRACK_SPACING;
+/** How far along a yard (mm) a further track's middle may lie from the yard's: a yard's length. */
+const ROAD_ALONG = 216;
+/** How far from the yard's way a further track may turn (sin of the angle: 20°). */
+const ROAD_TURN = Math.sin((20 * Math.PI) / 180);
+
+/** Does piece `road` lie beside yard piece `yard`, as a further track of it (`Economy.roadsOf`)? Either way along it. */
+function besideYard(layout: Layout, yard: number, road: number): boolean {
+  const a = layout.getPiece(yard);
+  const b = layout.getPiece(road);
+  if (!a || !b) return false;
+  const dx = b.pose.x - a.pose.x;
+  const dz = b.pose.z - a.pose.z;
+  const c = Math.cos(a.pose.heading);
+  const s = Math.sin(a.pose.heading);
+  return Math.abs(dx * c + dz * s) <= ROAD_ALONG && Math.abs(-dx * s + dz * c) <= ROAD_ACROSS && Math.abs(Math.sin(b.pose.heading - a.pose.heading)) <= ROAD_TURN;
 }

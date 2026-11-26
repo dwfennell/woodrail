@@ -103,8 +103,8 @@ describe("a line's stop on another railway", { timeout: 120_000 }, () => {
 
 describe("a yard's track isn't held for a train on another railway", { timeout: 120_000 }, () => {
   it("a train whose stops are all on another railway doesn't keep a train of that railway out of the yard", () => {
-    // ⊐ forest ══ ══ points ══ sawmill ⊏ (the points' other road a stub; the sawmill with a second track lying loose, as
-    // the user's Warehouse 2's), and apart from it ⊐ ══ ══ ══ ⊏ with a train whose line is the forest and the sawmill.
+    // ⊐ forest ══ ══ points ══ sawmill ⊏ (the points' other road a stub; the sawmill with a second track beside it joined
+    // to nothing, as the user's Warehouse 2's was), and apart from it ⊐ ══ ══ ══ ⊏ with a train whose line is the forest and the sawmill.
     const layout = new Layout();
     const [forest, ...w] = chain(layout, ["depot-forest", S, S, S]);
     appendPiece(layout, "buffer-turnback", false, connectorRef(forest, 0));
@@ -113,7 +113,9 @@ describe("a yard's track isn't held for a train on another railway", { timeout: 
     appendPiece(layout, "buffer-turnback", false, connectorRef(mill, 1));
     void x;
     chain(layout, [S], connectorRef(sw, 2));
-    const loose = layout.addPiece(S, { x: 0, z: -3000, heading: 0 });
+    // (Beside the sawmill, where the card's Second track goes, joined to nothing.)
+    const yard = layout.getPiece(mill)!.pose;
+    const loose = layout.addPiece(S, { x: yard.x + 72 * Math.sin(yard.heading), z: yard.z - 72 * Math.cos(yard.heading), heading: yard.heading });
     const a = layout.addPiece(S, { x: 0, z: 3000, heading: 0 });
     const far = chain(layout, [S, S, S], connectorRef(a, 1));
     appendPiece(layout, "buffer-turnback", false, connectorRef(a, 0));
@@ -151,5 +153,26 @@ describe("a yard's track isn't held for a train on another railway", { timeout: 
     expect(economy.apartSkipOf(apart)?.none).toBe(true);
     expect(full).toBe(0);
     expect(calls).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("a yard's further track left behind", () => {
+  it("counts only beside its yard: moved away from it, not a track of it; moved back, one again", () => {
+    const layout = new Layout();
+    const [, mill] = chain(layout, [S, "depot-sawmill", S]);
+    const yard = layout.getPiece(mill)!.pose;
+    const c = Math.cos(yard.heading);
+    const s = Math.sin(yard.heading);
+    // (Beside it, where the card's Second track goes.)
+    const road = layout.addPiece(S, { x: yard.x + 72 * s, z: yard.z - 72 * c, heading: yard.heading });
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const m = economy.addDepot("sawmill", mill);
+    economy.setTracks(m, [road], [], []);
+    expect(economy.trackCount(m.id)).toBe(2);
+    layout.movePiece(road, { x: yard.x + 2000, z: yard.z + 900, heading: yard.heading }, 0);
+    expect(economy.trackCount(m.id)).toBe(1);
+    layout.movePiece(road, { x: yard.x + 72 * s, z: yard.z - 72 * c, heading: yard.heading }, 0);
+    expect(economy.trackCount(m.id)).toBe(2);
   });
 });

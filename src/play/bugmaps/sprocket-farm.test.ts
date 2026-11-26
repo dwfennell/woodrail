@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { SIM_HZ } from "../../sim";
 import { engineStatus } from "../../game/engine-status";
 import { railwaysOf, stopApart } from "../../game/lines";
+import { planTracks } from "../../game/depot-tracks";
+import { findOverlap } from "../../track";
 import { loadBugMap } from "../bugmap";
 import MAP from "./reports/2026-11-26-sprocket-farm-unreachable.txt?raw";
 
@@ -62,6 +64,35 @@ describe("the user's Sprocket map: a line's stop moved onto another railway", ()
     // Teal line 2 still calls at Warehouse 2: it's on its railway.
     expect(calls.get(TEAL)!.get(WAREHOUSE) ?? 0).toBeGreaterThanOrEqual(1);
   }, 180_000);
+});
+
+describe("the user's Sprocket map: the warehouse's tracks left behind where it was", () => {
+  const WAREHOUSE = 15;
+  it("its card offers a second track beside it where it stands, toward Orange line 2's loop", async () => {
+    // "The double track with the warehouse should be a stop but isn't": Orange line 2's loop runs beside Warehouse 2
+    // (pieces 634, 635, about 117 mm off it), never joined to it. The way to make track beside a yard its stop is the
+    // card's Second track, but the card said "It has 3 tracks already": its second and third tracks (607, 729) lay
+    // loose where it stood before it was moved, still counted. A further track counts only beside its yard now.
+    const { world } = await loadBugMap(MAP);
+    const { economy, layout } = world;
+    const d = economy.depot(WAREHOUSE)!;
+    expect(economy.tracksOf(WAREHOUSE)!.roads.map((r) => r.pieceId)).toEqual([607, 729]);
+    expect(economy.trackCount(WAREHOUSE)).toBe(1);
+    expect(economy.unjoinedTracks(d)).toEqual([]);
+    const plan = planTracks(world, d, () => null);
+    if (typeof plan === "string") throw new Error(plan);
+    expect(plan.tracks).toBe(2);
+    expect(plan.keptRoads).toEqual([]);
+    const road = plan.pieces[0];
+    expect(findOverlap(layout, road.type, road.flipped, road.pose, road.y, new Set())).toBe(-1);
+    // (On the loop's side: nearer the loop's track beside it than the yard is.)
+    const loop = layout.getPiece(635)!.pose;
+    const yard = layout.getPiece(d.pieceId)!.pose;
+    expect(Math.abs(road.pose.x - loop.x)).toBeLessThan(Math.abs(yard.x - loop.x));
+    // (The other yards' further tracks, beside them, still count.)
+    expect(economy.trackCount(13)).toBe(2);
+    expect(economy.trackCount(17)).toBe(2);
+  });
 });
 
 describe("the user's Sprocket map with the train dispatcher on", () => {
