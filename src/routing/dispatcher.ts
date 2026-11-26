@@ -135,6 +135,8 @@ const ROAD_FREE_SLACK = Number(((globalThis as { process?: { env: Record<string,
 export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST === "1" };
 
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
+/** A train that has just turned round asks at once, its way built again from the way it now faces (`tick`): TURN_ASK=1 (measuring). */
+export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK === "1" };
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
 
 /** …only where the search with it taken for good falls short (TAKEN_FIRST_SHORT=1, measuring). */
@@ -362,7 +364,19 @@ export class Dispatcher {
   /** The sim's trains (ids) at the last look: one new since (put down by hand, or made by a coupling) cuts back any hold over it. */
   private seen = new Set<number>();
 
-  constructor(private readonly host: DispatcherHost) {}
+  /** Trains (sim ids) turned round since the last look (`TURN_ASK`, by the sim's `onTurnedRound`). */
+  private turnedIds = new Set<number>();
+  private unhookTurned: (() => void) | null = null;
+
+  constructor(private readonly host: DispatcherHost) {
+    if (TURN_ASK.on && typeof host.sim.onTurnedRound === "function") this.unhookTurned = host.sim.onTurnedRound((id) => this.turnedIds.add(id));
+  }
+
+  /** Let go of the sim (the setting turned off). */
+  dispose(): void {
+    this.unhookTurned?.();
+    this.unhookTurned = null;
+  }
 
   /** Call after each sim tick. */
   tick(): void {
@@ -391,6 +405,8 @@ export class Dispatcher {
         h.trainId = t.id;
         this.holdVer++;
       }
+      const turnedNow = !!h && this.turnedIds.has(t.id);
+      if (turnedNow) changed = true;
       if (!r || engine.lever === 0 || busy) {
         if (h) h.stood = -1;
         continue;
@@ -450,11 +466,14 @@ export class Dispatcher {
       } else if (h) h.short = -1;
       // (Asks: standing at its hold's end, or coming within braking distance of it.)
       const gap = h ? this.gapTo(t, h) : 0;
-      if (!h || gap <= stopDistance(t.speed) + ASK_LOOK) {
+      // (Just turned (`TURN_ASK`): it asks, its way built again from the way it now faces. Its gap was its old way's, the
+      // other way: fuzz seed 13, turned at the forest's buffer (no stop of its own there), it ran on past its grant.)
+      if (!h || turnedNow || gap <= stopDistance(t.speed) + ASK_LOOK) {
         if (h && t.speed === 0 && h.stood < 0) h.stood = sim.ticks;
         asking.push(engine.id);
       } else if (h) h.stood = -1;
     }
+    this.turnedIds.clear();
     if (this.cutForNew()) changed = true;
     if (this.handedOff.size > 0 && this.handBack(live)) changed = true;
     for (const e of [...this.holdsBy.keys()])
@@ -924,6 +943,7 @@ export class Dispatcher {
       const st = this.holdsBy.get(placed[i].key)?.stood ?? -1;
       return st < 0 ? 1 : 1 + Math.floor((now - st) / (WEIGH_S * 120));
     });
+    let dsUsed = false;
     let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay, q9: Q9S.on, q9Turning });
     // (`TAKEN_FIRST_SHORT`: short of all delivering with the track in transit taken for good, searched again with it taken
     // for the first moves only, and that one's word taken.)
@@ -934,7 +954,7 @@ export class Dispatcher {
       const grantsNow = r.first[0] >= 0 && r.first[0] >= r.plain;
       const heldBy2 = !(r2.first[0] >= 0 && r2.first[0] >= r2.plain);
       const patient = !(grantsNow && heldBy2 && h.stood >= 0 && this.host.sim.ticks - h.stood >= S_PATIENCE_S * 120);
-      if (!r2.capped && patient) r = { ...r2, states: r.states + r2.states };
+      if (!r2.capped && patient) { r = { ...r2, states: r.states + r2.states }; dsUsed = true; }
     }
     let ways = placed;
     let to = -1;
@@ -1305,13 +1325,14 @@ export class Dispatcher {
     if (to < 0) {
       if (r.first[0] < 0) this.heldBlocked++;
       else this.heldOrder++;
-      if (this.debug && this.notes.length < 400)
+      if (this.debug && this.notes.length < 40000)
         this.notes.push(`${(this.host.sim.ticks / 120).toFixed(0)}s train ${engine} held ${r.first[0] < 0 ? "blocked" : "order"}: at ${ts[k].at} end ${h.end} first ${r.first[0]} plain ${r.plain}/${r.of} members ${members.length} wait-ahead ${branchesSummary(placed[k])} taken-by ${takenBy(placed, k, this.holdsBy)} why t${turnBy} s${singleBy} l${lockedBy} h${headBy} n${noseBy} k${knotBy} u${unsafeBy} r${reservedBy} firstTo ${r.firstTo[0]} order ${r.order.map((m) => placed[members[m.k]].key + "@" + m.to).join(",")}`);
       return;
     }
     h.passed = 0;
     h.q9 = q9;
-    if (this.debug && this.notes.length < 400) this.notes.push(`${(this.host.sim.ticks / 120).toFixed(1)}s train ${engine} GRANT at ${ts[k].at} to ${to} states ${r.states} capped ${r.capped} placed ${placed.map((p) => p.key + ":" + p.at).join(",")} [${(ways[k].pos[to] ?? []).join(",")}] plain ${r.plain}/${r.of} order ${r.order.map((m) => placed[members[m.k]].key + "@" + m.to).join(",")}`);
+    if (this.debug && this.notes.length < 40000) this.notes.push(`${(this.host.sim.ticks / 120).toFixed(1)}s train ${engine} GRANT at ${ts[k].at} to ${to} [${(ways[k].pos[to] ?? []).join(",")}] path ${this.pathTo(ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at }, to).map((n) => ways[k].pos[n].join(",")).join(" ")} plain ${r.plain}/${r.of} ds ${dsUsed}`);
+    if (this.debug && this.notes.length < 40000) this.notes.push(`${(this.host.sim.ticks / 120).toFixed(1)}s train ${engine} GRANT at ${ts[k].at} to ${to} states ${r.states} capped ${r.capped} placed ${placed.map((p) => p.key + ":" + p.at).join(",")} [${(ways[k].pos[to] ?? []).join(",")}] plain ${r.plain}/${r.of} order ${r.order.map((m) => placed[members[m.k]].key + "@" + m.to).join(",")}`);
     this.grants++;
     // (Grants cut back so this move could go (`clearsFirst`), still as they were when it was weighed.)
     for (const c of this.cuts) if (c.h.path === c.path) this.setHold(c.h, c.path[c.k], c.path.slice(0, c.k + 1));
