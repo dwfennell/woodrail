@@ -2936,6 +2936,7 @@ export class Economy {
       // (§13.5 step 2: the path signals too, for the trains it holds: green iff its hold runs past.)
       sim.signalOwner = { clearFor: (ref, id) => (OWNER.on ? d.clearFor(ref, id) : null), aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() };
     } else {
+      this.dispatcher?.dispose();
       this.dispatcher = null;
       BLOCK_RULE.on = false;
       sim.signalGate = this.gateBefore;

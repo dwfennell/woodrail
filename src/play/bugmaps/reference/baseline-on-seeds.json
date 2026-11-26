@@ -1,0 +1,445 @@
+{
+ "complex-1.txt": {
+  "stops": 453.3333333333333,
+  "min": 448,
+  "max": 457,
+  "firstJam": 37.333333333333336,
+  "firstJamMin": 36,
+  "stuckBefore": 81,
+  "jams": 10,
+  "running": 4.67,
+  "p98": 0.501,
+  "maxMs": 23.21,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 0,
+   "unset": 0
+  }
+ },
+ "complex-2.txt": {
+  "stops": 464.6666666666667,
+  "min": 464,
+  "max": 465,
+  "firstJam": 37.333333333333336,
+  "firstJamMin": 36,
+  "stuckBefore": 86.66666666666667,
+  "jams": 6,
+  "running": 4.8,
+  "p98": 0.513,
+  "maxMs": 17.406,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 1,
+   "unset": 0
+  }
+ },
+ "complex-3.txt": {
+  "stops": 477.6666666666667,
+  "min": 471,
+  "max": 488,
+  "firstJam": 382.6666666666667,
+  "firstJamMin": 321,
+  "stuckBefore": 41.666666666666664,
+  "jams": 9.666666666666666,
+  "running": 4.68,
+  "p98": 0.358,
+  "maxMs": 12.146,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 2
+  }
+ },
+ "dandelion.txt": {
+  "stops": 816.6666666666666,
+  "min": 813,
+  "max": 823,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 1,
+  "jams": 0,
+  "running": 9,
+  "p98": 0.883,
+  "maxMs": 25.365,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 4,
+   "follow": 2
+  }
+ },
+ "own-01-single-loops.txt": {
+  "stops": 57,
+  "min": 57,
+  "max": 57,
+  "firstJam": 42.333333333333336,
+  "firstJamMin": 40,
+  "stuckBefore": 99,
+  "jams": 26.666666666666668,
+  "running": 3.16,
+  "p98": 0.981,
+  "maxMs": 10.071,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 3,
+   "cross": 0
+  }
+ },
+ "own-02-figure-eight.txt": {
+  "stops": 136,
+  "min": 136,
+  "max": 136,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 0,
+  "jams": 0,
+  "running": 4,
+  "p98": 1.083,
+  "maxMs": 21.086,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "points": 8,
+   "own-cap": 1
+  }
+ },
+ "own-03-terminus.txt": {
+  "stops": 80.33333333333333,
+  "min": 76,
+  "max": 86,
+  "firstJam": 60.333333333333336,
+  "firstJamMin": 57,
+  "stuckBefore": 83.33333333333333,
+  "jams": 28,
+  "running": 4.07,
+  "p98": 1.159,
+  "maxMs": 14.031,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 41,
+   "nose": 0,
+   "own-cap": 3,
+   "cross": 0
+  }
+ },
+ "own-04-wye.txt": {
+  "stops": 104.33333333333333,
+  "min": 101,
+  "max": 109,
+  "firstJam": 103.33333333333333,
+  "firstJamMin": 96,
+  "stuckBefore": 110.66666666666667,
+  "jams": 17.333333333333332,
+  "running": 3.44,
+  "p98": 0.393,
+  "maxMs": 10.325,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 7,
+   "own-cap": 0
+  }
+ },
+ "own-05-double-track.txt": {
+  "stops": 81,
+  "min": 80,
+  "max": 82,
+  "firstJam": 60.666666666666664,
+  "firstJamMin": 57,
+  "stuckBefore": 149.66666666666666,
+  "jams": 32.666666666666664,
+  "running": 3.91,
+  "p98": 0.472,
+  "maxMs": 10.367,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 7,
+   "own-cap": 2
+  }
+ },
+ "own-06-double-close.txt": {
+  "stops": 85.33333333333333,
+  "min": 80,
+  "max": 94,
+  "firstJam": 60.666666666666664,
+  "firstJamMin": 57,
+  "stuckBefore": 149.66666666666666,
+  "jams": 31.333333333333332,
+  "running": 3.94,
+  "p98": 0.432,
+  "maxMs": 14.046,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 7,
+   "own-cap": 7
+  }
+ },
+ "own-07-ring-opposite.txt": {
+  "stops": 121.66666666666667,
+  "min": 99,
+  "max": 161,
+  "firstJam": 167.66666666666666,
+  "firstJamMin": 163,
+  "stuckBefore": 31,
+  "jams": 19.333333333333332,
+  "running": 2.39,
+  "p98": 0.545,
+  "maxMs": 8.146,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "cross": 0,
+   "own-cap": 0
+  }
+ },
+ "own-08-branch.txt": {
+  "stops": 80.66666666666667,
+  "min": 80,
+  "max": 82,
+  "firstJam": 102.33333333333333,
+  "firstJamMin": 89,
+  "stuckBefore": 102,
+  "jams": 11.333333333333334,
+  "running": 3.63,
+  "p98": 0.91,
+  "maxMs": 15.338,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 7,
+   "own-cap": 0,
+   "cross": 0
+  }
+ },
+ "own-09-hill.txt": {
+  "stops": 118.66666666666667,
+  "min": 118,
+  "max": 119,
+  "firstJam": 53.333333333333336,
+  "firstJamMin": 49,
+  "stuckBefore": 110.33333333333333,
+  "jams": 31.666666666666668,
+  "running": 3.96,
+  "p98": 0.624,
+  "maxMs": 12.45,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 11
+  }
+ },
+ "own-10-depots.txt": {
+  "stops": 67,
+  "min": 66,
+  "max": 68,
+  "firstJam": 73.66666666666667,
+  "firstJamMin": 62,
+  "stuckBefore": 136.33333333333334,
+  "jams": 17.666666666666668,
+  "running": 3.41,
+  "p98": 1.426,
+  "maxMs": 28.217,
+  "breaks": 1,
+  "firstBreak": "lockRun: train 112 ran onto points 92 locked for 102",
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 2,
+   "nose": 1,
+   "points": 2,
+   "own-cap": 4,
+   "cross": 1
+  }
+ },
+ "own-11-one-way.txt": {
+  "stops": 255.33333333333334,
+  "min": 255,
+  "max": 256,
+  "firstJam": 179,
+  "firstJamMin": 176,
+  "stuckBefore": 31,
+  "jams": 8,
+  "running": 3.76,
+  "p98": 0.556,
+  "maxMs": 12.156,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 0,
+   "own-cap": 0
+  }
+ },
+ "own-12-big.txt": {
+  "stops": 96,
+  "min": 87,
+  "max": 110,
+  "firstJam": 136,
+  "firstJamMin": 72,
+  "stuckBefore": 105,
+  "jams": 28.666666666666668,
+  "running": 8.05,
+  "p98": 1.049,
+  "maxMs": 16.718,
+  "breaks": 3,
+  "firstBreak": "deadlock: train 11 still for 60 s on piece 151",
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "at-end": 3,
+   "follow": 46,
+   "own-cap": 0
+  }
+ },
+ "rowan-1.txt": {
+  "stops": 484.6666666666667,
+  "min": 464,
+  "max": 513,
+  "firstJam": 293.6666666666667,
+  "firstJamMin": 245,
+  "stuckBefore": 187.66666666666666,
+  "jams": 25.333333333333332,
+  "running": 8.16,
+  "p98": 1.053,
+  "maxMs": 28.77,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 2,
+   "cross": 0
+  }
+ },
+ "rowan-2.txt": {
+  "stops": 633,
+  "min": 518,
+  "max": 812,
+  "firstJam": 115.66666666666667,
+  "firstJamMin": 38,
+  "stuckBefore": 126.66666666666667,
+  "jams": 18.666666666666668,
+  "running": 8.39,
+  "p98": 1.003,
+  "maxMs": 22.727,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 3,
+   "follow": 3,
+   "points": 0
+  }
+ },
+ "rowan-3.txt": {
+  "stops": 818.3333333333334,
+  "min": 814,
+  "max": 821,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 0,
+  "jams": 0,
+  "running": 9,
+  "p98": 0.92,
+  "maxMs": 21.565,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 5,
+   "follow": 4
+  }
+ },
+ "user-2026-11-21.txt": {
+  "stops": 536,
+  "min": 528,
+  "max": 546,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 17,
+  "jams": 0,
+  "running": 6,
+  "p98": 0.49,
+  "maxMs": 20.404,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "follow": 6,
+   "points": 0,
+   "own-cap": 2
+  }
+ },
+ "user-2026-11-22-two-train.txt": {
+  "stops": 177,
+  "min": 176,
+  "max": 178,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 0,
+  "jams": 0,
+  "running": 2,
+  "p98": 0.226,
+  "maxMs": 6.712,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800
+ },
+ "wren.txt": {
+  "stops": 556,
+  "min": 550,
+  "max": 566,
+  "firstJam": 1381,
+  "firstJamMin": 543,
+  "stuckBefore": 72.33333333333333,
+  "jams": 0.3333333333333333,
+  "running": 5.99,
+  "p98": 0.379,
+  "maxMs": 12.19,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800,
+  "overruled": {
+   "own-cap": 3,
+   "follow": 1
+  }
+ }
+}

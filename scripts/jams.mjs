@@ -60,14 +60,14 @@ if (SEEDS > 1) {
   })();
   const pad = (s, n) => String(s).padEnd(n);
   const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
-  console.log(`${pad("map", 30)}${pad("stops mean (min–max)", 26)}${against ? pad("vs", 14) : ""}${pad("1st jam s", 14)}${pad("stuck s", 9)}${pad("jams mean", 11)}${pad("breaks", 8)}${process.env.JAMS_DISPATCHER && process.env.JAMS_DISPATCHER !== "0" ? pad("decide p98/max", 18) : ""}first break`);
+  console.log(`${pad("map", 30)}${pad("stops mean (min–max)", 26)}${against ? pad("vs", 14) : ""}${pad("trains", 8)}${pad("1st jam s", 14)}${pad("stuck s", 9)}${pad("jams mean", 11)}${pad("breaks", 8)}${process.env.JAMS_DISPATCHER && process.env.JAMS_DISPATCHER !== "0" ? pad("decide p98/max", 18) : ""}first break`);
   const out = {};
   let lower = 0;
   for (const [map, rs] of [...by].sort((a, b) => a[0].localeCompare(b[0]))) {
     const st = rs.map((r) => r.arrivals);
     const ms = rs.map((r) => r.dispatcher?.ms).filter(Boolean);
     const fj = rs.map((r) => r.firstJam ?? SECONDS);
-    const m = { stops: mean(st), min: Math.min(...st), max: Math.max(...st), firstJam: mean(fj), firstJamMin: Math.min(...fj), stuckBefore: mean(rs.map((r) => r.stuckBefore ?? 0)), jams: mean(rs.map((r) => r.jams)), ...(ms.length ? { p98: Math.max(...ms.map((x) => x.p98)), maxMs: Math.max(...ms.map((x) => x.max)) } : {}), breaks: rs.filter((r) => r.firstBreak).length, firstBreak: rs.find((r) => r.firstBreak)?.firstBreak ?? null, seeds: rs.length, seconds: SECONDS };
+    const m = { stops: mean(st), min: Math.min(...st), max: Math.max(...st), firstJam: mean(fj), firstJamMin: Math.min(...fj), stuckBefore: mean(rs.map((r) => r.stuckBefore ?? 0)), jams: mean(rs.map((r) => r.jams)), running: Math.round(mean(rs.map((r) => r.runningMean ?? 0)) * 100) / 100, ...(ms.length ? { p98: Math.max(...ms.map((x) => x.p98)), maxMs: Math.max(...ms.map((x) => x.max)) } : {}), breaks: rs.filter((r) => r.firstBreak).length, firstBreak: rs.find((r) => r.firstBreak)?.firstBreak ?? null, seeds: rs.length, seconds: SECONDS };
     // (Seconds granted trains stood short of their grants, by what held them, mean over seeds: §13.5 step 1.)
     const ov = {};
     for (const r of rs) for (const [k, v] of Object.entries(r.dispatcher?.overruled ?? {})) ov[k] = (ov[k] ?? 0) + v / rs.length;
@@ -80,7 +80,7 @@ if (SEEDS > 1) {
     const firstBar = opt("bar", "") === "first-jam";
     const flag = a && (firstBar ? m.firstJam < (a.firstJam ?? SECONDS) || m.min < a.min || m.breaks > a.breaks : d < 0 || m.breaks > a.breaks) ? "   LOWER" : "";
     if (flag) lower++;
-    console.log(`${pad(map, 30)}${pad(`${m.stops.toFixed(0)} (${m.min}–${m.max})`, 26)}${a ? pad(`${a.stops.toFixed(0)} ${d >= 0 ? "+" : ""}${d.toFixed(0)}`, 14) : ""}${pad(`${m.firstJam.toFixed(0)}${a?.firstJam !== undefined ? ` (${a.firstJam.toFixed(0)})` : ""}`, 14)}${pad(m.stuckBefore.toFixed(0), 9)}${pad(m.jams.toFixed(1), 11)}${pad(`${m.breaks}/${rs.length}`, 8)}${m.p98 !== undefined ? pad(`${m.p98}/${m.maxMs} ms`, 18) : ""}${m.firstBreak ?? "-"}${flag}`);
+    console.log(`${pad(map, 30)}${pad(`${m.stops.toFixed(0)} (${m.min}–${m.max})`, 26)}${a ? pad(`${a.stops.toFixed(0)} ${d >= 0 ? "+" : ""}${d.toFixed(0)}`, 14) : ""}${pad(m.running.toFixed(1), 8)}${pad(`${m.firstJam.toFixed(0)}${a?.firstJam !== undefined ? ` (${a.firstJam.toFixed(0)})` : ""}`, 14)}${pad(m.stuckBefore.toFixed(0), 9)}${pad(m.jams.toFixed(1), 11)}${pad(`${m.breaks}/${rs.length}`, 8)}${m.p98 !== undefined ? pad(`${m.p98}/${m.maxMs} ms`, 18) : ""}${m.firstBreak ?? "-"}${flag}`);
   }
   if (Object.values(out).some((m) => m.overruled)) {
     console.log(`\ngrants overruled (s granted trains stood short, mean over seeds, by what held them)`);
@@ -102,14 +102,14 @@ const base = (() => {
   }
 })();
 const pad = (s, n) => String(s).padEnd(n);
-console.log(`${pad("map", 26)}${pad("jams", 12)}${pad("stops", 14)}${pad("longest s", 12)}break`);
+console.log(`${pad("map", 26)}${pad("jams", 12)}${pad("stops", 14)}${pad("trains", 8)}${pad("longest s", 12)}break`);
 let worse = 0;
 for (const r of rows) {
   const b = base[r.map];
   const bad = b && b.seconds === r.seconds && (r.jams > b.jams || r.arrivals < b.arrivals || (r.firstBreak && !b.firstBreak));
   if (bad) worse++;
   const vs = (x, y) => (b && b.seconds === r.seconds ? `${x} (${y})` : `${x}`);
-  console.log(`${pad(r.map, 26)}${pad(vs(r.jams, b?.jams), 12)}${pad(vs(r.arrivals, b?.arrivals), 14)}${pad(r.longestStand, 12)}${r.firstBreak ?? "-"}${bad ? "   WORSE" : ""}`);
+  console.log(`${pad(r.map, 26)}${pad(vs(r.jams, b?.jams), 12)}${pad(vs(r.arrivals, b?.arrivals), 14)}${pad((r.runningMean ?? 0).toFixed(1), 8)}${pad(r.longestStand, 12)}${r.firstBreak ?? "-"}${bad ? "   WORSE" : ""}`);
 }
 console.log(`(baseline in brackets; ${((Date.now() - t0) / 60000).toFixed(1)} min)`);
 // (--shadow: the dispatcher's first report: each jam judged by the oracle, now and before it began.)
@@ -133,7 +133,7 @@ if (args.includes("--shadow")) {
 }
 if (args.includes("--update")) {
   const out = { ...base };
-  for (const r of rows) out[r.map] = { jams: r.jams, arrivals: r.arrivals, longestStand: r.longestStand, firstBreak: r.firstBreak, seconds: r.seconds };
+  for (const r of rows) out[r.map] = { jams: r.jams, arrivals: r.arrivals, longestStand: r.longestStand, running: r.runningMean, firstBreak: r.firstBreak, seconds: r.seconds };
   writeFileSync(BASE, JSON.stringify(out, null, 2) + "\n");
   console.log(`wrote ${BASE}`);
 }

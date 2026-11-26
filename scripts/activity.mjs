@@ -42,21 +42,30 @@ const write = (name, rows) => {
   console.log(`${name}: ${rows.length} rows`);
 };
 
-// Play stats (docs/stats.md): players who chose to share.
-const players = num(await sql(`SELECT formatDateTime(toStartOfDay(timestamp), '%Y-%m-%d') AS day, COUNT(DISTINCT index1) AS players, SUM(_sample_interval) AS sessions, SUM(_sample_interval * double2) AS new_games FROM woodrail_stats WHERE blob1 = 'start' AND ${SINCE} GROUP BY day ORDER BY day`), "players", "sessions", "new_games");
-const minutes = num(await sql(`SELECT formatDateTime(toStartOfDay(timestamp), '%Y-%m-%d') AS day, ROUND(SUM(_sample_interval * double1)) AS minutes FROM woodrail_stats WHERE blob1 = 'end' AND ${SINCE} GROUP BY day ORDER BY day`), "minutes");
-const [totals] = num(await sql(`SELECT COUNT(DISTINCT index1) AS players, SUM(_sample_interval) AS sessions FROM woodrail_stats WHERE blob1 = 'start' AND ${SINCE}`), "players", "sessions");
+// Play stats (docs/stats.md). Shared: players who said yes, each under a device id. Plain counts: everyone else who
+// hasn't turned them off, all under the one index "anon" (so `all` is everyone, and only shared stats count players).
+const SHARED = `index1 != 'anon'`;
+const DAY = `formatDateTime(toStartOfDay(timestamp), '%Y-%m-%d') AS day`;
+const players = num(await sql(`SELECT ${DAY}, COUNT(DISTINCT index1) AS players, SUM(_sample_interval) AS sessions, SUM(_sample_interval * double2) AS new_games FROM woodrail_stats WHERE blob1 = 'start' AND ${SHARED} AND ${SINCE} GROUP BY day ORDER BY day`), "players", "sessions", "new_games");
+const minutes = num(await sql(`SELECT ${DAY}, ROUND(SUM(_sample_interval * double1)) AS minutes FROM woodrail_stats WHERE blob1 = 'end' AND ${SHARED} AND ${SINCE} GROUP BY day ORDER BY day`), "minutes");
+const games = num(await sql(`SELECT ${DAY}, SUM(_sample_interval) AS games, SUM(_sample_interval * double2) AS new_games_all FROM woodrail_stats WHERE blob1 = 'start' AND ${SINCE} GROUP BY day ORDER BY day`), "games", "new_games_all");
+const minutesAll = num(await sql(`SELECT ${DAY}, ROUND(SUM(_sample_interval * double1)) AS minutes_all FROM woodrail_stats WHERE blob1 = 'end' AND ${SINCE} GROUP BY day ORDER BY day`), "minutes_all");
+const [totals] = num(await sql(`SELECT COUNT(DISTINCT index1) AS players, SUM(_sample_interval) AS sessions FROM woodrail_stats WHERE blob1 = 'start' AND ${SHARED} AND ${SINCE}`), "players", "sessions");
+const [totalsAll] = num(await sql(`SELECT SUM(_sample_interval) AS games, SUM(_sample_interval * double2) AS new_games FROM woodrail_stats WHERE blob1 = 'start' AND ${SINCE}`), "games", "new_games");
 const [errors] = num(await sql(`SELECT SUM(_sample_interval) AS times FROM woodrail_stats WHERE blob1 = 'error' AND ${SINCE}`), "times");
-const [played] = num(await sql(`SELECT ROUND(SUM(_sample_interval * double1)) AS minutes FROM woodrail_stats WHERE blob1 = 'end' AND ${SINCE}`), "minutes");
+const [played] = num(await sql(`SELECT ROUND(SUM(_sample_interval * double1)) AS minutes FROM woodrail_stats WHERE blob1 = 'end' AND ${SHARED} AND ${SINCE}`), "minutes");
+const [playedAll] = num(await sql(`SELECT ROUND(SUM(_sample_interval * double1)) AS minutes FROM woodrail_stats WHERE blob1 = 'end' AND ${SINCE}`), "minutes");
 // Goals in the game's order (src/game/goals.ts), so the chart reads as how far players get. `players` ticked that goal;
 // `got_this_far` reached it or a later one. A goal ticked before a player said yes to sharing isn't sent, so a player
-// counts as having passed every goal before their furthest.
+// counts as having passed every goal before their furthest. `ticks_all`: times the goal ticked, plain counts too (a
+// game each, roughly: a goal ticks once a game).
 const goalOrder = [...readFileSync("src/game/goals.ts", "utf8").matchAll(/^\s*id: "([a-z0-9-]+)"/gm)].map((m) => m[1]);
-const ticks = await sql(`SELECT index1 AS id, blob3 AS goal FROM woodrail_stats WHERE blob1 = 'goal' AND ${SINCE} GROUP BY id, goal`);
+const ticks = await sql(`SELECT index1 AS id, blob3 AS goal FROM woodrail_stats WHERE blob1 = 'goal' AND ${SHARED} AND ${SINCE} GROUP BY id, goal`);
+const ticksAll = num(await sql(`SELECT blob3 AS goal, SUM(_sample_interval) AS ticks FROM woodrail_stats WHERE blob1 = 'goal' AND ${SINCE} GROUP BY goal`), "ticks");
 const furthest = new Map();
 for (const t of ticks) furthest.set(t.id, Math.max(furthest.get(t.id) ?? 0, goalOrder.indexOf(t.goal) + 1));
-const last = Math.max(0, ...furthest.values());
-write("goals", goalOrder.slice(0, last).map((goal, i) => ({ goal, order: i + 1, players: new Set(ticks.filter((t) => t.goal === goal).map((t) => t.id)).size, got_this_far: [...furthest.values()].filter((f) => f > i).length })));
+const last = Math.max(0, ...furthest.values(), ...ticksAll.map((t) => goalOrder.indexOf(t.goal) + 1));
+write("goals", goalOrder.slice(0, last).map((goal, i) => ({ goal, order: i + 1, players: new Set(ticks.filter((t) => t.goal === goal).map((t) => t.id)).size, got_this_far: [...furthest.values()].filter((f) => f > i).length, ticks_all: ticksAll.find((t) => t.goal === goal)?.ticks ?? 0 })));
 
 // Feedback and railway snapshots, from the Worker (newest first; its lists hold the latest 100).
 // A report's build id is its build time (base 36 ms): the deploy run it falls in says where it was played. GitHub
@@ -99,7 +108,7 @@ const itchDaily = read("itch-daily", []);
 const [itch] = read("itch-totals", [{}]);
 
 // One row a day, every source side by side.
-const days = [...new Set([...players, ...minutes, ...itchDaily].map((r) => r.day))].sort();
+const days = [...new Set([...players, ...minutes, ...games, ...minutesAll, ...itchDaily].map((r) => r.day))].sort();
 const on = (rows, d, key) => rows.find((r) => r.day === d)?.[key] ?? 0;
-write("daily", days.map((d) => ({ day: d, players: on(players, d, "players"), sessions: on(players, d, "sessions"), new_games: on(players, d, "new_games"), minutes: on(minutes, d, "minutes"), itch_views: on(itchDaily, d, "views"), itch_plays: on(itchDaily, d, "plays"), feedback: feedback.filter((f) => f.day === d && !ours(f)).length, snapshots: snapshots.filter((s) => day(s.at) === d).length, crashes: theirs(crashes).filter((c) => c.day === d).length })));
-write("summary", [{ as_of: new Date().toISOString().slice(0, 10), days: DAYS, players: totals?.players ?? 0, sessions: totals?.sessions ?? 0, minutes: played?.minutes ?? 0, errors: errors?.times ?? 0, snapshots: snapshots.length, snapshot_players: new Set(snapshots.map((s) => s.id)).size, crashes: theirs(crashes).length, crashes_ours: crashes.filter(ours).length, crashes_webgl: theirs(crashes).filter((c) => c.kind === "context-lost").length, feedback: feedback.filter((f) => !ours(f)).length, feedback_ours: feedback.filter(ours).length, open_issues: issues.length, itch_as_of: itch.as_of ?? "", itch_window: itch.window ?? "", itch_views: itch.views ?? 0, itch_plays: itch.browser_plays ?? 0, itch_collections: itch.collections ?? 0, itch_ratings: itch.ratings ?? 0, itch_impressions_7d: itch.impressions_7d ?? 0, itch_ctr_7d: itch.ctr_7d ?? 0 }]);
+write("daily", days.map((d) => ({ day: d, players: on(players, d, "players"), sessions: on(players, d, "sessions"), new_games: on(players, d, "new_games"), minutes: on(minutes, d, "minutes"), games: on(games, d, "games"), new_games_all: on(games, d, "new_games_all"), minutes_all: on(minutesAll, d, "minutes_all"), itch_views: on(itchDaily, d, "views"), itch_plays: on(itchDaily, d, "plays"), feedback: feedback.filter((f) => f.day === d && !ours(f)).length, snapshots: snapshots.filter((s) => day(s.at) === d).length, crashes: theirs(crashes).filter((c) => c.day === d).length })));
+write("summary", [{ as_of: new Date().toISOString().slice(0, 10), days: DAYS, players: totals?.players ?? 0, sessions: totals?.sessions ?? 0, minutes: played?.minutes ?? 0, games: totalsAll?.games ?? 0, new_games_all: totalsAll?.new_games ?? 0, minutes_all: playedAll?.minutes ?? 0, errors: errors?.times ?? 0, snapshots: snapshots.length, snapshot_players: new Set(snapshots.map((s) => s.id)).size, crashes: theirs(crashes).length, crashes_ours: crashes.filter(ours).length, crashes_webgl: theirs(crashes).filter((c) => c.kind === "context-lost").length, feedback: feedback.filter((f) => !ours(f)).length, feedback_ours: feedback.filter(ours).length, open_issues: issues.length, itch_as_of: itch.as_of ?? "", itch_window: itch.window ?? "", itch_views: itch.views ?? 0, itch_plays: itch.browser_plays ?? 0, itch_collections: itch.collections ?? 0, itch_ratings: itch.ratings ?? 0, itch_impressions_7d: itch.impressions_7d ?? 0, itch_ctr_7d: itch.ctr_7d ?? 0 }]);
