@@ -202,6 +202,8 @@ interface Move {
 const DEAD_END = -2;
 /** How far on (pieces) a train whose front is off another's way is followed, to see if it comes onto it head on (`sameWayAhead`). */
 const FOLLOW_LOOK = 48;
+/** `sameWayAhead` takes a train with an axle on the way going against it as in the way, not ahead: on (TAIL_AGAINST=0: off). */
+export const TAIL_AGAINST = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAIL_AGAINST !== "0";
 /** The room (mm) a train following another into a slot leaves (the sim's `FOLLOW_GAP`, and some to stop in). */
 const FOLLOW_ROOM = 150;
 /** Waiting points on a train's way looked at by `feasible`, and its rounds of moving up. */
@@ -2125,6 +2127,19 @@ export class Sections {
     if (!piece) return false;
     const path = getPieceDef(piece.type, piece.flipped).paths[f.pathIndex];
     let exit = f.reversed ? path.from : (path.to ?? -1);
+    // (`TAIL_AGAINST`: any of its axles on the way going against it (its front just into a loop road beside, its tail
+    // still over the points and the track the way runs out by): it isn't ahead the same way, it's in the way. Else the
+    // other was let out onto it, and stood held short of the points by the tail (the two-train map, netActed).)
+    if (TAIL_AGAINST)
+      for (const b of t.bogies) {
+        const on = along.get(b.pieceId);
+        if (on === undefined) continue;
+        const bp = this.layout.getPiece(b.pieceId);
+        if (!bp) continue;
+        const bpath = getPieceDef(bp.type, bp.flipped).paths[b.pathIndex];
+        const out = b.reversed === net > 0 ? bpath.from : (bpath.to ?? -1);
+        if (out !== on) return false;
+      }
     const e = along.get(f.pieceId);
     if (e !== undefined) {
       if (exit === e) return false;
