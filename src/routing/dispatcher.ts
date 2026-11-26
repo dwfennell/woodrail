@@ -1060,7 +1060,7 @@ export class Dispatcher {
     placed.forEach((t, i) => {
       const o = this.holdsBy.get(t.key);
       if (!o || i === k || o.t.pos !== t.pos) return;
-      const here = TAKEN_POS.on ? t.pos[t.at] : null;
+      const here = TAKEN_POS.on && members.includes(i) ? t.pos[t.at] : null;
       for (const n of o.path) for (const p of t.pos[n]) {
         if (here?.includes(p)) takenHere.add(p);
         taken.add(p);
@@ -1107,7 +1107,15 @@ export class Dispatcher {
       const free = new Set(taken);
       for (const p of takenHere) free.delete(p);
       const r3 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken: free, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay, q9: Q9S.on, q9Turning });
-      if (!r3.capped && r3.plain > r.plain && (r.plain === 0 || r3.first[0] >= r3.plain)) r = { ...r3, states: r.states + r3.states };
+      // (Nor where its own first move runs over a place it freed, or goes nowhere it can get to from here: own-07, a train
+      // put back facing two others was sent by it to a node it had no way to, and stood there for good; own-05 the same.)
+      let over = false;
+      if (r3.first[0] >= 0 && r3.firstTo[0] >= 0) {
+        const tt = wayAt(placed[k], placed[k], ts[k]);
+        const path = this.pathTo(tt, r3.firstTo[0]);
+        over = path.length === 0 || path.some((n) => n !== tt.at && tt.pos[n].some((p) => takenHere.has(p)));
+      }
+      if (!r3.capped && !over && r3.plain > r.plain && (r.plain === 0 || r3.first[0] >= r3.plain)) r = { ...r3, states: r.states + r3.states };
     }
     let ways = placed;
     let to = -1;
