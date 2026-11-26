@@ -12,6 +12,12 @@ export const IDLE_SUSPEND_MS = 3000;
 /** Least time between two station guards' whistles (ms). */
 export const GUARD_WHISTLE_GAP_MS = 1500;
 
+/** The three clack clips, one chosen at random each time. */
+const CLACKS: readonly ClipName[] = ["clack1", "clack2", "clack3"];
+
+/** The sawmill's clip is played for this long at most (s): the buzz it replaces, called about twice a second. */
+const SAW_MAX_S = 0.55;
+
 /** Lets something through at most once every `ms` (by the times given). */
 
 export class Gate {
@@ -136,10 +142,19 @@ export class ToyAudio {
    * loaded, or it failed), it's muted or too quiet to hear: the caller plays its synthesised sound instead.
    */
   playClip(name: ClipName, volume: number, pan: number, rate = 1): boolean {
+    return this.startClip(name, volume, pan, rate) !== null;
+  }
+
+  /**
+   * `playClip`, giving back the clip's gain (to fade it out) or null when nothing played. A `maxSeconds` shorter than the
+   * clip plays only that much of it, fading out at the end, so a clip called often can't pile up.
+   */
+  private startClip(name: ClipName, volume: number, pan: number, rate = 1, maxSeconds = Infinity): GainNode | null {
     const ctx = this.ctx;
     const buffer = this.clips.get(name);
-    if (!ctx || !this.master || !buffer || this.muted || volume <= 0.001 || rate <= 0 || document.hidden) return false;
-    this.wake((buffer.duration / rate) * 1000);
+    if (!ctx || !this.master || !buffer || this.muted || volume <= 0.001 || rate <= 0 || document.hidden) return null;
+    const seconds = Math.min(buffer.duration / rate, maxSeconds);
+    this.wake(seconds * 1000);
     const panner = ctx.createStereoPanner();
     panner.pan.value = Math.max(-1, Math.min(1, pan));
     const g = ctx.createGain();
@@ -148,8 +163,11 @@ export class ToyAudio {
     src.buffer = buffer;
     src.playbackRate.value = rate;
     src.connect(g).connect(panner).connect(this.master);
-    src.start();
-    return true;
+    if (seconds < buffer.duration / rate) {
+      src.start(0, 0, seconds * rate);
+      g.gain.setTargetAtTime(0, ctx.currentTime + seconds - 0.08, 0.03);
+    } else src.start();
+    return g;
   }
 
   /** A short filtered noise burst plus a resonant "tock": the sound of wood on wood. */
@@ -191,10 +209,12 @@ export class ToyAudio {
     const now = performance.now();
     if (now - this.lastClack < 18) return;
     this.lastClack = now;
+    if (this.playClip(CLACKS[Math.floor(Math.random() * CLACKS.length)], volume * 0.6, pan, this.vary(1))) return;
     this.knock(volume * 0.35, 700 + Math.random() * 120, 0.05, pan);
   }
 
   magnet(volume: number, pan: number): void {
+    if (this.playClip("magnet", volume * 0.7, pan, this.vary(1))) return;
     this.knock(volume * 0.7, 1300, 0.04, pan);
     setTimeout(() => this.knock(volume * 0.4, 1100, 0.03, pan), 35);
   }
@@ -206,6 +226,7 @@ export class ToyAudio {
     const now = performance.now();
     if (now - this.lastBump < 450) return;
     this.lastBump = now;
+    if (this.playClip("bump", volume * 0.5, pan, this.vary(1))) return;
     this.knock(volume * 0.25, 900, 0.03, pan);
   }
 
@@ -231,6 +252,11 @@ export class ToyAudio {
 
   /** A wooden clunk: a log or plank bundle set down by a crane. */
   clunk(volume: number, pan: number): void {
+    if (this.playClip("clunk", volume, pan, this.vary(1))) return;
+    this.clunkSynth(volume, pan);
+  }
+
+  private clunkSynth(volume: number, pan: number): void {
     this.knock(volume * 0.8, 120 * this.vary(1), 0.22, pan);
     this.knock(volume * 0.35, 260 * this.vary(1), 0.08, pan);
   }
@@ -250,7 +276,8 @@ export class ToyAudio {
 
   /** A switch's lever thrown over: the wooden clunk, with a lower knock under it (the points coming home). */
   switchClunk(volume: number, pan: number): void {
-    this.clunk(volume, pan);
+    if (this.playClip("switch", volume, pan, this.vary(1))) return;
+    this.clunkSynth(volume, pan);
     this.knock(volume * 0.55, 72 * this.vary(1), 0.16, pan);
   }
 
@@ -258,6 +285,8 @@ export class ToyAudio {
   saw(volume: number, pan: number): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || volume <= 0.02) return;
+    // The clip is cut to the buzz's half second, so two a second never pile up.
+    if (this.startClip("saw", volume * 0.5, pan, this.vary(1), SAW_MAX_S)) return;
     this.wake(560);
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -280,6 +309,7 @@ export class ToyAudio {
 
   /** A small toy bell, two quick strikes, as an engine sets off. */
   bell(): void {
+    if (this.playClip("bell", 0.5, 0, this.vary(1))) return;
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted) return;
     this.wake(1600);
@@ -308,6 +338,7 @@ export class ToyAudio {
   crossingBell(volume: number, pan: number): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || volume <= 0.02) return;
+    if (this.playClip("crossingBell", volume * 0.5, pan, this.vary(1))) return;
     this.wake(1400);
     const t = ctx.currentTime;
     const panner = ctx.createStereoPanner();
@@ -350,6 +381,11 @@ export class ToyAudio {
     }
     this.lastWhistle = now;
     this.lastWhistleVolume = volume;
+    const clip = this.startClip("whistle", volume * 0.6, pan, this.vary(1));
+    if (clip) {
+      this.whistleOut = clip;
+      return true;
+    }
     this.wake(1400);
     const t = ctx.currentTime;
     const out = ctx.createGain();
@@ -411,6 +447,7 @@ export class ToyAudio {
     const now = performance.now();
     if (now - this.lastGuardWhistle < GUARD_WHISTLE_GAP_MS) return false;
     this.lastGuardWhistle = now;
+    if (this.playClip("guardWhistle", Math.min(1, volume) * 0.5, pan, this.vary(1))) return true;
     this.wake(900);
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -491,6 +528,7 @@ export class ToyAudio {
   }
 
   crash(volume: number, pan: number): void {
+    if (this.playClip("crash", volume, pan, this.vary(1))) return;
     for (let i = 0; i < 5; i++) {
       setTimeout(() => this.knock(volume * (0.9 - i * 0.15), 260 + Math.random() * 500, 0.09, pan + (Math.random() - 0.5) * 0.3), i * 70 + Math.random() * 40);
     }
@@ -498,6 +536,7 @@ export class ToyAudio {
 
   /** A train lift setting off or arriving: a soft, deep wooden clunk and a click of its gear. */
   liftClunk(volume: number, pan: number): void {
+    if (this.playClip("liftClunk", volume * 0.6, pan, this.vary(1))) return;
     this.knock(volume * 0.5, 150 * this.vary(1), 0.16, pan);
     setTimeout(() => this.knock(volume * 0.22, 640 * this.vary(1), 0.03, pan), 45);
   }

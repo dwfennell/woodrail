@@ -1,7 +1,7 @@
 # Sound — playbook
 
 ## 1. Scope
-The game's sound effects: `src/audio/` (`audio.ts`: `ToyAudio` and `Gate`; `crossing-bell.ts`) and its call sites in
+The game's sound effects: `src/audio/` (`audio.ts`: `ToyAudio` and `Gate`; `clips.ts`: the clip bank; `hearing.ts`: what's heard; `crossing-bell.ts`) and its call sites in
 `src/main.ts`, plus the mute button (the `src/ui/hud.ts` menu and `src/ui/prefs.ts`). There is no volume control. That
 covers:
 - **trains:** clacks, couplings, buffers, crashes, the motor hum, whistles, the guard's whistle, the departure bell,
@@ -13,13 +13,14 @@ covers:
 Out of scope: music, and any per-frame audio work while idle.
 
 ## 2. How audio works
-- **ToyAudio** (`src/audio/audio.ts`) is a single instance made in `main.ts`. Every sound is synthesised with WebAudio, with no audio files. Signal chain: master GainNode (0.8, 0 when muted) → DynamicsCompressor → destination. One shared 0.5 s noise buffer.
+- **ToyAudio** (`src/audio/audio.ts`) is a single instance made in `main.ts`. Every sound has a synthesised version in WebAudio; most also have a recorded clip (CC0, `public/sounds/`) that plays when it has loaded. Signal chain: master GainNode (0.8, 0 when muted) → DynamicsCompressor → destination. One shared 0.5 s noise buffer.
+- **Recorded clips:** `ClipBank` (`src/audio/clips.ts`) fetches and decodes each clip once, after the first tap, and only for a page that's heard (not muted, hidden or automated). One that can't be fetched or decoded stays null, quietly. `playClip(name, volume, pan, rate)` returns false when there's no clip (or muted, hidden, too quiet), and the method then plays its synthesis as before. The engine loop (`setHum`) and the one-shots (clack ×3, magnet, bump, crash, clunk, switch, lift clunk, saw, whistle, guard whistle, bell, crossing bell) work this way; the chime and every UI tick stay synthesised. Pitch spread `vary(1)` on each play. Limiters and gates are unchanged and sit before the clip; a whistle's fade-out acts on the clip's gain; `saw`'s clip is cut to 0.55 s so two a second don't pile up.
 - **Primitives:**
   - `knock(volume, freq, decay, pan)`: bandpassed noise plus a falling sine "tock". Nearly every wooden sound is one or more knocks with different pitch and decay.
   - `vary()`: a ±6% pitch spread.
   - `chime`, `saw`, `bell`, `crossingBell`, `whistle`, `guardWhistle` and the lift winding build their own nodes.
   - `guardWhistle(volume, pan)`: a station guard's soft pea-whistle trill (a 2.4 kHz sine warbled at 26 Hz, 0.45 s, gain 0.045) as a train sets off from a big station (`Game.onGuardFlag`). One per `GUARD_WHISTLE_GAP_MS` 1500; silent below volume 0.05. Not yet judged by ear.
-- **Placement:** `listen(x, z)` in `main.ts` returns `[volume, pan]`. Volume comes from distance to the camera's focus (`500/(d+150)`, capped at 1) and pan from screen x. UI sounds and the chime are centred.
+- **Placement:** `listen(kind, x, z)` in `main.ts` returns `[volume, pan]` by the hearing rule in `src/audio/hearing.ts`: how audible a source is from its size on screen, and pan from screen x, so what's heard follows what's on screen. UI sounds and the chime are centred.
 - **Rate limits:**
   - `Gate(ms)` (in `audio.ts`) lets one sound through per window: routed trains' switch clunks (`softSwitchClunk`) at `SOFT_CLUNK_GAP_MS` 700, crossing bells at `CROSSING_BELL_GAP_MS` 2500.
   - `clack` has its own minimum gap (18 ms).
@@ -48,6 +49,8 @@ Out of scope: music, and any per-frame audio work while idle.
 - **Commits:** put idle-CPU numbers in commits that touch the audio lifecycle.
 
 ## 4. Branch state (held until the user decides)
+The recorded engine loop, the hearing rule and the recorded one-shots are on branch `claude/recorded-sound` and not yet on main. The clip files themselves arrive in a later step: until then every sound keeps its synthesis.
+
 None of the three below is on main: the goods sounds, the ranked tunes (`cues.ts`, `cue`/`CUES`, `CUE_GAP_MS`), the
 volume slider (`woodrail.volume`), `MAX_VOICES`, `RESUME_LEAD_S` and their tests (`toy-audio.test.ts`, `cues.test.ts`)
 live only on these branches.
@@ -65,7 +68,7 @@ The user says the sound "isn't good": both the sounds and how they work.
 - the hum is a buzzing sawtooth;
 - placement follows the camera's focus, not what's on screen.
 
-**Proposal:** about 15–20 recorded CC0 clips, compressed, 200–400 KB in total, lazy-loaded after the first tap (check `docs/artifact-builds.md`). Each would be decoded once into an AudioBuffer and played with `vary()`, keeping the gates, voice cap and sleep. Also:
+**Proposal (under way on `claude/recorded-sound`; the code is in, the files are not):** about 15–20 recorded CC0 clips, compressed, 200–400 KB in total, lazy-loaded after the first tap (check `docs/artifact-builds.md`). Each would be decoded once into an AudioBuffer and played with `vary()`, keeping the gates, voice cap and sleep. Also:
 - a per-train wheel rhythm for the clacks;
 - a soft chuff tied to speed in place of the hum;
 - synthesis as the fallback.
