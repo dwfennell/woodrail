@@ -8088,8 +8088,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const at = depotPoint(e.depotId);
       if (!at) continue;
       const [v, pan] = listen("crane", at.x, at.z);
-      if (v === 0) continue;
-      audio.clunk(v, pan);
+      if (v > 0) audio.clunk(v, pan); // the chime below isn't positional: it plays wherever the town is
       if (e.kind === "unloaded" && game.economy.depot(e.depotId)?.role === "town") audio.chime();
     }
     sawClock += dt;
