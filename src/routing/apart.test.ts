@@ -10,7 +10,7 @@ import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { chain } from "../economy/loop-fixtures";
 import { Sim, SIM_HZ } from "../sim";
 import { Economy } from "../economy/economy";
-import { editLine, stopApart } from "../game/lines";
+import { editLine, stopApart, takeOffLine } from "../game/lines";
 import { engineStatus } from "../game/engine-status";
 import { UNREACHABLE, type SituationContext } from "../game/situation-tips";
 import type { World } from "../game/world";
@@ -174,5 +174,62 @@ describe("a yard's further track left behind", () => {
     expect(economy.trackCount(m.id)).toBe(1);
     layout.movePiece(road, { x: yard.x + 72 * s, z: yard.z - 72 * c, heading: yard.heading }, 0);
     expect(economy.trackCount(m.id)).toBe(2);
+  });
+});
+
+describe("a yard's track isn't held for a train gone or taken off its line", { timeout: 120_000 }, () => {
+  /** ⊐ forest ══ ══ points ══ sawmill ⊏ (the other road a stub), a second track beside the sawmill joined to nothing. */
+  function lay() {
+    const layout = new Layout();
+    const [forest, ...w] = chain(layout, ["depot-forest", S, S, S, S, S]);
+    appendPiece(layout, "buffer-turnback", false, connectorRef(forest, 0));
+    const sw = appendPiece(layout, "switch", false, connectorRef(w[4], 1), 0);
+    const [, mill] = chain(layout, [S, "depot-sawmill"], connectorRef(sw, 1));
+    appendPiece(layout, "buffer-turnback", false, connectorRef(mill, 1));
+    chain(layout, [S], connectorRef(sw, 2));
+    const yard = layout.getPiece(mill)!.pose;
+    const loose = layout.addPiece(S, { x: yard.x + 72 * Math.sin(yard.heading), z: yard.z - 72 * Math.cos(yard.heading), heading: yard.heading });
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const f = economy.addDepot("forest", forest);
+    const m = economy.addDepot("sawmill", mill);
+    economy.setTracks(m, [loose], [], []);
+    const put = (pieceId: number) => {
+      const placed = sim.addTrain(["engine", "timber"], { pieceId, pathIndex: 0, reversed: false, s: 100 });
+      if (placed.kind !== "placed") throw new Error("no room");
+      const t = sim.getTrain(placed.trainId)!;
+      editLine(economy, t.cars[0].id, (st) => st.push({ depotId: m.id, action: "auto" }, { depotId: f.id, action: "auto" }));
+      sim.setLever(t.cars[0].id, 1);
+      return { engine: t.cars[0].id, train: t.id };
+    };
+    // (The first given the sawmill's one track it can reach, the second told it's full while the first heads there.)
+    const first = put(w[2]);
+    const second = put(w[0]);
+    for (let k = 0; k < 2; k++) {
+      sim.tick();
+      economy.tick();
+    }
+    expect(economy.fullAt(second.engine)).not.toBeNull();
+    return { sim, economy, first, second };
+  }
+  const settle = (w: ReturnType<typeof lay>) => {
+    for (let k = 0; k < 2 * SIM_HZ; k++) {
+      w.sim.tick();
+      w.economy.tick();
+    }
+  };
+
+  it("the train given it taken off the track: the other is sent there", () => {
+    const w = lay();
+    w.sim.removeTrain(w.first.train);
+    settle(w);
+    expect(w.economy.fullAt(w.second.engine)).toBeNull();
+  });
+
+  it("the train given it taken off its line: the other is sent there", () => {
+    const w = lay();
+    takeOffLine(w.economy, w.first.engine);
+    settle(w);
+    expect(w.economy.fullAt(w.second.engine)).toBeNull();
   });
 });

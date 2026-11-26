@@ -130,3 +130,30 @@ describe("the user's Sprocket map with the train dispatcher on", () => {
     }
   }, 180_000);
 });
+
+import CLOVER_MAP from "./reports/2026-11-26-clover-pink3-stuck-dispatcher.txt?raw";
+
+describe("the user's map at the moment Clover stood at Sawmill 2, the dispatcher on", () => {
+  it("Clover (Pink line 3, its only train) and Orange line 3 call at all their stops", async () => {
+    // (Saved with the dispatcher on, Clover (engine 47) at Sawmill 2 (depot 25), the other Pink line 3 train taken off.
+    // Before: it stood there for good, "Waiting: something's in the way", no train in its way: the dispatcher planned
+    // its lap to Warehouse 1's own track, on the main line, not its second, on the green line Clover runs on.)
+    const { world } = await loadBugMap(CLOVER_MAP);
+    const { sim, economy } = world;
+    expect(economy.dispatcher).not.toBeNull();
+    expect([...economy.lineIdOf].filter(([, l]) => l === 25).map(([e]) => e)).toEqual([47]);
+    const seen = new Map<number, Set<number>>([[47, new Set()], [60, new Set()]]);
+    for (let i = 0; i < 600 * SIM_HZ; i++) {
+      sim.tick();
+      economy.tick();
+      for (const [e, s] of seen) {
+        const r = economy.routeOf(e)!;
+        if (r.at) s.add(r.stops[r.next % r.stops.length].depotId);
+      }
+    }
+    for (const [e, s] of seen) {
+      const line = economy.lines.get(economy.lineIdOf.get(e)!)!;
+      expect([...s].sort((a, b) => a - b), line.name).toEqual([...new Set(line.stops.map((st) => st.depotId))].sort((a, b) => a - b));
+    }
+  }, 300_000);
+});
