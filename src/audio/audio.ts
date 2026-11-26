@@ -1,3 +1,5 @@
+import { ClipBank, type ClipName } from "./clips";
+
 /** Routed trains' switch throws are heard at most once in this long (ms). */
 export const SOFT_CLUNK_GAP_MS = 700;
 
@@ -34,6 +36,7 @@ export class ToyAudio {
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private hum: { gain: GainNode; osc: OscillatorNode; lfo: OscillatorNode } | null = null;
+  private readonly clips = new ClipBank();
   private lastClack = 0;
   private humLevel = 0;
   muted = false;
@@ -54,6 +57,9 @@ export class ToyAudio {
       const fresh = !this.ctx;
       const ctx = this.ensure();
       if (ctx && (fresh || ctx.state !== "running") && !this.muted && !document.hidden) this.wake(300);
+      // Recorded clips come after the first tap, and only for a page that's heard (not muted, hidden or automated:
+      // a driven page makes no sound, and its 404s for clips not yet added would show in a suite's console).
+      if (ctx && !this.muted && !document.hidden && !this.silent) this.clips.load(ctx);
     };
     for (const type of ["pointerdown", "pointerup", "keydown"]) window.addEventListener(type, gesture, { passive: true });
     document.addEventListener("visibilitychange", () => {
@@ -121,6 +127,27 @@ export class ToyAudio {
       this.setHum(0);
       this.sleep();
     }
+  }
+
+  /**
+   * Plays a recorded clip at `volume`, panned, at `rate` (1 = as recorded). False when there's none to play (not
+   * loaded, or it failed), it's muted or too quiet to hear: the caller plays its synthesised sound instead.
+   */
+  playClip(name: ClipName, volume: number, pan: number, rate = 1): boolean {
+    const ctx = this.ctx;
+    const buffer = this.clips.get(name);
+    if (!ctx || !this.master || !buffer || this.muted || volume <= 0.001) return false;
+    this.wake((buffer.duration / rate) * 1000);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    const g = ctx.createGain();
+    g.gain.value = volume;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = rate;
+    src.connect(g).connect(panner).connect(this.master);
+    src.start();
+    return true;
   }
 
   /** A short filtered noise burst plus a resonant "tock": the sound of wood on wood. */

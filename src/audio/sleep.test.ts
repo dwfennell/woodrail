@@ -26,6 +26,9 @@ class FakeContext {
     this.state = "running";
     return Promise.resolve();
   }
+  decodeAudioData() {
+    return Promise.resolve({ duration: 0.5 });
+  }
   createBuffer() {
     return { getChannelData: (_: number) => new Float32Array(100) };
   }
@@ -140,5 +143,73 @@ describe("the audio context sleeps when nothing's heard (and wakes for the next 
     // Far off the camera: too faint to bother.
     vi.advanceTimersByTime(GUARD_WHISTLE_GAP_MS * 2);
     expect(audio.guardWhistle(0.02, 0)).toBe(false);
+  });
+});
+
+describe("recorded clips load after the first tap, only when heard", () => {
+  let listeners: Record<string, () => void>;
+  let doc: { hidden: boolean };
+  let fetchFn: ReturnType<typeof vi.fn>;
+  const start = (muted = false) => {
+    const audio = new ToyAudio();
+    audio.muted = muted;
+    return audio;
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    listeners = {};
+    doc = { hidden: false };
+    fetchFn = vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) }));
+    const on = (type: string, f: () => void) => (listeners[type] = f);
+    vi.stubGlobal("window", { addEventListener: on, AudioContext: class extends FakeContext {} });
+    vi.stubGlobal("document", { get hidden() { return doc.hidden; }, addEventListener: on });
+    vi.stubGlobal("fetch", fetchFn);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches nothing before a gesture, then every clip once", () => {
+    start();
+    expect(fetchFn).not.toHaveBeenCalled();
+    listeners.pointerdown();
+    const n = fetchFn.mock.calls.length;
+    expect(n).toBeGreaterThan(0);
+    listeners.pointerdown();
+    expect(fetchFn).toHaveBeenCalledTimes(n);
+  });
+
+  it("fetches nothing when muted or hidden at the gesture", () => {
+    start(true);
+    listeners.pointerdown();
+    expect(fetchFn).not.toHaveBeenCalled();
+    doc.hidden = true;
+    start();
+    listeners.pointerdown();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("plays a clip once it's loaded, and not before, muted or too quiet", async () => {
+    const audio = start();
+    listeners.pointerdown();
+    expect(audio.playClip("clack1", 0.5, 0)).toBe(false); // still loading
+    await vi.advanceTimersByTimeAsync(10);
+    expect(audio.playClip("clack1", 0.5, 0)).toBe(true);
+    expect(audio.playClip("clack1", 0.0005, 0)).toBe(false);
+    audio.muted = true;
+    expect(audio.playClip("clack1", 0.5, 0)).toBe(false);
+  });
+
+  it("wakes the context for a clip", async () => {
+    const audio = start();
+    listeners.pointerdown();
+    await vi.advanceTimersByTimeAsync(10);
+    const ctx = (audio as unknown as { ctx: FakeContext }).ctx;
+    vi.advanceTimersByTime(IDLE_SUSPEND_MS * 2);
+    expect(ctx.state).toBe("suspended");
+    audio.playClip("bell", 0.5, 0);
+    expect(ctx.state).toBe("running");
   });
 });
