@@ -152,19 +152,19 @@
     "seconds": 1800
   },
   "own-11-one-way.txt": {
-    "jams": 20,
-    "arrivals": 113,
-    "longestStand": 977,
-    "running": 3.34,
+    "jams": 21,
+    "arrivals": 111,
+    "longestStand": 821,
+    "running": 3.3,
     "firstBreak": null,
     "seconds": 1800
   },
   "own-12-big.txt": {
-    "jams": 31,
-    "arrivals": 52,
-    "longestStand": 393,
-    "running": 7.99,
-    "firstBreak": "greenHeld: train 28 stood 5 s at signal -59, which shows clear (piece 179)",
+    "jams": 40,
+    "arrivals": 65,
+    "longestStand": 221,
+    "running": 7.7,
+    "firstBreak": "oneOwner: train 72 and train 76 both on points 33",
     "seconds": 1800
   },
   "user-2026-11-22-two-train.txt": {
