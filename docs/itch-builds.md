@@ -48,6 +48,9 @@ The page's cover, screenshots, banner and embed background are in `itch-assets/`
 - **No cloud saves**: the Worker's CORS list would have to include `html-classic.itch.zone`, which every HTML game on
   itch shares. Saves are local to the browser, and separate from saves on GitHub Pages.
 - **Play stats** go to the cloud Worker, if `WOODRAIL_CLOUD_URL` is set (`VITE_STATS_URL`; see `docs/stats.md`).
+- **No home-screen app**: the manifest, icons and iPhone tags (`scripts/home-screen.mjs`) are for the GitHub Pages
+  copy only. On itch the game is in a frame on another site, so Add to Home Screen would save itch's page. (An iPhone
+  has no fullscreen for a page, in or out of the frame; itch's "Click to launch in fullscreen" only fills the page.)
 - **Models stay `.glb`**: itch serves any file type, so nothing is renamed as in the artifact build.
 
 To check a build locally: `npx vite preview --outDir dist-itch`.
