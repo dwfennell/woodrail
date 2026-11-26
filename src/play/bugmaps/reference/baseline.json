@@ -174,5 +174,21 @@
     "running": 2,
     "firstBreak": null,
     "seconds": 1800
+  },
+  "user-2026-11-26-clover-pink3.txt": {
+    "jams": 0,
+    "arrivals": 763,
+    "longestStand": 37,
+    "running": 10,
+    "firstBreak": null,
+    "seconds": 1800
+  },
+  "user-2026-11-26-sprocket-farm.txt": {
+    "jams": 0,
+    "arrivals": 1212,
+    "longestStand": 31,
+    "running": 10,
+    "firstBreak": null,
+    "seconds": 1800
   }
 }
