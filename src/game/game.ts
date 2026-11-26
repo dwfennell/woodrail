@@ -1817,6 +1817,11 @@ export class Game {
     if (this.propsView.sync(this.shownProps(), hidden)) this.invalidate();
   }
 
+  /** This frame's view, for what's seen (and so heard: `hear`). */
+  get eye(): AmbientEye {
+    return this.ambientEye;
+  }
+
   /** The level crossings on the map now, as found from track and roads (for placing a crossing prop on one). */
   get levelCrossings(): readonly LevelCrossing[] {
     return this.crossings;
