@@ -696,6 +696,9 @@ export class Dispatcher {
     // aside as two of lines apart (fuzz seed 7 with signals: head on either side of the points to the spare end, for good).)
     const oneLine = ASIDE_ONE && group.length === 2 && lines.size === 1 && !lines.has(-1) && !group.some((e) => this.host.couldSwap?.(e));
     if (!oneLine && (lines.size !== group.length || lines.has(-1))) return false;
+    // (With signals laid, only those (`ASIDE_SIG`): trains of lines apart stepped aside there cost rowan-1 17 stops and
+    // two deadlocks in three seeds, own-12 18 stops, dispatcher on.)
+    if (this.host.layout.signalCount > 0 && !oneLine) return false;
     if (this.asideFailed.get([...group].sort((a, b) => a - b).join(",")) === this.host.layout.revision) return false;
     const now = this.host.sim.ticks;
     for (const e of group) {
