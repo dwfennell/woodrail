@@ -7,10 +7,10 @@ import { PropStore } from "../props/store";
 import { addTownProps, healTownSquares } from "../props/towns";
 import { CAR_LOOKS, Sim } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, givesChoice, isStore, pilesOf, RECIPES, ANYWHERE, type BoatState, type Riders, type CargoKind, type DepotState, type RouteStopDef, type StoreMode } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, MAX_WAGON_CAPACITY, givesChoice, isStore, pilesOf, RECIPES, ANYWHERE, type BoatState, type Riders, type CargoKind, type DepotState, type RouteStopDef, type StoreMode } from "../economy";
 
 import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, pieceOfRef, relaxJoints, pathLength, angleDiff, isLift, type SignalStyle, type Pose, type RelaxOptions } from "../track";
-import { BARGE_LOADS, isBulk, isDock, MAX_BOATS } from "../game/boats";
+import { BARGE_LOADS, bargeCarries, isDock, MAX_BOATS } from "../game/boats";
 import { joinSavedLine, LINE_COLOURS, loadSavedLines, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, serializeLandscape } from "./landscape-data";
@@ -222,7 +222,7 @@ function boatsOf(world: World, renumbered: ReadonlyMap<number, number>): Pick<Sa
     if (stops.length === 0) continue;
     const from = Math.max(0, stops.indexOf(b.stops[b.from]));
     const load: Record<string, number> = {};
-    for (const [k, n] of Object.entries(b.load)) if (n && isBulk(k as CargoKind)) load[k] = n;
+    for (const [k, n] of Object.entries(b.load)) if (n && bargeCarries(k as CargoKind)) load[k] = n;
     boats.push({
       name: b.name,
       barges: b.barges,
@@ -542,7 +542,12 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
       }
       const cargo = t.cars[i].cargo;
       if (cargo && canCarry(car.kind, cargo.kind)) {
+        // (A heavy wagon's load, the Smithy's 5, kept whole: the economy's capacity is the plain wagon's until the
+        // research is applied after the load, and its 2 more were lost on every reload. Save limits' guard, 2026-11-26.)
+        const capacity = economy.wagonCapacity;
+        economy.wagonCapacity = MAX_WAGON_CAPACITY;
         economy.setCargo(car.id, cargo.kind, cargo.count);
+        economy.wagonCapacity = capacity;
         const from = t.cars[i].landedFrom;
         if (from !== undefined && economy.depot(from)) economy.landedFrom.set(car.id, from);
       }
@@ -580,7 +585,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}
     const load: BoatState["load"] = {};
     let room = b.barges * BARGE_LOADS;
     for (const [k, n] of Object.entries(b.load)) {
-      if (!(CARGO_KINDS as readonly string[]).includes(k) || !isBulk(k as CargoKind)) continue;
+      if (!(CARGO_KINDS as readonly string[]).includes(k) || !bargeCarries(k as CargoKind)) continue;
       const take = Math.min(n, room);
       if (take > 0) load[k as CargoKind] = take;
       room -= take;

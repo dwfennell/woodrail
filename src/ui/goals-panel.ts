@@ -3,7 +3,7 @@ import { EXPLAINER_TITLES, type ExplainerId } from "./explainer-keys";
 import { GOALS, type Goal, type GoalProgress } from "../game/goals";
 import { type Journal, type JournalEntry, type JournalPlace } from "../game/journal";
 import { STICKERS, type Sticker, type StickerTheme } from "../game/stickers";
-import { grandOf, type AchievementView } from "../game/grand";
+import { grandOf, ridersWords, type AchievementView } from "../game/grand";
 import { CARGO, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { kindsOf } from "../economy/goods";
 
@@ -451,7 +451,7 @@ export class GoalsPanel {
             .map((st, i) => {
               const goods = kindsOf(st.goods)
                 .map((k) => `<span title="${escapeHtml(CARGO[k as CargoKind].label)}">${st.goods[k]} ${GOODS_ICON[k as CargoKind]}</span>`)
-                .join(" ") + (st.riders ? ` <span>${st.riders} 🧑 riders</span>` : "");
+                .join(" ") + (st.riders ? ` <span>🧑 ${ridersWords(st.riders)}</span>` : "");
               const cls = i < v.done ? "done" : i === v.done && v.town ? "now" : "";
               return `<li class="${cls}"><b>${i < v.done ? "✓ " : ""}${escapeHtml(st.name)}</b> <span class="ach-goods">${goods}</span></li>`;
             })

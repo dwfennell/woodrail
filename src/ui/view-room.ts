@@ -17,7 +17,13 @@ export interface ViewRect {
  */
 export function viewRoom(width: number, height: number, top: readonly ViewRect[], covers: readonly ViewRect[]): ViewRoom | null {
   const room = { left: 0, top: 0, right: width, bottom: height };
-  for (const b of top) if (b.bottom > b.top && b.top < height / 3) room.top = Math.max(room.top, b.bottom);
+  for (const b of top) {
+    if (b.bottom <= b.top || b.top >= height / 3) continue;
+    // (A tall panel at the left, the goals open on a big screen, narrows it from the left: taken for a bar along the
+    // top, the room was the strip under it, and a card's subject was framed beside the card at its foot.)
+    if (b.bottom > height / 3 && b.right < width * 0.4) room.left = Math.max(room.left, b.right);
+    else room.top = Math.max(room.top, b.bottom);
+  }
   for (const b of covers) {
     if (b.bottom <= b.top || b.right <= b.left) continue;
     if (b.left > width * 0.4 && b.top < height / 2) room.right = Math.min(room.right, b.left);

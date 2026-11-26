@@ -139,7 +139,9 @@ export const GRANDS: readonly Grand[] = [
     stages: [
       { name: "The platforms and shed", goods: { bricks: 16, iron: 12 } },
       { name: "The clock tower", goods: { stone: 24 } },
-      { name: "Every line meets", goods: {}, riders: 60 },
+      // (Named for what counts, `countRider`: a rider by train who gets on or off at the city's station. "Every line
+      // meets" said nothing of that: the player asked what it meant, 2026-11-26.)
+      { name: "Riders to or from the city", goods: {}, riders: 60 },
     ],
     coins: 500,
     reward: "A hub: its three roads stop three trains at once, and riders on lines through it pay a quarter more",
@@ -706,4 +708,12 @@ export function earnedCount(world: Pick<World, "economy">): number {
   let n = 0;
   for (const g of GRANDS) if (earned(world, g.id)) n++;
   return n;
+}
+
+/**
+ * What a riders stage counts, in words (Grand Central's last, `countRider`): before it starts, "60 riders to or from
+ * the city by train"; under way, with `got`, "Riders to or from the city by train: 12 / 60".
+ */
+export function ridersWords(want: number, got?: number): string {
+  return got === undefined ? `${want} riders to or from the city by train` : `Riders to or from the city by train: ${Math.min(got, want)} / ${want}`;
 }

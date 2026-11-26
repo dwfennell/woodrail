@@ -372,6 +372,8 @@ export class Hud {
   private redoItem!: HTMLButtonElement;
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
+  /** Under a place's name, what kind of place it is where the name doesn't say ("River landing"). */
+  private readonly depotKind = el("div", "card-sub depot-kind");
   private readonly depotStock = el("div", "depot-stock");
   /** What the depot card's goods line last drew (`updateDepotCard`). */
   private depotStockKey = "";
@@ -889,7 +891,7 @@ export class Hud {
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotKind, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.depotPower.hidden = true;
     this.root.appendChild(this.depotCard);
@@ -2279,7 +2281,7 @@ export class Hud {
     this.hideCards();
     this.pieceCard.hidden = false;
     this.root.classList.add("card-open");
-    this.pieceTitle.textContent = title;
+    setStatedTitle(this.pieceTitle, title);
     this.pieceDetail.textContent = detail;
     this.pieceDetail.hidden = detail === "";
     this.pieceDetail.classList.remove("warn");
@@ -2309,7 +2311,7 @@ export class Hud {
    */
   /** The open piece card's title, changed in place (a signal's: what it shows now, as its aspect changes). */
   setPieceTitle(title: string): void {
-    this.pieceTitle.textContent = title;
+    if (this.pieceTitle.textContent !== title) setStatedTitle(this.pieceTitle, title);
   }
 
   /** The open piece card's detail line said as a warning (`warn-ink`: a signal too short to wait at). */
@@ -2628,9 +2630,12 @@ export class Hud {
     this.depotWiki.setAttribute("aria-label", "This industry on the Woodrail wiki");
   }
 
-  showDepotCard(title: string): void {
+  /** A place's card: its name, and (where the name doesn't say) what kind of place it is under it. */
+  showDepotCard(title: string, kind = ""): void {
     this.hideCards();
     this.depotTitle.textContent = title;
+    this.depotKind.textContent = kind;
+    this.depotKind.hidden = kind === "";
     this.depotLineBtn.hidden = true;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
@@ -3476,4 +3481,27 @@ export function depotModeText(auto: boolean, waitFull: boolean | null): string {
   if (waitFull === null) return "";
   if (!auto) return "Trains run straight through; move cargo by hand.";
   return waitFull ? "Trains wait under the crane till every wagon is full." : "Trains take what's ready and go on.";
+}
+
+/**
+ * A card's title that says a state after a " · " ("Signal · red: a train is on the line ahead"): the name stays the
+ * title, one line, and the state goes on its own line under it in body type (docs/agents/card-system.md: a title never
+ * wraps into a paragraph). The text is kept whole (the " · " hidden, not dropped), so the title reads as before.
+ */
+export function setStatedTitle(el: HTMLElement, title: string): void {
+  const at = title.indexOf(" · ");
+  if (at < 0) {
+    el.textContent = title;
+    return;
+  }
+  const main = document.createElement("span");
+  main.className = "title-main";
+  main.textContent = title.slice(0, at);
+  const sep = document.createElement("span");
+  sep.className = "title-sep";
+  sep.textContent = " · ";
+  const state = document.createElement("span");
+  state.className = "title-state";
+  state.textContent = title.slice(at + 3);
+  el.replaceChildren(main, sep, state);
 }

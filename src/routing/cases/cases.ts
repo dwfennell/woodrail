@@ -80,7 +80,7 @@ const name = (c: Omit<Case, "id">): string =>
         .join(" ");
 
 /** The long fuzz's stalled seeds, a few from each group (stalls-verify report): no loop, one loop, own lines, head on, the game's own. */
-export const FUZZ_SEEDS = [7, 94, 19, 37, 34, 136, 149, 91, 42, 77, 190, 161, 111, 126, 165, 125, 60, 189];
+export const FUZZ_SEEDS = [4, 22, 7, 94, 19, 37, 34, 136, 149, 91, 42, 77, 190, 161, 111, 126, 165, 125, 60, 189];
 
 export function allCases(): Case[] {
   const out: Case[] = [];

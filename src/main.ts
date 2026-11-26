@@ -51,14 +51,14 @@ import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeTex
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { swapChoices, swapEngine, swappedWords, swapRefusal, SWAP_WHY, type SwapRules } from "./game/swap-engine";
 import { costText, isFree, isGift, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltTown, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, HALT_KITS, HALT_REACH, haltTown, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
-import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
+import { lostStopName, lostStopWords, placeName, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
 import { bestInsert, railwaysOf, stopApart, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, legStop, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
@@ -152,7 +152,8 @@ import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
-import { nameOfLand, PICTURE_MAX_CHARS, SlotStore, UNREADABLE_PREFIX } from "./persist/slots";
+import { nameOfLand, PICTURE_MAX_CHARS, SlotStore } from "./persist/slots";
+import { autosaveGame, openGameSave } from "./persist/startup";
 import { GamesSheet, smallPicture } from "./ui/games-sheet";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
@@ -244,26 +245,10 @@ let olderSave = false;
  */
 let unreadableNote: string | null = null;
 
-/**
- * At start-up, before anything is made or saved: the open Game save loaded once. One this build can't read is parked
- * in Your games as it is ("Couldn't open: …", to try again after an update), and Game mode starts with no game open;
- * with no room to park it, it's left in place and Game mode's saves are locked for this page, so the map made instead
- * never overwrites it. (A save that fails to load is never written over: 2026-11-23, a player's game lost so.)
- */
+/** At start-up: the open Game save loaded once, one that won't load kept and never saved over (`openGameSave`). */
 async function keepUnreadableGame(): Promise<ReturnType<typeof loadFromStorage>> {
-  const saved = loadFromStorage("game");
-  if (!saved || saved.ok) {
-    if (saved?.ok) slots.noteReadable();
-    return saved;
-  }
-  console.warn(`Woodrail: the game's save couldn't be loaded (${saved.error}): kept, not overwritten`);
-  const name = await slots.keepUnreadable();
-  if (name !== null) {
-    unreadableNote = `“${name.slice(UNREADABLE_PREFIX.length)}” couldn't be opened by this version of the game. It's kept safe in ☰ Your games: open it there to try again after an update.`;
-    return null;
-  }
-  lockSaves("game");
-  unreadableNote = "Your game couldn't be opened by this version of the game. It's kept as it was and this one won't be saved over it: please tell us (☰ Report a bug).";
+  const { saved, note } = await openGameSave(slots);
+  unreadableNote = note;
   return saved;
 }
 
@@ -996,7 +981,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // not at all, as in Game mode, which won't let it be placed so: the card says so in Game mode's words.)
     const piece = game.layout.getPiece(d.pieceId);
     const site = piece && view.state !== null && ![...game.world.depots.values()].includes(d.pieceId) ? siteWhy(game.landscape, piece.type, piece.pose, undefined, plantedCells(game.landscape, game.world.props)) : null;
-    hud.setDepotChain({ status: site ?? stateWords(view), tone: site ? "waiting" : view.state, rows: chainRows(view, (o) => depotName(game.world, o), (k) => GOODS_ICON[k]) });
+    hud.setDepotChain({ status: site ?? stateWords(view), tone: site ? "waiting" : view.state, rows: chainRows(view, (o) => placeName(game.world, o.id), (k) => GOODS_ICON[k]) });
     const at = placeOfDepot(d);
     const lines: HintLine[] = [];
     const rings: HintRing[] = [];
@@ -1620,14 +1605,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!playing || switching) return;
     // (A drawn line lifted just before, waiting a frame to go down: down first, and saved with the rest.)
     interaction.flushDraw();
-    saveToStorage(game.world, mode);
-    // (A Game railway no game is open for, the starter map from a first start: it becomes one.)
-    if (mode === "game" && slots.openId === null) slots.startUp();
-    const slot = mode === "game" ? slots.openTag() : null;
-    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON(), ...(slot ? { slot } : {}), ...(mode === "game" ? { situations: situations.toJSON() } : {}) });
-    if (mode === "game") {
+    const session = { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() };
+    if (mode !== "game") {
+      saveToStorage(game.world, mode);
+      saveSession(mode, session);
+    } else {
+      // (The railway, its session tagged with the open game, and its progress: `autosaveGame`.)
       const data = progress.toJSON();
-      saveProgress(data);
+      autosaveGame(game.world, slots, { ...session, situations: situations.toJSON() }, data);
       // (Your games' goals and coins for it: now and then.)
       if (performance.now() - factsAt > FACTS_EVERY_MS) {
         factsAt = performance.now();
@@ -3011,7 +2996,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (The research under way must be studied at a College or a University: the school that is one.)
     const schools = game.economy.allDepots().filter((x) => x.role === "school");
     const d = schools.find((x) => atSchool(game.world, x, progress)) ?? schools[0];
-    return d ? depotName(game.world, d) : null;
+    return d ? placeName(game.world, d.id) : null;
   }
   /** Is a school placed (a lookup over the depots, which are kept in a list till the track changes)? */
   function hasSchool(): boolean {
@@ -4559,7 +4544,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (game.depotView.syncTracks(game.economy, game.layout)) game.invalidate();
     // (The group's step goes on the undo stack only once it's whole: the Undo button is told after.)
     hud.setHistory(editor.canUndo, editor.canRedo);
-    hud.toast(`${depotName(game.world, d)} has ${plan.tracks} tracks now: join the new one to the line with points`, false, 3600);
+    hud.toast(`${placeName(game.world, d.id)} has ${plan.tracks} tracks now: join the new one to the line with points`, false, 3600);
     audio.chime();
     tracksShown = "";
     scheduleSave();
@@ -4996,7 +4981,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (line.stops.length <= 2 || piece === undefined || !game.layout.getPiece(piece)) return hud.toast("A stop must drop or pick up: pass by needs 3 stops or more", false, 2500);
       sheetEdit((l) => passBy(l, k));
       stopPicked = -1;
-      hud.toast(`Passes by ${placeName(st.depotId)} now, without stopping`, false, 2500);
+      hud.toast(`Passes by ${placeName(game.world, st.depotId)} now, without stopping`, false, 2500);
     },
     wait: (k) => sheetEdit((l) => (l[k].waitFill = !l[k].waitFill)),
     move: (k, to) => {
@@ -5075,7 +5060,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         l.push(st);
       });
       const stops = game.economy.lines.get(sheetLine)?.stops ?? [];
-      justAdded = { key: stopsKey(stops), k: stops.length - 1, text: `Moved ${placeName(depotId)} to the end, after ${placeName(stops.at(-2)?.depotId ?? -1)}`, toEnd: false };
+      justAdded = { key: stopsKey(stops), k: stops.length - 1, text: `Moved ${placeName(game.world, depotId)} to the end, after ${placeName(game.world, stops.at(-2)?.depotId ?? -1)}`, toEnd: false };
       showSheet();
     },
     addedUndo: () => {
@@ -5167,7 +5152,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   });
 
   /** A place's name, as the route's stops name them (a stop taken up by its kind). */
-  const placeName = (depotId: number): string => routeStops(game.world).find((st) => st.depotId === depotId)?.name ?? lostStopName(game.world, depotId);
 
   /**
    * Open the sheet on line `id` (−1: a new line, made at its first stop) with no train's card: from the Lines list, a
@@ -5256,7 +5240,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (!d) return;
       // (An industry set not to give a good: in its own words; set to give none, one line for it.)
       if (!isStoreRole(d.role)) {
-        const name = DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES] ?? "industry";
+        const name = placeName(game.world, d.id);
         if (RECIPES[d.role].gives.every((g) => storeModeOf(d, g) === "off")) blocked.add(givesBlockText(name, null));
         else for (const g of plan[k].notPicks) blocked.add(givesBlockText(name, g));
         return;
@@ -5707,7 +5691,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.toast(
       emptyWords(tipped, (kind) => {
         const d = game.economy.takerOf(kind);
-        return d ? { name: depotName(game.world, d), town: d.role === "town" } : null;
+        return d ? { name: placeName(game.world, d.id), town: d.role === "town" } : null;
       }),
       false,
       3000,
@@ -5828,7 +5812,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const d = game.economy.depot(id);
       const stop = routeStops(game.world).find((st) => st.depotId === id);
       if (d?.role === "town") return stop?.name ?? "the station";
-      return `the ${(stop?.name ?? (d ? DEPOT_NAMES[d.role] : "depot")).toLowerCase()}`;
+      // ("the sawmill 2", but "the Rookhurst landing": a town's name keeps its capital.)
+      const name = stop?.name ?? (d ? placeName(game.world, d.id) : "depot");
+      return d && name.startsWith(DEPOT_NAMES[d.role]) ? `the ${name[0].toLowerCase()}${name.slice(1)}` : `the ${name}`;
     };
     // A status shows once it's held a moment (a train being worked at the end of the line passes through several).
     const now = performance.now();
@@ -6586,13 +6572,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (at !== -1 && (smart || armed >= 0)) {
             const stops = sheetStops();
             const n = stops.length;
-            const before = placeName(stops[(at - 1 + n) % n].depotId);
+            const before = placeName(game.world, stops[(at - 1 + n) % n].depotId);
             const between = at < n - 1;
-            const text = between ? `Added ${placeName(depotId)} between ${before} and ${placeName(stops[at + 1].depotId)}` : `Added ${placeName(depotId)} at the end, after ${before}`;
+            const text = between ? `Added ${placeName(game.world, depotId)} between ${before} and ${placeName(game.world, stops[at + 1].depotId)}` : `Added ${placeName(game.world, depotId)} at the end, after ${before}`;
             justAdded = { key: stopsKey(stops), k: at, text, toEnd: smart && between };
           }
           // (A place on a railway none of the line's other stops is on: said at once, not left for a train to find.)
-          if (at !== -1 && stopApart(game.economy, sheetStops(), at)) hud.toast(`No track joins ${placeName(depotId)} to the rest of this line: join them, or trains can't get there`);
+          if (at !== -1 && stopApart(game.economy, sheetStops(), at)) hud.toast(`No track joins ${placeName(game.world, depotId)} to the rest of this line: join them, or trains can't get there`);
           sheetTab = "stops";
           showSheet();
           // The whole line stays in view, not just the place tapped (audit F5). Measured once the sheet has grown.
@@ -6685,6 +6671,59 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (game.following === carId) return;
     if (all.length === 0 || inRoom(all)) return;
     frameInRoom(all, Math.min(game.camera.position.distanceTo(game.controls.target), 900));
+  }
+  /**
+   * The open card's subject kept clear of the card (docs/agents/card-system.md): a place's, a signal's or a boat's card
+   * (and each stop a boat's route gains while it's planned), an engine's card (its train), or a line's sheet (its stops,
+   * and a stop opened on it), frames what it's about in the map's room above or beside the
+   * card, at the camera's distance or further, if it isn't there already. Once each time the subject changes (a number
+   * compared each frame, nothing built), never followed.
+   */
+  let cardSubjectKey = -1;
+  function keepCardSubjectInView(): void {
+    const depot = mode === "game" && hud.depotCardOpen ? interaction.openDepotId : -1;
+    const mark = depot === -1 ? interaction.selectedMark : -1;
+    const boat = depot === -1 && mark === -1 ? (water?.subjectKey() ?? -1) : -1;
+    // (A line's sheet: its stops, and a stop opened on it: the sheet grows over the map, the stop kept above it.)
+    const sheet = lineSheet.open && sheetLine !== -1 ? sheetLine : -1;
+    const stop = sheet !== -1 && stopPicked !== -1 ? (game.economy.lines.get(sheet)?.stops[stopPicked]?.depotId ?? -1) : -1;
+    // (An engine's card: its train, whatever it's doing; `showWithEngine` adds the way ahead when there is one.)
+    const engine = depot === -1 && mark === -1 && boat === -1 && sheet === -1 && hud.engineCardOpen ? interaction.openEngineCarId : -1;
+    const key =
+      depot !== -1 ? 1 + depot
+      : mark !== -1 ? 1e7 + mark
+      : boat !== -1 ? 2e7 + boat
+      : engine !== -1 ? 3e7 + engine
+      : sheet !== -1 ? 4e7 + sheet * 1000 + stopPicked + 1
+      : -1;
+    if (key === cardSubjectKey) return;
+    cardSubjectKey = key;
+    if (key === -1) return;
+    // (After the card's laid out: the room is measured from it.)
+    requestAnimationFrame(() => {
+      if (key !== cardSubjectKey) return;
+      let points: Vector3[] = [];
+      if (depot !== -1 || stop !== -1) {
+        const spot = pieceSpot(game.economy.depot(depot !== -1 ? depot : stop)?.pieceId ?? -1);
+        if (spot) points = [spot, spot.clone().setY(spot.y + 60)];
+      } else if (mark !== -1) {
+        const top = game.marksView.topOf(mark);
+        if (top) points = [new Vector3(top.x, top.y, top.z), new Vector3(top.x, top.y - 40, top.z)];
+      } else if (engine !== -1) {
+        showWithEngine(engine, []);
+        return;
+      } else if (sheet !== -1) {
+        // (Its train too, when it's an engine's line being edited.)
+        const train = sheetEngine !== -1 ? trainSpot(sheetEngine) : null;
+        if (train) points.push(train);
+        for (const st of game.economy.lines.get(sheet)?.stops ?? []) {
+          const spot = pieceSpot(game.economy.depot(st.depotId)?.pieceId ?? -1);
+          if (spot) points.push(spot);
+        }
+      } else points = (water?.subjectPoints() ?? []).map((p) => new Vector3(p.x, 0, p.z));
+      if (points.length === 0 || inRoom(points)) return;
+      frameInRoom(points, game.camera.position.distanceTo(game.controls.target), game.controls.maxDistance, points.length);
+    });
   }
   /** About how tall an engine stands (mm), to keep its top in view as well as its wheels. */
   const ENGINE_TOP = 70;
@@ -8138,6 +8177,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showRoute();
     showLines();
     showPlaceRoutes();
+    keepCardSubjectInView();
     // (A train put on a line with no room for it: said once a line. Set on whichever economy the world has now.)
     if (game.economy.sections.onFull !== fullToast) game.economy.sections.onFull = fullToast;
     if (game.economy.stalls.onStuck !== stuckTip) game.economy.stalls.onStuck = stuckTip;

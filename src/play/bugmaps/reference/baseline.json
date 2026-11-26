@@ -177,16 +177,16 @@
   },
   "user-2026-11-26-clover-pink3.txt": {
     "jams": 0,
-    "arrivals": 763,
-    "longestStand": 37,
+    "arrivals": 755,
+    "longestStand": 40,
     "running": 10,
     "firstBreak": null,
     "seconds": 1800
   },
   "user-2026-11-26-sprocket-farm.txt": {
     "jams": 0,
-    "arrivals": 1212,
-    "longestStand": 31,
+    "arrivals": 1193,
+    "longestStand": 43,
     "running": 10,
     "firstBreak": null,
     "seconds": 1800

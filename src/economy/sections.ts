@@ -694,6 +694,10 @@ interface LineInfo {
   zone: { slots: ReadonlyMap<number, number>; sections: ReadonlyMap<number, number> };
 }
 
+/** A train on no line not held far back for a slot the dispatcher's train holds (`recover`): on (LOOSE_PASS=0: off). */
+const LOOSE_PASS = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).LOOSE_PASS !== "0";
+
+const ASIDE_SIG = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE_SIG !== "0";
 export class Sections {
   /** Off: nothing is held (for comparisons). */
   enabled = true;
@@ -3026,7 +3030,7 @@ export class Sections {
    */
   couldStepAside(engine: number): boolean {
     const lineId = this.host.lineOf(engine);
-    if (lineId < 0 || this.layout.signalCount > 0) return false;
+    if (lineId < 0 || (this.layout.signalCount > 0 && !ASIDE_SIG)) return false;
     return this.hasSpareEnd(lineId, this.line(lineId).topo);
   }
 
@@ -3453,6 +3457,11 @@ export class Sections {
       // outside the mouth and stands short of them.)
       if (way.mouth) st.edge = this.edgeOn(way.steps);
       const by = way.blockedBy !== -1 ? way.blockedBy : this.inWayOf(way, train, info);
+      // (`LOOSE_PASS`: a train on no line, its way into a slot the dispatcher's train holds (the points ahead lying for
+      // that road): not held here, however far back. It runs on to the points, where the router throws them for it to
+      // a free road (`HAND_AHEAD`) or stands it short (ring fuzz seed 12: three hand-run trains held round the ring for the
+      // routed one standing in a loop road, it waiting for the last of them to clear the loop's far points).)
+      if (LOOSE_PASS && info.loose.includes(st.engine) && by !== -1 && this.host.dispatchedWay?.(by)) return true;
       if (this.stepAside(st, info, by, { pieceId: front.pieceId, entry, path: front.pathIndex })) return true;
       return this.recoverWait(st, by, info);
     }

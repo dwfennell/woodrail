@@ -1,4 +1,4 @@
-import { capAt, CARGO, RECIPES, storeLetsIn, storeLetsOut, type BoatState, type BoatStop, type BoatStopAction, type CargoKind, type DepotState, type Economy } from "../economy";
+import { capAt, CARGO, CARGO_KINDS, POSTAL, RECIPES, storeLetsIn, storeLetsOut, type BoatState, type BoatStop, type BoatStopAction, type CargoKind, type DepotState, type Economy } from "../economy";
 import { isWater, type Landscape } from "../landscape";
 import type { Pose } from "../track";
 import { depotPoint, QUAY } from "./harbours";
@@ -8,12 +8,17 @@ import { addTo } from "../economy/goods";
 /**
  * Boats the player routes (Game mode's River barges; docs/superpowers/specs/2026-11-04-water-transport.md §3): a tug
  * and its barges, bought at a river landing, sailing between docks (landings, harbours) on the same water by the
- * water's own squares, dropping and picking up bulk goods at each as its stops say. Kinematic: a boat is a distance
+ * water's own squares, dropping and picking up goods at each as its stops say. Kinematic: a boat is a distance
  * along a way worked out once per pair of docks, moved on by game time (`tick`, once a second of play, as the harbours'
  * boats are). They pass under every bridge (toys on felt).
  */
 
-/** What barges carry: what comes in heaps (spec §5, choice D1). */
+/**
+ * What barges carry: any freight good, what a wagon carries but the post (spec §5, choice D2, from players' feedback,
+ * 2026-11-26: "why can't barges carry stuff like paint?"). People and mail don't go by barge.
+ */
+export const BARGE_GOODS: readonly CargoKind[] = CARGO_KINDS.filter((k) => !POSTAL.has(k));
+/** What comes in heaps: a barge of it shows its heap model (`water-barge-logs`…); made goods ride on its deck as units. */
 export const BULK: readonly CargoKind[] = ["log", "stone", "coal", "ore", "grain"];
 /** Loads one barge holds (a wagon holds 3). */
 export const BARGE_LOADS = 4;
@@ -34,7 +39,7 @@ export const BARGE_LENGTH = 88;
 export const LANDING_MOOR = { t: 120, l: 100 };
 
 /** Names for boats, in turn. */
-const NAMES = ["Puffin", "Kingfisher", "Otter", "Heron", "Moorhen", "Teal", "Coot", "Swift", "Mallard", "Grebe", "Tern", "Wren"];
+export const BOAT_NAMES = ["Puffin", "Kingfisher", "Otter", "Heron", "Moorhen", "Teal", "Coot", "Swift", "Mallard", "Grebe", "Tern", "Wren"];
 
 type Point = { x: number; z: number };
 
@@ -45,6 +50,9 @@ export type Waters = Pick<World, "economy" | "layout" | "landscape">;
 export const isDock = (d: DepotState | undefined): d is DepotState => d?.role === "landing" || d?.role === "harbour" || d?.role === "boatyard";
 
 /** A good barges carry. */
+export const bargeCarries = (kind: CargoKind): boolean => BARGE_GOODS.includes(kind);
+
+/** A good that comes in heaps (its barge shows a heap). */
 export const isBulk = (kind: CargoKind): boolean => BULK.includes(kind);
 
 /** How many loads a boat holds: its barges'. */
@@ -53,7 +61,7 @@ export const capacityOf = (b: BoatState): number => b.barges * BARGE_LOADS;
 /** How many loads it has on. */
 export function loaded(b: BoatState): number {
   let n = 0;
-  for (const k of BULK) n += b.load[k] ?? 0;
+  for (const k of BARGE_GOODS) n += b.load[k] ?? 0;
   return n;
 }
 
@@ -259,7 +267,7 @@ export class Fleet {
     const ids = [...this.economy.boats.keys()];
     const id = ids.length > 0 ? Math.max(...ids) + 1 : 1;
     const used = new Set(this.all().map((b) => b.name));
-    const name = NAMES.find((n) => !used.has(n)) ?? `Boat ${id}`;
+    const name = BOAT_NAMES.find((n) => !used.has(n)) ?? `Boat ${id}`;
     const b: BoatState = { id, name, barges: 1, load: {}, stops: [{ depotId, action: "pick" }], from: 0, docked: true, t: 0, going: true, home: depotId, loadedAt: {} };
     this.economy.boats.set(id, b);
     return b;
@@ -290,7 +298,9 @@ export class Fleet {
     if (!this.reaches(boatId, depotId)) return `${b.name} can't get there: it's on other water`;
     const last = b.stops[b.stops.length - 1];
     if (last?.depotId === depotId) return null;
-    b.stops.push({ depotId, action: b.stops.length === 0 ? "pick" : "drop" });
+    // (Drop and pick up, as a train line's stop is by default: a landing tapped is somewhere goods come and go. With
+    // Only drop after the first, a route whose first stop was taken off never loaded at all: player report 2026-11-26.)
+    b.stops.push({ depotId, action: b.stops.length === 0 ? "pick" : "both" });
     return null;
   }
 
@@ -394,9 +404,12 @@ export class Fleet {
     return out;
   }
 
-  /** What it's doing, for its card. */
-  status(b: BoatState): string {
-    const name = (id: number) => this.world().economy.depot(id) && depotLabel(this.world(), id);
+  /**
+   * What it's doing, for its card, its docks named by `nameOf` (`depotLabel`, from the card: this module doesn't import
+   * the names', which import the world's, which import this: a cycle).
+   */
+  status(b: BoatState, nameOf: (depotId: number) => string): string {
+    const name = (id: number) => this.world().economy.depot(id) && nameOf(id);
     if (b.stops.length < 2) return "Waiting for a route: tap ✎ Route, then landings on this river";
     if (!b.going) return "Stopped";
     if (b.docked) return `At ${name(b.stops[b.from].depotId) ?? "its dock"}`;
@@ -466,18 +479,23 @@ export class Fleet {
   }
 
   /**
-   * At a dock: drop what the dock takes (unless the stop says only pick up), then pick up bulk goods it gives (unless
-   * only drop), up to what the barges hold. Goods it picked up here aren't dropped here again.
+   * At a dock: drop what the dock takes (unless the stop says only pick up), then pick up goods it gives (unless only
+   * drop), up to what the barges hold. At a Drop and pick up stop, as a train line's stop does: goods picked up
+   * here aren't dropped here again, goods just dropped aren't picked back up, and only goods another stop on the route
+   * takes are picked up (two landings, each taking and giving logs, would otherwise hand the same logs back and forth).
    */
   serve(b: BoatState, stop: BoatStop): { dropped: number; picked: number } {
     const d = this.economy.depot(stop.depotId);
     if (!d) return { dropped: 0, picked: 0 };
     let dropped = 0;
     let picked = 0;
+    const both = stop.action === "both";
+    const droppedHere = new Set<CargoKind>();
     if (stop.action !== "pick") {
-      for (const k of BULK) {
+      for (const k of BARGE_GOODS) {
         const have = b.load[k] ?? 0;
         if (have <= 0 || !RECIPES[d.role].takes.includes(k)) continue;
+        if (both && b.loadedAt[k] === d.id) continue;
         if (d.role === "landing" && !storeLetsIn(d, k)) continue;
         const i = CARGO[k].index;
         const n = Math.min(have, capAt(d) - d.piles[i]);
@@ -485,14 +503,16 @@ export class Fleet {
         d.piles[i] += n;
         b.load[k] = have - n;
         dropped += n;
+        droppedHere.add(k);
         if (b.loadedAt[k] !== undefined && b.loadedAt[k] !== d.id) this.economy.boatDelivered += n;
         if (b.load[k] === 0) delete b.loadedAt[k];
       }
     }
     if (stop.action !== "drop") {
-      for (const k of BULK) {
+      for (const k of BARGE_GOODS) {
         if (!RECIPES[d.role].gives.includes(k) || (d.role === "landing" && !storeLetsOut(d, k))) continue;
         const i = CARGO[k].index;
+        if (both && (droppedHere.has(k) || !this.takenOnRoute(b, stop, k))) continue;
         const room = capacityOf(b) - loaded(b);
         const n = Math.min(room, d.piles[i]);
         if (n <= 0) continue;
@@ -505,20 +525,15 @@ export class Fleet {
     if (dropped + picked > 0) this.economy.acceptsChanged();
     return { dropped, picked };
   }
-}
 
-/** A dock's name for a boat's card: the landing or harbour, and the town it's near ("Foxley landing"). */
-export function depotLabel(world: Waters, depotId: number): string {
-  const d = world.economy.depot(depotId);
-  const piece = d && world.layout.getPiece(d.pieceId);
-  if (!d || !piece) return "a dock";
-  const what = d.role === "harbour" ? "harbour" : d.role === "boatyard" ? "boatyard" : "landing";
-  let best: { name: string; dist: number } | null = null;
-  for (const t of world.landscape.towns) {
-    const dist = Math.hypot(t.centre.x - piece.pose.x, t.centre.z - piece.pose.z);
-    if (!best || dist < best.dist) best = { name: t.name, dist };
+  /** Does a stop on this boat's route other than `at` take `k` (it drops there, and its dock takes it in)? */
+  private takenOnRoute(b: BoatState, at: BoatStop, k: CargoKind): boolean {
+    return b.stops.some((s) => {
+      if (s === at || s.depotId === at.depotId || s.action === "pick") return false;
+      const d = this.economy.depot(s.depotId);
+      return !!d && RECIPES[d.role].takes.includes(k) && (d.role !== "landing" || storeLetsIn(d, k));
+    });
   }
-  return best ? `${best.name} ${what}` : what[0].toUpperCase() + what.slice(1);
 }
 
 /** How far across from a landing's line its boats tie up: the first of a few steps out from its jetty that's water. */

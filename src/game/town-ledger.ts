@@ -7,7 +7,8 @@ import { ruleOf, type ThingId } from "./things";
 import { statusOf } from "./town-life";
 import { FULL_PAY, townLevel } from "./towns";
 import { hasPostOffice, postLine, POST_TECH } from "./post";
-import { DEPOT_NAMES, depotName, type World } from "./world";
+import { DEPOT_NAMES, type World } from "./world";
+import { placeName } from "./route-stops";
 import { townLinks } from "../roads/graph";
 import { listed } from "../lib/words";
 import { drawsWords, placesWords, waitingByPlace } from "./passengers";
@@ -158,7 +159,7 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     const grade = schoolGrade(world, s, ctx.learned);
     // (Named as its own card is titled; a college says so in its note.)
     const note = [grade.college ? "a college: learns 2× as fast" : "", grade.wing ? "library wing" : ""].filter(Boolean).join(" · ") || "a schoolhouse";
-    school = { depotId: s.id, name: depotName(world, s), note };
+    school = { depotId: s.id, name: placeName(world, s.id), note };
   }
   const calls = (lineStops: readonly { depotId: number }[]) => lineStops.some((st) => world.economy.depot(st.depotId)?.role === "town" && world.economy.depot(st.depotId)?.townId === town.id);
   const lines = [...world.economy.lines.values()]
