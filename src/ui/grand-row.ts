@@ -1,6 +1,6 @@
 import { CARGO, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { kindsOf, type Bag } from "../economy/goods";
-import { grandOf, type GrandTile } from "../game/grand";
+import { grandOf, ridersWords, type GrandTile } from "../game/grand";
 
 /** What the Projects pane's buttons do. */
 export interface GrandActions {
@@ -65,16 +65,16 @@ function ticket(t: GrandTile, ring: boolean, on: GrandActions): HTMLElement {
     li.append(el("i", "grand-stage-mark"), el("span", "grand-stage-name", `${i + 1}. ${st.name.replace(/^The /, "the ").replace(/^./, (c) => c.toUpperCase())}`));
     if (now && t.stage) {
       const got = goodsSpan(t.stage.goods, t.stage.got);
-      // (Grand Central's last: riders carried through the station, a count, not goods.)
+      // (Grand Central's last: riders by train getting on or off at the city's station, a count, not goods.)
       if (t.stage.riders) {
-        const r = el("span", "place-good", `${Math.min(t.stage.riders.got, t.stage.riders.want)}/${t.stage.riders.want} 🧑 riders through it`);
+        const r = el("span", "place-good", `🧑 ${ridersWords(t.stage.riders.want, t.stage.riders.got)}`);
         if (t.stage.riders.got >= t.stage.riders.want) r.classList.add("done");
         got.append(r);
       }
       li.append(got);
     } else {
       const want = goodsSpan(st.goods);
-      if (st.riders) want.append(el("span", "place-good", `${st.riders} 🧑`));
+      if (st.riders) want.append(el("span", "place-good", `🧑 ${ridersWords(st.riders)}`));
       li.append(want);
     }
     list.append(li);
