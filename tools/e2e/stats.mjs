@@ -147,8 +147,18 @@ const centre = (selector, text) =>
     },
     { selector, text },
   );
-/** The page left and come back to, as a browser says it (the game saves once a leaving, till the page is back). */
-const leave = () => p.evaluate(() => (dispatchEvent(new PageTransitionEvent("pagehide")), dispatchEvent(new PageTransitionEvent("pageshow"))));
+/**
+ * The page left and come back to, as a browser says it (the game saves once a leaving, till the page is back). Back in
+ * view, a browser also says `visibilitychange` (visible), which starts the next stretch of play the stats time: without
+ * it, the next leaving has no stretch to send an "end" for (a headless page on macOS happened to say it between; Linux
+ * CI's didn't).
+ */
+const leave = () =>
+  p.evaluate(() => {
+    dispatchEvent(new PageTransitionEvent("pagehide"));
+    dispatchEvent(new PageTransitionEvent("pageshow"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
 
 /** Batches under a device id (shared stats), and plain counts (no id). */
 const shared = () => batches.filter((x) => x.raw.id !== undefined);
