@@ -778,8 +778,10 @@ export class Economy {
     const sections = this.sections;
     sim.signalGate = {
       at: (ref) => {
-        const g = sections.gateAt(ref);
-        return g !== -1 || !HELD_RED ? g : this.heldGateAt(ref);
+        // (The train held standing at it first: a path signal is red only for the train named, and sections' gate can
+        // name one further back in the slot while the one at the signal is held for another (own-12, 162 s).)
+        const h = HELD_RED ? this.heldGateAt(ref) : -1;
+        return h !== -1 ? h : sections.gateAt(ref);
       },
       // (Worked out first: the sim reads the gate only once its version changes.)
       version: () => {
