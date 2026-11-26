@@ -260,6 +260,22 @@ describe("the station house in the rows' style", () => {
     expect(STATION_ROOF_FLAT / 2).toBeGreaterThanOrEqual(28 + 2.4);
   });
 
+  it("stands on a deck at the platform's height, not over the felt (2026-11-26: \"the station just floats there\")", () => {
+    for (const rows of [true, false]) {
+      const list = parts(rows);
+      // The house's walls: 46 tall, their foot at the platform's top (14).
+      const walls = list.find((p) => Math.abs(tall(p) - 46) < 0.01)!;
+      expect(walls.box.min.y).toBeCloseTo(14, 1);
+      // Under them, in the platform's wood, a deck from the felt (0) up to 14 reaching past their foot every way.
+      const under = list.filter((p) => p.paint === "wood" && p.box.min.y < 0.01 && Math.abs(p.box.max.y - 14) < 0.01);
+      const holds = under.some(
+        (p) =>
+          p.box.min.x <= walls.box.min.x + 1 && p.box.max.x >= walls.box.max.x - 1 && p.box.min.z <= walls.box.min.z + 1 && p.box.max.z >= walls.box.max.z - 1,
+      );
+      expect(holds, rows ? "rows" : "plain").toBe(true);
+    }
+  });
+
   it("is how a station is drawn unless told otherwise", () => {
     const land = generateLandscape(7);
     const a = measuring();
