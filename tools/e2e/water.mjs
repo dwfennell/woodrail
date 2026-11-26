@@ -446,14 +446,11 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
       w.economy.depot(b).piles[CARGO.paint.index] = 0;
     }, [A.depot, B.depot]);
     const paintBefore = await p.evaluate(() => window.woodrail.economy.boatDelivered);
-    const tugNow = await p.evaluate(() => {
-      const o = window.woodrail.riverBoats.tugOf([...window.woodrail.economy.boats.keys()][0]);
-      return o ? { x: o.position.x, y: 10, z: o.position.z } : null;
-    });
-    if (tugNow) {
-      await look(tugNow, 900);
-      await tapWorld(tugNow);
-    }
+    // Its card from the boatyard's (a tap on the yard, then the boat's chip there: a moving tug is a small target).
+    await look(quay(C), 1100);
+    await tapWorld(quay(C));
+    await tapButton(".landing-boat-chips .chip");
+    await p.waitForSelector(".boat-card:not([hidden]) .route-chip", { timeout: 20000 }).catch(() => {});
     const chipAt = (i) =>
       p.evaluate((i) => {
         const e = document.querySelectorAll(".boat-card:not([hidden]) .route-chip")[i];
@@ -508,15 +505,12 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     check("the paint comes off at the second landing, delivered by barge (the payoff)", !!paintIn && paintIn.n > 0 && paintIn.delivered > paintBefore, JSON.stringify({ paintIn, paintBefore }));
     await look(quay(B), 1000);
     await shot("8c-paint-delivered");
-    // Emptied there (Only drop), its card says what barges carry: the boat tapped again, its card read.
+    // Emptied there (Only drop), its card says what barges carry (opened again from the yard's card if it closed).
     await playUntil(() => Object.values([...window.woodrail.economy.boats.values()][0].load).every((n) => !n), null, 60);
-    const tugEnd = await p.evaluate(() => {
-      const o = window.woodrail.riverBoats.tugOf([...window.woodrail.economy.boats.keys()][0]);
-      return o ? { x: o.position.x, y: 10, z: o.position.z } : null;
-    });
-    if (tugEnd && !(await p.evaluate(() => document.querySelector(".boat-card")?.hidden === false))) {
-      await look(tugEnd, 900);
-      await tapWorld(tugEnd);
+    if (!(await p.evaluate(() => document.querySelector(".boat-card")?.hidden === false))) {
+      await look(quay(C), 1100);
+      await tapWorld(quay(C));
+      await tapButton(".landing-boat-chips .chip");
     }
     await frames();
     const empty = await p.evaluate(() => (document.querySelector(".boat-card")?.hidden === false ? document.querySelector(".boat-card .boat-load")?.textContent : null));
