@@ -170,8 +170,12 @@ export const DETOUR_SOON = { on: ((globalThis as { process?: { env: Record<strin
 const DETOUR_SOON_S = 2;
 /** Short of all delivering, searched again with the others' holds free where they stand (`takenHere`): on (TAKEN_POS=0: off). */
 export const TAKEN_POS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_POS !== "0" };
-/** The stop-now rule for a train held where it stands only once it's wholly there, its tail car clear of the joint behind: on (STOP_IN=0: off). */
-export const STOP_IN = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).STOP_IN !== "0" };
+/**
+ * The stop-now rule for a train held where it stands only once it's wholly there, its tail car clear of the joint behind
+ * (STOP_IN=1, measuring; off: not needed for the ring mix once `LOOSE_PASS` is on, and it cost user-2026-11-21 17 stops,
+ * own-12 6, dandelion 6, clover-pink3 7, dispatcher on, 3 seeds).
+ */
+export const STOP_IN = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).STOP_IN === "1" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
