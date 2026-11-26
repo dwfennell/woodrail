@@ -146,6 +146,8 @@ export const ASIDE = { on: ((globalThis as { process?: { env: Record<string, str
 /** `ASIDE`: how long (s) the stretch stands first, and the most it stays sections'. */
 const ASIDE_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE_S ?? 2);
 const ASIDE_MAX_S = 120;
+/** A move onto track a train in a dead end comes back over after its turn there not granted (`comingBackBy`): DEAD_COME=1 (measuring). */
+export const DEAD_COME = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_COME === "1" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
@@ -1256,6 +1258,12 @@ export class Dispatcher {
         }
         if (!inLoop) singleBy = by;
       }
+      // (`DEAD_COME`: onto track a train in a dead end comes back over once it turns there (its way from its turn on to
+      // its next waiting place), the other way: refused, as for one on that line already (line1+siding 3×one opposed: granted
+      // out of the loop toward the junction while the one in the far dead end turned, the two met between; nose to nose).)
+      // (Not with signals laid: there a move up to a signal's waiting point on the line is the signals' to keep apart, and
+      // refused, the line1 sig cases stood for good.)
+      if (singleBy < 0 && DEAD_COME.on && this.host.layout.signalCount === 0) singleBy = this.comingBackBy(engine, tt, way, placed);
       if (singleBy >= 0) to = -1;
     }
     // (Points on the move the router has locked for another train, or another train is on: not granted; it waits on that
@@ -1852,6 +1860,53 @@ export class Dispatcher {
       if (end >= 0) mine.set(s, end);
     }
     return mine;
+  }
+
+  /**
+   * `DEAD_COME`: a routed train whose way runs on (no points) to a turn at a line end, and from there back over any piece
+   * of this move's way (`way`) the other way before its next waiting place: its key (−1: none).
+   */
+  private comingBackBy(engine: number, t: DTrain, way: readonly number[], placed: readonly DTrain[]): number {
+    const mine = new Map<number, number>();
+    for (const n of way) {
+      const ps = t.pos[n];
+      const fp = ps[ps.length - 1];
+      if (!mine.has(fp)) mine.set(fp, t.frontEn[n]);
+    }
+    for (const p of t.pos[t.at]) mine.delete(p);
+    if (mine.size === 0) return -1;
+    const here = new Set(t.pos[t.at]);
+    for (const o of placed) {
+      if (o.key === engine || o.fixed) continue;
+      // (Heading for a turn at a line end with no points before it.)
+      let i = o.at;
+      let n = 0;
+      for (; i >= 0 && !o.turned[i] && n < 200; n++) {
+        // (Behind this one on its way there (it'd have to pass it first): it follows, not comes back at it.)
+        if (o.succ[i].length !== 1 || (i !== o.at && o.pos[i].some((p) => here.has(p) || mine.has(p)))) {
+          i = -1;
+          break;
+        }
+        i = o.succ[i][0];
+      }
+      if (i < 0 || !o.turned[i]) continue;
+      // (Back from there to its next waiting place: onto a piece of this move, entered by the other end.)
+      let out = false;
+      for (let j = o.succ[i][0] ?? -1, m = 0; j >= 0 && m < 200; m++) {
+        const ps = o.pos[j];
+        const fp = ps[ps.length - 1];
+        const en = mine.get(fp);
+        if (en !== undefined && en !== o.frontEn[j]) return o.key;
+        if (isPoints(this.host.layout, fp)) out = true;
+        // (Waiting places in the dead end itself (its stop there) don't count: out past its points first.)
+        if (out && o.wait[j] && o.succ[j].length > 0 && !o.turned[j]) {
+          // (A waiting place in a passing loop's road or a yard: it waits there; on, past it, is another decision.)
+          if (o.pos[j].every((p) => !mine.has(p))) break;
+        }
+        j = o.succ[j][0] ?? -1;
+      }
+    }
+    return -1;
   }
 
   /** Is `key`'s train the only other on single line `s`, none other granted onto it (one train to turn behind: §16 Q9)? */
