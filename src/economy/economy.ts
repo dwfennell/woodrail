@@ -781,7 +781,11 @@ export class Economy {
         const g = sections.gateAt(ref);
         return g !== -1 || !HELD_RED ? g : this.heldGateAt(ref);
       },
-      version: () => sections.gateVersion() * 65536 + (HELD_RED ? this.heldGateVer : 0),
+      // (Worked out first: the sim reads the gate only once its version changes.)
+      version: () => {
+        if (HELD_RED && this.heldGateTick !== this.sim.ticks) this.refreshHeldGate();
+        return sections.gateVersion() * 65536 + (HELD_RED ? this.heldGateVer : 0);
+      },
       callOn: (ref, trainId) => sections.callOnAt(ref, trainId),
     };
     this.stalls = new Stalls(sim, this.sections, {
