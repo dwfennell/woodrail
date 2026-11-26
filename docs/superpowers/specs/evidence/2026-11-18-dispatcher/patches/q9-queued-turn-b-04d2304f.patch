@@ -1,0 +1,244 @@
+diff --git a/src/routing/dispatcher.ts b/src/routing/dispatcher.ts
+index 62819298..96313f85 100644
+--- a/src/routing/dispatcher.ts
++++ b/src/routing/dispatcher.ts
+@@ -170,6 +170,9 @@ export const DETOUR_SOON = { on: ((globalThis as { process?: { env: Record<strin
+ const DETOUR_SOON_S = 2;
+ /** Short of all delivering, searched again with the others' holds free where they stand (`takenHere`): on (TAKEN_POS=0: off). */
+ export const TAKEN_POS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_POS !== "0" };
++const Q9_STOP_D = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_STOP === "1";
++const Q9_SWAP = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_SWAP === "1";
++export const Q9_LET = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_LET === "1" };
+ export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
+ /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
+ export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
+@@ -688,11 +691,12 @@ export class Dispatcher {
+    * the dead end its way next turns in, with no stop of its own there (−1: not so). Its way up to there clear of every
+    * other train but that one, none granted onto it, and that one standing with a piece at the line's end.
+    */
++  q9Why = 0;
+   private q9End(engine: number, t: DTrain): number {
+     // (Not a line the swap planner could take: the hand-off's.)
+-    if (HANDOFF.on && this.host.couldSwap?.(engine)) return -1;
+-    const s = this.deadTarget(t, t.at, true);
+-    if (s < 0) return -1;
++    if (HANDOFF.on && !Q9_SWAP && this.host.couldSwap?.(engine)) { this.q9Why = 1; return -1; }
++    const s = this.deadTarget(t, t.at, true, Q9_STOP_D);
++    if (s < 0) { this.q9Why = 2; return -1; }
+     const seg = this.singleOf();
+     // (Its way up to the node before its turn: its front at the line's end.)
+     let end = -1;
+@@ -703,7 +707,7 @@ export class Dispatcher {
+       end = i;
+       i = t.succ[i][0] ?? -1;
+     }
+-    if (end < 0) return -1;
++    if (end < 0) { this.q9Why = 3; return -1; }
+     const pieces = new Set<number>();
+     for (const i of way) for (const p of t.pos[i]) pieces.add(p);
+     for (const p of t.pos[t.at]) pieces.delete(p);
+@@ -722,17 +726,17 @@ export class Dispatcher {
+       const on = o.bogies.some((b) => pieces.has(b.pieceId));
+       if (!on) continue;
+       // (One train on its way: standing, on the dead end's part of it.)
+-      if (by || o.speed !== 0 || !o.bogies.every((b) => deadPart.has(b.pieceId) || !pieces.has(b.pieceId))) return -1;
++      if (by || o.speed !== 0 || !o.bogies.every((b) => deadPart.has(b.pieceId) || !pieces.has(b.pieceId))) { this.q9Why = 4; return -1; }
+       by = o;
+     }
+-    if (!by) return -1;
++    if (!by) { this.q9Why = 5; return -1; }
+     // (A routed one, the dispatcher's: a hand-run train standing at the buffer may stand there for good.)
+-    if (!this.holdsBy.has((by.cars.find((c) => c.kind === "engine") ?? by.cars[0]).id)) return -1;
++    if (!this.holdsBy.has((by.cars.find((c) => c.kind === "engine") ?? by.cars[0]).id)) { this.q9Why = 6; return -1; }
+     // (None other granted onto its way.)
+     const byEngine = (by.cars.find((c) => c.kind === "engine") ?? by.cars[0]).id;
+     for (const [key, o] of this.holdsBy) {
+       if (key === engine || key === byEngine) continue;
+-      for (const n of o.path) if (o.t.pos[n].some((p) => pieces.has(p))) return -1;
++      for (const n of o.path) if (o.t.pos[n].some((p) => pieces.has(p))) { this.q9Why = 7; return -1; }
+     }
+     return end;
+   }
+@@ -1113,7 +1117,9 @@ export class Dispatcher {
+       if (r3.first[0] >= 0 && r3.firstTo[0] >= 0) {
+         const tt = wayAt(placed[k], placed[k], ts[k]);
+         const path = this.pathTo(tt, r3.firstTo[0]);
+-        over = path.length === 0 || path.some((n) => n !== tt.at && tt.pos[n].some((p) => takenHere.has(p)));
++        // (A turn close behind the train at the line's end (§16 Q9, `Q9_LET`): onto its piece by the search's own rule.)
++        const q9 = Q9_LET.on && path.some((n) => tt.turned[n]);
++        over = path.length === 0 || (!q9 && path.some((n) => n !== tt.at && tt.pos[n].some((p) => takenHere.has(p))));
+       }
+       if (!r3.capped && !over && r3.plain > 0) r = { ...r3, states: r.states + r3.states };
+     }
+@@ -1185,6 +1191,7 @@ export class Dispatcher {
+           this.q9Waits++;
+         }
+       }
++      if (this.debug) this.notes.push(`${(this.host.sim.ticks / 120).toFixed(1)}s train ${engine} Q9DBG to ${to} c ${c} standing ${standing} coming ${coming} end ${c >= 0 ? this.q9End(engine, ts[k]) : "-"} why ${this.q9Why}`);
+       if (standing) {
+         const end = this.q9End(engine, ts[k]);
+         if (end >= 0) {
+@@ -1309,6 +1316,29 @@ export class Dispatcher {
+       // (Not with signals laid: there a move up to a signal's waiting point on the line is the signals' to keep apart, and
+       // refused, the line1 sig cases stood for good.)
+       if (singleBy < 0 && DEAD_COME.on && this.host.layout.signalCount === 0) singleBy = this.comingBackBy(engine, tt, way, placed);
++      // (`Q9_LET`: the plan has it on past its next turn (turned close behind the train at the line's end, §16 Q9) before
++      // the one it'd wait for moves at all: the line is its to use first (fuzz seeds 37, 125: held off the line while the
++      // one at its end turned and came out at it).)
++      // (Only while that one has no grant on: granted on out of the line's end already, it won't wait there for this one.)
++      const byHold = singleBy >= 0 ? this.holdsBy.get(singleBy) : undefined;
++      if (singleBy >= 0 && Q9_LET.on && byHold && byHold.path.length <= 1 && byHold.end === byHold.t.at) {
++        const turnAt = (() => {
++          for (let x = tt.at, n = 0; x >= 0 && n < 400; n++, x = tt.succ[x][0] ?? -1) if (tt.turned[x]) return x;
++          return -1;
++        })();
++        if (turnAt >= 0) {
++          let past = false;
++          for (const m of r.order) {
++            const key = placed[members[m.k]].key;
++            if (key === singleBy) break;
++            if (members[m.k] === k && tt.order[m.to] > tt.order[turnAt]) {
++              past = true;
++              break;
++            }
++          }
++          if (past) singleBy = -1;
++        }
++      }
+       if (singleBy >= 0) to = -1;
+     }
+     // (Points on the move the router has locked for another train, or another train is on: not granted; it waits on that
+@@ -1849,17 +1879,17 @@ export class Dispatcher {
+    * The dead end (its single line) `t`'s way from node `from` next stops or turns in, before any other stop or turn
+    * (−1: none). Cached per booked way and node.
+    */
+-  private deadTarget(t: DTrain, from: number, turnOnly = false): number {
++  private deadTarget(t: DTrain, from: number, turnOnly = false, pastStop = false): number {
+     let byAt = deadCache.get(t.pos);
+     if (!byAt) deadCache.set(t.pos, (byAt = new Map()));
+-    const ck = from * 2 + (turnOnly ? 1 : 0);
++    const ck = from * 4 + (turnOnly ? 1 : 0) + (pastStop ? 2 : 0);
+     const hit = byAt.get(ck);
+     if (hit !== undefined) return hit;
+     const stops = t.arrivals.filter((a) => t.order[a] > t.order[from]);
+     const stop = stops.length > 0 ? stops[0] : -1;
+     let out = -1;
+     for (let i = t.succ[from][0] ?? -1, n = 0; i >= 0 && n < 400; n++) {
+-      if (t.turned[i] || i === stop) {
++      if (t.turned[i] || (i === stop && !(turnOnly && pastStop))) {
+         const s = this.singleOf().get(t.pos[i][t.pos[i].length - 1]);
+         if (s !== undefined && s >= 0 && this.deadEnd(s) && (!turnOnly || i !== stop)) out = s;
+         break;
+diff --git a/src/routing/stretch.ts b/src/routing/stretch.ts
+index 11eaa527..7abe0ca9 100644
+--- a/src/routing/stretch.ts
++++ b/src/routing/stretch.ts
+@@ -177,6 +177,11 @@ export interface DTrain {
+    */
+   half: Uint8Array;
+   closeOf: Int32Array;
++  /**
++   * A close-up node of its own pieces (`Q9_SLIDE`), the rest of it a node back being over points: how far its tail piece
++   * lets it slide back (mm; 0: not one of those, its tail as a node back).
++   */
++  slide?: Float64Array;
+   tailCover: Float64Array;
+   tailEn: Int32Array;
+   frontEn: Int32Array;
+@@ -286,6 +291,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
+     return ln.slice(j + 1, i + 1);
+   };
+   const tailCover: number[] = [];
++  const tailLen: number[] = [];
+   const tailEn: number[] = [];
+   const frontEn: number[] = [];
+   const frontLen: number[] = [];
+@@ -297,6 +303,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
+     let sum = 0;
+     for (const e of body) sum += lenOf(layout, e);
+     tailCover.push(body.length > 0 ? lenOf(layout, body[0]) - Math.max(0, sum - L) : 0);
++    tailLen.push(body.length > 0 ? lenOf(layout, body[0]) : 0);
+     tailEn.push(body[0]?.en ?? -1);
+     frontEn.push(body[body.length - 1]?.en ?? -1);
+     frontLen.push(body.length > 0 ? lenOf(layout, body[body.length - 1]) : 0);
+@@ -569,13 +576,23 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
+   // following (the search's `forward`), on to m once q is clear.
+   const half: number[] = pos.map(() => 0);
+   const closeOf: number[] = pos.map(() => -1);
++  const slide: number[] = pos.map(() => 0);
+   if (!fixed)
+     for (let m = at + 1; m < main && pos.length < MAX_POSITIONS; m++) {
+-      if (seg[m] !== seg[m - 1] || turned[m]) continue;
++      if (turned[m]) continue;
+       const q = pos[m][pos[m].length - 1];
+       if (pos[m - 1].includes(q) || swOf(layout, q)) continue;
+-      const ps = [...pos[m - 1], q];
+-      if (!ps.every((p) => !swOf(layout, p))) continue;
++      let ps = [...pos[m - 1], q];
++      let sl = 0;
++      if (seg[m] !== seg[m - 1] || !ps.every((p) => !swOf(layout, p))) {
++        // (`Q9_SLIDE`: the rest of it a node back over points (or another stretch), so it slides back on its own
++        // pieces instead, as far as its tail piece lets it, clear of the points: fuzz seeds 37, 125, up close behind a
++        // train standing at the line's end, to turn there behind it (§16 Q9), as the oracle has it.)
++        if (!Q9_SLIDE.on || pos[m].length < 2 || !pos[m].every((p) => !swOf(layout, p))) continue;
++        sl = (tailLen[m] ?? 0) - tailCover[m];
++        if (sl <= 0) continue;
++        ps = [...pos[m]];
++      }
+       const c = pos.length;
+       pos.push(ps);
+       plain.push(true);
+@@ -597,6 +614,11 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
+       half.push(1);
+       closeOf.push(-1);
+       closeOf[m] = c;
++      slide.push(sl);
++      if (sl > 0) {
++        tailCover[c] = tailCover[m];
++        tailEn[c] = tailEn[m];
++      }
+     }
+   const n = pos.length;
+   const restA = Uint8Array.from(rest, (b) => (b ? 1 : 0));
+@@ -635,6 +657,7 @@ export function buildTrain(layout: Layout, s: Snap, horizon = HORIZON, avoid?: R
+     main,
+     half: Uint8Array.from(half),
+     closeOf: Int32Array.from(closeOf),
++    slide: Float64Array.from(slide),
+     tailCover: Float64Array.from(tailCover),
+     tailEn: Int32Array.from(tailEn),
+     frontEn: Int32Array.from(frontEn),
+@@ -882,6 +905,7 @@ export function branchesOf(t: DTrain, i: number): Branch[] {
+ /** §16 Q9 in the search: turned close behind one train at the line's end only, never a queue (Q9_ONE=0: any). */
+ /** …and only behind one facing the line's end, not one turned there already (Q9_FACE=0: either). */
+ export const Q9_FACE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_FACE !== "0" };
++export const Q9_SLIDE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_SLIDE === "1" };
+ export const Q9_ONE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).Q9_ONE !== "0" };
+ 
+ /** `q9RunOf` per booked way and node. */
+@@ -901,7 +925,7 @@ export function q9RunOf(t: DTrain, c: number): Int32Array | null {
+   let x = t.succ[c][0] ?? -1;
+   for (let n = 0; x >= 0 && !t.turned[x] && n < 400; n++) {
+     // (Points on the way, or a stop of its own before the turn: not a dead end it only turns in (Q9 is for those).)
+-    if (t.succ[x].length > 1 || t.arrivals.includes(x)) {
++    if (t.succ[x].length > 1 || ((globalThis as any).process?.env?.Q9_STOP !== "1" && t.arrivals.includes(x))) {
+       ok = false;
+       break;
+     }
+@@ -1175,6 +1199,8 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
+       en = st.en;
+     } else return false;
+     if (en !== t.frontEn[c] || cover + CLOSE_GAP >= t.frontLen[c]) return false;
++    // (Slid back on its own pieces (`Q9_SLIDE`): only as far as its tail piece lets it.)
++    if (t.slide && t.slide[c] > 0 && cover + CLOSE_GAP > t.slide[c]) return false;
+     // (The rest of it where it was a node back: its own, or free.)
+     for (const p of t.pos[c]) if (p !== q && ((owner[p] !== 0 && owner[p] !== k + 1) || (owner2[p] !== 0 && owner2[p] !== k + 1))) return false;
+     return true;
+@@ -1253,6 +1279,7 @@ export function search(trains: readonly DTrain[], members: readonly number[], op
+           if (run)
+             for (let q = 0; q < run.length && filled; q++) {
+               const ow = owner[run[q]];
++              if (ow === 0 && by !== 0 && q === run.length - 1 && (globalThis as any).process?.env?.Q9_END === "1") continue;
+               if (ow === 0 || ow === own) filled = false;
+               // (One train only, standing at the line's end, as the oracle has it: not a queue of them (`Q9_ONE`).)
+               else if (ow !== by) {
