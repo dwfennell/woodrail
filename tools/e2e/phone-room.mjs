@@ -155,6 +155,15 @@ suite.add("fold", async () => {
     const after = await p.evaluate(() => window.woodrail.layout.pieceCount);
     check("the tray still lays track: a straight dragged from its shelf onto the map is laid", after === before + 1, `${before} → ${after}`);
   }
+  // A tap on a tile opens its card over the tray: the pull steps aside (its reach would take the card's taps).
+  const tile2 = await box(p, ".tray .scroller .tray-item:not(.tray-back)");
+  if (tile2) await p.touchscreen.tap(tile2.x, tile2.y);
+  await p.waitForTimeout(700);
+  const withCard = await p.evaluate(() => ({ card: [...document.querySelectorAll(".hud .card")].some((c) => !c.hidden && c.getBoundingClientRect().height > 0), pull: document.querySelector(".tray-fold").getBoundingClientRect().height }));
+  check("with a card open over the tray, the pull steps aside", withCard.card && withCard.pull === 0, JSON.stringify(withCard));
+  await p.keyboard.press("Escape");
+  await p.evaluate(() => document.querySelectorAll(".hud .card:not([hidden]) .card-close, .hud .card:not([hidden]) .close").forEach((b) => b.click()));
+  await p.waitForTimeout(500);
   // Folded again, an open card stands on the folded tray, not where the open one ended.
   await p.touchscreen.tap(pull.x, (await box(p, ".tray-fold")).y);
   await p.waitForTimeout(500);
