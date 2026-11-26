@@ -17,13 +17,15 @@ function chip(label: string, cls: string, onClick: () => void): HTMLButtonElemen
   return b;
 }
 
-const WHAT = "Share anonymous play stats (which goals people reach, how long they play, any errors) and now and then a copy of your railway, so we can see what people build. No names, nothing that says who you are.";
+const WHAT = "Share your play stats under a random number made on this device, so we can see how a player gets on (which goals, how long, any errors), and now and then a copy of your railway, to see what people build. No names, nothing that says who you are.";
+/** Plain counts (on unless turned off), said in the menu's card. */
+const COUNTS = "Either way, Woodrail counts how many games start, which goals are reached and how long play lasts, with no number or anything kept on your device: nothing tells one player from another.";
 /** For a player who said yes before the question mentioned railways. */
 const MAPS = "Can we also have a copy of your railway now and then? It shows us what people build. No names, nothing that says who you are.";
 
 /**
- * "Help improve Woodrail": asks once (after the first goal) whether to share anonymous play stats, and from the menu
- * shows the answer and lets it be changed. Nothing is sent before a yes (see stats/stats.ts).
+ * "Help improve Woodrail": asks once (after the first goal) whether to share play stats under a random id, and from the
+ * menu shows the answer and lets it be changed, and plain counts (no id) turned off or on (see stats/stats.ts).
  */
 export class StatsCard {
   readonly root = el("div", "card cloud-card stats-card");
@@ -55,7 +57,7 @@ export class StatsCard {
       maps ? chip("Just stats", "stats-no", () => this.answerMaps(false)) : chip("No thanks", "stats-no", () => this.answer(false)),
       maps ? chip("Yes, share it", "primary stats-yes", () => this.answerMaps(true)) : chip("Yes, share", "primary stats-yes", () => this.answer(true)),
     );
-    r.append(row, el("p", "cloud-credit", "You can change this any time in the ☰ menu."));
+    r.append(row, el("p", "cloud-credit", maps ? "You can change this any time in the ☰ menu." : "Without a yes, Woodrail only counts plays and goals, with nothing that tells players apart. Change either in the ☰ menu."));
     r.hidden = false;
   }
 
@@ -86,7 +88,15 @@ export class StatsCard {
       );
     }
     row.append(chip("Done", "", () => this.hide()));
-    r.append(row);
+    const counts = this.stats.countsOn;
+    const countRow = el("div", "card-row");
+    countRow.append(
+      chip(counts ? "Stop counting" : "Count again", "stats-counts", () => {
+        this.stats.setCounts(!counts);
+        this.show();
+      }),
+    );
+    r.append(row, el("p", "cloud-text stats-counts-text", COUNTS), el("div", "cloud-status stats-counts-status", counts ? (on ? "Counting: on (your shared stats count instead)" : "Counting: on") : "Counting: off"), countRow);
     r.hidden = false;
   }
 
@@ -103,6 +113,6 @@ export class StatsCard {
   private answer(yes: boolean): void {
     this.stats.setConsent(yes);
     this.hide();
-    this.toast(yes ? "Thank you! That helps a lot." : "No problem: nothing is shared.");
+    this.toast(yes ? "Thank you! That helps a lot." : "No problem: your stats and railway stay with you.");
   }
 }

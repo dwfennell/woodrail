@@ -4,7 +4,7 @@
  *   PUT  /v1/saves/:mode         store a bundle (the one it replaces is kept as `<mode>.prev`)
  *   GET  /v1/saves/:mode         the bundle (`?prev=1`: the one before it)
  *   HEAD /v1/saves/:mode         just its headers: what's there, without the bytes
- *   POST /v1/stats               anonymous play stats, from players who said yes (stats.ts)
+ *   POST /v1/stats               play stats: under an id from players who said yes, or plain counts (stats.ts)
  *   /feedback…                   "Report a bug or give feedback": reports, their maps and pictures (feedback.ts)
  *   /crash                       crash reports: an error's message and stack, the device's screen (crash.ts)
  *   /v1/snapshots…               railway snapshots, from players who share their railway too (snapshots.ts)

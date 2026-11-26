@@ -22,27 +22,74 @@ function setup(over: Partial<StatsDeps> = {}) {
 }
 
 describe("Stats", () => {
-  it("sends nothing until the player says yes, then what was held", () => {
-    const { stats, sent, timers } = setup();
+  it("before an answer: plain counts, with no id and nothing kept on the device", () => {
+    const { stats, sent, timers, store } = setup();
     expect(stats.shouldAsk).toBe(true);
+    expect(stats.counting).toBe(true);
     stats.record({ e: "start", mode: "game", fresh: true });
     stats.record({ e: "goal", id: "join-two", n: 1 });
-    stats.flush(true);
-    expect(sent).toEqual([]);
-    expect(timers).toEqual([]);
-    stats.setConsent(true);
+    stats.record({ e: "error", msg: "boom" });
     expect(timers.length).toBe(1);
     timers[0].fn();
+    expect(sent.length).toBe(1);
+    expect(sent[0].batch.id).toBeUndefined();
+    expect(sent[0].batch.anon).toBe(true);
+    expect(sent[0].batch).toMatchObject({ build: "b1", host: "itch", device: "phone" });
+    // (Errors aren't counts: held, for a yes.)
     expect(sent[0].batch.events.map((e) => e.e)).toEqual(["start", "goal"]);
+    expect([...store.keys()]).toEqual([]);
+    // A yes: what's held goes under the id, and nothing more as counts.
+    stats.setConsent(true);
+    expect(stats.counting).toBe(false);
+    stats.record({ e: "end", mode: "game", minutes: 4 });
+    stats.flush(true);
+    expect(sent[1].batch.id).toBe("0123456789abcdef");
+    expect(sent[1].batch.anon).toBeUndefined();
+    expect(sent[1].batch.events.map((e) => e.e)).toEqual(["error", "end"]);
   });
 
-  it("a no drops what was held, unsent", () => {
-    const { stats, sent } = setup();
+  it("counts turned off: nothing sent, and what's waiting dropped; a yes still shares", () => {
+    const { stats, sent, timers, store, deps } = setup();
     stats.record({ e: "start", mode: "game", fresh: true });
-    stats.setConsent(false);
+    stats.setCounts(false);
+    expect(store.get("woodrail.stats.counts")).toBe("off");
     stats.record({ e: "goal", id: "join-two", n: 1 });
+    for (const t of timers) t.fn();
     stats.flush(true);
     expect(sent).toEqual([]);
+    expect(new Stats(deps).counting).toBe(false);
+    // (Unanswered, counts off: held for a yes, as before counts.)
+    stats.setConsent(true);
+    stats.flush(true);
+    expect(sent[0].batch.events.map((e) => e.e)).toEqual(["goal"]);
+  });
+
+  it("a no today keeps the counts; a no from before counts existed is counts off", () => {
+    const { stats, sent, store, deps } = setup();
+    stats.setConsent(false);
+    expect(store.get("woodrail.stats.counts")).toBe("on");
+    stats.record({ e: "start", mode: "game", fresh: true });
+    stats.record({ e: "error", msg: "boom" });
+    stats.flush(true);
+    expect(sent.length).toBe(1);
+    expect(sent[0].batch.anon).toBe(true);
+    expect(sent[0].batch.events.map((e) => e.e)).toEqual(["start"]);
+    expect(new Stats(deps).counting).toBe(true);
+    // Before: the old question's no, and no counts key.
+    const old = setup();
+    old.store.set("woodrail.stats", "no");
+    const s2 = new Stats(old.deps);
+    expect(s2.counting).toBe(false);
+    expect(s2.countsOn).toBe(false);
+    expect(old.store.get("woodrail.stats.counts")).toBe("off");
+    s2.record({ e: "start", mode: "game", fresh: true });
+    s2.flush(true);
+    expect(old.sent).toEqual([]);
+    // …and can turn them on.
+    s2.setCounts(true);
+    s2.record({ e: "start", mode: "game", fresh: true });
+    s2.flush(true);
+    expect(old.sent.length).toBe(1);
   });
 
   it("asks nothing, and sends nothing, in a build without a stats URL", () => {
@@ -74,7 +121,7 @@ describe("Stats", () => {
     expect(sent.length).toBe(1);
   });
 
-  it("remembers the answer, and a no drops the id and what's waiting", () => {
+  it("remembers the answer, and a no drops the id (what's waiting goes as plain counts)", () => {
     const { stats, sent, store, deps } = setup();
     stats.setConsent(true);
     stats.record({ e: "start", mode: "sandbox", fresh: false });
@@ -82,7 +129,9 @@ describe("Stats", () => {
     stats.record({ e: "end", mode: "sandbox", minutes: 3 });
     stats.setConsent(false);
     stats.flush(true);
-    expect(sent.length).toBe(1);
+    expect(sent.length).toBe(2);
+    expect(sent[1].batch.id).toBeUndefined();
+    expect(sent[1].batch.anon).toBe(true);
     expect(store.get("woodrail.stats")).toBe("no");
     expect(store.has("woodrail.stats.id")).toBe(false);
     const again = new Stats(deps);

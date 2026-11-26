@@ -36,6 +36,17 @@ describe("stats", () => {
     expect((f.written[3].blobs![2] as string).length).toBe(200);
   });
 
+  it("takes plain counts with no id, under one shared index, and no errors", async () => {
+    const f = fake();
+    const body = JSON.stringify({ anon: true, build: "b1", host: "itch", device: "phone", events: [{ e: "start", mode: "game", fresh: true, t: 1 }, { e: "goal", id: "join-two", n: 1, t: 2 }, { e: "error", msg: "boom", t: 3 }] });
+    expect((await post(body, f.env)).status).toBe(204);
+    expect(f.written.map((p) => p.blobs![0])).toEqual(["start", "goal"]);
+    expect(f.written.every((p) => p.indexes![0] === "anon")).toBe(true);
+    // An id with anon, or neither: turned away.
+    expect((await post(batch([], { anon: true })))).toHaveProperty("status", 400);
+    expect((await post(JSON.stringify({ build: "b1", events: [] })))).toHaveProperty("status", 400);
+  });
+
   it("turns away a malformed or oversized batch", async () => {
     expect((await post("not json")).status).toBe(400);
     expect((await post(batch([], { id: "nope" }))).status).toBe(400);

@@ -1,6 +1,7 @@
 /**
- * POST /v1/stats: a batch of anonymous play stats from a game whose player said yes ("Help improve Woodrail"; the
- * game's side is src/stats/stats.ts). Each event is one data point in Workers Analytics Engine (binding `STATS`),
+ * POST /v1/stats: a batch of play stats (the game's side is src/stats/stats.ts): either under a device's random id,
+ * from a player who said yes ("Help improve Woodrail"), or plain counts with no id at all (`anon`: starts, goals and
+ * minutes, no errors), kept under the index "anon". Each event is one data point in Workers Analytics Engine (binding `STATS`),
  * read with its SQL API (see docs/stats.md). Nothing is kept here: no R2, no logs of the body.
  *
  * Any page may send (it's write-only and anonymous, and itch serves every game from one shared origin). A batch is
@@ -18,18 +19,23 @@ export interface StatsEnv {
 }
 
 const ID = /^[0-9a-f]{16}$/;
+/** Plain counts' index: every one shares it, so none can be told apart. */
+export const ANON = "anon";
 const word = (v: unknown, max = 24): string => (typeof v === "string" ? v.slice(0, max) : "");
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 /**
  * One data point per event. blobs: [event, mode, detail (goal id or error), build, host, device]; doubles: [value
  * (goal count, minutes), fresh (1/0)]; index: the device's random id (so players can be counted, and sampled
- * together).
+ * together), or "anon" for plain counts.
  */
 export function points(batch: unknown): AnalyticsEngineDataPoint[] | null {
   if (typeof batch !== "object" || batch === null) return null;
   const b = batch as Record<string, unknown>;
-  if (typeof b.id !== "string" || !ID.test(b.id) || !Array.isArray(b.events) || b.events.length > MAX_STATS_EVENTS) return null;
+  const anon = b.anon === true;
+  if (anon && b.id !== undefined) return null; // (counts carry no id)
+  if ((!anon && (typeof b.id !== "string" || !ID.test(b.id))) || !Array.isArray(b.events) || b.events.length > MAX_STATS_EVENTS) return null;
+  const index = anon ? ANON : (b.id as string);
   const common = [word(b.build), word(b.host), word(b.device)];
   const out: AnalyticsEngineDataPoint[] = [];
   for (const raw of b.events) {
@@ -37,16 +43,17 @@ export function points(batch: unknown): AnalyticsEngineDataPoint[] | null {
     const ev = raw as Record<string, unknown>;
     switch (ev.e) {
       case "start":
-        out.push({ indexes: [b.id], blobs: ["start", word(ev.mode), "", ...common], doubles: [0, ev.fresh === true ? 1 : 0] });
+        out.push({ indexes: [index], blobs: ["start", word(ev.mode), "", ...common], doubles: [0, ev.fresh === true ? 1 : 0] });
         break;
       case "goal":
-        out.push({ indexes: [b.id], blobs: ["goal", "game", word(ev.id, 64), ...common], doubles: [num(ev.n), 0] });
+        out.push({ indexes: [index], blobs: ["goal", "game", word(ev.id, 64), ...common], doubles: [num(ev.n), 0] });
         break;
       case "end":
-        out.push({ indexes: [b.id], blobs: ["end", word(ev.mode), "", ...common], doubles: [Math.min(num(ev.minutes), 24 * 60), 0] });
+        out.push({ indexes: [index], blobs: ["end", word(ev.mode), "", ...common], doubles: [Math.min(num(ev.minutes), 24 * 60), 0] });
         break;
       case "error":
-        out.push({ indexes: [b.id], blobs: ["error", "", word(ev.msg, 200), ...common], doubles: [0, 0] });
+        if (anon) break; // (not a count)
+        out.push({ indexes: [index], blobs: ["error", "", word(ev.msg, 200), ...common], doubles: [0, 0] });
         break;
     }
   }
