@@ -148,6 +148,26 @@ const ASIDE_S = Number(((globalThis as { process?: { env: Record<string, string 
 const ASIDE_MAX_S = 120;
 /** A move onto track a train in a dead end comes back over after its turn there not granted (`comingBackBy`): on (DEAD_COME=0: off). */
 export const DEAD_COME = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_COME !== "0" };
+/** A line round to the same points at both ends: a train heading for its other end in the way only on this move's way (`singleLineBy`): LOOP_LINE=1 (measuring). */
+export const LOOP_LINE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).LOOP_LINE === "1" };
+/** A detour's own place on it, not the booked way's node there (`wayAt`): DETOUR_AT=1 (measuring). */
+export const DETOUR_AT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DETOUR_AT === "1" };
+
+/**
+ * A member's way as it stands now: as placed (its hold's end) back to where it stands (`now`). A detour (`DETOUR_AT`) is
+ * another way, built from where it stands, its nodes not the booked way's: its own place on it (branch 2×one opposed
+ * stops:far: granted a detour out of the branch by the loop's other side, its path read from the booked way's node on the
+ * detour came to nothing, and it was never granted it).
+ */
+function wayAt(w: DTrain, placedK: DTrain, now: DTrain): DTrain {
+  if (w === placedK) return now;
+  if (DETOUR_AT.on && w.pos !== now.pos) return w;
+  return { ...w, at: now.at };
+}
+
+/** Its move blocked outright (no first move at all): detours searched after `DETOUR_SOON_S`, not `REROUTE_AFTER_S` (DETOUR_SOON=1, measuring). */
+export const DETOUR_SOON = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DETOUR_SOON === "1" };
+const DETOUR_SOON_S = 2;
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
@@ -1077,7 +1097,7 @@ export class Dispatcher {
     if (r.first[0] >= 0 && r.first[0] >= r.plain) to = r.firstTo[0];
     // (At most every `DETOUR_EVERY_S` a train: a stuck one asks again every `RETRY_TICKS`, and the detour search is the
     // costliest part of a decision (rowan-1's p98).)
-    else if (r.plain < r.of && h.stood >= 0 && this.host.sim.ticks - h.stood >= REROUTE_AFTER_S * 120 && r.states < DISPATCH_STATES && this.host.sim.ticks - (h.detourAt ?? -Infinity) >= DETOUR_EVERY_S * 120) {
+    else if (r.plain < r.of && h.stood >= 0 && this.host.sim.ticks - h.stood >= (DETOUR_SOON.on && r.first[0] < 0 ? DETOUR_SOON_S : REROUTE_AFTER_S) * 120 && r.states < DISPATCH_STATES && this.host.sim.ticks - (h.detourAt ?? -Infinity) >= DETOUR_EVERY_S * 120) {
       h.detourAt = this.host.sim.ticks;
       // (Stuck: with detours.)
       const dt = withDetours(this.host.layout, snaps, placed, members);
@@ -1102,7 +1122,7 @@ export class Dispatcher {
     let q9 = false;
     if (to >= 0 && Q9S.on) {
       const w = ways[k];
-      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const tt = wayAt(w, placed[k], ts[k]);
       // (A Q9 move: its node the mirror of one on its way before the turn (`q9Mirror`), a train standing between that one
       // and the turn. Not every move through a turn: one that runs to a free end, turns and comes back is a move as any.)
       let c = -1;
@@ -1176,7 +1196,7 @@ export class Dispatcher {
     let turnBy = -1;
     if (to >= 0 && !q9 && TURNS2.on) {
       const w = ways[k];
-      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const tt = wayAt(w, placed[k], ts[k]);
       const now = this.host.sim.ticks;
       const mine = h.stood >= 0 ? h.stood : now;
       for (const o of ts) {
@@ -1228,7 +1248,7 @@ export class Dispatcher {
     let singleBy = -1;
     if (to >= 0 && !q9 && OWNER.on && SINGLE.on) {
       const w = ways[k];
-      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const tt = wayAt(w, placed[k], ts[k]);
       const way = this.pathTo(tt, to);
       singleBy = this.singleLineBy(engine, tt, way);
       // (`SINGLE_CUT`: refused onto a single line, granted up to its last waiting place before it (a loop's road), not
@@ -1271,7 +1291,7 @@ export class Dispatcher {
     let lockedBy = -1;
     if (to >= 0 && !q9 && OWNER.on && this.host.sim.pathLocks) {
       const w = ways[k];
-      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const tt = wayAt(w, placed[k], ts[k]);
       const path = this.pathTo(tt, to);
       const pts: number[] = [];
       for (let q = 1; q < path.length; q++) {
@@ -1294,7 +1314,7 @@ export class Dispatcher {
     // the points at 426 with Conker standing on its way beyond them, coming the other way). Not for a train on the other's
     // way already: there, refusing it helps nobody (they've met), and the two would hold each other for good.)
     let headBy = -1;
-    if (to >= 0 && !q9 && OWNER.on && HEAD_AHEAD.on) headBy = this.headOnAhead(engine, ts, placed, ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at }, to);
+    if (to >= 0 && !q9 && OWNER.on && HEAD_AHEAD.on) headBy = this.headOnAhead(engine, ts, placed, wayAt(ways[k], placed[k], ts[k]), to);
     if (headBy >= 0) to = -1;
     let noseBy = -1;
     // (Never to stand nose to nose: a move ending with its front against another lever-on train's front on the next piece
@@ -1346,7 +1366,7 @@ export class Dispatcher {
     // isn't granted; it would go the way they lie, off its grant, into another's (own-03: nose to nose).)
     if (to >= 0 && !q9 && OWNER.on) {
       const w = ways[k];
-      const tt = w === placed[k] ? ts[k] : { ...w, at: ts[k].at };
+      const tt = wayAt(w, placed[k], ts[k]);
       const path = this.pathTo(tt, to);
       const fp = tt.pos[tt.at][tt.pos[tt.at].length - 1];
       for (let q = 1; q < path.length; q++) {
@@ -1408,7 +1428,7 @@ export class Dispatcher {
       if (to >= 0) h.want = undefined;
       else {
         h.waitWhy = r.first[0] < 0 || (lockedBy >= 0 && headBy < 0 && noseBy < 0) ? "blocked" : singleBy >= 0 && headBy < 0 && noseBy < 0 ? "single" : "other";
-        const w = ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at };
+        const w = wayAt(ways[k], placed[k], ts[k]);
         const want = new Set<number>();
         let nodes: number[] = [];
         if (r.first[0] >= 0 && r.firstTo[0] >= 0) nodes = this.pathTo(w, r.firstTo[0]);
@@ -1458,7 +1478,7 @@ export class Dispatcher {
     for (const c of this.cuts) if (c.h.path === c.path) this.setHold(c.h, c.path[c.k], c.path.slice(0, c.k + 1));
     this.cuts.length = 0;
     // (Granted: its way (a detour's, if that's it) from where it stands to the move's waiting point.)
-    const t = ways[k] === placed[k] ? ts[k] : { ...ways[k], at: ts[k].at };
+    const t = wayAt(ways[k], placed[k], ts[k]);
     // (Its way now a detour's, if that's what it's granted: moved along it from here on, its route the same.)
     if (t.pos !== h.t.pos) h.t = t;
     const path = this.pathTo(t, to);
@@ -1735,6 +1755,34 @@ export class Dispatcher {
     return -1;
   }
 
+  /** Does single line `s` run round to the same points at both its ends (`LOOP_LINE`)? Per layout revision. */
+  private loopLine(seg: Map<number, number>, s: number): boolean {
+    if (this.loopsRev !== this.host.layout.revision) {
+      this.loops.clear();
+      this.loopsRev = this.host.layout.revision;
+    }
+    const hit = this.loops.get(s);
+    if (hit !== undefined) return hit;
+    let p = -1;
+    for (const [q, x] of seg)
+      if (x === s) {
+        p = q;
+        break;
+      }
+    let out = false;
+    if (p >= 0) {
+      const a = this.singleEnd(seg, p, 0);
+      const b = this.singleEnd(seg, p, 1);
+      const na = a >= 0 ? next(this.host.layout, pieceOfRef(a), indexOfRef(a)) : null;
+      const nb = b >= 0 ? next(this.host.layout, pieceOfRef(b), indexOfRef(b)) : null;
+      out = !!na && !!nb && na.pieceId === nb.pieceId;
+    }
+    this.loops.set(s, out);
+    return out;
+  }
+  private readonly loops = new Map<number, boolean>();
+  private loopsRev = -1;
+
   /** Whether a single line's end (a ref, `singleEnd`) runs onto a buffer, or onto nothing. */
   private endsDead(ref: number): boolean {
     if (ref < 0) return false;
@@ -1931,6 +1979,33 @@ export class Dispatcher {
     // (The lines its move runs onto, and the end of each it heads for.)
     const mine = this.linesOf(t, path);
     if (mine.size === 0) return -1;
+    const onWay = new Set<number>();
+    // (Only for a train whose next stop comes before its next turn: going round to call there, not into the dead end
+    // only to turn and come back past the other (branch 2×one opposed: in the branch to turn, it stood there for good).)
+    let toStop = false;
+    if (LOOP_LINE.on)
+      for (let i = t.at, n = 0; i >= 0 && n < 400; n++) {
+        if (t.arrivals[0] === i) {
+          toStop = true;
+          break;
+        }
+        if (t.turned[i]) break;
+        i = t.succ[i][0] ?? -1;
+      }
+    // (…and only where one of its stops is on a dead end: a branch it goes to call at, not one to turn in (branch 2×one
+    // opposed: its stops on the ring, the branch only for turning, let round it went in and stood there for good).)
+    if (toStop) {
+      const seg0 = this.singleOf();
+      toStop = t.arrivals.some((a) => {
+        const ps = t.pos[a];
+        const x = ps ? seg0.get(ps[ps.length - 1]) : undefined;
+        return x !== undefined && x >= 0 && this.deadEnd(x);
+      });
+    }
+    if (LOOP_LINE.on && toStop) {
+      for (const n of path) for (const p of t.pos[n]) onWay.add(p);
+      for (const p of t.pos[t.at]) onWay.delete(p);
+    }
     const self = sim.findCar(engine)?.train;
     for (const o of sim.trains()) {
       if (o === self || o.derailed) continue;
@@ -1948,7 +2023,13 @@ export class Dispatcher {
         if (!bp) break;
         const ex = pathExitConnector(getPieceDef(bp.type, bp.flipped), b.pathIndex, net >= 0 ? b.reversed : !b.reversed);
         const end = ex >= 0 ? this.singleEnd(seg, b.pieceId, ex) : -1;
-        if (end !== mine.get(s)) return key;
+        if (end !== mine.get(s)) {
+          // (`LOOP_LINE`: a line both of whose ends run onto the same points (a balloon's loop, a ring off a wye): heading
+          // for its other end, the other moves away round the loop, unless it's on this move's way (branch 2×one opposed
+          // stops:far: two trains either side of the loop, each held for the other, both bound for the branch).)
+          if (LOOP_LINE.on && toStop && this.loopLine(seg, s) && !o.bogies.some((b) => onWay.has(b.pieceId))) break;
+          return key;
+        }
         // (Heading for the same end, where the line ends (a buffer, or nothing): it turns there and comes back, toward
         // this one (`DEAD_BACK`; line1 3×one opposed sig:blocks3: granted by a loop's other road onto the line a train stood
         // at the forest's buffer at, to turn and come back; nose to nose for good).)
