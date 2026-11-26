@@ -47,6 +47,8 @@ const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
  * from shared CDN hosts) and a claude.ai artifact (served from claude's own content hosts).
  */
 const FEEDBACK_HOSTS = /^https:\/\/([a-z0-9-]+\.)*(itch\.zone|itch\.io|hwcdn\.net|claudeusercontent\.com|claude\.ai)$/;
+/** The Android and iOS apps' page (Capacitor's, the same in every Capacitor app): for feedback only, as itch's hosts. */
+const APP_ORIGINS = new Set(["capacitor://localhost", "https://localhost"]);
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -59,7 +61,7 @@ export default {
     const path = new URL(request.url).pathname;
     const snapshots = path === "/v1/snapshots" || path.startsWith("/v1/snapshots/");
     if (path === "/feedback" || path.startsWith("/feedback/") || path === "/crash" || snapshots) {
-      const pageOk = origin === null || allowed || FEEDBACK_HOSTS.test(origin);
+      const pageOk = origin === null || allowed || FEEDBACK_HOSTS.test(origin) || APP_ORIGINS.has(origin);
       const cors: Record<string, string> = origin !== null && pageOk ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : { "Access-Control-Allow-Origin": "*" };
       // Crash reports (crash.ts) and railway snapshots (snapshots.ts): from the same pages as feedback.
       if (path === "/crash") return handleCrash(request, env, cors, pageOk);

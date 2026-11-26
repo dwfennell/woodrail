@@ -14,3 +14,8 @@ export function gitShortHash() {
 export function updateCheckOn() {
   return !process.env.WOODRAIL_NO_UPDATE_CHECK;
 }
+
+/** Set by the native build (scripts/native-build.mjs): the game is inside the Android or iOS app. */
+export function nativeBuild() {
+  return !!process.env.WOODRAIL_NATIVE;
+}

@@ -13,6 +13,8 @@ const doc = (): WebkitDocument => document as WebkitDocument;
 
 /** Can this page go fullscreen? (False on iPhone Safari and in an iframe not allowed it.) */
 export function fullscreenAvailable(): boolean {
+  // (The Android/iOS app already fills the screen.)
+  if (__NATIVE__) return false;
   const d = doc();
   const el = d.documentElement as WebkitElement;
   if (d.fullscreenEnabled === true && typeof el.requestFullscreen === "function") return true;
