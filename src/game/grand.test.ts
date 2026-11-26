@@ -4,7 +4,7 @@ import { checkProp, TrackIndex, type Footprint } from "../props/placement";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { CATALOGUE } from "../catalogue/assets";
 import { kindsOf, total } from "../economy/goods";
-import { advanceGrands, achievements, centralWhy, countRider, earned, GRAND_CENTRAL_KITS, moveCentralKit, HUB_FARE, hubFare, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ROYAL_GIFT, siteAsset, siteMoveRule, siteSpot, siteWhy, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
+import { advanceGrands, achievements, centralWhy, countRider, earned, GRAND_CENTRAL_KITS, moveCentralKit, HUB_FARE, hubFare, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ridersWords, ROYAL_GIFT, siteAsset, siteMoveRule, siteSpot, siteWhy, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
 import { RECIPES } from "../economy/economy";
 import { CARRIES } from "../economy/cargo";
 import { FULL_PAY } from "./towns";
@@ -649,5 +649,17 @@ describe("Grand Central", () => {
     for (let i = 0; i < 7; i++) countRider(w, town.id, w.landscape.towns[1].id);
     const back = reload(w);
     expect(back.economy.grandPlans.get("central")).toMatchObject({ stage: 2, riders: 7, prop: -1 });
+  });
+});
+
+describe("a riders stage's words", () => {
+  // The player asked what Grand Central's "Every line meets" meant (2026-11-26): it counts riders by train getting on or
+  // off at the city's station (`countRider`). The stage and its row say so, and the row shows how many so far.
+  it("says what counts, and how many so far", () => {
+    const stage = grandOf("central")!.stages.find((s) => s.riders);
+    expect(stage?.name).toBe("Riders to or from the city");
+    expect(ridersWords(60)).toBe("60 riders to or from the city by train");
+    expect(ridersWords(60, 12)).toBe("Riders to or from the city by train: 12 / 60");
+    expect(ridersWords(60, 75)).toBe("Riders to or from the city by train: 60 / 60");
   });
 });

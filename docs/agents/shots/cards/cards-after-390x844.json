@@ -1,0 +1,277 @@
+{
+ "engine-running": {
+  "box": {
+   "cls": "card engine-card",
+   "x": 16,
+   "y": 261,
+   "w": 358,
+   "h": 422
+  },
+  "seen": [
+   {
+    "name": "engine",
+    "x": 195,
+    "y": 210,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "engine-at-stop": {
+  "box": {
+   "cls": "card engine-card",
+   "x": 16,
+   "y": 261,
+   "w": 358,
+   "h": 422
+  },
+  "seen": [
+   {
+    "name": "engine",
+    "x": 195,
+    "y": 210,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "engine-edit": {
+  "box": {
+   "cls": "card line-sheet",
+   "x": 0,
+   "y": 456,
+   "w": 390,
+   "h": 388
+  },
+  "seen": [
+   {
+    "name": "engine",
+    "x": 255,
+    "y": 285,
+    "visible": true,
+    "why": ""
+   },
+   {
+    "name": "stop 1",
+    "x": 255,
+    "y": 150,
+    "visible": true,
+    "why": ""
+   },
+   {
+    "name": "stop 2",
+    "x": 115,
+    "y": 268,
+    "visible": true,
+    "why": ""
+   },
+   {
+    "name": "stop 3",
+    "x": 122,
+    "y": 186,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "lines-list": {
+  "box": {
+   "cls": "lines-view card",
+   "x": 12,
+   "y": 526,
+   "w": 366,
+   "h": 308
+  },
+  "seen": []
+ },
+ "linesheet": {
+  "box": {
+   "cls": "card line-sheet",
+   "x": 0,
+   "y": 456,
+   "w": 390,
+   "h": 388
+  },
+  "seen": [
+   {
+    "name": "stop 1",
+    "x": 195,
+    "y": 386,
+    "visible": true,
+    "why": ""
+   },
+   {
+    "name": "stop 2",
+    "x": 195,
+    "y": 187,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "linesheet-stop": {
+  "box": {
+   "cls": "card line-sheet",
+   "x": 0,
+   "y": 304,
+   "w": 390,
+   "h": 540
+  },
+  "seen": [
+   {
+    "name": "stop 2",
+    "x": 195,
+    "y": 187,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "industry": {
+  "box": {
+   "cls": "card depot-card",
+   "x": 12,
+   "y": 385,
+   "w": 366,
+   "h": 298
+  },
+  "seen": [
+   {
+    "name": "industry",
+    "x": 195,
+    "y": 266,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "workshop": {
+  "box": {
+   "cls": "card depot-card",
+   "x": 12,
+   "y": 261,
+   "w": 366,
+   "h": 422
+  },
+  "seen": [
+   {
+    "name": "workshop",
+    "x": 195,
+    "y": 205,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "town": {
+  "box": {
+   "cls": "card depot-card",
+   "x": 12,
+   "y": 300,
+   "w": 366,
+   "h": 383
+  },
+  "seen": [
+   {
+    "name": "station",
+    "x": 195,
+    "y": 224,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "signal": {
+  "box": {
+   "cls": "card piece-card",
+   "x": 12,
+   "y": 323,
+   "w": 366,
+   "h": 360
+  },
+  "seen": [
+   {
+    "name": "signal",
+    "x": 195,
+    "y": 208,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "boat-planning-1": {
+  "box": {
+   "cls": "card depot-card boat-card planning-boat",
+   "x": 12,
+   "y": 296,
+   "w": 366,
+   "h": 387
+  },
+  "seen": [
+   {
+    "name": "boat",
+    "x": 152,
+    "y": 223,
+    "visible": true,
+    "why": ""
+   },
+   {
+    "name": "landing 1",
+    "x": 238,
+    "y": 175,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "boat-planning-2": {
+  "box": {
+   "cls": "card depot-card boat-card planning-boat",
+   "x": 12,
+   "y": 261,
+   "w": 366,
+   "h": 422
+  },
+  "seen": [
+   {
+    "name": "boat",
+    "x": 178,
+    "y": 147,
+    "visible": true,
+    "why": ""
+   },
+   {
+    "name": "landing 1",
+    "x": 186,
+    "y": 142,
+    "visible": true,
+    "why": ""
+   },
+   {
+    "name": "landing 2",
+    "x": 212,
+    "y": 241,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ },
+ "boat-sailing": {
+  "box": {
+   "cls": "card depot-card boat-card",
+   "x": 12,
+   "y": 296,
+   "w": 366,
+   "h": 387
+  },
+  "seen": [
+   {
+    "name": "boat",
+    "x": 195,
+    "y": 199,
+    "visible": true,
+    "why": ""
+   }
+  ]
+ }
+}

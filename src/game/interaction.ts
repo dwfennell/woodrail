@@ -35,7 +35,8 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
 import { pointsSetFor } from "./engine-status";
-import { DEPOT_NAMES, depotName, freeMapDepot, INDUSTRY_ROLE, movableMapDepot } from "./world";
+import { DEPOT_NAMES, freeMapDepot, INDUSTRY_ROLE, movableMapDepot } from "./world";
+import { placeCardTitle } from "./route-stops";
 import { ruinAt, SITE_NAMES } from "./map-sites";
 import { haltName, secretAt, secretOfPiece } from "./secrets";
 import { LEVER_PROPS, leversWorked, pointsWay, signalRoadAt } from "./lineside";
@@ -3321,13 +3322,6 @@ export class Interaction {
     return warn;
   }
 
-  private depotTitle(depotId: number): string {
-    const d = this.game.economy.depot(depotId);
-    if (!d) return "";
-    // (Game mode's town card is the town's ledger, under the town's own name.)
-    if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""}${this.townCard ? "" : " goods"}`;
-    return depotName(this.game, d);
-  }
 
   /** Counts the cards opened: a check for one that's been replaced since does nothing. */
   private cardNudge = 0;
@@ -3407,7 +3401,9 @@ export class Interaction {
     this.clearSelection();
     this.selectedDepot = depotId;
     this.shownDepot.id = -1;
-    this.hud.showDepotCard(this.depotTitle(depotId));
+    // (Its place's name, as its stops and toasts say it, and its kind under it: `placeCardTitle`.)
+    const { title, kind } = placeCardTitle(this.game, depotId, !!this.townCard);
+    this.hud.showDepotCard(title, kind);
     const stop = this.game.economy.depot(depotId);
     this.hud.setDepotWiki(industryWikiUrl(stop ? (this.game.layout.getPiece(stop.pieceId)?.type ?? "") : ""));
     const metro = this.game.economy.isMetro(stop);
