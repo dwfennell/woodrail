@@ -404,6 +404,11 @@ export class Dispatcher {
     if (TURN_ASK.on && typeof host.sim.onTurnedRound === "function") this.unhookTurned = host.sim.onTurnedRound((id) => this.turnedIds.add(id));
   }
 
+  /** The engines it holds something for (`staleHold`: each a routed train on the track). */
+  heldEngines(): IterableIterator<number> {
+    return this.holdsBy.keys();
+  }
+
   /** Let go of the sim (the setting turned off). */
   dispose(): void {
     this.unhookTurned?.();
@@ -439,8 +444,17 @@ export class Dispatcher {
       }
       const turnedNow = !!h && this.turnedIds.has(t.id);
       if (turnedNow) changed = true;
+      // (Taken off its line (Leave line, its route gone, its stops off the map): what it was granted goes now. Kept, its
+      // grant stood taken in every other train's search and at the signals for good (the user, 2026-11-26: "I removed
+      // the train from the pink line entirely though!").)
+      if (!r && h) {
+        this.holdsBy.delete(engine.id);
+        this.sigs.delete(engine.id);
+        this.holdVer++;
+        changed = true;
+      }
       if (!r || engine.lever === 0 || busy) {
-        if (h) h.stood = -1;
+        if (h && r) h.stood = -1;
         // (A hand-run train under way onto a new piece: points ahead lying for a road a routed train stands on or is
         // granted, another road free, thrown for it (`HAND_AHEAD`).)
         if (!r && HAND_AHEAD.on && engine.lever !== 0 && t.speed > 0 && this.host.giveWayAhead && this.handFront.get(engine.id) !== front) {

@@ -29,6 +29,9 @@
  *   another train nose to nose, against its side, or short of points or a crossing it's on (`Sim.heldBy`): the
  *   physical guards caught what the grant let through. Said once a stand.
  *
+ * - **staleHold:** the dispatcher holding track a second for an engine that isn't a routed train on the track (taken
+ *   off it, derailed, off its line): its grant would stand taken for every other train (the user, 2026-11-26).
+ *
  * Checks read state only: running them never changes how a train moves (trajectory hashes identical with them on).
  */
 import { SIM_HZ, type Sim, type Train, type TurnSeen } from "./sim";
@@ -44,7 +47,7 @@ import { outOfShort, stubRule } from "../routing/stubs";
 import { trainLength } from "./train-cars";
 import { ReservationShadow } from "../routing/shadow";
 
-export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed", "heldFree", "twoOwners"] as const;
+export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed", "heldFree", "twoOwners", "staleHold"] as const;
 
 /**
  * The invariants added by the routing redesign's step 0 (docs/superpowers/specs/2026-11-07-routing-redesign.md §4):
@@ -79,6 +82,8 @@ export interface InvariantWorld {
    * it (`twoOwners`; the dispatcher's hand-off, `HANDOFF`). Default: never.
    */
   dispatched?(train: Train): boolean;
+  /** The engines the dispatcher holds something for (`staleHold`). Default: none. */
+  heldEngines?(): Iterable<number>;
   /** The steering hint a routed train runs by (default sections'; the dispatcher's when it's on). */
   steerHint?(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined;
 }
@@ -288,6 +293,30 @@ export class Invariants {
     this.noteSignals();
   }
 
+  /** staleHold: since when each engine held for has been gone (off the track, derailed, or off its line); said once. */
+  private readonly staleSince = new Map<number, number>();
+  private readonly staleSaid = new Set<number>();
+
+  /** staleHold: a hold kept a second for an engine that isn't a routed train on the track. */
+  private checkStaleHolds(tick: number): void {
+    const { sim } = this.world;
+    const now = new Set<number>();
+    for (const e of this.world.heldEngines!()) {
+      const found = sim.findCar(e);
+      if (found && !found.train.derailed && this.world.routed(e)) continue;
+      now.add(e);
+      if (!this.staleSince.has(e)) this.staleSince.set(e, tick);
+      if (tick - this.staleSince.get(e)! >= SIM_HZ && !this.staleSaid.has(e)) {
+        this.staleSaid.add(e);
+        this.break("staleHold", `the dispatcher holds track for engine ${e}, ${!found ? "not on the track" : found.train.derailed ? "derailed" : "on no line"}`, e);
+      }
+    }
+    for (const e of [...this.staleSince.keys()]) if (!now.has(e)) {
+      this.staleSince.delete(e);
+      this.staleSaid.delete(e);
+    }
+  }
+
   /** One check: call once a sim tick, after the sim and its services have ticked. */
   check(): void {
     const { sim } = this.world;
@@ -319,6 +348,7 @@ export class Invariants {
         m.twoSaid = true;
       }
     }
+    if (full && this.world.heldEngines) this.checkStaleHolds(tick);
     this.watchTurns();
     if (this.opts.heldFree) this.checkHeldFree();
     // (Signals every call, as fronts: a front crossing a joint is seen on the tick it does.)

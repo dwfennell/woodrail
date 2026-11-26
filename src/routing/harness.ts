@@ -390,6 +390,10 @@ export class HarnessRun implements InvariantWorld {
     return !!this.dispatcher?.holds(train);
   }
 
+  heldEngines(): Iterable<number> {
+    return this.dispatcher?.heldEngines() ?? [];
+  }
+
   steerHint(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined {
     return this.dispatcher && !this.dispatcher.released(engine) ? this.dispatcher.steerHint(engine) : this.sections.steerHint(engine);
   }
