@@ -85,7 +85,7 @@ describe("boats", () => {
     const boat = fleet.launch(A)!;
     boat.barges++;
     fleet.addStop(boat.id, B);
-    expect(boat.stops.map((s) => s.action)).toEqual(["pick", "drop"]);
+    expect(boat.stops.map((s) => s.action)).toEqual(["pick", "both"]);
     // (Picking up happens on arriving: it was bought there, so it takes its first load when it next calls. Serve it now
     // as its first call, as the game does when it's bought: see `Fleet.serve`.)
     fleet.serve(boat, boat.stops[0]);
@@ -105,6 +105,31 @@ describe("boats", () => {
     expect(to.piles[CARGO.log.index]).toBe(2 * BARGE_LOADS);
     expect(boat.load.log ?? 0).toBe(0);
     expect(w.economy.boatDelivered).toBe(2 * BARGE_LOADS);
+  });
+
+  it("default a stop to Drop and pick up, and carry goods one way with two such stops (not back and forth)", () => {
+    // The player's route (2026-11-26): the boatyard's stop taken off, the two landings tapped after it left. They were
+    // Only drop, and the barge never loaded.
+    const { w, A, B, fleet } = setup();
+    const from = w.economy.depot(A)!;
+    const to = w.economy.depot(B)!;
+    from.piles[CARGO.log.index] = 10;
+    const boat = fleet.launch(A)!;
+    fleet.addStop(boat.id, B);
+    fleet.addStop(boat.id, A);
+    fleet.removeStop(boat.id, 0);
+    expect(boat.stops.map((s) => [s.depotId, s.action])).toEqual([[B, "both"], [A, "both"]]);
+    // At A: logs picked up (B takes them).
+    fleet.serve(boat, boat.stops[1]);
+    expect(boat.load.log).toBe(BARGE_LOADS);
+    // At B: dropped, and not picked back up.
+    fleet.serve(boat, boat.stops[0]);
+    expect([boat.load.log ?? 0, to.piles[CARGO.log.index]]).toEqual([0, BARGE_LOADS]);
+    // Back at A with nothing: A's own logs again, never dropped back where they came from.
+    fleet.serve(boat, boat.stops[1]);
+    expect([boat.load.log, from.piles[CARGO.log.index]]).toEqual([BARGE_LOADS, 10 - 2 * BARGE_LOADS]);
+    fleet.serve(boat, boat.stops[1]);
+    expect(boat.load.log).toBe(BARGE_LOADS);
   });
 
   it("carry only bulk goods: planks stay on the jetty", () => {

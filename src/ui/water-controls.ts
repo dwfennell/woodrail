@@ -36,6 +36,13 @@ export interface WaterControls {
   open(boatId: number): void;
   /** A new map: no boat's card open, no planning. */
   reset(): void;
+  /**
+   * What the open boat's card is about, to keep clear of the card (main.ts `keepCardSubjectInView`): a number that
+   * changes when it does (the boat, planning, its stops' count), or −1 with no boat's card open. Cheap: a frame's.
+   */
+  subjectKey(): number;
+  /** The boat and (planning) its stops' landings, on the ground, for the camera to frame. */
+  subjectPoints(): { x: number; z: number }[];
 }
 
 export function attachWater(ctx: WaterContext): WaterControls {
@@ -244,6 +251,23 @@ export function attachWater(ctx: WaterContext): WaterControls {
       if (events.length > 0) game.invalidate();
     },
     open: openBoat,
+    subjectKey() {
+      const b = card.openId === -1 ? undefined : game.economy.boats.get(card.openId);
+      return b ? b.id * 1000 + (planning ? 500 + b.stops.length : 0) : -1;
+    },
+    subjectPoints() {
+      const b = card.openId === -1 ? undefined : game.economy.boats.get(card.openId);
+      if (!b) return [];
+      const at = game.fleet.where(b);
+      const pts: { x: number; z: number }[] = at ? [{ x: at.x, z: at.z }] : [];
+      if (planning) {
+        for (const st of b.stops) {
+          const p = game.layout.getPiece(game.economy.depot(st.depotId)?.pieceId ?? -1);
+          if (p) pts.push({ x: p.pose.x, z: p.pose.z });
+        }
+      }
+      return pts;
+    },
     reset() {
       game.ferries.reset(game.world);
       setPlanning(false);

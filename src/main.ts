@@ -6684,6 +6684,59 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (all.length === 0 || inRoom(all)) return;
     frameInRoom(all, Math.min(game.camera.position.distanceTo(game.controls.target), 900));
   }
+  /**
+   * The open card's subject kept clear of the card (docs/agents/card-system.md): a place's, a signal's or a boat's card
+   * (and each stop a boat's route gains while it's planned), an engine's card (its train), or a line's sheet (its stops,
+   * and a stop opened on it), frames what it's about in the map's room above or beside the
+   * card, at the camera's distance or further, if it isn't there already. Once each time the subject changes (a number
+   * compared each frame, nothing built), never followed.
+   */
+  let cardSubjectKey = -1;
+  function keepCardSubjectInView(): void {
+    const depot = mode === "game" && hud.depotCardOpen ? interaction.openDepotId : -1;
+    const mark = depot === -1 ? interaction.selectedMark : -1;
+    const boat = depot === -1 && mark === -1 ? (water?.subjectKey() ?? -1) : -1;
+    // (A line's sheet: its stops, and a stop opened on it: the sheet grows over the map, the stop kept above it.)
+    const sheet = lineSheet.open && sheetLine !== -1 ? sheetLine : -1;
+    const stop = sheet !== -1 && stopPicked !== -1 ? (game.economy.lines.get(sheet)?.stops[stopPicked]?.depotId ?? -1) : -1;
+    // (An engine's card: its train, whatever it's doing; `showWithEngine` adds the way ahead when there is one.)
+    const engine = depot === -1 && mark === -1 && boat === -1 && sheet === -1 && hud.engineCardOpen ? interaction.openEngineCarId : -1;
+    const key =
+      depot !== -1 ? 1 + depot
+      : mark !== -1 ? 1e7 + mark
+      : boat !== -1 ? 2e7 + boat
+      : engine !== -1 ? 3e7 + engine
+      : sheet !== -1 ? 4e7 + sheet * 1000 + stopPicked + 1
+      : -1;
+    if (key === cardSubjectKey) return;
+    cardSubjectKey = key;
+    if (key === -1) return;
+    // (After the card's laid out: the room is measured from it.)
+    requestAnimationFrame(() => {
+      if (key !== cardSubjectKey) return;
+      let points: Vector3[] = [];
+      if (depot !== -1 || stop !== -1) {
+        const spot = pieceSpot(game.economy.depot(depot !== -1 ? depot : stop)?.pieceId ?? -1);
+        if (spot) points = [spot, spot.clone().setY(spot.y + 60)];
+      } else if (mark !== -1) {
+        const top = game.marksView.topOf(mark);
+        if (top) points = [new Vector3(top.x, top.y, top.z), new Vector3(top.x, top.y - 40, top.z)];
+      } else if (engine !== -1) {
+        showWithEngine(engine, []);
+        return;
+      } else if (sheet !== -1) {
+        // (Its train too, when it's an engine's line being edited.)
+        const train = sheetEngine !== -1 ? trainSpot(sheetEngine) : null;
+        if (train) points.push(train);
+        for (const st of game.economy.lines.get(sheet)?.stops ?? []) {
+          const spot = pieceSpot(game.economy.depot(st.depotId)?.pieceId ?? -1);
+          if (spot) points.push(spot);
+        }
+      } else points = (water?.subjectPoints() ?? []).map((p) => new Vector3(p.x, 0, p.z));
+      if (points.length === 0 || inRoom(points)) return;
+      frameInRoom(points, game.camera.position.distanceTo(game.controls.target), game.controls.maxDistance, points.length);
+    });
+  }
   /** About how tall an engine stands (mm), to keep its top in view as well as its wheels. */
   const ENGINE_TOP = 70;
 
@@ -8127,6 +8180,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showRoute();
     showLines();
     showPlaceRoutes();
+    keepCardSubjectInView();
     // (A train put on a line with no room for it: said once a line. Set on whichever economy the world has now.)
     if (game.economy.sections.onFull !== fullToast) game.economy.sections.onFull = fullToast;
     if (game.economy.stalls.onStuck !== stuckTip) game.economy.stalls.onStuck = stuckTip;

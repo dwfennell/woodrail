@@ -290,7 +290,9 @@ export class Fleet {
     if (!this.reaches(boatId, depotId)) return `${b.name} can't get there: it's on other water`;
     const last = b.stops[b.stops.length - 1];
     if (last?.depotId === depotId) return null;
-    b.stops.push({ depotId, action: b.stops.length === 0 ? "pick" : "drop" });
+    // (Drop and pick up, as a train line's stop is by default: a landing tapped is somewhere goods come and go. With
+    // Only drop after the first, a route whose first stop was taken off never loaded at all: player report 2026-11-26.)
+    b.stops.push({ depotId, action: b.stops.length === 0 ? "pick" : "both" });
     return null;
   }
 
@@ -467,17 +469,22 @@ export class Fleet {
 
   /**
    * At a dock: drop what the dock takes (unless the stop says only pick up), then pick up bulk goods it gives (unless
-   * only drop), up to what the barges hold. Goods it picked up here aren't dropped here again.
+   * only drop), up to what the barges hold. At a Drop and pick up stop, as a train line's stop does: goods picked up
+   * here aren't dropped here again, goods just dropped aren't picked back up, and only goods another stop on the route
+   * takes are picked up (two landings, each taking and giving logs, would otherwise hand the same logs back and forth).
    */
   serve(b: BoatState, stop: BoatStop): { dropped: number; picked: number } {
     const d = this.economy.depot(stop.depotId);
     if (!d) return { dropped: 0, picked: 0 };
     let dropped = 0;
     let picked = 0;
+    const both = stop.action === "both";
+    const droppedHere = new Set<CargoKind>();
     if (stop.action !== "pick") {
       for (const k of BULK) {
         const have = b.load[k] ?? 0;
         if (have <= 0 || !RECIPES[d.role].takes.includes(k)) continue;
+        if (both && b.loadedAt[k] === d.id) continue;
         if (d.role === "landing" && !storeLetsIn(d, k)) continue;
         const i = CARGO[k].index;
         const n = Math.min(have, capAt(d) - d.piles[i]);
@@ -485,6 +492,7 @@ export class Fleet {
         d.piles[i] += n;
         b.load[k] = have - n;
         dropped += n;
+        droppedHere.add(k);
         if (b.loadedAt[k] !== undefined && b.loadedAt[k] !== d.id) this.economy.boatDelivered += n;
         if (b.load[k] === 0) delete b.loadedAt[k];
       }
@@ -493,6 +501,7 @@ export class Fleet {
       for (const k of BULK) {
         if (!RECIPES[d.role].gives.includes(k) || (d.role === "landing" && !storeLetsOut(d, k))) continue;
         const i = CARGO[k].index;
+        if (both && (droppedHere.has(k) || !this.takenOnRoute(b, stop, k))) continue;
         const room = capacityOf(b) - loaded(b);
         const n = Math.min(room, d.piles[i]);
         if (n <= 0) continue;
@@ -504,6 +513,15 @@ export class Fleet {
     }
     if (dropped + picked > 0) this.economy.acceptsChanged();
     return { dropped, picked };
+  }
+
+  /** Does a stop on this boat's route other than `at` take `k` (it drops there, and its dock takes it in)? */
+  private takenOnRoute(b: BoatState, at: BoatStop, k: CargoKind): boolean {
+    return b.stops.some((s) => {
+      if (s === at || s.depotId === at.depotId || s.action === "pick") return false;
+      const d = this.economy.depot(s.depotId);
+      return !!d && RECIPES[d.role].takes.includes(k) && (d.role !== "landing" || storeLetsIn(d, k));
+    });
   }
 }
 

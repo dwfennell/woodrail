@@ -2279,7 +2279,7 @@ export class Hud {
     this.hideCards();
     this.pieceCard.hidden = false;
     this.root.classList.add("card-open");
-    this.pieceTitle.textContent = title;
+    setStatedTitle(this.pieceTitle, title);
     this.pieceDetail.textContent = detail;
     this.pieceDetail.hidden = detail === "";
     this.pieceDetail.classList.remove("warn");
@@ -2309,7 +2309,7 @@ export class Hud {
    */
   /** The open piece card's title, changed in place (a signal's: what it shows now, as its aspect changes). */
   setPieceTitle(title: string): void {
-    this.pieceTitle.textContent = title;
+    if (this.pieceTitle.textContent !== title) setStatedTitle(this.pieceTitle, title);
   }
 
   /** The open piece card's detail line said as a warning (`warn-ink`: a signal too short to wait at). */
@@ -3476,4 +3476,27 @@ export function depotModeText(auto: boolean, waitFull: boolean | null): string {
   if (waitFull === null) return "";
   if (!auto) return "Trains run straight through; move cargo by hand.";
   return waitFull ? "Trains wait under the crane till every wagon is full." : "Trains take what's ready and go on.";
+}
+
+/**
+ * A card's title that says a state after a " · " ("Signal · red: a train is on the line ahead"): the name stays the
+ * title, one line, and the state goes on its own line under it in body type (docs/agents/card-system.md: a title never
+ * wraps into a paragraph). The text is kept whole (the " · " hidden, not dropped), so the title reads as before.
+ */
+export function setStatedTitle(el: HTMLElement, title: string): void {
+  const at = title.indexOf(" · ");
+  if (at < 0) {
+    el.textContent = title;
+    return;
+  }
+  const main = document.createElement("span");
+  main.className = "title-main";
+  main.textContent = title.slice(0, at);
+  const sep = document.createElement("span");
+  sep.className = "title-sep";
+  sep.textContent = " · ";
+  const state = document.createElement("span");
+  state.className = "title-state";
+  state.textContent = title.slice(at + 3);
+  el.replaceChildren(main, sep, state);
 }

@@ -18,6 +18,14 @@ describe("viewRoom: what of the view shows the map", () => {
     expect(room).toEqual({ left: 0, top: 116, right: 414, bottom: 246 });
   });
 
+  it("a big screen with the goals open at the left: beside them, below the bar, above the card in the middle", () => {
+    const room = viewRoom(1440, 900, [{ left: 12, top: 10, right: 390, bottom: 52 }, { left: 984, top: 10, right: 1428, bottom: 56 }, { left: 12, top: 72, right: 332, bottom: 584 }], [
+      { left: 230, top: 735, right: 1210, bottom: 890 },
+      { left: 490, top: 428, right: 950, bottom: 726 },
+    ]);
+    expect(room).toEqual({ left: 332, top: 56, right: 1440, bottom: 428 });
+  });
+
   it("nothing worth framing in: none (the caller takes the whole view), never a room turned inside out", () => {
     expect(viewRoom(390, 844, [{ left: 0, top: 0, right: 390, bottom: 200 }], [{ left: 0, top: 240, right: 390, bottom: 844 }])).toBeNull();
     expect(viewRoom(844, 390, [], [{ left: 380, top: 10, right: 844, bottom: 150 }, { left: 0, top: 60, right: 300, bottom: 390 }])).toBeNull();
