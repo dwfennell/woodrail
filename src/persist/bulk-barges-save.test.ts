@@ -23,7 +23,7 @@ describe("a save from when barges carried only bulk", () => {
     ]);
     // (The paint the tow left on the jetty is still there.)
     expect(data.depots.filter((d) => d.role === "landing").map((d) => d.piles[CARGO.paint.index])).toEqual([2, 0]);
-    const landings = [...w.economy.depots.values()].filter((d) => d.role === "landing");
+    const landings = w.economy.allDepots().filter((d) => d.role === "landing");
     expect(landings.map((d) => d.piles[CARGO.paint.index])).toEqual([2, 0]);
   });
 
