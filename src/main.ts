@@ -51,14 +51,14 @@ import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeTex
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { swapChoices, swapEngine, swappedWords, swapRefusal, SWAP_WHY, type SwapRules } from "./game/swap-engine";
 import { costText, isFree, isGift, LOOK_TECH, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltTown, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, HALT_KITS, HALT_REACH, haltTown, haltWhy, isSightStop, METRO_KIT, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { digWhy, metroDraw, settleDigging, squaresDugUnder } from "./game/metro";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { amountText, plantedCells, rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { schoolYardHtml, WorkshopPanel, type KeepRow, type MakeRow } from "./ui/workshop-panel";
-import { lostStopName, lostStopWords, routeStops } from "./game/route-stops";
+import { lostStopName, lostStopWords, placeName, routeStops } from "./game/route-stops";
 import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/feature-tips";
 import { bestInsert, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, legStop, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
@@ -996,7 +996,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // not at all, as in Game mode, which won't let it be placed so: the card says so in Game mode's words.)
     const piece = game.layout.getPiece(d.pieceId);
     const site = piece && view.state !== null && ![...game.world.depots.values()].includes(d.pieceId) ? siteWhy(game.landscape, piece.type, piece.pose, undefined, plantedCells(game.landscape, game.world.props)) : null;
-    hud.setDepotChain({ status: site ?? stateWords(view), tone: site ? "waiting" : view.state, rows: chainRows(view, (o) => depotName(game.world, o), (k) => GOODS_ICON[k]) });
+    hud.setDepotChain({ status: site ?? stateWords(view), tone: site ? "waiting" : view.state, rows: chainRows(view, (o) => placeName(game.world, o.id), (k) => GOODS_ICON[k]) });
     const at = placeOfDepot(d);
     const lines: HintLine[] = [];
     const rings: HintRing[] = [];
@@ -3011,7 +3011,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // (The research under way must be studied at a College or a University: the school that is one.)
     const schools = game.economy.allDepots().filter((x) => x.role === "school");
     const d = schools.find((x) => atSchool(game.world, x, progress)) ?? schools[0];
-    return d ? depotName(game.world, d) : null;
+    return d ? placeName(game.world, d.id) : null;
   }
   /** Is a school placed (a lookup over the depots, which are kept in a list till the track changes)? */
   function hasSchool(): boolean {
@@ -4559,7 +4559,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (game.depotView.syncTracks(game.economy, game.layout)) game.invalidate();
     // (The group's step goes on the undo stack only once it's whole: the Undo button is told after.)
     hud.setHistory(editor.canUndo, editor.canRedo);
-    hud.toast(`${depotName(game.world, d)} has ${plan.tracks} tracks now: join the new one to the line with points`, false, 3600);
+    hud.toast(`${placeName(game.world, d.id)} has ${plan.tracks} tracks now: join the new one to the line with points`, false, 3600);
     audio.chime();
     tracksShown = "";
     scheduleSave();
@@ -4996,7 +4996,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (line.stops.length <= 2 || piece === undefined || !game.layout.getPiece(piece)) return hud.toast("A stop must drop or pick up: pass by needs 3 stops or more", false, 2500);
       sheetEdit((l) => passBy(l, k));
       stopPicked = -1;
-      hud.toast(`Passes by ${placeName(st.depotId)} now, without stopping`, false, 2500);
+      hud.toast(`Passes by ${placeName(game.world, st.depotId)} now, without stopping`, false, 2500);
     },
     wait: (k) => sheetEdit((l) => (l[k].waitFill = !l[k].waitFill)),
     move: (k, to) => {
@@ -5075,7 +5075,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         l.push(st);
       });
       const stops = game.economy.lines.get(sheetLine)?.stops ?? [];
-      justAdded = { key: stopsKey(stops), k: stops.length - 1, text: `Moved ${placeName(depotId)} to the end, after ${placeName(stops.at(-2)?.depotId ?? -1)}`, toEnd: false };
+      justAdded = { key: stopsKey(stops), k: stops.length - 1, text: `Moved ${placeName(game.world, depotId)} to the end, after ${placeName(game.world, stops.at(-2)?.depotId ?? -1)}`, toEnd: false };
       showSheet();
     },
     addedUndo: () => {
@@ -5167,7 +5167,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   });
 
   /** A place's name, as the route's stops name them (a stop taken up by its kind). */
-  const placeName = (depotId: number): string => routeStops(game.world).find((st) => st.depotId === depotId)?.name ?? lostStopName(game.world, depotId);
 
   /**
    * Open the sheet on line `id` (−1: a new line, made at its first stop) with no train's card: from the Lines list, a
@@ -5256,7 +5255,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (!d) return;
       // (An industry set not to give a good: in its own words; set to give none, one line for it.)
       if (!isStoreRole(d.role)) {
-        const name = DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES] ?? "industry";
+        const name = placeName(game.world, d.id);
         if (RECIPES[d.role].gives.every((g) => storeModeOf(d, g) === "off")) blocked.add(givesBlockText(name, null));
         else for (const g of plan[k].notPicks) blocked.add(givesBlockText(name, g));
         return;
@@ -5707,7 +5706,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.toast(
       emptyWords(tipped, (kind) => {
         const d = game.economy.takerOf(kind);
-        return d ? { name: depotName(game.world, d), town: d.role === "town" } : null;
+        return d ? { name: placeName(game.world, d.id), town: d.role === "town" } : null;
       }),
       false,
       3000,
@@ -5828,7 +5827,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const d = game.economy.depot(id);
       const stop = routeStops(game.world).find((st) => st.depotId === id);
       if (d?.role === "town") return stop?.name ?? "the station";
-      return `the ${(stop?.name ?? (d ? DEPOT_NAMES[d.role] : "depot")).toLowerCase()}`;
+      // ("the sawmill 2", but "the Rookhurst landing": a town's name keeps its capital.)
+      const name = stop?.name ?? (d ? placeName(game.world, d.id) : "depot");
+      return d && name.startsWith(DEPOT_NAMES[d.role]) ? `the ${name[0].toLowerCase()}${name.slice(1)}` : `the ${name}`;
     };
     // A status shows once it's held a moment (a train being worked at the end of the line passes through several).
     const now = performance.now();
@@ -6586,9 +6587,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (at !== -1 && (smart || armed >= 0)) {
             const stops = sheetStops();
             const n = stops.length;
-            const before = placeName(stops[(at - 1 + n) % n].depotId);
+            const before = placeName(game.world, stops[(at - 1 + n) % n].depotId);
             const between = at < n - 1;
-            const text = between ? `Added ${placeName(depotId)} between ${before} and ${placeName(stops[at + 1].depotId)}` : `Added ${placeName(depotId)} at the end, after ${before}`;
+            const text = between ? `Added ${placeName(game.world, depotId)} between ${before} and ${placeName(game.world, stops[at + 1].depotId)}` : `Added ${placeName(game.world, depotId)} at the end, after ${before}`;
             justAdded = { key: stopsKey(stops), k: at, text, toEnd: smart && between };
           }
           sheetTab = "stops";

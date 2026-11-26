@@ -4,6 +4,7 @@ import type { Pose } from "../track";
 import { depotPoint, QUAY } from "./harbours";
 import type { World } from "./world";
 import { addTo } from "../economy/goods";
+import { placeName } from "./route-stops";
 
 /**
  * Boats the player routes (Game mode's River barges; docs/superpowers/specs/2026-11-04-water-transport.md §3): a tug
@@ -525,18 +526,9 @@ export class Fleet {
   }
 }
 
-/** A dock's name for a boat's card: the landing or harbour, and the town it's near ("Foxley landing"). */
+/** A dock's name for a boat's card: its place's name, as everywhere ("Foxley landing": `placeName`). */
 export function depotLabel(world: Waters, depotId: number): string {
-  const d = world.economy.depot(depotId);
-  const piece = d && world.layout.getPiece(d.pieceId);
-  if (!d || !piece) return "a dock";
-  const what = d.role === "harbour" ? "harbour" : d.role === "boatyard" ? "boatyard" : "landing";
-  let best: { name: string; dist: number } | null = null;
-  for (const t of world.landscape.towns) {
-    const dist = Math.hypot(t.centre.x - piece.pose.x, t.centre.z - piece.pose.z);
-    if (!best || dist < best.dist) best = { name: t.name, dist };
-  }
-  return best ? `${best.name} ${what}` : what[0].toUpperCase() + what.slice(1);
+  return world.economy.depot(depotId) ? placeName(world, depotId) : "a dock";
 }
 
 /** How far across from a landing's line its boats tie up: the first of a few steps out from its jetty that's water. */

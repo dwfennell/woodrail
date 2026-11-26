@@ -372,6 +372,8 @@ export class Hud {
   private redoItem!: HTMLButtonElement;
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
+  /** Under a place's name, what kind of place it is where the name doesn't say ("River landing"). */
+  private readonly depotKind = el("div", "card-sub depot-kind");
   private readonly depotStock = el("div", "depot-stock");
   /** What the depot card's goods line last drew (`updateDepotCard`). */
   private depotStockKey = "";
@@ -889,7 +891,7 @@ export class Hud {
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotKind, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.depotPower.hidden = true;
     this.root.appendChild(this.depotCard);
@@ -2628,9 +2630,12 @@ export class Hud {
     this.depotWiki.setAttribute("aria-label", "This industry on the Woodrail wiki");
   }
 
-  showDepotCard(title: string): void {
+  /** A place's card: its name, and (where the name doesn't say) what kind of place it is under it. */
+  showDepotCard(title: string, kind = ""): void {
     this.hideCards();
     this.depotTitle.textContent = title;
+    this.depotKind.textContent = kind;
+    this.depotKind.hidden = kind === "";
     this.depotLineBtn.hidden = true;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";

@@ -70,3 +70,23 @@ Without these rules, two landings would hand the same logs back and forth. The r
 (The `before` JSON was measured by the script's first version. Its engine points were the model's local position, and
 its line-sheet points were the Red line's stops whichever line was open. Read those rows from the pictures instead. The
 `after` JSON uses the engine's world position and the open line's stops.)
+
+## A place's name
+
+Player report (2026-11-26): "certain places will be given names like 'TOWN X River Landing' but then when you click on
+something it just says 'River Landing'." A boat's stops named a landing after the nearest town, a train line's named it
+"River landing 2", and its card just "River landing".
+
+`placeName` (`src/game/route-stops.ts`) is now the one source of a place's name. It is used on the place's card
+(`placeCardTitle`), on a line's and a boat's stops, in the Lines list, on the map's markers, in toasts, in the journal's
+school, and by Call home. The rules:
+
+- A town's station is named after the town.
+- An industry is named by its kind, numbered when there are more than one ("Sawmill", "Sawmill 2").
+- A dock (landing, harbour, boatyard, shipyard, ferry slip) is named after the town nearest it ("Rookhurst landing").
+- The card shows the kind under the name when the name doesn't say it ("River landing" under "Rookhurst landing").
+- One case style: a capital to start, the kind in lower case after a town's name.
+
+The names are worked out again only when the layout, the depots or the towns change, so they cost nothing per frame.
+`src/game/route-stops.test.ts` checks every role: its card's title, its stop's name, a boat's name for it and its map
+marker are one name, in one case style.

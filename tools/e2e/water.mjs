@@ -310,7 +310,10 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     if (process.env.WATER_DEBUG) await shot("debug-landing-tap");
     const card = await p.evaluate(() => document.querySelector(".depot-card:not(.boat-card):not([hidden]) .card-title")?.textContent ?? null);
     if (process.env.WATER_DEBUG) console.log("cards", await p.evaluate(() => [...document.querySelectorAll(".card:not([hidden])")].map((c) => c.className + ":" + c.textContent.slice(0, 60)).join(" || ")));
-    check("a tap on the landing opens its card", card === "River landing", String(card));
+    // (Under its place's name, as its stops and the boat's say it: the town nearest it, "Rookhurst landing"; its kind
+    // under the name.)
+    const kind = await p.evaluate(() => document.querySelector(".depot-card:not(.boat-card):not([hidden]) .depot-kind")?.textContent ?? null);
+    check("a tap on the landing opens its card, under its place's name, River landing under it", /^[A-Z].* landing$/.test(card ?? "") && kind === "River landing", JSON.stringify({ card, kind }));
     await shot("2-landing-card");
     // A boatyard from the Water shelf onto the bank (the tray still turned to face the water).
     // (Refused, a player moves it a little nearer the water and tries again: the yard's grab point is its model's

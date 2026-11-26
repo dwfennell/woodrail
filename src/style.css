@@ -2449,3 +2449,5 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .planning-boat .boat-actions .chip.going { color: var(--wood-ink); text-shadow: none; font-family: inherit; font-weight: 800; font-size: 15px; letter-spacing: 0; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
 /* (Done on green lacquer in the display face: paint ink on green holds only as large lettering, DESIGN.md) */
 .boat-actions .route-plan.on, .boat-actions .boat-go.primary { font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; }
+/* (a place's kind under its name, kept with the title at the card's top) */
+.card.depot-card > .depot-kind { order: -2; margin-top: -6px; }
