@@ -2409,7 +2409,7 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .card-foot { align-self: stretch; padding-top: 10px; border-top: 1.5px dashed var(--pencil); font-size: 13px; font-weight: 700; line-height: 1.3; color: var(--wood-ink-soft); text-align: center; text-wrap: balance; }
 /* A title that says a state ("Signal · red: …", hud.ts `setStatedTitle`): the name the title, the state under it. */
 .card-title .title-sep { display: none; }
-.card-title .title-state { display: block; min-height: 2.6em; margin-top: 4px; font-family: "Nunito", system-ui, sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 0; line-height: 1.3; color: var(--wood-ink-soft); text-wrap: balance; }
+.card-title .title-state { display: block; min-height: 2.6em; margin-top: 4px; font-family: "Woodrail Icons", "Nunito", system-ui, sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 0; line-height: 1.3; color: var(--wood-ink-soft); text-wrap: balance; }
 .piece-card > .card-title:has(.title-state) { align-self: stretch; padding: 0 40px; text-align: center; }
 /* Big screens: one width for the cards about a thing on the map (a train, a car, a place, a piece, a boat). */
 @media (min-width: 641px) and (min-height: 521px) {
