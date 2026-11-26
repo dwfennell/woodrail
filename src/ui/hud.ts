@@ -3033,7 +3033,13 @@ export class Hud {
   /** Open the "Learn more" sheet for explainer `id` (`onClose` once it's closed). */
   showExplainer(id: ExplainerId, onClose?: () => void): void {
     this.tips.hide();
-    const open = (sheet: ExplainerSheet) => sheet.show(id, onClose ?? (() => {}));
+    // Closed: a toast put at the sheet's foot (no room above it) goes where it would now, not left over the place card
+    // under it (e2e:learn-more: a tap on its Learn more went to the toast).
+    const closed = () => {
+      this.refitToast();
+      onClose?.();
+    };
+    const open = (sheet: ExplainerSheet) => sheet.show(id, closed);
     if (this.explainers) return open(this.explainers);
     // (Its words, pictures and code are loaded the first time: nothing of them before.)
     void loadExplainerSheet().then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
