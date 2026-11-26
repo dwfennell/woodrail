@@ -148,10 +148,10 @@ const ASIDE_S = Number(((globalThis as { process?: { env: Record<string, string 
 const ASIDE_MAX_S = 120;
 /** A move onto track a train in a dead end comes back over after its turn there not granted (`comingBackBy`): on (DEAD_COME=0: off). */
 export const DEAD_COME = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_COME !== "0" };
-/** A line round to the same points at both ends: a train heading for its other end in the way only on this move's way (`singleLineBy`): LOOP_LINE=1 (measuring). */
-export const LOOP_LINE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).LOOP_LINE === "1" };
-/** A detour's own place on it, not the booked way's node there (`wayAt`): DETOUR_AT=1 (measuring). */
-export const DETOUR_AT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DETOUR_AT === "1" };
+/** A line round to the same points at both ends: a train heading for its other end in the way only on this move's way (`singleLineBy`): on (LOOP_LINE=0: off). */
+export const LOOP_LINE = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).LOOP_LINE !== "0" };
+/** A detour's own place on it, not the booked way's node there (`wayAt`): on (DETOUR_AT=0: off). */
+export const DETOUR_AT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DETOUR_AT !== "0" };
 
 /**
  * A member's way as it stands now: as placed (its hold's end) back to where it stands (`now`). A detour (`DETOUR_AT`) is
@@ -165,7 +165,7 @@ function wayAt(w: DTrain, placedK: DTrain, now: DTrain): DTrain {
   return { ...w, at: now.at };
 }
 
-/** Its move blocked outright (no first move at all): detours searched after `DETOUR_SOON_S`, not `REROUTE_AFTER_S` (DETOUR_SOON=1, measuring). */
+/** Its move blocked outright (no first move at all): detours searched after `DETOUR_SOON_S`, not `REROUTE_AFTER_S` (DETOUR_SOON=1, measuring; off: in any form it cost rowan-2 −46, wren −18, clover −81). */
 export const DETOUR_SOON = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DETOUR_SOON === "1" };
 const DETOUR_SOON_S = 2;
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
