@@ -146,6 +146,8 @@ export const ASIDE = { on: ((globalThis as { process?: { env: Record<string, str
 /** `ASIDE`: how long (s) the stretch stands first, and the most it stays sections'. */
 const ASIDE_S = Number(((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE_S ?? 2);
 const ASIDE_MAX_S = 120;
+const ASIDE_GATE = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE_GATE !== "0";
+const ASIDE_ONE = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).ASIDE_ONE !== "0";
 /** A move onto track a train in a dead end comes back over after its turn there not granted (`comingBackBy`): on (DEAD_COME=0: off). */
 export const DEAD_COME = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_COME !== "0" };
 /** A line round to the same points at both ends: a train heading for its other end in the way only on this move's way (`singleLineBy`): on (LOOP_LINE=0: off). */
@@ -295,6 +297,9 @@ export interface DispatcherHost {
   couldSwap?(engine: number): boolean;
   /** `ASIDE`: a spare end on this train's line to step aside into (sections' `couldStepAside`), and is it aside now. */
   couldStepAside?(engine: number): boolean;
+  /** Sections' signal gate (the train each holds a signal red for, −1: none) and its version: for trains handed to them (`ASIDE`). */
+  sectionsGate?(ref: number): number;
+  sectionsGateVersion?(): number;
   asideNow?(engine: number): boolean;
   /** Did the swap planner search its line, as laid, and find no plan? Not handed over again then. */
   swapFailed?(engine: number): boolean;
@@ -615,6 +620,7 @@ export class Dispatcher {
     for (const [e, o] of [...this.handedOff]) {
       if (!live.has(e)) {
         this.handedOff.delete(e);
+        this.gateVer++;
         continue;
       }
       // (`ASIDE`'s: back together once one of them has got on to its next stop, or the track changes, or `ASIDE_MAX_S`
@@ -629,6 +635,7 @@ export class Dispatcher {
         // else it goes round, the stall said and unsaid each time (fuzz seed 22).)
         if (!moved && o.rev === rev) this.asideFailed.set([...g].sort((a, b) => a - b).join(","), rev);
         for (const x of g) this.handedOff.delete(x);
+        this.gateVer++;
         any = true;
         continue;
       }
@@ -640,6 +647,7 @@ export class Dispatcher {
       // (Its line's together: one back while another's still the planner's would put two owners on one line.)
       if (mates.some((x) => this.host.swapping?.(x))) continue;
       for (const x of mates) this.handedOff.delete(x);
+      this.gateVer++;
       if (failed) this.handOffFailed.set(line, rev);
       any = true;
     }
@@ -668,6 +676,7 @@ export class Dispatcher {
       this.sigs.delete(e);
     }
     this.holdVer++;
+    this.gateVer++;
     this.handOffs++;
     return true;
   }
@@ -683,7 +692,10 @@ export class Dispatcher {
     // (Trains of lines apart only: two of one line are the swap planner's (`HANDOFF`), and sections' stepping aside
     // let three of one line stand for good (terminus-spare 3×one same).)
     const lines = new Set(group.map((e) => this.host.lineOf?.(e) ?? -1));
-    if (lines.size !== group.length || lines.has(-1)) return false;
+    // (`ASIDE_ONE`: two of one line where the swap planner won't take them (signals laid: it stays off there): stepped
+    // aside as two of lines apart (fuzz seed 7 with signals: head on either side of the points to the spare end, for good).)
+    const oneLine = ASIDE_ONE && group.length === 2 && lines.size === 1 && !lines.has(-1) && !group.some((e) => this.host.couldSwap?.(e));
+    if (!oneLine && (lines.size !== group.length || lines.has(-1))) return false;
     if (this.asideFailed.get([...group].sort((a, b) => a - b).join(",")) === this.host.layout.revision) return false;
     const now = this.host.sim.ticks;
     for (const e of group) {
@@ -696,6 +708,7 @@ export class Dispatcher {
       this.sigs.delete(e);
     }
     this.holdVer++;
+    this.gateVer++;
     this.handOffs++;
     return true;
   }
@@ -2619,11 +2632,18 @@ export class Dispatcher {
 
   /** The train held at the signal at this joint (its hold ends there), or −1: signals read the holds (§R 3.6). */
   gateAt(ref: number): number {
-    return this.gate.get(ref) ?? -1;
+    const own = this.gate.get(ref) ?? -1;
+    if (own !== -1 || this.handedOff.size === 0 || !ASIDE_GATE || !this.host.sectionsGate) return own;
+    // (`ASIDE_GATE`: a train handed to sections (`ASIDE`) held at a signal by them: that signal red for it, as with the
+    // dispatcher off (fuzz seed 7 with signals: one held at its stop beside a green signal while the other stepped aside).)
+    const by = this.host.sectionsGate(ref);
+    if (by === -1) return -1;
+    for (const e of this.handedOff.keys()) if (this.host.sim.findCar(e)?.train.id === by) return by;
+    return -1;
   }
 
   gateVersion(): number {
-    return this.gateVer;
+    return this.handedOff.size > 0 && ASIDE_GATE ? this.gateVer * 65536 + (this.host.sectionsGateVersion?.() ?? 0) + 1 : this.gateVer * 65536;
   }
 
   private refreshGate(): void {
