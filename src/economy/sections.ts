@@ -55,8 +55,8 @@ const CLAIM_TICKS = 3 * 12;
 /** How far ahead (mm) a train in a section looks for points to stand short of (`edgeAhead`). */
 const EDGE_LOOK = 600;
 /** A waiting train stands this far (mm) short of the end of its slot. */
-/** Sections ask the dispatcher's grant for a train it holds, not their own move for it (`dispatchedWay`): DISP_SECTIONS=1 (measuring). */
-export const DISP_SECTIONS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DISP_SECTIONS === "1" };
+/** Sections ask the dispatcher's grant for a train it holds, not their own move for it (`dispatchedWay`): on (DISP_SECTIONS=0: off). */
+export const DISP_SECTIONS = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DISP_SECTIONS !== "0" };
 
 export const STAND_SHORT = 6;
 /** A loop road must be this much (mm) longer than a train for the train to stand on it, clear of both switches. */
