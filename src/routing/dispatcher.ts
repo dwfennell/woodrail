@@ -1097,13 +1097,13 @@ export class Dispatcher {
       const patient = !(grantsNow && heldBy2 && h.stood >= 0 && this.host.sim.ticks - h.stood >= S_PATIENCE_S * 120);
       if (!r2.capped && patient) r = { ...r2, states: r.states + r2.states };
     }
-    // (`TAKEN_POS`: short of all delivering, searched again with the others' holds free where they're placed. They stand
-    // there in the search themselves; taken, those pieces stayed taken once they moved off them in it, and the search
+    // (`TAKEN_POS`: none delivering, searched again with the stretch's other trains' holds free where they're placed. They
+    // stand there in the search themselves; taken, those pieces stayed taken once they moved off them in it, and the search
     // found no plan where there was one (fuzz seeds 34, 111, 126, 165, line1+siding-spare 3×one opposed: from none of
-    // three delivering to all three). Taken where it does better, and only where nothing delivered without it or this
-    // train moves first in it: told to wait for another where it was granted (ring1 2×one opposed sig:pair), the other
-    // waited for it in turn and they stood.)
-    if (TAKEN_POS.on && r.plain < r.of && takenHere.size > 0 && r.states < DISPATCH_STATES) {
+    // three delivering to all three). Only from none: also where some delivered, it cost rowan-1's decide p98 1.47 → 2.0 ms
+    // and 8 stops, and told ring1 2×one opposed sig:pair's train to wait for the other where it was granted, the other
+    // waiting for it in turn.)
+    if (TAKEN_POS.on && r.plain === 0 && r.of > 0 && takenHere.size > 0 && r.states < DISPATCH_STATES) {
       const free = new Set(taken);
       for (const p of takenHere) free.delete(p);
       const r3 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken: free, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay, q9: Q9S.on, q9Turning });
@@ -1115,7 +1115,7 @@ export class Dispatcher {
         const path = this.pathTo(tt, r3.firstTo[0]);
         over = path.length === 0 || path.some((n) => n !== tt.at && tt.pos[n].some((p) => takenHere.has(p)));
       }
-      if (!r3.capped && !over && r3.plain > r.plain && (r.plain === 0 || r3.first[0] >= r3.plain)) r = { ...r3, states: r.states + r3.states };
+      if (!r3.capped && !over && r3.plain > 0) r = { ...r3, states: r.states + r3.states };
     }
     let ways = placed;
     let to = -1;
