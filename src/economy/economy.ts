@@ -2894,6 +2894,7 @@ export class Economy {
       const d = new Dispatcher({
         layout: this.layout,
         sim,
+        giveWayAhead: (t, into) => this.router.giveWayRoad(t, new Set(into.keys()), into),
         route: (e) => {
           const route = this.routeOf(e);
           if (!route || route.stops.length === 0) return null;
@@ -2936,6 +2937,7 @@ export class Economy {
       // (§13.5 step 2: the path signals too, for the trains it holds: green iff its hold runs past.)
       sim.signalOwner = { clearFor: (ref, id) => (OWNER.on ? d.clearFor(ref, id) : null), aspect: (ref) => d.aspect(ref), version: () => d.ownerVersion() };
     } else {
+      this.dispatcher?.dispose();
       this.dispatcher = null;
       BLOCK_RULE.on = false;
       sim.signalGate = this.gateBefore;

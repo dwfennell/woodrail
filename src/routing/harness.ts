@@ -325,6 +325,7 @@ export class HarnessRun implements InvariantWorld {
           busy: (train) => train.turnback >= 0,
           drive,
           granted: (engine) => this.sections.steerSoon.add(engine),
+          giveWayAhead: (t, into) => this.router.giveWayRoad(t, new Set(into.keys()), into),
           lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
           swapping: (engine) => this.sections.swapping(engine),
           couldSwap: (engine) => this.sections.couldSwap(engine),

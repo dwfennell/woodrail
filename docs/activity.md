@@ -3,7 +3,8 @@
 A private claude.ai dashboard of how Woodrail is doing: https://claude.ai/artifact/PRR4xFMmvHJ4WpFTuMZM8y
 
 - itch.io: page views, browser plays, click-through, where visitors come from.
-- Play stats from players who share them (docs/stats.md): players and minutes a day, the goals they reach.
+- Play stats (docs/stats.md): shared stats (players, their minutes and how far they get) and plain counts from
+  everyone else (`games`, `new_games_all`, `minutes_all` a day and in all; `ticks_all` a goal).
 - Bug reports and ideas, railway snapshots, open issues, and releases marked on the charts.
 
 It holds only totals: no device ids, no maps. Its numbers are files attached to it, refreshed by hand, ask Claude to

@@ -134,6 +134,13 @@ const ROAD_FREE_SLACK = Number(((globalThis as { process?: { env: Record<string,
 /** The others' granted track taken for the search's first moves only (`SearchOptions.takenFirst`): TAKEN_FIRST=1 (measuring). */
 export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST === "1" };
 
+/** A train that has just turned round asks at once, its way built again from the way it now faces (`tick`): on (TURN_ASK=0: off). */
+/** A hand-run train's facing points thrown to a free road ahead of it, the road they lie for a routed train's (`tick`): on (HAND_AHEAD=0: off). */
+export const HAND_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HAND_AHEAD !== "0" };
+export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
+/** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
+export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
+
 /** …only where the search with it taken for good falls short (TAKEN_FIRST_SHORT=1, measuring). */
 export const TAKEN_FIRST_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST_SHORT === "1" };
 /** How long (s) a train is held for `TAKEN_FIRST_SHORT`'s better order before it goes as the first search would (S_PATIENCE_S). */
@@ -218,6 +225,11 @@ export interface DispatcherHost {
   drive(train: Train): number;
   /** Told of each grant (the router steers it at once). */
   granted?(engine: number): void;
+  /**
+   * `HAND_AHEAD`: throw the facing points just ahead of a hand-run train to a free road, if the road they lie for runs
+   * onto one of `into` (the router's give-way, `Router.giveWayRoad`; put back once it's passed). True if thrown.
+   */
+  giveWayAhead?(train: Train, into: ReadonlyMap<number, number>): boolean;
   /**
    * What holds a train short of its grant, if anything does but the dispatcher: the router's points wait ("points"), or
    * the sim's own guards (its `HeldHow`: "signal", "follow", "nose", "side", "cross", "turn"); null: nothing seen. For
@@ -359,7 +371,44 @@ export class Dispatcher {
   /** The sim's trains (ids) at the last look: one new since (put down by hand, or made by a coupling) cuts back any hold over it. */
   private seen = new Set<number>();
 
-  constructor(private readonly host: DispatcherHost) {}
+  /** Trains (sim ids) turned round since the last look (`TURN_ASK`, by the sim's `onTurnedRound`). */
+  private turnedIds = new Set<number>();
+  private unhookTurned: (() => void) | null = null;
+
+  /** `HAND_AHEAD`: each hand-run train's front piece at its last look (looked again only on a new piece). */
+  private handFront = new Map<number, number>();
+  /** `HAND_AHEAD`'s throws. */
+  handThrows = 0;
+
+  /**
+   * `HAND_AHEAD`: the pieces routed trains stand on (−1: met either way), and those granted them, by the connector each
+   * front enters it by on the way granted.
+   */
+  private routedPieces(): Map<number, number> {
+    const out = new Map<number, number>();
+    for (const h of this.holdsBy.values())
+      for (const n of h.path) {
+        const ps = h.t.pos[n];
+        const fp = ps[ps.length - 1];
+        if (!out.has(fp)) out.set(fp, h.t.frontEn[n]);
+      }
+    for (const t of this.host.sim.trains()) {
+      const e = t.cars.find((c) => c.kind === "engine");
+      if (!e || !this.holdsBy.has(e.id)) continue;
+      for (const b of t.bogies) out.set(b.pieceId, -1);
+    }
+    return out;
+  }
+
+  constructor(private readonly host: DispatcherHost) {
+    if (TURN_ASK.on && typeof host.sim.onTurnedRound === "function") this.unhookTurned = host.sim.onTurnedRound((id) => this.turnedIds.add(id));
+  }
+
+  /** Let go of the sim (the setting turned off). */
+  dispose(): void {
+    this.unhookTurned?.();
+    this.unhookTurned = null;
+  }
 
   /** Call after each sim tick. */
   tick(): void {
@@ -388,8 +437,16 @@ export class Dispatcher {
         h.trainId = t.id;
         this.holdVer++;
       }
+      const turnedNow = !!h && this.turnedIds.has(t.id);
+      if (turnedNow) changed = true;
       if (!r || engine.lever === 0 || busy) {
         if (h) h.stood = -1;
+        // (A hand-run train under way onto a new piece: points ahead lying for a road a routed train stands on or is
+        // granted, another road free, thrown for it (`HAND_AHEAD`).)
+        if (!r && HAND_AHEAD.on && engine.lever !== 0 && t.speed > 0 && this.host.giveWayAhead && this.handFront.get(engine.id) !== front) {
+          this.handFront.set(engine.id, front);
+          if (this.host.giveWayAhead(t, this.routedPieces())) this.handThrows++;
+        }
         continue;
       }
       if (this.handedOff.has(engine.id)) continue;
@@ -447,11 +504,14 @@ export class Dispatcher {
       } else if (h) h.short = -1;
       // (Asks: standing at its hold's end, or coming within braking distance of it.)
       const gap = h ? this.gapTo(t, h) : 0;
-      if (!h || gap <= stopDistance(t.speed) + ASK_LOOK) {
+      // (Just turned (`TURN_ASK`): it asks, its way built again from the way it now faces. Its gap was its old way's, the
+      // other way: fuzz seed 13, turned at the forest's buffer (no stop of its own there), it ran on past its grant.)
+      if (!h || turnedNow || gap <= stopDistance(t.speed) + ASK_LOOK) {
         if (h && t.speed === 0 && h.stood < 0) h.stood = sim.ticks;
         asking.push(engine.id);
       } else if (h) h.stood = -1;
     }
+    this.turnedIds.clear();
     if (this.cutForNew()) changed = true;
     if (this.handedOff.size > 0 && this.handBack(live)) changed = true;
     for (const e of [...this.holdsBy.keys()])
@@ -589,6 +649,25 @@ export class Dispatcher {
   }
 
   /** Do all the stretch's members run one line (two at least)? */
+  /**
+   * `DEAD_SHORT`: two trains, the other granted on into a dead end, to turn at its end and come back (no points on from
+   * where its hold ends): its granted track behind it is its way out again, not taken for good (line1+siding: the one
+   * at the far forest granted there, the search had its way back taken, none could deliver, and the other was let on
+   * to the line between them; nose to nose for good). Of one line or not (2×own).
+   */
+  private deadShort(placed: readonly DTrain[], members: readonly number[], k: number): boolean {
+    if (members.length !== 2) return false;
+    const o = placed[members[0] === k ? members[1] : members[0]];
+    const h = this.holdsBy.get(o.key);
+    if (!h || h.path.length < 2 || h.t.pos !== o.pos) return false;
+    for (let i = o.at, n = 0; i >= 0 && n < 100; n++) {
+      if (o.turned[i]) return true;
+      if (o.succ[i].length !== 1) return false;
+      i = o.succ[i][0];
+    }
+    return false;
+  }
+
   private oneLine(placed: readonly DTrain[], members: readonly number[]): boolean {
     if (members.length < ONE_LINE_MIN || !this.host.lineOf) return false;
     const l = this.host.lineOf(placed[members[0]].key);
@@ -905,7 +984,7 @@ export class Dispatcher {
     let r = search(placed, members, { cap: DISPATCH_STATES, backUps: false, order, taken, takenFirst: TAKEN_FIRST_SHORT.on ? false : (transit ?? TAKEN_FIRST.on), weights, oneWay: this.oneWay, q9: Q9S.on, q9Turning });
     // (`TAKEN_FIRST_SHORT`: short of all delivering with the track in transit taken for good, searched again with it taken
     // for the first moves only, and that one's word taken.)
-    if ((TAKEN_FIRST_SHORT.on || (ONE_LINE_SHORT.on && this.oneLine(placed, members) && !(HANDOFF.on && this.host.couldSwap?.(engine)))) && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
+    if ((TAKEN_FIRST_SHORT.on || ((ONE_LINE_SHORT.on && this.oneLine(placed, members)) || (DEAD_SHORT.on && this.deadShort(placed, members, k))) && !(HANDOFF.on && this.host.couldSwap?.(engine))) && r.plain < r.of && taken.size > 0 && r.states < DISPATCH_STATES) {
       const r2 = search(placed, members, { cap: DISPATCH_STATES - r.states, backUps: false, order, taken, takenFirst: transit ?? true, weights, oneWay: this.oneWay, q9: Q9S.on, q9Turning });
       // (Not for ever: a train held `S_PATIENCE_S` for the better order (the others it waits on may not be able to go: at a
       // stop, held by something the search doesn't see) goes as the first search would let it.)
