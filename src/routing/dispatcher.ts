@@ -185,6 +185,7 @@ export const HAND_COME = { on: ((globalThis as { process?: { env: Record<string,
 const HAND_COME_PIECES = 6;
 const HAND_COME_STILL = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HAND_COME_STILL === "1";
 /** `headOnAhead` waived where the plan has all delivering, this train first, the one it would meet with no move now: on (HEAD_TRUST=0: off). */
+const HEAD_TRUST_TURN = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HEAD_TRUST_TURN !== "0";
 export const HEAD_TRUST = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HEAD_TRUST !== "0" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
@@ -1361,7 +1362,11 @@ export class Dispatcher {
     // that follows it in to stop there, held for good as that one was held behind the third in the loop).)
     if (headBy >= 0 && HEAD_TRUST.on && r.plain === r.of && r.first[0] >= r.plain && ways === placed) {
       const mi = members.findIndex((m) => placed[m].key === headBy);
-      if (mi > 0 && r.first[mi] < 0 && r.order.length > 0 && members[r.order[0].k] === k) headBy = -1;
+      // (Only a move on into its turn at a line's end (it turns and comes back before the other moves): elsewhere the
+      // check stands (on the maps, waived for any move it cost own-07 21 stops and complex-2 15, and broke rowan-1 once).)
+      const tt = wayAt(ways[k], placed[k], ts[k]);
+      const intoTurn = tt.turned[to] === 1 || this.pathTo(tt, to).some((n) => tt.turned[n] === 1);
+      if (mi > 0 && r.first[mi] < 0 && r.order.length > 0 && members[r.order[0].k] === k && (intoTurn || !HEAD_TRUST_TURN)) headBy = -1;
     }
     if (headBy >= 0) to = -1;
     let noseBy = -1;
