@@ -487,7 +487,8 @@ if (river.a && !process.env.WATER_SKIP_RIVER) {
     check("the tow takes the paint aboard at the first landing (barges carry any goods)", !!aboard && aboard.load.paint > 0, JSON.stringify(aboard));
     check("…its card says what it carries", !!aboard && /paint/i.test(aboard.card ?? ""), String(aboard?.card));
     // On its deck: crates of paint, drawn by the depots' instanced loads (no draw call of their own).
-    // (Paused for its picture: the camera on the tow, which holds still while it's taken.)
+    // (Paused for its picture once clear of the jetty: the camera on the tow, which holds still while it's taken.)
+    await playUntil(() => [...window.woodrail.economy.boats.values()][0].t > 12, null, 60);
     await p.evaluate(() => (window.woodrail.paused = true));
     const tugSail = await p.evaluate(() => {
       const w = window.woodrail;
