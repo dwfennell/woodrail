@@ -67,16 +67,26 @@ const out = await p.evaluate(async (runs) => {
     after.push(time(() => autosaveGame(w.world, w.slots, session, progress, safety)));
   }
   const med = (a) => [...a].sort((x, y) => x - y)[a.length >> 1];
+  const { packKeys } = await import("/src/persist/slots.ts");
+  const tp = performance.now();
+  await packKeys(w.slots.liveKeys());
+  const packMs = performance.now() - tp;
+  // (Busy: the main thread's time spent in the backup, its tasks timed one by one, not the waits between them.)
+  let busy = 0;
+  const obs = new PerformanceObserver((l) => l.getEntries().forEach((e) => (busy += e.duration)));
+  try { obs.observe({ type: "longtask" }); } catch {}
   const t0 = performance.now();
   const copy = await safety.backups.take(w.slots.openId, w.slots.liveKeys(), "kept");
   const backupMs = performance.now() - t0;
   const live = Object.values(w.slots.liveKeys()).reduce((a, v) => a + v.length, 0);
-  return { before: med(before), after: med(after), firstGuarded: first, backupMs, copyChars: copy?.chars ?? null, liveChars: live, saveChars: localStorage.getItem("woodrail.game.v2").length };
+  obs.disconnect();
+  return { packMs, before: med(before), after: med(after), firstGuarded: first, backupMs, copyChars: copy?.chars ?? null, liveChars: live, saveChars: localStorage.getItem("woodrail.game.v2").length };
 }, RUNS);
 console.log(`CPU ×${CPU}, ${RUNS} runs, the user's map (${out.saveChars.toLocaleString()} chars of railway, ${out.liveChars.toLocaleString()} in all its keys)`);
 console.log(`  autosave, as before:         ${out.before.toFixed(2)} ms (median)`);
 console.log(`  autosave, with the guard:    ${out.after.toFixed(2)} ms (median); its first a page (parses what's stored): ${out.firstGuarded.toFixed(2)} ms`);
 console.log(`  a backup (gzip, write, read back, unpack, check): ${out.backupMs.toFixed(1)} ms, off the start-up path`);
+console.log(`  of it, the gzip alone (packKeys): ${out.packMs.toFixed(1)} ms of wall time`);
 console.log(`  a backup's size: ${out.copyChars?.toLocaleString()} chars`);
 await b.close();
 await server.close();
