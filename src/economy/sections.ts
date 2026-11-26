@@ -2137,8 +2137,9 @@ export class Sections {
         const bp = this.layout.getPiece(b.pieceId);
         if (!bp) continue;
         const bpath = getPieceDef(bp.type, bp.flipped).paths[b.pathIndex];
+        // (Going out by the end the way comes in by (`along` holds entries): head on to it, as the front's test below.)
         const out = b.reversed === net > 0 ? bpath.from : (bpath.to ?? -1);
-        if (out !== on) return false;
+        if (out === on) return false;
       }
     const e = along.get(f.pieceId);
     if (e !== undefined) {
