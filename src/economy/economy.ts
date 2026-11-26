@@ -571,9 +571,12 @@ const NO_PLACES: readonly number[] = [];
 
 /**
  * A signal shows red while the train standing at it is held there by the router or by sections, the dispatcher off
- * (`heldGateAt`): on (HELD_RED=0: off). Else it showed clear (its block free) with the train standing at it: greenHeld.
+ * (`heldGateAt`): off (HELD_RED=1: on). Else it showed clear (its block free) with the train standing at it: greenHeld
+ * (18 breaks on eight reference maps; 3 with it on). Off: the red is the sim's too, not only what the player sees, and
+ * it holds trains: 3 seeds' means with it on, own-12 57 -> 10 stops, own-03 69 -> 25, complex-3 552 -> 516, rowan-1
+ * 455 -> 420, rowan-2 547 -> 501. Wanted: the aspect shown, not the one the sim drives by.
  */
-export const HELD_RED = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HELD_RED !== "0";
+export const HELD_RED = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HELD_RED === "1";
 /** How near (mm, nose to the joint, past the front axle's inset) a held train stands to a signal to be at it. */
 const HELD_RED_NEAR = 80;
 
