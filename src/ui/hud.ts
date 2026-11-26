@@ -8,13 +8,13 @@ import { note } from "../debug/report";
 import { blockWord } from "./blocks";
 import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
-import { fullscreenAvailable, onFullscreenChange, toggleFullscreen } from "./fullscreen";
+import { fullscreenAvailable, HOME_SCREEN_HOW, homeScreenOffered, onFullscreenChange, toggleFullscreen } from "./fullscreen";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
 import { MAX_ENGINE_NAME } from "../sim/engine-names";
 import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
-import { loadFavourites, saveFavourites } from "./prefs";
+import { loadFavourites, loadTrayFolded, saveFavourites, saveTrayFolded } from "./prefs";
 import { pillCount, pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
@@ -668,6 +668,12 @@ export class Hud {
     this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
     this.fullItem = narrow("Fullscreen", "Fill the screen with the game", toggleFullscreen);
     this.fullItem.hidden = this.fullBtn.hidden;
+    // An iPhone has no fullscreen for a page: from the home screen, the GitHub Pages copy opens without the bars.
+    const homeItem = button("Play full screen", "How to play without the browser's bars", () => {
+      this.menu.hidden = true;
+      this.toast(HOME_SCREEN_HOW, false, 7000);
+    }, "menu-item home-screen-item");
+    homeItem.hidden = !homeScreenOffered();
     this.menu.append(this.redoItem, this.landItem);
     // Sandbox's chain hints (cards, the map, a few tips) can be switched off for free play.
     this.chainItem = button("Chain hints: on", "Show where industries' goods come from and go", () => {
@@ -698,6 +704,7 @@ export class Hud {
       this.linesItem,
       this.soundItem,
       this.fullItem,
+      homeItem,
       this.chainItem,
       this.tipsItem,
       this.dispatcherItem,
@@ -1270,6 +1277,8 @@ export class Hud {
     let list: TrayTab[] = [];
     this.openTrayTab = (id, shelf) => {
       const tab = list.find((t) => t.id === id);
+      // (Show me, a goal, the tutorial: what it shows is on the shelves, so a folded tray opens.)
+      if (tab) this.setTrayFolded(false);
       if (tab) openTab(tab, shelf);
     };
     this.reopenTray = () => {
@@ -1285,6 +1294,8 @@ export class Hud {
         // its tabs, its shelves put away for the map's sake: a tab tapped there puts the pencil down, so they show.)
         const t = button(tab.label, `${tab.label}`, () => {
           if (this.drawing && getComputedStyle(scroller).display === "none") this.handlers.trayDraw(false);
+          // (Folded away on a phone: a tab tapped opens the tray again, on that tab.)
+          this.setTrayFolded(false);
           openTab(tab);
         }, "tab");
         t.dataset.tab = tab.id;
@@ -1330,6 +1341,12 @@ export class Hud {
     fitWatch.observe(head);
     fitWatch.observe(tools);
     this.tray.append(head, scroller);
+    // On a phone (style.css `.tray-fold`), a pull on the tray's top edge folds it down to its tabs and tools, for more
+    // of the map; a tap on it or on a tab opens it again. Kept on this device. (Open the first time: the shelves are
+    // where a new player starts.)
+    this.trayFoldBtn = button(uiIcon("fold"), "", () => this.setTrayFolded(!this.trayFolded), "tray-fold");
+    this.tray.append(this.trayFoldBtn);
+    this.setTrayFolded(loadTrayFolded(), false);
     this.root.appendChild(this.tray);
     // The room the tray takes at the screen's foot, for the cards that stand on it (`--tray-room` in style.css: a
     // workshop's card at 2000×1165 ran under the tray's tabs, its foot set for a shorter tray). Measured when the tray
@@ -1523,6 +1540,21 @@ export class Hud {
   /** Rebuild the tray's tabs for a mode (set in the constructor, where the tray is built). */
   private showTabs: (mode: GameMode, keep?: boolean) => void = () => {};
   private openTrayTab: (id: string, shelf?: string) => void = () => {};
+  private trayFoldBtn!: HTMLButtonElement;
+  private trayFolded = false;
+
+  /** The tray folded to its tabs and tools (on a phone; a bigger screen has room and shows no pull), or open. */
+  private setTrayFolded(on: boolean, save = true): void {
+    if (on === this.trayFolded && save) return;
+    this.trayFolded = on;
+    this.tray.classList.toggle("folded", on);
+    this.root.classList.toggle("tray-folded", on);
+    const title = on ? "Open the tray" : "Fold the tray away, for more of the map";
+    this.trayFoldBtn.title = title;
+    this.trayFoldBtn.setAttribute("aria-label", title);
+    this.trayFoldBtn.setAttribute("aria-expanded", String(!on));
+    if (save) saveTrayFolded(on);
+  }
   private reopenTray: () => void = () => {};
 
   /**

@@ -537,7 +537,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .actions > .chip { min-width: 44px; height: 44px; padding: 0 8px; }
   /* Re-rail, at the right just under the goals bar (as tall as it): over the goals' right end it took the taps meant
      for it (QA), and beside it the goal shrank to "Make up a…" (QA 2026-11-05 #8). The goals bar keeps its width. */
-  .actions > .chip.attention { position: absolute; top: 112px; right: 0; height: 44px; }
+  .actions > .chip.attention { position: absolute; top: 100px; right: 0; height: 44px; }
   .chip { min-width: 44px; height: 44px; padding: 0 10px; font-size: 16px; }
   .chip.text { font-size: 13px; }
   .tray-item { width: 70px; height: 80px; }
@@ -547,7 +547,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-item .label { font-size: 11px; letter-spacing: -0.01em; }
   .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 151px); min-width: 0; width: calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
   /* A tall card (a workshop's list) stops under the goals chip, and scrolls as one: no list scrolling inside it. */
-  .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 116px); }
+  .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 104px); }
   /* The switches stay in view at the card's foot while the ledger scrolls by above them. */
   .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: var(--wood-panel); box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
   /* (Its title and ✕ stick at the top as every place's card's do; focus scrolls clear of both.) */
@@ -694,6 +694,27 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-tools .chip.tray-erase { min-width: 40px; }
   .tray-tools .chip::after { inset: -5px -2px; }
 }
+/* The tray's pull (hud.ts `setTrayFolded`): on a phone, a wooden tab standing up from the tray's top edge folds the
+   tray down to its tabs and tools, for more of the map (a tester on an iPhone: "the usable area seems pretty small"),
+   and opens it again; so does a tab. Drawn 56 × 18, a finger's 44 × 44 to tap (upward, over the map: never over a tab). */
+.tray-fold { display: none; }
+@media (max-width: 640px) {
+  .tray-fold { display: grid; place-items: center; position: absolute; left: 50%; top: -17px; transform: translateX(-50%); width: 56px; height: 18px; padding: 0 0 1px; border: 0; border-radius: 10px 10px 0 0; cursor: pointer; color: var(--wood-ink-soft); background: var(--wood-panel); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 -3px 4px -2px rgba(40, 22, 6, 0.3); }
+  .tray-fold::after { content: ""; position: absolute; inset: -26px 6px 0; }
+  .tray-fold .ui-icon { width: 18px; height: 18px; transition: transform 0.2s ease-out; }
+  .tray.folded .tray-fold .ui-icon { transform: rotate(180deg); }
+  /* Folded: the tabs and tools only (Draw still draws: its line goes on the map, not the shelves). */
+  .tray.folded .scroller { display: none; }
+  .tray.folded { padding-bottom: 10px; }
+  /* (Its open tab doesn't hang painted over a shelf that isn't there: bare wood, its colour along its foot, as the
+     others; a tap on it opens that shelf.) */
+  .tray.folded .tab.active { color: var(--wood-ink-soft); text-shadow: none; padding-bottom: 13px; background: var(--groove); box-shadow: inset 0 2px 3px rgba(80, 45, 10, 0.22), inset 0 -4px 0 var(--c); }
+  /* What stands on the tray stands on the folded one: its measured height (`--tray-room`), not the open tray's. */
+  .hud.tray-folded .card { bottom: calc(var(--tray-room, 66px) + 8px); max-height: calc(100dvh - var(--tray-room, 66px) - 8px - max(10px, env(safe-area-inset-top)) - 104px); }
+  .hud.tray-folded .map-bar { bottom: calc(var(--tray-room, 66px) + 8px); }
+  body:has(.hud.tray-folded) .reward-badge { bottom: calc(var(--tray-room, 66px) + 14px); }
+}
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) { .tray-fold .ui-icon { transition: none; } }
 /* The tab strip scrolls (Sandbox's ten tabs on a phone): it fades at an edge with more beyond, and a › past it scrolls
    on (hud.ts `tabEdges`). Only where the tabs share their row with the tools. */
 .tabs-more { display: none; }
@@ -905,6 +926,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (max-width: 640px) {
   .goals.collapsed .goals-show-icon { width: 46px; padding: 0; }
   .goals.collapsed .goals-show-word { display: none; }
+  /* Folded on a phone, one line a finger tall, just under the bar (a tester: "the usable area seems pretty small"):
+     its title on one line (set smaller, then cut, where it's long: goals-panel.ts `fitShow`), the ⌄ smaller. */
+  .goals { top: calc(max(10px, env(safe-area-inset-top)) + 50px); }
+  .goals.collapsed .goals-head { padding: 6px 2px 8px 10px; }
+  .goals.collapsed .goals-fold { width: 26px; height: 26px; }
+  .goals.collapsed .goals-now { -webkit-line-clamp: 1; line-clamp: 1; }
 }
 /* (Where the word would cut the goal's title short: the ⌖ alone.) */
 .goals.collapsed.show-tight .goals-show-icon { width: 46px; padding: 0; justify-content: center; }

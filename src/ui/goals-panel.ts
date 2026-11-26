@@ -380,7 +380,8 @@ export class GoalsPanel {
   private fitShow(): void {
     this.root.classList.remove("show-tight", "title-small");
     if (!this.root.classList.contains("collapsed") || this.now.clientWidth === 0) return;
-    const cut = () => this.now.scrollWidth > this.now.clientWidth + 1;
+    // (Across, or down: on a phone the title is one line, cut with … past it.)
+    const cut = () => this.now.scrollWidth > this.now.clientWidth + 1 || this.now.scrollHeight > this.now.clientHeight + 1;
     if (cut()) this.root.classList.add("show-tight");
     // (Cut even then, "Bring planks to the workshop" at 390 px (QA): the title a little smaller.)
     if (cut()) this.root.classList.add("title-small");
