@@ -135,6 +135,8 @@ const ROAD_FREE_SLACK = Number(((globalThis as { process?: { env: Record<string,
 export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TAKEN_FIRST === "1" };
 
 /** A train that has just turned round asks at once, its way built again from the way it now faces (`tick`): on (TURN_ASK=0: off). */
+/** A hand-run train's facing points thrown to a free road ahead of it, the road they lie for a routed train's (`tick`): HAND_AHEAD=1 (measuring). */
+export const HAND_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HAND_AHEAD === "1" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
@@ -223,6 +225,11 @@ export interface DispatcherHost {
   drive(train: Train): number;
   /** Told of each grant (the router steers it at once). */
   granted?(engine: number): void;
+  /**
+   * `HAND_AHEAD`: throw the facing points just ahead of a hand-run train to a free road, if the road they lie for runs
+   * onto one of `into` (the router's give-way, `Router.giveWayRoad`; put back once it's passed). True if thrown.
+   */
+  giveWayAhead?(train: Train, into: ReadonlyMap<number, number>): boolean;
   /**
    * What holds a train short of its grant, if anything does but the dispatcher: the router's points wait ("points"), or
    * the sim's own guards (its `HeldHow`: "signal", "follow", "nose", "side", "cross", "turn"); null: nothing seen. For
@@ -368,6 +375,31 @@ export class Dispatcher {
   private turnedIds = new Set<number>();
   private unhookTurned: (() => void) | null = null;
 
+  /** `HAND_AHEAD`: each hand-run train's front piece at its last look (looked again only on a new piece). */
+  private handFront = new Map<number, number>();
+  /** `HAND_AHEAD`'s throws. */
+  handThrows = 0;
+
+  /**
+   * `HAND_AHEAD`: the pieces routed trains stand on (−1: met either way), and those granted them, by the connector each
+   * front enters it by on the way granted.
+   */
+  private routedPieces(): Map<number, number> {
+    const out = new Map<number, number>();
+    for (const h of this.holdsBy.values())
+      for (const n of h.path) {
+        const ps = h.t.pos[n];
+        const fp = ps[ps.length - 1];
+        if (!out.has(fp)) out.set(fp, h.t.frontEn[n]);
+      }
+    for (const t of this.host.sim.trains()) {
+      const e = t.cars.find((c) => c.kind === "engine");
+      if (!e || !this.holdsBy.has(e.id)) continue;
+      for (const b of t.bogies) out.set(b.pieceId, -1);
+    }
+    return out;
+  }
+
   constructor(private readonly host: DispatcherHost) {
     if (TURN_ASK.on && typeof host.sim.onTurnedRound === "function") this.unhookTurned = host.sim.onTurnedRound((id) => this.turnedIds.add(id));
   }
@@ -409,6 +441,12 @@ export class Dispatcher {
       if (turnedNow) changed = true;
       if (!r || engine.lever === 0 || busy) {
         if (h) h.stood = -1;
+        // (A hand-run train under way onto a new piece: points ahead lying for a road a routed train stands on or is
+        // granted, another road free, thrown for it (`HAND_AHEAD`).)
+        if (!r && HAND_AHEAD.on && engine.lever !== 0 && t.speed > 0 && this.host.giveWayAhead && this.handFront.get(engine.id) !== front) {
+          this.handFront.set(engine.id, front);
+          if (this.host.giveWayAhead(t, this.routedPieces())) { this.handThrows++; if (this.debug) this.notes.push(`THROW ${(sim.ticks / 120).toFixed(1)} train ${engine.id} front ${front} into ${[...this.routedPieces()]}`); }
+        }
         continue;
       }
       if (this.handedOff.has(engine.id)) continue;

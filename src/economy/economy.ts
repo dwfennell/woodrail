@@ -2894,6 +2894,7 @@ export class Economy {
       const d = new Dispatcher({
         layout: this.layout,
         sim,
+        giveWayAhead: (t, into) => this.router.giveWayRoad(t, new Set(into.keys()), into),
         route: (e) => {
           const route = this.routeOf(e);
           if (!route || route.stops.length === 0) return null;
