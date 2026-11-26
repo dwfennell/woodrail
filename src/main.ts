@@ -152,7 +152,8 @@ import { chainOf, chainRows, partnersOf, stateWords, type PlaceOf } from "./game
 import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hints-view";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
-import { nameOfLand, PICTURE_MAX_CHARS, SlotStore, UNREADABLE_PREFIX } from "./persist/slots";
+import { nameOfLand, PICTURE_MAX_CHARS, SlotStore } from "./persist/slots";
+import { autosaveGame, openGameSave } from "./persist/startup";
 import { GamesSheet, smallPicture } from "./ui/games-sheet";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
@@ -244,26 +245,10 @@ let olderSave = false;
  */
 let unreadableNote: string | null = null;
 
-/**
- * At start-up, before anything is made or saved: the open Game save loaded once. One this build can't read is parked
- * in Your games as it is ("Couldn't open: …", to try again after an update), and Game mode starts with no game open;
- * with no room to park it, it's left in place and Game mode's saves are locked for this page, so the map made instead
- * never overwrites it. (A save that fails to load is never written over: 2026-11-23, a player's game lost so.)
- */
+/** At start-up: the open Game save loaded once, one that won't load kept and never saved over (`openGameSave`). */
 async function keepUnreadableGame(): Promise<ReturnType<typeof loadFromStorage>> {
-  const saved = loadFromStorage("game");
-  if (!saved || saved.ok) {
-    if (saved?.ok) slots.noteReadable();
-    return saved;
-  }
-  console.warn(`Woodrail: the game's save couldn't be loaded (${saved.error}): kept, not overwritten`);
-  const name = await slots.keepUnreadable();
-  if (name !== null) {
-    unreadableNote = `“${name.slice(UNREADABLE_PREFIX.length)}” couldn't be opened by this version of the game. It's kept safe in ☰ Your games: open it there to try again after an update.`;
-    return null;
-  }
-  lockSaves("game");
-  unreadableNote = "Your game couldn't be opened by this version of the game. It's kept as it was and this one won't be saved over it: please tell us (☰ Report a bug).";
+  const { saved, note } = await openGameSave(slots);
+  unreadableNote = note;
   return saved;
 }
 
@@ -1620,14 +1605,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!playing || switching) return;
     // (A drawn line lifted just before, waiting a frame to go down: down first, and saved with the rest.)
     interaction.flushDraw();
-    saveToStorage(game.world, mode);
-    // (A Game railway no game is open for, the starter map from a first start: it becomes one.)
-    if (mode === "game" && slots.openId === null) slots.startUp();
-    const slot = mode === "game" ? slots.openTag() : null;
-    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON(), ...(slot ? { slot } : {}), ...(mode === "game" ? { situations: situations.toJSON() } : {}) });
-    if (mode === "game") {
+    const session = { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() };
+    if (mode !== "game") {
+      saveToStorage(game.world, mode);
+      saveSession(mode, session);
+    } else {
+      // (The railway, its session tagged with the open game, and its progress: `autosaveGame`.)
       const data = progress.toJSON();
-      saveProgress(data);
+      autosaveGame(game.world, slots, { ...session, situations: situations.toJSON() }, data);
       // (Your games' goals and coins for it: now and then.)
       if (performance.now() - factsAt > FACTS_EVERY_MS) {
         factsAt = performance.now();

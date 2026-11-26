@@ -84,7 +84,7 @@ function coastPlot(c: Coast, px: number, pz: number): boolean {
 
 /** Choices a kind has besides its first, used in turn where the one before had no room: the shipwreck's (a shore
  *  can be crowded with a harbour and its town), and every other's. */
-const ALTERNATES: Record<SecretKind, number> = { shipwreck: 2, castle: 1, stones: 1, "lost-mine": 1, lake: 1, footprint: 1 };
+export const ALTERNATES: Record<SecretKind, number> = { shipwreck: 2, castle: 1, stones: 1, "lost-mine": 1, lake: 1, footprint: 1 };
 
 /**
  * Where a map's secrets go (pure: the seed, the coast and which plots to keep off): the shipwreck on the nearest coast

@@ -34,7 +34,7 @@ export const BARGE_LENGTH = 88;
 export const LANDING_MOOR = { t: 120, l: 100 };
 
 /** Names for boats, in turn. */
-const NAMES = ["Puffin", "Kingfisher", "Otter", "Heron", "Moorhen", "Teal", "Coot", "Swift", "Mallard", "Grebe", "Tern", "Wren"];
+export const BOAT_NAMES = ["Puffin", "Kingfisher", "Otter", "Heron", "Moorhen", "Teal", "Coot", "Swift", "Mallard", "Grebe", "Tern", "Wren"];
 
 type Point = { x: number; z: number };
 
@@ -259,7 +259,7 @@ export class Fleet {
     const ids = [...this.economy.boats.keys()];
     const id = ids.length > 0 ? Math.max(...ids) + 1 : 1;
     const used = new Set(this.all().map((b) => b.name));
-    const name = NAMES.find((n) => !used.has(n)) ?? `Boat ${id}`;
+    const name = BOAT_NAMES.find((n) => !used.has(n)) ?? `Boat ${id}`;
     const b: BoatState = { id, name, barges: 1, load: {}, stops: [{ depotId, action: "pick" }], from: 0, docked: true, t: 0, going: true, home: depotId, loadedAt: {} };
     this.economy.boats.set(id, b);
     return b;
