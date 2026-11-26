@@ -139,8 +139,8 @@ export const TAKEN_FIRST = { on: ((globalThis as { process?: { env: Record<strin
 export const HAND_AHEAD = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HAND_AHEAD !== "0" };
 /** A grant kept through a rebuild only onto pieces it was granted (`trainsOf`): on (KEEP_PIECES=0: off). */
 export const KEEP_PIECES = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).KEEP_PIECES !== "0" };
-/** A held train's blocker looked for where trains stand on its way on, a signal's block included (`blocker`): NAME_BLOCKER=1 (measuring). */
-export const NAME_BLOCKER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NAME_BLOCKER === "1" };
+/** A held train's blocker looked for where trains stand on its way on, a signal's block included (`blocker`): on (NAME_BLOCKER=0: off). */
+export const NAME_BLOCKER = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).NAME_BLOCKER !== "0" };
 export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
 /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
 export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
