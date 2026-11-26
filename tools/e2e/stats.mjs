@@ -1,10 +1,12 @@
-// End-to-end: "Help improve Woodrail" (docs/stats.md) on a 390×844 phone with touch, in Game mode. A new game sends
-// nothing. The player joins two towns (the first goal); a moment after its toast, the one-time question. Still nothing
-// sent. They tap "Yes, share"; on leaving the page the batch goes up holding the game's start and the goal, and the
+// End-to-end: play stats (docs/stats.md) on a 390×844 phone with touch, in Game mode. A new game sends plain counts
+// only: its start, with no id, and nothing kept on the device. The player joins two towns (the first goal); a moment
+// after its toast, the one-time "Help improve Woodrail?" question; still nothing under an id. They tap "Yes, share"; on
+// leaving the page the batch goes up under an id holding the goal, and the
 // Worker's own reading of it (cloud/src/stats.ts `points`) makes a "goal" data point for join-two. No railway snapshot
 // yet: then they drag an engine from the tray onto their line, "Put an engine on the track" ticks, and a snapshot goes
 // up that the Worker's own check takes (cloud/src/snapshots.ts `parseSnapshot`) and that reads back as their railway,
-// engine and all. The ☰ menu shows the choice, and "Stop sharing" turns it off; a reload doesn't ask again.
+// engine and all. The ☰ menu shows the choice, and "Stop sharing" turns it off (plain counts go on, with no id);
+// "Stop counting" turns those off too, and nothing more is sent; a reload doesn't ask again.
 //
 // Harness shortcuts (named; not what's tested): the stats and snapshot endpoints are answered by the page's route here,
 // not a running Worker, and what's sent is read with the Worker's own parsers. The Worker's handling is
@@ -148,13 +150,21 @@ const centre = (selector, text) =>
 /** The page left and come back to, as a browser says it (the game saves once a leaving, till the page is back). */
 const leave = () => p.evaluate(() => (dispatchEvent(new PageTransitionEvent("pagehide")), dispatchEvent(new PageTransitionEvent("pageshow"))));
 
-// 1. A new game: nothing asked, nothing sent.
+/** Batches under a device id (shared stats), and plain counts (no id). */
+const shared = () => batches.filter((x) => x.raw.id !== undefined);
+const counts = () => batches.filter((x) => x.raw.anon === true);
+
+// 1. A new game: nothing asked; plain counts only.
 await p.goto(PAGE);
 await start(true);
 check("a new game: no question yet", !(await shown(".stats-card")));
 await leave();
-await p.waitForTimeout(1500);
-check("…and nothing sent, before an answer", batches.length === 0, `${batches.length} batches`);
+for (let i = 0; i < 20 && batches.length === 0; i++) await p.waitForTimeout(250);
+const firstPts = counts().flatMap((x) => x.points ?? []);
+check("…plain counts sent: the game's start, with no id", counts().length >= 1 && firstPts.some((pt) => pt.blobs[0] === "start" && pt.blobs[1] === "game") && firstPts.every((pt) => pt.indexes[0] === "anon"), JSON.stringify(batches.map((x) => x.raw)));
+check("…nothing under an id, before an answer", shared().length === 0, `${shared().length} batches`);
+const kept = await p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("woodrail.stats")));
+check("…and nothing of the stats kept on the device", kept.length === 0, JSON.stringify(kept));
 
 // 2. The first goal, the player's way: two towns joined.
 // (On the starter map, Larkfield to Elderwick: a link the pathfinder is known to manage, as e2e:stickers.)
@@ -171,7 +181,7 @@ check("…Join two towns is done", await p.evaluate(() => window.woodrail.goals(
 await p.waitForFunction(() => { const c = document.querySelector(".stats-card"); return c && !c.hidden; }, null, { timeout: 30000 }).catch(() => {});
 check("a moment later: “Help improve Woodrail?”", await shown(".stats-card"), await p.evaluate(() => document.querySelector(".stats-card")?.textContent ?? ""));
 await shot("1-asked");
-check("…still nothing sent", batches.length === 0);
+check("…still nothing under an id", shared().length === 0);
 
 // 3. Yes: on leaving, what was held goes up.
 check("tap “Yes, share”", await tap(".stats-card .stats-yes"));
@@ -179,14 +189,13 @@ await p.waitForTimeout(500);
 check("…the card goes", !(await shown(".stats-card")));
 check("…the answer kept", (await p.evaluate(() => localStorage.getItem("woodrail.stats"))) === "yes");
 await leave();
-for (let i = 0; i < 20 && batches.length === 0; i++) await p.waitForTimeout(250);
-const sent = batches.flatMap((x) => x.points ?? []);
-check("a batch sent, and the Worker reads it", batches.length >= 1 && batches.every((x) => x.points !== null), JSON.stringify(batches.map((x) => x.raw.events.map((e) => e.e))));
-check("…with the game's start", sent.some((pt) => pt.blobs[0] === "start" && pt.blobs[1] === "game"));
+for (let i = 0; i < 20 && shared().length === 0; i++) await p.waitForTimeout(250);
+const sent = shared().flatMap((x) => x.points ?? []);
+check("a batch sent under an id, and the Worker reads it", shared().length >= 1 && batches.every((x) => x.points !== null), JSON.stringify(batches.map((x) => x.raw.events.map((e) => e.e))));
 check("…and the goal: a “goal” point for join-two", sent.some((pt) => pt.blobs[0] === "goal" && pt.blobs[2] === "join-two" && pt.doubles[0] >= 1), JSON.stringify(sent.map((pt) => pt.blobs.slice(0, 3))));
 check("…from a phone, with an anonymous id", sent.every((pt) => pt.blobs[5] === "phone" && /^[0-9a-f]{16}$/.test(pt.indexes[0])));
 const nothingPersonal = JSON.stringify(batches.map((x) => x.raw));
-check("…holding no railway, town names or codes", !nothingPersonal.includes(pair.names.split(" → ")[0]) && nothingPersonal.length < 2000, `${nothingPersonal.length} bytes`);
+check("…holding no railway, town names or codes", !nothingPersonal.includes(pair.names.split(" → ")[0]) && nothingPersonal.length < 3000, `${nothingPersonal.length} bytes`);
 check("…and no railway snapshot yet: no engine on the track", snaps.length === 0, `${snaps.length} snapshots`);
 
 // 3b. An engine from the tray onto the line: "Put an engine on the track", and the first railway snapshot.
@@ -231,11 +240,27 @@ await tap(".stats-card .chip", "Stop sharing");
 await p.waitForTimeout(300);
 const off = await p.evaluate(() => ({ status: document.querySelector(".stats-card .cloud-status")?.textContent, consent: localStorage.getItem("woodrail.stats"), id: localStorage.getItem("woodrail.stats.id") }));
 check("Stop sharing: off, and the id dropped", off.status === "Not sharing" && off.consent === "no" && off.id === null, JSON.stringify(off));
+check("…plain counts still on, and said so", (await p.evaluate(() => document.querySelector(".stats-card .stats-counts-status")?.textContent)) === "Counting: on");
 await tap(".stats-card .chip", "Done");
-const before = batches.length;
+let before = shared().length;
+const countsBefore = counts().length;
+await leave();
+for (let i = 0; i < 12 && counts().length === countsBefore; i++) await p.waitForTimeout(250);
+check("…nothing more under an id", shared().length === before);
+// (The stretch of play just left goes up as a plain count: an "end", no id.)
+check("…but plain counts go on, with no id", counts().length > countsBefore && counts().slice(countsBefore).every((x) => x.raw.id === undefined), `${counts().length - countsBefore} batches`);
+await tap(".hud button[title='Menu'], button[aria-label='Menu']");
+await tap(".menu-item", "Help improve Woodrail");
+await p.waitForTimeout(400);
+await tap(".stats-card .chip", "Stop counting");
+await p.waitForTimeout(300);
+check("Stop counting: off, and kept", (await p.evaluate(() => [document.querySelector(".stats-card .stats-counts-status")?.textContent, localStorage.getItem("woodrail.stats.counts")].join("|"))) === "Counting: off|off");
+await shot("3-counting-off");
+await tap(".stats-card .chip", "Done");
+before = batches.length;
 await leave();
 await p.waitForTimeout(1500);
-check("…nothing more sent", batches.length === before);
+check("…nothing more sent at all", batches.length === before);
 
 // 5. A reload doesn't ask again.
 await p.reload();

@@ -1,21 +1,35 @@
-# Play stats ("Help improve Woodrail")
+# Play stats: plain counts, and "Help improve Woodrail"
 
-Anonymous play stats, opt-in. They answer how many people play, on what, where, for how long, how far they get
-through the goals, and what errors they hit. The same yes shares railway snapshots: now and then a copy of the
-player's railway, to see what people build (below).
+Two kinds (split 2026-11-25, so the numbers cover everyone who plays and not only the one in ten who said yes):
+
+- **Plain counts**, on unless the player turns them off in ☰: a game started, a goal ticked, how long a stretch of
+  play lasted, with the build, host and device. **No id of any kind and nothing kept on the device** (only an "off",
+  if they choose it): every count goes under the one index `anon`, so nothing tells one player's from another's. No
+  errors. They answer how many games start, how far games get through the goals and how long people play.
+- **Shared stats ("Help improve Woodrail")**, opt-in: the same events and errors under a random id made on the device,
+  so one player's progress can be followed (players counted, their furthest goal). The same yes shares railway
+  snapshots: now and then a copy of the player's railway, to see what people build (below). With a yes, a player's
+  events go under the id and not as counts too, so the two add up to everyone.
+
+Why counts need no question: storing or reading an id on the device is what the EU's ePrivacy rule asks consent for,
+and a persistent id is personal information under COPPA; counts store and send neither. (Not legal advice: the
+reasoning behind the split, to be checked by someone qualified.) The ☰ card says what's counted and turns it off.
 
 ## What the player sees
 
 - After their first goal in Game mode (or 10 minutes into Sandbox, which has no goals), once: a card, "Help improve
-  Woodrail? Share anonymous play stats (…) and now and then a copy of your railway…", with **No thanks** and **Yes,
-  share**.
+  Woodrail? Share your play stats under a random number made on this device (…) and now and then a copy of your
+  railway…", with **No thanks** and **Yes, share**.
 - A player who said yes before the question mentioned railways (`woodrail.stats` is `yes`, `woodrail.stats.maps`
   unset) is asked once more, at their next goal: "Can we also have a copy of your railway now and then?", with **Just
   stats** and **Yes, share it**. Until they answer, no snapshots.
 - In the ☰ menu: **💛 Help improve Woodrail**, which shows the choice and changes it: **Stop sharing** (both), or while
-  sharing, **Not my railway** / **Share my railway too**.
-- Nothing leaves the device before a yes. Events from before the answer (this session's start, the goal that led to
-  the question) wait in memory: sent on a yes, dropped on a no.
+  sharing, **Not my railway** / **Share my railway too**; and below, what plain counts are, **Stop counting** /
+  **Count again** (`woodrail.stats.counts`: `off`, `on`).
+- Before an answer, events go up as plain counts (errors wait in memory for a yes). Nothing goes under an id before a
+  yes. A no today leaves counts as they were (stored `on`); a no from before counts existed, when the question said
+  "anonymous play stats", is kept as counts off (`woodrail.stats` `no` with no counts key, on load).
+- Counts off and no answer yet: events wait in memory, sent under the id on a yes, as before counts.
 - The menu item and the question show only in a build with somewhere to send stats (below).
 
 ## What's sent
@@ -29,7 +43,8 @@ The game's side is `src/stats/stats.ts`; the Worker's is `cloud/src/stats.ts`.
 | `end` | a stretch of play over (back to the title, or the page hidden) | mode, minutes |
 | `error` | an uncaught error (3 a session at most) | its message, cut to 200 characters |
 
-Each batch also carries a random id made on the device on a yes (dropped on a no), the build, the host (`itch`,
+A shared batch also carries a random id made on the device on a yes (dropped on a no); a counts batch carries
+`anon: true` and no id, and no `error` events. Each carries the build, the host (`itch`,
 `pages`, `local`, `other`) and the device (`phone`, `tablet`, `desktop`). No railways (those are snapshots, below), town names, sync codes or IP
 addresses are stored.
 
@@ -70,7 +85,7 @@ from one shared origin). Each event is a data point in Workers Analytics Engine,
 
 | Column | Holds |
 | --- | --- |
-| `index1` | the device's random id |
+| `index1` | the device's random id, or `anon` for plain counts |
 | `blob1` | event: `start`, `goal`, `end`, `error` |
 | `blob2` | mode |
 | `blob3` | the goal's id, or the error |

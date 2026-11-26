@@ -1,6 +1,13 @@
 /**
- * "Help improve Woodrail": anonymous play stats, sent only once the player has said yes (opt-in, asked after their
- * first goal; see docs/stats.md).
+ * Play stats (docs/stats.md), in two kinds:
+ *
+ * - Plain counts, on unless the player turns them off in ☰: a game started, a goal ticked, how long a stretch of play
+ *   lasted, with the build, host and device. No id of any kind and nothing kept on the device (only an "off", if they
+ *   choose it), so nothing tells one player's counts from another's. A player who said no to sharing before counts
+ *   existed (when the question said "anonymous play stats") is counted as off.
+ * - "Help improve Woodrail": the same events and errors under a random id, so one player's progress can be followed,
+ *   sent only once the player has said yes (opt-in, asked after their first goal). With a yes, events go under the id
+ *   and not as counts too.
  *
  * What goes: a random id made on this device when the player says yes (not tied to them, and dropped if they say no
  * later), the build, the kind of device (phone, tablet or desktop) and where the game is played (itch, the GitHub site,
@@ -25,7 +32,10 @@ export type StatEvent =
 
 /** What a batch holds, as the Worker reads it (`cloud/src/stats.ts`). */
 export interface StatBatch {
-  id: string;
+  /** The device's random id, with a yes; none in plain counts. */
+  id?: string;
+  /** Plain counts: no id, no errors. */
+  anon?: true;
   build: string;
   host: string;
   device: string;
@@ -51,6 +61,8 @@ const CONSENT_KEY = "woodrail.stats";
 const ID_KEY = "woodrail.stats.id";
 /** Railway snapshots too: "yes" or "no" (unset: said yes before the question mentioned them, or not yet asked). */
 const MAPS_KEY = "woodrail.stats.maps";
+/** Plain counts: "off" (turned off, or a no from before they existed), "on" (a no since: counts as they are), unset: on. */
+const COUNTS_KEY = "woodrail.stats.counts";
 /** How long events wait for others before they go up (ms). */
 export const BATCH_MS = 60_000;
 /** The most a batch holds; more than that waiting are dropped (a loop gone wrong shouldn't flood the Worker). */
@@ -81,12 +93,34 @@ export class Stats {
   private errors = 0;
   private consentNow: Consent;
   private mapsNow: Consent;
+  private countsOff: boolean;
 
   constructor(private readonly d: StatsDeps) {
     const c = get(d.storage, CONSENT_KEY);
     this.consentNow = c === "yes" || c === "no" ? c : null;
     const m = get(d.storage, MAPS_KEY);
     this.mapsNow = m === "yes" || m === "no" ? m : null;
+    const n = get(d.storage, COUNTS_KEY);
+    // A no from before plain counts existed was a no to anything at all: kept as counts off.
+    if (n === null && this.consentNow === "no") set(d.storage, COUNTS_KEY, "off");
+    this.countsOff = n === "off" || (n === null && this.consentNow === "no");
+  }
+
+  /** Plain counts go up (this build sends stats, the player hasn't turned them off, and isn't sharing under an id). */
+  get counting(): boolean {
+    return this.available && !this.countsOff && this.consentNow !== "yes";
+  }
+
+  /** Plain counts on (whatever the shared stats are). */
+  get countsOn(): boolean {
+    return !this.countsOff;
+  }
+
+  /** Plain counts on or off (the ☰ card's switch). Off: nothing waiting is sent as counts. */
+  setCounts(on: boolean): void {
+    this.countsOff = !on;
+    set(this.d.storage, COUNTS_KEY, on ? "on" : "off");
+    if (!on && this.consentNow !== "yes") this.queue = [];
   }
 
   /** Can this build send stats at all? (No: nothing is asked, and the menu item doesn't show.) */
@@ -122,9 +156,11 @@ export class Stats {
     set(this.d.storage, CONSENT_KEY, this.consentNow);
     this.setMaps(yes);
     if (!yes) {
-      // A no: the id goes too, and nothing waiting is sent.
+      // A no: the id goes too, and nothing waiting is sent under it. (Plain counts stay as they were: a no now is to
+      // the id and the railway, which is what the question asks; kept "on" so it isn't read as a no from before.)
       set(this.d.storage, ID_KEY, null);
-      this.queue = [];
+      if (get(this.d.storage, COUNTS_KEY) === null) set(this.d.storage, COUNTS_KEY, "on");
+      this.queue = this.counting ? this.queue.filter((e) => e.e !== "error") : [];
     } else if (this.queue.length > 0 && !this.waiting) {
       this.waiting = true;
       this.d.later(() => this.flush(false), BATCH_MS);
@@ -158,13 +194,18 @@ export class Stats {
     return this.d.url.replace(/\/$/, "");
   }
 
-  /** Records an event, unless the player said no (not yet answered: held, unsent, till they do). */
+  /**
+   * Records an event: under the id with a yes, else as a plain count (errors aren't counts). Counts off and no answer
+   * yet: held, unsent, till the player answers; counts off and a no: dropped.
+   */
   record(ev: StatEvent): void {
-    if (!this.available || this.consentNow === "no") return;
-    if (ev.e === "error" && this.errors++ >= MAX_ERRORS) return;
+    if (!this.available) return;
+    const shared = this.consentNow === "yes";
+    if (!shared && !this.counting && this.consentNow === "no") return;
+    if (ev.e === "error" && (this.consentNow === "no" || this.errors++ >= MAX_ERRORS)) return;
     if (this.queue.length >= MAX_EVENTS) return;
     this.queue.push({ ...ev, t: this.d.now() });
-    if (this.consentNow === "yes" && !this.waiting) {
+    if ((shared || this.counting) && !this.waiting) {
       this.waiting = true;
       this.d.later(() => this.flush(false), BATCH_MS);
     }
@@ -175,9 +216,17 @@ export class Stats {
     this.waiting = false;
     if (this.queue.length === 0) return;
     const id = this.deviceId();
-    if (id === null) return;
-    const batch: StatBatch = { id, build: this.d.build, host: this.d.host, device: this.d.device, events: this.queue };
-    this.queue = [];
+    let batch: StatBatch;
+    if (id !== null) {
+      batch = { id, build: this.d.build, host: this.d.host, device: this.d.device, events: this.queue };
+      this.queue = [];
+    } else if (this.counting) {
+      // Plain counts: no id; errors (held for a yes) stay held.
+      const counts = this.queue.filter((e) => e.e !== "error");
+      this.queue = this.queue.filter((e) => e.e === "error");
+      if (counts.length === 0) return;
+      batch = { anon: true, build: this.d.build, host: this.d.host, device: this.d.device, events: counts };
+    } else return;
     try {
       this.d.send(`${this.url}/v1/stats`, JSON.stringify(batch), leaving);
     } catch {
