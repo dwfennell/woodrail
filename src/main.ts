@@ -6593,7 +6593,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             justAdded = { key: stopsKey(stops), k: at, text, toEnd: smart && between };
           }
           // (A place on a railway none of the line's other stops is on: said at once, not left for a train to find.)
-          if (at !== -1 && stopApart(game.economy, sheetStops(), at)) hud.toast(`No track joins ${placeName(depotId)} to the rest of this line: join them, or trains can't get there`);
+          if (at !== -1 && stopApart(game.economy, sheetStops(), at)) hud.toast(`No track joins ${placeName(game.world, depotId)} to the rest of this line: join them, or trains can't get there`);
           sheetTab = "stops";
           showSheet();
           // The whole line stays in view, not just the place tapped (audit F5). Measured once the sheet has grown.
