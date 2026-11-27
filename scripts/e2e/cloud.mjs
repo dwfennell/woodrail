@@ -763,6 +763,8 @@ suite.add(
     await f.waitForFunction(() => !!JSON.parse(localStorage.getItem("woodrail.cloud.v1") ?? "null")?.code, null, { timeout: 10000 }).catch(() => {});
     const codeF = (await meta(f))?.code;
     check("auto: …turns cloud saves on, a code made for this device", /^[a-z]{3,5}-[a-z]{3,5}-[a-z]{3,5}-\d{4}$/.test(codeF ?? ""), JSON.stringify(await meta(f)));
+    // (Another toast may be showing first: this one waits its turn.)
+    await f.waitForFunction((c) => (document.querySelector(".toast")?.textContent ?? "").includes(c), (codeF ?? "?").replace(/-/g, " "), { timeout: 20000 }).catch(() => {});
     const toldCode = await f.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
     check("auto: …and says so once, with the code to keep", toldCode.includes(`Your code: ${(codeF ?? "").replace(/-/g, " ")}`) && /saves online/.test(toldCode), toldCode);
     let rf = await remote(codeF);
