@@ -141,12 +141,15 @@ const PLACE_GRID = CELL / 4;
 /** A train dropped this far (mm) beyond half its own length from another's end couples on to it. */
 const JOIN_REACH = 80;
 
-/** Along-track distance from the first car's leading axle to car `index`'s leading axle (see `Sim.addTrain`). */
-/** Is this piece's mirror image another shape, not seated by its other end (a curve)? Not a ramp's or buffer's flip, which only swaps its ends' peg and hole. */
+/**
+ * Is this piece's mirror image another shape, one it can't be seated as by its other end (a curve)? Not a ramp's or a
+ * buffer's flip, which only swaps its ends' peg and hole.
+ */
 function mirrors(type: PieceTypeId): boolean {
   return getPieceDef(type, false).flippable && getPieceDef(type, true) !== getPieceDef(type, false) && !flipSwapsEnds(type);
 }
 
+/** Along-track distance from the first car's leading axle to car `index`'s leading axle (see `Sim.addTrain`). */
 function trainSpan(cars: readonly { kind: CarKind }[], index: number): number {
   let d = 0;
   for (let i = 0; i < index; i++) {

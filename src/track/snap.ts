@@ -103,8 +103,8 @@ export function keepTurning(layout: Layout, type: PieceTypeId, heldFlipped: bool
 /**
  * `snap` (a piece seated on a free end) seated instead by the piece's end `connector`, held mirrored or not
  * (`flipped`), on the same end: or null if that would put it below the floor (a curved ramp by its top on track on
- * the ground). (Flip pressed while seated keeps it
- * seated by the same of its ends: by its other end, a curve flipped lies just as it did unflipped.)
+ * the ground). Flip pressed while seated keeps a piece seated by the same of its ends: by its other end, a curve
+ * flipped lies just as it did unflipped.
  */
 export function seatBy(layout: Layout, type: PieceTypeId, flipped: boolean, snap: Extract<SnapResult, { kind: "snapped" }>, connector: number): Extract<SnapResult, { kind: "snapped" }> | null {
   const c = getPieceDef(type, flipped).connectors[connector];
