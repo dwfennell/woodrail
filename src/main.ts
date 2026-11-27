@@ -2112,6 +2112,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let tipsOn = loadTipsOn();
   /** Till when (performance.now) the chip says the situation tip, its toast up. */
   let situationLoudUntil = 0;
+  /**
+   * The situation tip's toast, while the chip says it: also as long as that toast waits or shows (a toast queued
+   * behind a goal's on a slow page came up after the 8 s had gone, beside the goal's title: e2e:situation-help).
+   */
+  let situationToast: string | null = null;
   /** "The game is paused" (on the wall clock: the tracker's stands still while paused), once a session. */
   const pausedTip = new PausedTip();
   // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
@@ -2418,7 +2423,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (sit?.fixed && announce) hud.toast(sit.fixed.fixed, true, 3200);
     if (sit?.first && announce) {
       situationLoudUntil = performance.now() + 8000;
-      hud.toast(`💡 ${sit.first.toast} · Show where ›`, false, 8000, () => showSituation());
+      situationToast = `💡 ${sit.first.toast} · Show where ›`;
+      hud.toast(situationToast, false, 8000, () => showSituation());
     }
     // Paused and wondering why nothing moves: on the wall clock (paused, the game's stands still), before the rest.
     const paused =
@@ -2427,13 +2433,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         : null;
     if (paused?.first) {
       situationLoudUntil = performance.now() + 8000;
-      hud.toast(`💡 ${PAUSED.toast} · Show where ›`, false, 8000, () => showSituation());
+      situationToast = `💡 ${PAUSED.toast} · Show where ›`;
+      hud.toast(situationToast, false, 8000, () => showSituation());
     }
     if (first && announce && tipsOn) hud.toast(`💡 ${first.text}`, false, 6000, () => showTip());
     const s = pausedTip.current() ?? situations.current();
     const t = tips.current();
     if (!tipsOn) goalsPanel.setTip(null);
-    else if (s) goalsPanel.setTip({ id: s.id, title: s.title, text: s.text, situation: { short: s.short, more: s.more } }, performance.now() < situationLoudUntil);
+    else if (s) goalsPanel.setTip({ id: s.id, title: s.title, text: s.text, situation: { short: s.short, more: s.more } }, performance.now() < situationLoudUntil || (situationToast !== null && hud.hasToast(situationToast)));
     else goalsPanel.setTip(t ? { id: t.id, title: t.title, text: t.text } : null);
   }
 
@@ -2466,6 +2473,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Paused: the ▶ on the bar pulsed (the camera stays where it is).
     if (pausedTip.current()) {
       situationLoudUntil = 0;
+      situationToast = null;
       hud.pulsePause();
       return;
     }
@@ -2473,6 +2481,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!s) return;
     situations.looked(game.simSeconds);
     situationLoudUntil = 0;
+    situationToast = null;
     const trainAt = () => {
       const b = s.engine === undefined ? undefined : game.sim.findCar(s.engine)?.train.bogies[0];
       return b ? game.layout.getPiece(b.pieceId)?.pose : undefined;

@@ -694,6 +694,34 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-tools .chip.tray-erase { min-width: 40px; }
   .tray-tools .chip::after { inset: -5px -2px; }
 }
+/* The tray's pull (hud.ts `setTrayFolded`): on a phone held upright, a wooden tab standing up from the tray's top
+   edge folds the tray down to its tabs and tools, for more of the map (a tester on an iPhone: "the usable area seems
+   pretty small"), and opens it again; so does a tab. Drawn 56 × 18, a finger's 44 × 44 to tap (upward, over the map: never over a tab). */
+.tray-fold { display: none; }
+@media (max-width: 640px) and (orientation: portrait) {
+  .tray-fold { display: grid; place-items: center; position: absolute; left: 50%; top: -17px; transform: translateX(-50%); width: 56px; height: 18px; padding: 0 0 1px; border: 0; border-radius: 10px 10px 0 0; cursor: pointer; color: var(--wood-ink-soft); background: var(--wood-panel); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 -3px 4px -2px rgba(40, 22, 6, 0.3); }
+  .tray-fold::after { content: ""; position: absolute; inset: -26px 6px 0; }
+  /* Not while a card or the camera coach stands on the tray (a train's card, a town's): its foot is just over the
+     tray's edge, where the pull's reach would take the taps of the buttons there, and it covers the map anyway. (The
+     coach is set on the open tray's height while it teaches.) */
+  .hud:has(.card:not([hidden])) .tray-fold, .hud:has(.coach:not([hidden])) .tray-fold { display: none; }
+  /* The Paused sign stands clear of the pull's reach (e2e:situation-paused: its tap went to the pull). In the page's
+     own order, so an open card still stands over it (on top, it hid a signal card's Remove: e2e:situation-blocks). */
+  .paused-sign { bottom: calc(var(--tray-room, 156px) + 46px); }
+  .tray-fold .ui-icon { width: 18px; height: 18px; transition: transform 0.2s ease-out; }
+  .tray.folded .tray-fold .ui-icon { transform: rotate(180deg); }
+  /* Folded: the tabs and tools only (Draw still draws: its line goes on the map, not the shelves). */
+  .tray.folded .scroller { display: none; }
+  .tray.folded { padding-bottom: 10px; }
+  /* (Its open tab doesn't hang painted over a shelf that isn't there: bare wood, its colour along its foot, as the
+     others; a tap on it opens that shelf.) */
+  .tray.folded .tab.active { color: var(--wood-ink-soft); text-shadow: none; padding-bottom: 13px; background: var(--groove); box-shadow: inset 0 2px 3px rgba(80, 45, 10, 0.22), inset 0 -4px 0 var(--c); }
+  /* What stands on the tray stands on the folded one: its measured height (`--tray-room`), not the open tray's. */
+  .hud.tray-folded .card { bottom: calc(var(--tray-room, 66px) + 8px); max-height: calc(100dvh - var(--tray-room, 66px) - 8px - max(10px, env(safe-area-inset-top)) - 104px); }
+  .hud.tray-folded .map-bar { bottom: calc(var(--tray-room, 66px) + 8px); }
+  body:has(.hud.tray-folded) .reward-badge { bottom: calc(var(--tray-room, 66px) + 14px); }
+}
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) { .tray-fold .ui-icon { transition: none; } }
 /* The tab strip scrolls (Sandbox's ten tabs on a phone): it fades at an edge with more beyond, and a › past it scrolls
    on (hud.ts `tabEdges`). Only where the tabs share their row with the tools. */
 .tabs-more { display: none; }
@@ -905,6 +933,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (max-width: 640px) {
   .goals.collapsed .goals-show-icon { width: 46px; padding: 0; }
   .goals.collapsed .goals-show-word { display: none; }
+}
+@media (max-width: 640px) and (orientation: portrait) {
+  /* Folded on a phone held upright, one line a finger tall, just under the bar (a tester: "the usable area seems
+     pretty small"): its title on one line (set smaller, then cut, where it's long: goals-panel.ts `fitShow`), the ⌄
+     smaller. Re-rail and a tall card's top follow it up. */
+  .actions > .chip.attention { top: 100px; }
+  .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 104px); }
+  .goals { top: calc(max(10px, env(safe-area-inset-top)) + 50px); }
+  .goals.collapsed .goals-head { padding: 6px 2px 8px 10px; }
+  .goals.collapsed .goals-fold { width: 26px; height: 26px; }
+  .goals.collapsed .goals-now { -webkit-line-clamp: 1; line-clamp: 1; }
 }
 /* (Where the word would cut the goal's title short: the ⌖ alone.) */
 .goals.collapsed.show-tight .goals-show-icon { width: 46px; padding: 0; justify-content: center; }
