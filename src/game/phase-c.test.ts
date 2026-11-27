@@ -40,13 +40,13 @@ describe("Phase C, the rest", () => {
     expect(e.working(power)).toBe(false);
   });
 
-  it("towns always take made goods (furniture, tools), wanted or not", () => {
+  it("towns take made goods (furniture, tools) only while they need them (spec 2026-11-27-towns-buy-what-they-need.md)", () => {
     const w = buildStarterWorld();
     const host: TownLifeHost = Object.assign(w, { footprintOf: (asset: string) => footprintOf(asset), editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
     new TownLife(host, { grew: () => {}, received: () => {} }).reset();
     const station = w.economy.depotAtPiece(w.stations.get(w.landscape.towns[0].id)!)!;
-    expect(w.economy.accepts!(station, "furniture")).toBe(true);
-    expect(w.economy.accepts!(station, "tools")).toBe(true);
+    expect(w.economy.accepts!(station, "furniture")).toBe(false); // a hamlet doesn't need them
+    expect(w.economy.accepts!(station, "tools")).toBe(false);
     expect(w.economy.accepts!(station, "iron")).toBe(false); // not wanted by a hamlet
   });
 
