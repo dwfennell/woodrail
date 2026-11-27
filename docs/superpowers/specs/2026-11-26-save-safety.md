@@ -33,7 +33,7 @@ layer stands without the others.
 ## 2. The write guard (`src/persist/write-guard.ts`)
 
 Before Game mode's autosave writes, the railway about to be written is compared with the one stored, by a summary of
-each: seed, whether it's the starter map, pieces, cars and the session's clock. The stored summary is worked out once
+each: seed, whether it's the starter map, pieces and cars. The stored summary is worked out once
 a page (a `JSON.parse`) and again only when the stored text isn't the text this page last wrote (a string compare).
 
 The guard trips when the stored railway is a real one (pieces + cars ≥ 25) and the new one:
