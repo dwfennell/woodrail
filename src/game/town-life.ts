@@ -16,7 +16,7 @@ import { dueLandmarks } from "./landmarks";
 import { hasPostOffice, mailEveryAt, POST_TECH, SANDBOX_MAIL_LEVEL } from "./post";
 import { placeOf, planDone, planLacks, townPlaces, townSmiles, type Place } from "./places";
 import { grandLacks, growthCut, stageLacks } from "./grand";
-import { housesBy, LUXURIES, townStatus, type TownStatus } from "./towns";
+import { housesBy, STAPLES, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
 
 /** How many goods a town has received in all (`total(receivedBy(…))`, without making the bag). */
@@ -163,13 +163,13 @@ export class TownLife {
     this.levels.clear();
     this.shown.clear();
     this.statuses.clear();
-    // A town takes from trains only what it still wants for its next level: the rest rides on to the next town.
-    // (Made goods, furniture and tools, and everyday food, milk, bread and fruit, are always welcome: towns pay for
-    // them, wanted or not.)
+    // A town takes from trains only what it still wants for its next level: the rest rides on to the next town (spec
+    // 2026-11-27-towns-buy-what-they-need.md: Rookhurst took the bricks Dimbleby's cathedral was waiting for).
+    // (The staples, everyday food, cars, oil, water, toys and the post, are always taken: `STAPLES`.)
     // A school takes only what its research still lacks (`TownLifeEvents.school`; none: nothing).
     // (And a city's grand project under way takes what its stage lacks: game/grand.ts.)
     this.game.economy.accepts = (d, kind) =>
-      d.role === "school" ? !!this.events.school?.(kind, d) : d.role !== "town" || placeLacks(this.game, d.townId, kind) > 0 || grandLacks(this.game, d.townId, kind) > 0 || this.wants(d.townId, kind) || LUXURIES.has(kind) || !!this.events.vanTakes?.(d, kind);
+      d.role === "school" ? !!this.events.school?.(kind, d) : d.role !== "town" || placeLacks(this.game, d.townId, kind) > 0 || grandLacks(this.game, d.townId, kind) > 0 || this.wants(d.townId, kind) || STAPLES.has(kind) || !!this.events.vanTakes?.(d, kind);
     // A grand project's goods go into its stage as they land, after the town's place under way has had its own.
     this.game.economy.grandTake = (d, kind) => {
       for (const [id, plan] of this.game.economy.grandPlans) {
@@ -189,7 +189,7 @@ export class TownLife {
     // A good its delivery van takes goes on the van's yard (roads spec D5): all of it if its own town doesn't want it,
     // else every other unit (the station shares with the town off the line, as a school shares a load).
     this.game.economy.toVan = this.events.vanTakes
-      ? (d, kind) => !!this.events.vanTakes?.(d, kind) && (!(this.wants(d.townId, kind) || LUXURIES.has(kind)) || !!this.events.vanShare?.(d))
+      ? (d, kind) => !!this.events.vanTakes?.(d, kind) && (!(this.wants(d.townId, kind) || STAPLES.has(kind)) || !!this.events.vanShare?.(d))
       : null;
     this.game.economy.onVanYard = this.events.vanYard ? (d) => this.events.vanYard?.(d) : null;
     // Towns post mail once Post office is learned, quicker the bigger they are (src/game/post.ts).

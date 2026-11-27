@@ -64,7 +64,7 @@ import { TipTracker, tipFor, type TipContext, type TipGuide } from "./game/featu
 import { bestInsert, railwaysOf, stopApart, createLine, deleteLine, editLine, editLineById, insertStop, isRingLine, keepAt, joinLine, legStop, LINE_COLOURS, LINE_NAME_MAX, lineOf, MAX_VIAS, moveStop, nextColour, recolourLine, renameLine, inTheWayOf, restoreLines, reverseLine, reverseStops, sameLines, snapshotLines, takeOffLine, trainsOn, turnTrains, type NotTurned } from "./game/lines";
 import { PlaceRings } from "./render/place-rings";
 import { LineSheet, type SheetFree, type SheetStop, type SheetTrain } from "./ui/line-sheet";
-import { actionOf, goodWords, inkOn, loadsWords, stopSentences, ticksOf } from "./game/line-sheet-text";
+import { actionOf, goodWords, inkOn, loadsWords, passSentence, stopSentences, ticksOf } from "./game/line-sheet-text";
 import { HEALTH_WORDS, lineHealth, type LineHealth } from "./game/line-health";
 import { wouldRepeat } from "./ui/route-drag";
 import { aheadRuns, legFromCursor, nearestAhead, pinnedBlocking, pointOnPath, runsLength, stopCursors, viaLegs, type PathRun } from "./game/route-path";
@@ -5437,7 +5437,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         waitFill: !!st.waitFill,
         drops: (plan[k]?.drops ?? []).map(goodWords),
         picks: (plan[k]?.picks ?? []).map(goodWords),
-        sentences: [...said.drops, ...said.picks],
+        passes: (plan[k]?.passes ?? []).map(goodWords),
+        sentences: [...said.drops, ...said.picks, ...(stopPicked === k ? passSentence(stopNames[k], plan[k]?.passes ?? []) : [])],
         next: r?.next === k,
         lost: !names.some((x) => x.depotId === st.depotId),
         canPass: stops.length > 2 && piece !== undefined && !!game.layout.getPiece(piece),

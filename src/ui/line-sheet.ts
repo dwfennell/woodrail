@@ -19,6 +19,8 @@ export interface SheetStop {
   /** Goods dropped and picked up here, short: "🪵 logs". */
   drops: string[];
   picks: string[];
+  /** Goods the line carries that this town doesn't need now, short: "🧱 bricks" (they ride on past it). */
+  passes?: string[];
   /** Open: what moves here, in sentences ("Drops 🪵 logs from Forest yard 2"). */
   sentences: string[];
   /** The stop the line's trains (the first) head for next. */
@@ -421,7 +423,8 @@ export class LineSheet {
     const goods = el("span", "ls-goods");
     if (st.drops.length) goods.append(el("span", "ls-down", `⬇ ${st.drops.join(", ")}`));
     if (st.picks.length) goods.append(el("span", "ls-up", `⬆ ${st.picks.join(", ")}`));
-    if (!st.drops.length && !st.picks.length) goods.append(el("span", "ls-none", st.lost ? "Taken up" : "Nothing to move here yet"));
+    if (st.passes?.length) goods.append(el("span", "ls-pass", `Doesn't need ${st.passes.join(", ")}`));
+    if (!st.drops.length && !st.picks.length && !st.passes?.length) goods.append(el("span", "ls-none", st.lost ? "Taken up" : "Nothing to move here yet"));
     main.append(name, goods);
     main.addEventListener("click", (e) => (e.stopPropagation(), this.h.open(k)));
     li.append(handle, num, main);

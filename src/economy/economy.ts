@@ -2481,9 +2481,11 @@ export class Economy {
    * `notDrops` / `notPicks`: goods the stop would drop or pick up but for a warehouse's own setting (`StoreMode`: the
    * stricter rule wins), for the card to say so: drops of goods picked up on the line; picks of goods it holds or lists.
    */
-  routePlan(stops: readonly RouteStopDef[]): { picks: CargoKind[]; drops: CargoKind[]; notPicks: CargoKind[]; notDrops: CargoKind[] }[] {
+  routePlan(stops: readonly RouteStopDef[]): { picks: CargoKind[]; drops: CargoKind[]; notPicks: CargoKind[]; notDrops: CargoKind[]; passes: CargoKind[] }[] {
     const n = stops.length;
     const picks: number[] = [];
+    // (Goods a town's recipe takes that the mode says it doesn't need now: they ride on past it, said on the line sheet.)
+    const passes: number[] = [];
     const drops: number[] = [];
     const notPicks: number[] = [];
     const notDrops: number[] = [];
@@ -2496,12 +2498,18 @@ export class Economy {
         drops.push(0);
         notPicks.push(0);
         notDrops.push(0);
+        passes.push(0);
         continue;
       }
       const r = RECIPES[d.role];
       // What it takes and gives by its recipe and the mode (`raw`), and what its own store setting lets in and out.
       let rawTakes = 0;
-      for (const k of r.takes) if (!this.accepts || this.accepts(d, k)) rawTakes |= 1 << CARGO[k].index;
+      let refused = 0;
+      for (const k of r.takes) {
+        if (!this.accepts || this.accepts(d, k)) rawTakes |= 1 << CARGO[k].index;
+        else if (d.role === "town") refused |= 1 << CARGO[k].index;
+      }
+      passes.push(s.action === "pick" ? 0 : refused);
       for (const k of r.owed ?? []) if (this.owes && this.owes(k) > 0) rawTakes |= 1 << CARGO[k].index;
       let rawGives = mask(this.givesAt(d));
       let lets = 0;
@@ -2538,7 +2546,7 @@ export class Economy {
     }
     const carried = picks.reduce((m, p) => m | p, 0);
     const kinds = (m: number) => CARGO_KINDS.filter((k) => m & (1 << CARGO[k].index));
-    return stops.map((_, i) => ({ picks: kinds(picks[i]), drops: kinds(drops[i] & carried), notPicks: kinds(notPicks[i]), notDrops: kinds(notDrops[i] & carried) }));
+    return stops.map((_, i) => ({ picks: kinds(picks[i]), drops: kinds(drops[i] & carried), notPicks: kinds(notPicks[i]), notDrops: kinds(notDrops[i] & carried), passes: kinds(passes[i] & carried) }));
   }
 
   /**

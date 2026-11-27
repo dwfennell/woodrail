@@ -5,7 +5,7 @@ import { BLUEPRINTS } from "./blueprints";
 import { firstFoodNews } from "./food-text";
 import { THING_RULES } from "./things";
 import { buysText } from "./town-ledger";
-import { FOODS, LUXURIES, payFor, PRICES, TOWN_LEVELS, townLevel, townStatus } from "./towns";
+import { FOODS, STAPLES, payFor, PRICES, TOWN_LEVELS, townLevel, townStatus } from "./towns";
 
 describe("the dairy chain and the orchard (tech-tree I3, I4)", () => {
   it("are built rows on the board, after the first City, mostly coins", () => {
@@ -39,14 +39,14 @@ describe("the dairy chain and the orchard (tech-tree I3, I4)", () => {
     expect(THING_RULES["car:tanker"]).toMatchObject({ tech: "dairy", cost: { planks: 3 } });
   });
 
-  it("towns always take milk, bread and fruit and pay the full price, but never need them to grow", () => {
+  it("towns always take milk, bread and fruit and pay half the price, never needing them to grow", () => {
     for (const k of ["milk", "bread", "fruit"] as const) {
       expect(FOODS.has(k)).toBe(true);
-      expect(LUXURIES.has(k)).toBe(true);
+      expect(STAPLES.has(k)).toBe(true);
       for (let level = 0; level < 8; level++) expect(townLevel(level).wants[k], `${k} at ${level}`).toBeUndefined();
-      // A hamlet and a city pay alike: the full price.
+      // A hamlet and a city pay alike: half the price (spec 2026-11-27-towns-buy-what-they-need.md).
       const hamlet = townStatus({});
-      expect(payFor(k, hamlet)).toBe(PRICES[k]);
+      expect(payFor(k, hamlet)).toBe(Math.ceil(PRICES[k]! / 2));
     }
     expect(TOWN_LEVELS.length).toBe(4);
     // Planks a hamlet doesn't want are still half price (unchanged).
@@ -55,12 +55,12 @@ describe("the dairy chain and the orchard (tech-tree I3, I4)", () => {
 
   it("a town's card says what it always buys, of what's learned", () => {
     expect(buysText(new Set())).toBeNull();
-    expect(buysText(new Set(["dairy"]))).toBe(`Full pay for these too: ${GOODS_ICON.milk} milk`);
-    expect(buysText(new Set(["dairy", "bakery", "orchard"]))).toBe(`Full pay for these too: ${GOODS_ICON.milk} milk, ${GOODS_ICON.bread} bread and ${GOODS_ICON.fruit} fruit`);
+    expect(buysText(new Set(["dairy"]))).toBe(`Also buys, at half price: ${GOODS_ICON.milk} milk`);
+    expect(buysText(new Set(["dairy", "bakery", "orchard"]))).toBe(`Also buys, at half price: ${GOODS_ICON.milk} milk, ${GOODS_ICON.bread} bread and ${GOODS_ICON.fruit} fruit`);
   });
 
   it("the News has the first milk, bread or fruit any town has had, once", () => {
-    expect(firstFoodNews("bread", 3, 3, "Ashby")).toBe(`First bread! ${GOODS_ICON.bread} Ashby buys it at full pay`);
+    expect(firstFoodNews("bread", 3, 3, "Ashby")).toBe(`First bread! ${GOODS_ICON.bread} Ashby buys it`);
     expect(firstFoodNews("bread", 3, 6, "Ashby")).toBeNull();
     expect(firstFoodNews("flour", 3, 3, "Ashby")).toBeNull();
   });

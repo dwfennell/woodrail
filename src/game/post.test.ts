@@ -9,7 +9,7 @@ import { THING_RULES } from "./things";
 import { TownCars, type CarTrip } from "./town-cars";
 import { buysText } from "./town-ledger";
 import { TownLife, type TownLifeHost } from "./town-life";
-import { FULL_PAY, LUXURIES, payFor, PRICES, townStatus } from "./towns";
+import { FULL_PAY, STAPLES, payFor, PRICES, townStatus } from "./towns";
 import { Vans } from "./vans";
 import { buildStarterWorld, INDUSTRY_ROLE, syncIndustries } from "./world";
 import { deserializeWorld, serializeWorld } from "../persist/save";
@@ -85,10 +85,10 @@ describe("Post office: the blueprint, its things and its goods", () => {
 
   it("towns buy post at full pay, at any level, but never need it to grow", () => {
     expect(FULL_PAY.has("post")).toBe(true);
-    expect(LUXURIES.has("post")).toBe(true);
+    expect(STAPLES.has("post")).toBe(true);
     expect(payFor("post", townStatus({}))).toBe(PRICES.post);
     for (let level = 0; level < 6; level++) expect(townStatus({}).wants.post ?? 0).toBe(0);
-    expect(buysText(new Set([POST_TECH]))).toBe("Full pay for these too: 📮 post");
+    expect(buysText(new Set([POST_TECH]))).toBeNull(); // (The post has its own row on the card: `postLine`.)
   });
 
   it("bigger towns post more often; post vans come with post, two at most", () => {

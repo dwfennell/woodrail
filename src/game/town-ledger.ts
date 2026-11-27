@@ -5,7 +5,7 @@ import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
 import { techOf } from "./tech";
 import { ruleOf, type ThingId } from "./things";
 import { statusOf } from "./town-life";
-import { FULL_PAY, townLevel } from "./towns";
+import { FULL_PAY, STAPLES, townLevel } from "./towns";
 import { hasPostOffice, postLine, POST_TECH } from "./post";
 import { DEPOT_NAMES, type World } from "./world";
 import { placeName } from "./route-stops";
@@ -63,8 +63,8 @@ export interface TownLedger {
   /** The lines that call at the town, with how many trains run on each (once Train routes is learned). */
   lines: { id: number; name: string; colour: string; trains: number }[];
   /**
-   * The everyday food it always buys at full pay, of what's learned (`FOODS`: milk once Dairy farm is, bread once
-   * Bakery is, fruit once Orchards is): "Full pay for these too: 🥛 milk and 🥖 bread", or null.
+   * The staples it buys though it doesn't need them, of what's learned (`STAPLES`: milk once Dairy farm is, bread once
+   * Bakery is…): "Also buys, at half price: 🥛 milk and 🥖 bread", or null.
    */
   buys: string | null;
   /** Its post (once Post office is learned): "2 ✉️ mail to send · a post van on its streets", or null. */
@@ -87,7 +87,7 @@ export interface LedgerContext {
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
 const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest", "dairy", "bakery", "orchard", "juicer", "creamery", "icecream", "brickworks", "carworks", "oilwell", "waterpump", "beetfield", "jamworks", "chocworks", "flowerfield", "dyeworks", "glassworks", "toyworks", "postoffice"];
 
-/** The goods a town always buys at full pay (`FULL_PAY`), by the blueprint that brings its maker, in cargo order. */
+/** The goods a town always buys (`STAPLES`), by the blueprint that brings its maker, in cargo order. */
 const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
   ["milk", "dairy"],
   ["bread", "bakery"],
@@ -95,7 +95,6 @@ const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
   ["juice", "juice"],
   ["cheese", "creamery"],
   ["icecream", "ice-cream"],
-  ["bricks", "brickworks"],
   ["autos", "car-factory"],
   ["fish", "fishing"],
   ["oil", "tankers"],
@@ -103,21 +102,17 @@ const FOOD_TECH: readonly (readonly [CargoKind, string])[] = [
   ["sugar", "sugar"],
   ["jam", "jam"],
   ["chocolate", "chocolate"],
-  ["flowers", "paint"],
-  ["paint", "paint"],
   ["toys", "toys"],
-  ["glass", "glassworks"],
-  ["post", "post-office"],
 ];
 
 /**
- * "Full pay for these too: 🥛 milk, 🥖 bread and 🍎 fruit" for the foods whose blueprint is learned, or null. Under the
- * card's "Buys any good: …" line: read alone, "Always buys 🧱 bricks …" said the town bought only bricks (player report).
+ * "Also buys, at half price: 🥛 milk, 🥖 bread and 🍎 fruit" for the staples whose blueprint is learned, or null. Under
+ * the card's "Buys what it needs…" line (spec 2026-11-27-towns-buy-what-they-need.md). (The post: its own row.)
  */
 export function buysText(learned: ReadonlySet<string>): string | null {
-  const foods = FOOD_TECH.filter(([k, tech]) => FULL_PAY.has(k) && learned.has(tech)).map(([k]) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`);
+  const foods = FOOD_TECH.filter(([k, tech]) => STAPLES.has(k) && !FULL_PAY.has(k) && learned.has(tech)).map(([k]) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`);
   if (foods.length === 0) return null;
-  return `Full pay for these too: ${listed(foods)}`;
+  return `Also buys, at half price: ${listed(foods)}`;
 }
 const makerOf = (kind: CargoKind): Exclude<DepotRole, "town"> | undefined => MAKERS.find((r) => RECIPES[r].gives.includes(kind));
 
