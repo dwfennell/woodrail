@@ -343,6 +343,19 @@ export type StopAction = "auto" | "both" | "drop" | "pick";
 /** Why the stop a train would carry a good to has no room for it (`Economy.notLoadingAt`'s "no-room"): its pile is full, it has room only for what the train has on board, or it doesn't need any now. */
 export type TakerRoom = "full" | "aboard" | "unneeded";
 
+/**
+ * Why a routed train won't pick up a good at a stop (`Economy.notLoadingAt`), or ("buffer") that it picks it up for a
+ * warehouse to keep: the stops that use it have no room (`taker`, `takerRoom`), and `store` keeps the extra.
+ */
+export interface NotLoading {
+  depot: DepotState;
+  kind: CargoKind;
+  why: "no-room" | "no-wagon" | "none" | "buffer";
+  taker?: DepotState;
+  takerRoom?: TakerRoom;
+  store?: DepotState;
+}
+
 export type KeepWhy = "nothing" | "unwanted" | "full" | "shares" | "not-stop" | "route" | "order" | "school";
 
 /** A stop on a route: the depot, what the train does there, and (lines) whether it waits there to fill. */
@@ -2162,7 +2175,7 @@ export class Economy {
       if (found && this.schoolShareLeft(found.train, c.kind) <= 0) return "shares";
     }
     if (route) {
-      if (this.dropsAt(route, d, c.kind)) return null;
+      if (this.dropsAt(route, d, c.kind) || this.buffersAt(route, d, c.kind, carId)) return null;
       return d.role === "town" && this.reserved?.(c.kind) ? "order" : "route";
     }
     // Goods kept for a workshop: an unrouted train carries them on past the towns.
@@ -2212,7 +2225,7 @@ export class Economy {
    * a store (a warehouse) goods it holds none of.
    * Cheap: a route walk per good, asked while its card is open.
    */
-  notLoadingAt(trainId: number): { depot: DepotState; kind: CargoKind; why: "no-room" | "no-wagon" | "none"; taker?: DepotState; takerRoom?: TakerRoom } | null {
+  notLoadingAt(trainId: number): NotLoading | null {
     const train = this.sim.getTrain(trainId);
     const route = train && this.routeOfTrain(train);
     if (!train || !route || route.stops.length === 0) return null;
@@ -2222,13 +2235,14 @@ export class Economy {
     // the workshop past a sawmill it skipped, it's the sawmill it says).
     for (let k = 0; k < n; k++) {
       const not = this.notLoadingAtStop(train, route.stops, (first + k) % n);
-      if (not) return not;
+      // (Loading for a warehouse to keep is said only at the stop it's heading for or standing at: it isn't a problem.)
+      if (not && (not.why !== "buffer" || k === 0)) return not;
     }
     return null;
   }
 
   /** `notLoadingAt` for stop `i` of a train's route. */
-  private notLoadingAtStop(train: Train, stops: readonly RouteStopDef[], i: number): { depot: DepotState; kind: CargoKind; why: "no-room" | "no-wagon" | "none"; taker?: DepotState; takerRoom?: TakerRoom } | null {
+  private notLoadingAtStop(train: Train, stops: readonly RouteStopDef[], i: number): NotLoading | null {
     const stop = stops[i];
     const d = stop && this.liveDepot(stop.depotId);
     if (!d || !d.auto || stop.action === "drop") return null;
@@ -2252,13 +2266,17 @@ export class Economy {
         if (!train.cars.some((c) => canCarry(c.kind, kind)) && train.cars.some((c) => canCarry(c.kind)) && !this.movesGoods(train, stops)) return { depot: d, kind, why: "no-wagon" };
         continue;
       }
-      if (stop.action !== "pick" && !this.roomAhead(stops, i, kind, train)) {
+      if (stop.action !== "pick" && !this.roomAhead(stops, i, kind, train, false)) {
         // (The stop `roomAhead` found no room at, and whether it's full: not merely the first later stop that takes
         // the good. The user's 2026-11-27 map: "Not loading flour at the mill: the warehouse 2 is full" with Warehouse 2
         // empty; it passes flour on to the bakery further on, which was the full one.)
-        const taker = this.takerAfter(stops, i, kind);
-        const takerRoom: TakerRoom | undefined = !taker ? undefined : this.roomAt(taker, kind) <= 0 ? "full" : this.onBoard(train, kind) > 0 ? "aboard" : "unneeded";
-        return { depot: d, kind, why: "no-room", ...(taker ? { taker, takerRoom } : {}) };
+        const user = this.takerAfter(stops, i, kind);
+        const room = (t: DepotState): TakerRoom => (this.roomAt(t, kind) <= 0 ? "full" : this.onBoard(train, kind) > 0 ? "aboard" : "unneeded");
+        const store = this.bufferAfter(stops, i, kind);
+        // A warehouse on the way keeps the extra: it loads for it, and says so. Full too: it's the warehouse that's full.
+        if (store && this.roomAhead(stops, i, kind, train)) return { depot: d, kind, why: "buffer", store, ...(user ? { taker: user, takerRoom: room(user) } : {}) };
+        const taker = store ?? user;
+        return { depot: d, kind, why: "no-room", ...(taker ? { taker, takerRoom: room(taker) } : {}) };
       }
       if (!r.endless && d.piles[CARGO[kind].index] <= 0 && !this.working(d)) return { depot: d, kind, why: "none" };
     }
@@ -2315,6 +2333,19 @@ export class Economy {
       if (!r.routedOnly && (r.takes.includes(kind) || r.owed?.includes(kind))) return d;
     }
     return undefined;
+  }
+
+  /** The buffer after stop `i` (`bufferAt`) to name for `kind`: the first with room, else the first; undefined: none. */
+  private bufferAfter(stops: readonly RouteStopDef[], i: number, kind: CargoKind): DepotState | undefined {
+    if (RECIPES[this.depots[stops[i].depotId]?.role ?? "town"].routedOnly) return undefined;
+    let first: DepotState | undefined;
+    for (let k = 1; k < stops.length; k++) {
+      const d = this.bufferAt(stops, i, (i + k) % stops.length, kind);
+      if (!d) continue;
+      if (this.roomAt(d, kind) > 0) return d;
+      first ??= d;
+    }
+    return first;
   }
 
   /** Give this engine's train a route (null or no stops: none; it's served wherever it goes). */
@@ -2451,24 +2482,92 @@ export class Economy {
    * Other trains on the line aren't counted. Cheap: one pass over the stops, run only as a crane would load (at a
    * stop, a unit at a time), with `laterOf` cached (a second pass only past a warehouse or a harbour).
    */
-  private roomAhead(stops: readonly RouteStopDef[], i: number, kind: CargoKind, train: Train): boolean {
+  private roomAhead(stops: readonly RouteStopDef[], i: number, kind: CargoKind, train: Train, buffers = true): boolean {
+    const need = this.onBoard(train, kind);
+    const room = this.roomCount(stops, i, kind, need);
+    if (room > need) return true;
+    // (The stops that use it full: a warehouse on the way that would pass it on keeps what they can't take, up to its
+    // cap. The users first, so a warehouse never fills while they have room. The user, 2026-11-27: "shouldn't we fill
+    // the bakery and then start filling the warehouse?")
+    return buffers && room + this.bufferRoom(stops, i, kind, need - room) > need;
+  }
+
+  /**
+   * The room the stops after stop `i` (round the line) that take `kind` from this train and keep it have for it, as
+   * `roomAhead` counts them, each depot once; Infinity for a town or a school the mode says still wants it. Stops
+   * counting once past `limit`.
+   */
+  private roomCount(stops: readonly RouteStopDef[], i: number, kind: CargoKind, limit: number): number {
     const n = stops.length;
     const fromStore = RECIPES[this.depots[stops[i].depotId]?.role ?? "town"].routedOnly;
     if (this.roomMark.length < this.depots.length) this.roomMark = new Int32Array(this.depots.length + 8);
     const mark = ++this.roomStamp;
-    const need = this.onBoard(train, kind);
     let room = 0;
     for (let k = 1; k < n; k++) {
       const j = (i + k) % n;
       const d = this.roomTaker(stops, i, j, kind, fromStore);
       if (!d || this.roomMark[d.id] === mark) continue;
       this.roomMark[d.id] = mark;
-      if (this.accepts && (d.role === "town" || d.role === "school")) return true;
+      if (this.accepts && (d.role === "town" || d.role === "school")) return Infinity;
       const here = this.roomAt(d, kind);
       if (here > 0) room += here;
-      if (room > need) return true;
+      if (room > limit) return room;
     }
-    return false;
+    return room;
+  }
+
+  /**
+   * The room the buffers after stop `i` have for `kind`: warehouses later on the line that take it but would pass it
+   * on to a later stop that uses it (`bufferAt`), each once; stops counting once past `limit`. None from a warehouse
+   * (goods aren't handed from warehouse to warehouse).
+   */
+  private bufferRoom(stops: readonly RouteStopDef[], i: number, kind: CargoKind, limit: number): number {
+    if (RECIPES[this.depots[stops[i].depotId]?.role ?? "town"].routedOnly) return 0;
+    const n = stops.length;
+    // (`roomCount`'s mark, just set: a warehouse it counted isn't counted twice.)
+    const mark = this.roomStamp;
+    let room = 0;
+    for (let k = 1; k < n; k++) {
+      const d = this.bufferAt(stops, i, (i + k) % n, kind);
+      if (!d || this.roomMark[d.id] === mark) continue;
+      this.roomMark[d.id] = mark;
+      const here = this.roomAt(d, kind);
+      if (here > 0) room += here;
+      if (room > limit) return room;
+    }
+    return room;
+  }
+
+  /**
+   * Stop `j`'s depot, if it's a buffer for `kind` picked up at stop `i`: a warehouse at an Automatic stop that takes
+   * it now but would pass it on to a later stop that uses it (so `roomTaker` doesn't count it). It keeps what those
+   * stops have no room for (`buffersAt`), and gives it back to a train for them when they have (`picksAt`).
+   */
+  private bufferAt(stops: readonly RouteStopDef[], i: number, j: number, kind: CargoKind): DepotState | null {
+    const s = stops[j];
+    if (s.depotId === stops[i].depotId || s.action === "pick" || s.action === "drop") return null;
+    const d = this.liveDepot(s.depotId);
+    if (!d || d.role !== "warehouse" || !d.auto || !this.takesNow(d, kind)) return null;
+    const index = CARGO[kind].index;
+    if ((this.landed.get(d.id)?.[index] ?? 0) > 0 || (this.accepts && !this.accepts(d, kind))) return null;
+    return this.laterOf(stops, j).uses & (1 << index) && this.usedAfter(stops, j, kind, stops[i].depotId) ? d : null;
+  }
+
+  /**
+   * Does this train leave some of its `kind` at warehouse `d`, the stop it's at, as a buffer: an Automatic stop there
+   * that would pass the good on to a later stop that uses it, while the train has more on board than the stops after
+   * it have room for? It leaves only the extra: the users first.
+   */
+  private buffersAt(route: Route, d: DepotState, kind: CargoKind, carId: number): boolean {
+    if (d.role !== "warehouse") return false;
+    const n = route.stops.length;
+    const i = Number.isInteger(route.next) ? route.next % n : 0;
+    const s = route.stops[i];
+    if (!s || s.depotId !== d.id || (s.action !== "auto" && s.action !== "both")) return false;
+    const found = this.sim.findCar(carId);
+    if (!found) return false;
+    const aboard = this.onBoard(found.train, kind);
+    return this.roomCount(route.stops, i, kind, aboard) < aboard;
   }
 
   /**

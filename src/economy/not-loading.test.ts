@@ -179,41 +179,102 @@ describe("why a routed train won't load at its next stop (the engine card)", () 
     mill.piles[CARGO.flour.index] = 6;
     const names: Record<number, string> = { [mill.id]: "the mill", [store.id]: "Warehouse 2", [bakery.id]: "the bakery" };
     const said = () => engineView(sim, economy, engine, (id) => names[id]).status;
-    return { sim, economy, mill, store, bakery, train, said };
+    return { sim, economy, mill, store, bakery, train, engine, said };
   }
 
-  it("a warehouse on the way that passes flour on isn't the stop said to be full: the bakery is (the user's 2026-11-27 map)", () => {
+  const run = (w: ReturnType<typeof flourLine>, seconds: number, each: () => void = () => {}) => {
+    w.sim.setLever(w.engine, 1);
+    for (let i = 0; i < seconds * 120; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      each();
+    }
+  };
+  const aboard = (w: ReturnType<typeof flourLine>) => w.train.cars.reduce((n, c) => n + (w.economy.cargoOf(c.id)?.kind === "flour" ? w.economy.cargoOf(c.id)!.count : 0), 0);
+
+  it("the bakery full: the mill's flour goes to the warehouse on the way, which keeps it for the bakery (the user's 2026-11-27 map)", () => {
     const w = flourLine();
     w.bakery.piles[CARGO.flour.index] = capAt(w.bakery);
     const not = w.economy.notLoadingAt(w.train.id);
-    expect(not).toMatchObject({ kind: "flour", why: "no-room", takerRoom: "full" });
+    expect(not).toMatchObject({ kind: "flour", why: "buffer", takerRoom: "full" });
     expect(not?.taker?.id).toBe(w.bakery.id);
-    expect(w.said()).toBe("Not loading flour at the mill: the bakery is full");
-    // (And it's the rule: run on, the flour stays at the mill and the warehouse stays empty, as it would have no flour
-    // left with it: the bakery further on uses flour.)
-    for (let i = 0; i < 20 * 120; i++) {
-      w.sim.tick();
-      w.economy.tick();
-      w.bakery.piles[CARGO.flour.index] = capAt(w.bakery);
-    }
-    expect(w.store.piles[CARGO.flour.index]).toBe(0);
-    expect(w.train.cars.every((c) => (w.economy.cargoOf(c.id)?.count ?? 0) === 0)).toBe(true);
+    expect(not?.store?.id).toBe(w.store.id);
+    expect(w.said()).toBe("Taking flour to Warehouse 2: the bakery is full");
+    // (And it's the rule: run on with the bakery kept full, the flour is loaded at the mill and left at the warehouse.)
+    run(w, 30, () => (w.bakery.piles[CARGO.flour.index] = capAt(w.bakery)));
+    expect(w.store.piles[CARGO.flour.index]).toBe(6);
+    expect(w.mill.piles[CARGO.flour.index]).toBe(0);
   });
 
-  it("…a bakery with some room, but no more than the flour on board: said so, not \"doesn't need any\"", () => {
+  it("…the warehouse full too: the mill waits, and it's the warehouse said to be full (no endless sink)", () => {
     const w = flourLine();
-    w.bakery.piles[CARGO.flour.index] = capAt(w.bakery) - 2;
-    w.economy.setCargo(w.train.cars[1].id, "flour", 2);
+    w.bakery.piles[CARGO.flour.index] = capAt(w.bakery);
+    w.store.piles[CARGO.flour.index] = capAt(w.store);
     const not = w.economy.notLoadingAt(w.train.id);
-    expect(not).toMatchObject({ kind: "flour", why: "no-room", takerRoom: "aboard" });
-    expect(w.said()).toBe("Not loading flour at the mill: the bakery has room only for what's on board");
+    expect(not).toMatchObject({ kind: "flour", why: "no-room", takerRoom: "full" });
+    expect(not?.taker?.id).toBe(w.store.id);
+    expect(w.said()).toBe("Not loading flour at the mill: Warehouse 2 is full");
+    run(w, 30, () => (w.bakery.piles[CARGO.flour.index] = capAt(w.bakery)));
+    expect(w.mill.piles[CARGO.flour.index]).toBe(6);
+    expect(w.store.piles[CARGO.flour.index]).toBe(capAt(w.store));
+    expect(aboard(w)).toBe(0);
   });
 
-  it("…and with the bakery's room back, it says nothing about the mill's flour", () => {
+  it("…the users first: with room at the bakery, nothing is left at the warehouse", () => {
     const w = flourLine();
     w.bakery.piles[CARGO.flour.index] = 0;
     expect(w.economy.notLoadingAt(w.train.id)?.depot.id).not.toBe(w.mill.id);
     expect(w.said()).not.toMatch(/flour/);
+    let most = 0;
+    run(w, 40, () => (most = Math.max(most, w.store.piles[CARGO.flour.index])));
+    expect(most).toBe(0);
+    expect(w.bakery.piles[CARGO.flour.index]).toBeGreaterThan(0);
+  });
+
+  it("…only the extra: a bakery with room for 2 gets 2, the warehouse the rest", () => {
+    const w = flourLine();
+    w.bakery.piles[CARGO.flour.index] = capAt(w.bakery) - 2;
+    // (The bakery's use of flour stood still: no milk.)
+    run(w, 40);
+    expect(w.bakery.piles[CARGO.flour.index]).toBe(capAt(w.bakery));
+    expect(w.store.piles[CARGO.flour.index]).toBe(4);
+    expect(aboard(w)).toBe(0);
+  });
+
+  it("…a bakery with some room, but no more than the flour on board: said so", () => {
+    const w = flourLine();
+    w.bakery.piles[CARGO.flour.index] = capAt(w.bakery) - 2;
+    w.economy.setCargo(w.train.cars[1].id, "flour", 2);
+    const not = w.economy.notLoadingAt(w.train.id);
+    expect(not).toMatchObject({ kind: "flour", why: "buffer", takerRoom: "aboard" });
+    expect(w.said()).toBe("Taking flour to Warehouse 2: the bakery has room only for what's on board");
+  });
+
+  it("the warehouse gives its flour back to a train for the bakery once it has room, and never takes it straight back", () => {
+    const w = flourLine();
+    w.mill.piles[CARGO.flour.index] = 0;
+    w.store.piles[CARGO.flour.index] = 6;
+    w.bakery.piles[CARGO.flour.index] = 0;
+    let most = 6;
+    let least = 6;
+    run(w, 40, () => {
+      most = Math.max(most, w.store.piles[CARGO.flour.index]);
+      least = Math.min(least, w.store.piles[CARGO.flour.index]);
+    });
+    expect(least).toBe(0);
+    expect(most).toBe(6);
+    expect(w.bakery.piles[CARGO.flour.index]).toBe(6);
+  });
+
+  it("a warehouse set to Gives only for flour is no buffer: the mill waits for the bakery, as it says", () => {
+    const w = flourLine();
+    w.store.modes[CARGO.flour.index] = "out";
+    w.bakery.piles[CARGO.flour.index] = capAt(w.bakery);
+    expect(w.economy.notLoadingAt(w.train.id)).toMatchObject({ kind: "flour", why: "no-room", takerRoom: "full" });
+    expect(w.said()).toBe("Not loading flour at the mill: the bakery is full");
+    run(w, 30, () => (w.bakery.piles[CARGO.flour.index] = capAt(w.bakery)));
+    expect(w.store.piles[CARGO.flour.index]).toBe(0);
+    expect(w.mill.piles[CARGO.flour.index]).toBe(6);
   });
 
   it("the words for a taker that doesn't need any yet, and with no taker named", () => {
