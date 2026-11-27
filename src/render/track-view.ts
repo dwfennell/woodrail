@@ -725,6 +725,9 @@ const clearSpans = new WeakMap<PathDef, Map<string, [number, number] | null>>();
 /** How far a route is from the piece's other tracks, every `SPAN_STEP` mm along it (each way along it): see `clearSpan`. */
 const clearances = new WeakMap<PathDef, Map<boolean, Float64Array>>();
 const SPAN_STEP = 2;
+let clearanceWork = 0;
+/** How many times a route's clearances have been worked out (`clearanceAlong`): for tests, which hold it to once a route and way. */
+export const clearancesWorkedOut = (): number => clearanceWork;
 /** The most clearance (mm) a row of chevrons asks for, at their biggest size (see `clearSpan`), and a little more. */
 const SPAN_REACH = Math.ceil(SWITCH_ARROW_CLEAR - (ARROW.wide + ARROW.margin) + (ARROW.wide + ARROW.margin) * Math.max(...ARROW_FAR_SCALES)) + 1;
 
@@ -738,6 +741,7 @@ function clearanceAlong(route: PathDef, def: PieceDef, back: boolean): Float64Ar
   if (!cached) clearances.set(route, (cached = new Map()));
   const had = cached.get(back);
   if (had) return had;
+  clearanceWork++;
   const len = pathLength(route.geom);
   // The other tracks' points, in squares as big as the most clearance any size asks: only the 3 × 3 round a spot can
   // be near enough to matter (anything further is as good as clear, and recorded as the square's size).
