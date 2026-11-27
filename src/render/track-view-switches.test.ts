@@ -10,7 +10,7 @@ setCarver({ buildPieceGeometry: (def) => buildPieceStandIn(def) });
 import { Flourishes } from "./flourishes";
 import { createSample, getPieceDef, Layout, pathLength, PIECE_TYPES, samplePath, TRACK_THICKNESS, wayAt, type PathDef, type PieceDef, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { ARROW_FAR_SCALES, arrowEnds, arrowRoads, BURN_GAP, BURN_SIZES, burnExtent, burnOutline, arrowScaleFor, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_BURN_FAR, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { ARROW_FAR_SCALES, arrowEnds, arrowRoads, BURN_GAP, BURN_SIZES, burnExtent, burnOutline, arrowScaleFor, clearancesWorkedOut, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_BURN_FAR, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
@@ -421,20 +421,21 @@ describe("switch chevrons", () => {
       return { median: times[times.length >> 1], worst: times[times.length - 1] };
     };
     run(); // warm up
-    // The best of up to six runs: a loaded machine slows a run now and then (a single call took 4.2 ms once, in a full
-    // run), not all six. The median is what a real slowdown moves; the slowest call has a generous bound.
+    // What makes it cheap, counted rather than timed: steps to new sizes work out no clearances again.
+    const worked = clearancesWorkedOut();
+    run();
+    expect(clearancesWorkedOut(), "clearances worked out again on a step in the zoom").toBe(worked);
+    // And timed: the best median of up to six runs (a loaded machine slows a run now and then, not all six). The
+    // median is what a real slowdown moves. (The slowest single call isn't held: on a busy CI box one took 4.4 ms.)
     const MEDIAN_BOUND = 0.08;
-    const TAIL_BOUND = 2;
-    const ok = (r: { median: number; worst: number }) => r.median < MEDIAN_BOUND && r.worst < TAIL_BOUND;
     let best = run();
-    for (let i = 1; i < 6 && !ok(best); i++) {
+    for (let i = 1; i < 6 && best.median >= MEDIAN_BOUND; i++) {
       const r = run();
-      if (ok(r) || r.median < best.median) best = r;
+      if (r.median < best.median) best = r;
     }
     if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.DRAW_BENCH) console.log("zoom steps", JSON.stringify(best));
     // (It took up to 7.4 ms in the browser, around 4 here; now it's a scan of numbers already worked out.)
     expect(best.median, `median ${best.median.toFixed(3)} ms`).toBeLessThan(MEDIAN_BOUND);
-    expect(best.worst, `slowest ${best.worst.toFixed(3)} ms`).toBeLessThan(TAIL_BOUND);
   });
 
   it("no two chevrons burn over each other, at any size, on any switch, and further out wood shows between them (QA on switch-burned: rows fused into a blob)", () => {
