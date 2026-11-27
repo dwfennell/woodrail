@@ -43,7 +43,7 @@ describe("why a routed train won't load at its next stop (the engine card)", () 
     const w = line();
     w.workshop.piles[CARGO.planks.index] = capAt(w.workshop);
     const not = w.economy.notLoadingAt(w.train.id);
-    expect(not).toMatchObject({ kind: "planks", why: "no-room", takerFull: true });
+    expect(not).toMatchObject({ kind: "planks", why: "no-room", takerRoom: "full" });
     expect(not?.depot.id).toBe(w.sawmill.id);
     expect(not?.taker?.id).toBe(w.workshop.id);
     expect(w.said()).toBe("Not loading planks at the sawmill: the workshop is full");
@@ -156,8 +156,68 @@ describe("why a routed train won't load at its next stop (the engine card)", () 
     expect(w.economy.notLoadingAt(w.train.id)).toBeNull();
   });
 
+  /**
+   * The user's 2026-11-27 map: Muffin's line mill → farm → Warehouse 2 → bakery said "Not loading flour at the mill: the
+   * warehouse 2 is full" with Warehouse 2 empty and taking flour. The warehouse isn't where the flour would go (it passes
+   * it on to the bakery, a later stop that uses it), and "full" was whether it takes flour at all. The bakery, full of
+   * flour for want of milk, is the stop with no room.
+   */
+  function flourLine() {
+    const layout = new Layout();
+    const types: PieceTypeId[] = ["straight-216", "straight-216", "depot-mill", "straight-216", "depot-warehouse", "straight-216", "depot-bakery", "straight-216", "straight-216"];
+    const ids = types.map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine", "van", "van"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    const mill = economy.addDepot("mill", ids[2]);
+    const store = economy.addDepot("warehouse", ids[4], -1);
+    const bakery = economy.addDepot("bakery", ids[6]);
+    const train = sim.getTrain(placed.trainId)!;
+    const engine = train.cars[0].id;
+    economy.setRoute(engine, { stops: [mill, store, bakery].map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
+    mill.piles[CARGO.flour.index] = 6;
+    const names: Record<number, string> = { [mill.id]: "the mill", [store.id]: "Warehouse 2", [bakery.id]: "the bakery" };
+    const said = () => engineView(sim, economy, engine, (id) => names[id]).status;
+    return { sim, economy, mill, store, bakery, train, said };
+  }
+
+  it("a warehouse on the way that passes flour on isn't the stop said to be full: the bakery is (the user's 2026-11-27 map)", () => {
+    const w = flourLine();
+    w.bakery.piles[CARGO.flour.index] = capAt(w.bakery);
+    const not = w.economy.notLoadingAt(w.train.id);
+    expect(not).toMatchObject({ kind: "flour", why: "no-room", takerRoom: "full" });
+    expect(not?.taker?.id).toBe(w.bakery.id);
+    expect(w.said()).toBe("Not loading flour at the mill: the bakery is full");
+    // (And it's the rule: run on, the flour stays at the mill and the warehouse stays empty, as it would have no flour
+    // left with it: the bakery further on uses flour.)
+    for (let i = 0; i < 20 * 120; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      w.bakery.piles[CARGO.flour.index] = capAt(w.bakery);
+    }
+    expect(w.store.piles[CARGO.flour.index]).toBe(0);
+    expect(w.train.cars.every((c) => (w.economy.cargoOf(c.id)?.count ?? 0) === 0)).toBe(true);
+  });
+
+  it("…a bakery with some room, but no more than the flour on board: said so, not \"doesn't need any\"", () => {
+    const w = flourLine();
+    w.bakery.piles[CARGO.flour.index] = capAt(w.bakery) - 2;
+    w.economy.setCargo(w.train.cars[1].id, "flour", 2);
+    const not = w.economy.notLoadingAt(w.train.id);
+    expect(not).toMatchObject({ kind: "flour", why: "no-room", takerRoom: "aboard" });
+    expect(w.said()).toBe("Not loading flour at the mill: the bakery has room only for what's on board");
+  });
+
+  it("…and with the bakery's room back, it says nothing about the mill's flour", () => {
+    const w = flourLine();
+    w.bakery.piles[CARGO.flour.index] = 0;
+    expect(w.economy.notLoadingAt(w.train.id)?.depot.id).not.toBe(w.mill.id);
+    expect(w.said()).not.toMatch(/flour/);
+  });
+
   it("the words for a taker that doesn't need any yet, and with no taker named", () => {
-    expect(notLoadingText("no-room", "planks", "the sawmill", "the workshop", false)).toBe("Not loading planks at the sawmill: the workshop doesn't need any yet");
+    expect(notLoadingText("no-room", "planks", "the sawmill", "the workshop", "unneeded")).toBe("Not loading planks at the sawmill: the workshop doesn't need any yet");
     expect(notLoadingText("no-room", "planks", "the sawmill")).toBe("Not loading planks at the sawmill: no stop after it has room");
     expect(notLoadingText("no-wagon", "milk", "the dairy")).toBe("Not loading milk at the dairy: it goes on a milk tank. Add one to this train");
   });
