@@ -1841,7 +1841,8 @@ export class Hud {
     if (cut()) p.classList.add("rp-small");
     if (cut()) p.classList.add("rp-wrap");
     // (Beside the spark balance, a name still cut after both ("Pick rese…" at 390 px): its 📘 alone, as at 360.)
-    if (cut() && v.idle && this.sparkBtn?.hidden === false) {
+    const t = p.querySelector<HTMLElement>(".rp-text");
+    if (v.idle && this.sparkBtn?.hidden === false && (cut() || over(c) || (t !== null && over(t)))) {
       p.classList.remove("rp-small", "rp-wrap");
       p.classList.add("rp-bare");
     }
