@@ -1363,6 +1363,8 @@ export class Hud {
       };
       new ResizeObserver(fitRoom).observe(this.tray);
       addEventListener("resize", fitRoom);
+      // (A fold measures it at once, not by the observer's next turn: a slow page's cards stood on the open tray's room.)
+      this.fitTrayRoom = fitRoom;
     }
 
     // Beside the HUD, not in it, so a toast shows over the panels opened over the HUD too (the Blueprints board).
@@ -1544,6 +1546,8 @@ export class Hud {
   private openTrayTab: (id: string, shelf?: string) => void = () => {};
   private trayFoldBtn!: HTMLButtonElement;
   private trayFolded = false;
+  /** Measures the room the tray takes for `--tray-room` (set with the tray; nothing without a ResizeObserver). */
+  private fitTrayRoom: () => void = () => {};
 
   /** The tray folded to its tabs and tools (on a phone; a bigger screen has room and shows no pull), or open. */
   private setTrayFolded(on: boolean, save = true): void {
@@ -1551,6 +1555,7 @@ export class Hud {
     this.trayFolded = on;
     this.tray.classList.toggle("folded", on);
     this.root.classList.toggle("tray-folded", on);
+    this.fitTrayRoom();
     const title = on ? "Open the tray" : "Fold the tray away, for more of the map";
     this.trayFoldBtn.title = title;
     this.trayFoldBtn.setAttribute("aria-label", title);
