@@ -1353,8 +1353,7 @@ export class Hud {
     // The room the tray takes at the screen's foot, for the cards that stand on it (`--tray-room` in style.css: a
     // workshop's card at 2000×1165 ran under the tray's tabs, its foot set for a shorter tray). Measured when the tray
     // or the window changes size, never per frame; a tray not shown (0 tall) keeps the last room, so a card doesn't jump.
-    // Folding or opening it measures again itself too, a frame on (CI 2026-11-27: folded after a card closed, the
-    // observer's word never came, and a card stood on the open tray's room, 159 px over a 59 px tray).
+    // Folding or opening it measures again itself too (`setTrayFolded`).
     const root = document.documentElement;
     this.fitTrayRoom = () => {
       const r = this.tray.getBoundingClientRect();
@@ -1556,6 +1555,10 @@ export class Hud {
     this.trayFoldBtn.setAttribute("aria-label", title);
     this.trayFoldBtn.setAttribute("aria-expanded", String(!on));
     if (save) saveTrayFolded(on);
+    // Measured now, the class just set (one layout, on a tap), not only in the next rendering step where the observer
+    // reports: on CI's software GL, busy drawing, that came after the e2e looked (phone-room `fold`, 2026-11-27: room
+    // 159 over a 59 px tray, every run). And again a frame on, for anything the fold moves after it.
+    this.fitTrayRoom();
     requestAnimationFrame(() => this.fitTrayRoom());
   }
   /** Measure the room the tray takes at the screen's foot into `--tray-room` (set up with the tray). */
