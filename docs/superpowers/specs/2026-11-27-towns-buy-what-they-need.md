@@ -66,4 +66,20 @@ Treats take no goods (coins only), so they need nothing here.
 
 ## Balance
 
-`npm run balance:sweep -- --from 0 --to 40`, before and after; results in the commit and the hand-over report.
+`npm run balance:sweep -- --from 0 --to 40`, before (main) and after, with the play-through's new `COINS` and `INCOME`
+lines: **identical on all 41 seeds** (coins at 30/60/90/120/150/180, City minute, researched count, income). The
+same two seeds miss a band either way (18: research stall 17 min; 30: a 45 min plank gap), both on main.
+
+Why: in 180 minutes the play-through earns 1 390–2 229 coins a seed, 75–90% for goods a town needs to grow, the rest
+fares and harbours; goods it didn't need came to 12–36 coins (a few planks or some stone, which `accepts` already
+refused past the need, and the half-price planks of a level's last delivery). It never gets to bricks, bread, paint or
+toys by 180. Coins at 180 run 400–1 924 (median about 900): over the "nice to have" 150–600 on most seeds, as before.
+
+So the bands, which end at 180 min, can't see the easy money the report is about: it comes later, from a City ★★+
+selling chain ends (on the user's map, 5 511 coins in 30 min; 2 181 with this change). Proposed, not done here:
+
+- A late-game band: run the play-through (or a second, `BALANCE_LATE=1`) to 300 min, and bound income per game hour
+  after the first City ★ there, so a change to staples' prices shows up.
+- If late income is still too easy after this, halve the staples again or make them fill a town's own want (a City ★
+  wants some bread, cheese…), rather than retune growth prices, which the early bands rest on.
+
