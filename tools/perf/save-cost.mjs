@@ -4,7 +4,7 @@
 // two, not the numbers with a build's). Each is timed `RUNS` times, alternating, and the median printed; `--cpu 4` runs
 // with the CPU slowed 4× (about a mid phone's).
 //
-// Usage: node tools/perf/save-cost.mjs [--cpu 4] [--runs 40]
+// Usage: node tools/perf/save-cost.mjs [--cpu 4] [--runs 40] [--map <a "Copy map for a bug report" file>]
 import { existsSync, readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
@@ -18,7 +18,8 @@ const arg = (name, d) => {
 };
 const CPU = arg("cpu", 1);
 const RUNS = arg("runs", 40);
-const TEXT = readFileSync(`${ROOT}/src/persist/fixtures/2026-11-23-lift-warehouse-game.txt`, "utf8").trim();
+const mapAt = process.argv.indexOf("--map");
+const TEXT = readFileSync(mapAt < 0 ? `${ROOT}/src/persist/fixtures/2026-11-23-lift-warehouse-game.txt` : process.argv[mapAt + 1], "utf8").trim();
 const COPY = JSON.parse(gunzipSync(Buffer.from(TEXT.slice("woodrail-map:1:".length).replace(/-/g, "+").replace(/_/g, "/"), "base64")).toString());
 
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5451, strictPort: false }, logLevel: "error" });
