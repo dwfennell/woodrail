@@ -33,10 +33,17 @@ export const STORE_ADD = "+ Add a good";
 
 /**
  * The route card, for a warehouse stop the route would drop or pick up a good at but for the warehouse's own setting
- * (the stricter rule wins): "Not dropping planks: the warehouse is set to Gives only".
+ * (the stricter rule wins), by its name on the line: "Warehouse 2 only takes flour: it won't give any" (Takes only),
+ * "Warehouse 2 only gives planks: it won't take any" (Gives only), "Warehouse 2 is closed to logs: it won't take any"
+ * (Closed). Said as what the warehouse does, not as the setting's name (the user, 2026-11-27, read "Not picking up
+ * flour: the warehouse is set to Takes only" beside a card saying the train wasn't loading flour for it).
  */
-export function storeBlockText(drop: boolean, kind: CargoKind, mode: StoreMode): string {
-  return `Not ${drop ? "dropping" : "picking up"} ${CARGO[kind].label.toLowerCase()}: the warehouse is set to ${STORE_MODE_WORDS[mode]}`;
+export function storeBlockText(drop: boolean, kind: CargoKind, mode: StoreMode, name = "The warehouse"): string {
+  const goods = CARGO[kind].label.toLowerCase();
+  const won = `it won't ${drop ? "take" : "give"} any`;
+  if (mode === "in") return `${name} only takes ${goods}: ${won}`;
+  if (mode === "out") return `${name} only gives ${goods}: ${won}`;
+  return `${name} is closed to ${goods}: ${won}`;
 }
 
 /** The warehouse's card, its goods line: what it holds (only goods it has some of), or that it's empty. */

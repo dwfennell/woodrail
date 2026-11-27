@@ -7,7 +7,7 @@
  */
 import { CARGO, type CargoKind } from "../economy/cargo";
 import { plural, wagonFor } from "./chains";
-import type { KeepWhy } from "../economy/economy";
+import type { KeepWhy, TakerRoom } from "../economy/economy";
 
 /** The workshop's card: how planks get there, under what it holds. */
 export const SHOP_HELP = "Trains drop planks here as they pass. On a route, add the workshop as a stop";
@@ -36,17 +36,20 @@ export function keptText(why: Exclude<KeepWhy, "nothing" | "route">, kind: Cargo
   }
 }
 
+/** `notLoadingText`'s words for why the stop it would carry goods to has no room for them. */
+const TAKER_ROOM_WORDS: Record<TakerRoom, string> = { full: "is full", aboard: "has room only for what's on board", unneeded: "doesn't need any yet" };
+
 /**
  * Why a routed train won't pick up `kind` at `place`, the stop it's heading for or standing at (`Economy.notLoadingAt`),
  * on its engine card: "Not loading planks at the sawmill: the workshop doesn't need any yet". `taker`: the later stop
- * that would take them, as the card names places ("" if none); `takerFull`: it's full (else it doesn't need any yet).
+ * that has no room for them, as the card names places ("" if none); `room`: why (`TakerRoom`).
  * A no-wagon reason in the chain hints' words ("…go on a flatbed wagon").
  */
-export function notLoadingText(why: "no-room" | "no-wagon" | "none", kind: CargoKind, place: string, taker = "", takerFull = false): string {
+export function notLoadingText(why: "no-room" | "no-wagon" | "none", kind: CargoKind, place: string, taker = "", room: TakerRoom = "unneeded"): string {
   const goods = CARGO[kind].label.toLowerCase();
   switch (why) {
     case "no-room":
-      return `Not loading ${goods} at ${place}: ${taker ? `${taker} ${takerFull ? "is full" : "doesn't need any yet"}` : "no stop after it has room"}`;
+      return `Not loading ${goods} at ${place}: ${taker ? `${taker} ${TAKER_ROOM_WORDS[room]}` : "no stop after it has room"}`;
     case "no-wagon":
       return `Not loading ${goods} at ${place}: ${plural(kind) ? "they go" : "it goes"} on ${wagonFor(kind)}. Add one to this train`;
     case "none":

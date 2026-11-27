@@ -21,9 +21,12 @@ describe("warehouse words", () => {
 
   it("name each store mode plainly, and say when a warehouse's setting stops a route's drop or pick-up", () => {
     expect(STORE_MODES.map((m) => STORE_MODE_WORDS[m])).toEqual(["Takes and gives", "Takes only", "Gives only", "Closed"]);
-    expect(storeBlockText(true, "planks", "out")).toBe("Not dropping planks: the warehouse is set to Gives only");
-    expect(storeBlockText(false, "iron", "in")).toBe("Not picking up iron: the warehouse is set to Takes only");
-    expect(storeBlockText(false, "log", "off")).toBe("Not picking up logs: the warehouse is set to Closed");
+    expect(storeBlockText(true, "planks", "out")).toBe("The warehouse only gives planks: it won't take any");
+    expect(storeBlockText(false, "iron", "in")).toBe("The warehouse only takes iron: it won't give any");
+    expect(storeBlockText(false, "log", "off")).toBe("The warehouse is closed to logs: it won't give any");
+    expect(storeBlockText(true, "log", "off", "Warehouse 1")).toBe("Warehouse 1 is closed to logs: it won't take any");
+    // (The user's 2026-11-27 map: Warehouse 2 set to Takes only for flour, on a line that would pick flour up there.)
+    expect(storeBlockText(false, "flour", "in", "Warehouse 2")).toBe("Warehouse 2 only takes flour: it won't give any");
     expect(givesBlockText("Mine", null)).toBe("Not loading: the mine is set to give nothing");
     expect(givesBlockText("Mine", "ore")).toBe("Not picking up ore: the mine is set not to give it");
   });
