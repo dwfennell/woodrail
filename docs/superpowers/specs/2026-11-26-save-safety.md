@@ -77,11 +77,14 @@ does: never the map).
 
 Nothing runs per frame. An autosave adds one `getItem` and a string compare against the text it last wrote, and keeps
 that text (one save's size, about 190 KB on the user's map). Backups cost a gzip off the start-up path, at load only.
-Numbers are in the branch's report.
+A backup is done in short steps, each in an idle moment (`requestIdleCallback`; the gzip fed 32 K chars at a time), so
+none holds the main thread over a frame: on the user's map (190 K chars of keys) its longest hold is 6–14 ms with the
+CPU slowed 4× and 8–15 ms at 6×, where taken all at once it was 14–31 ms and 21–77 ms; it takes about a second from
+start to end, in idle time (`node tools/perf/backup-slices.mjs`). Numbers are in the branch's report.
 
 ## Tests
 
-- `src/persist/backups.test.ts`, `write-guard.test.ts`, `corpus.test.ts`, `load-report.test.ts`
+- `src/persist/save-safety.test.ts` (the guard, backups, their packing in slices, restores, the load report), `corpus.test.ts`
 - `npm run e2e:save-safety`, on a 390×844 phone, by taps. `restore`: the user's game opened, a copy taken, a piece
   laid; Your games, Earlier versions, Replace asks and replaces it, and the page is back on the copy's railway.
   `guard`: the starter map in play over the user's game in storage (the 2026-11-22 state). An edit by taps trips the

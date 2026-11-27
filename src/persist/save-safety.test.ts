@@ -13,9 +13,9 @@ import wipedMap from "../../docs/agents/reports/2026-11-23-wiped-after-update.tx
 import { buildStarterWorld } from "../game/world";
 import { Journal } from "../game/journal";
 import { readMapText } from "./bug-map";
-import { BACKUPS_INDEX_KEY, backupDataKey, BackupStore, KEEP } from "./backups";
+import { BACKUPS_INDEX_KEY, backupDataKey, BackupStore, KEEP, packSliced, unpackSliced } from "./backups";
 import { deserializeWorld, describeLoad, GAME_SLOT_KEYS, newLoadReport, reportLine, savesLocked, serializeWorld } from "./save";
-import { parkedKey, SlotStore, unpackKeys } from "./slots";
+import { packKeys, parkedKey, SlotStore, unpackKeys } from "./slots";
 import { autosaveGame, openGameSave, type SaveSafety } from "./startup";
 import { railFacts, REAL_WEIGHT, tripOf, WriteGuard } from "./write-guard";
 
@@ -235,6 +235,22 @@ describe("backups", () => {
     localStorage.setItem(backupDataKey("h", c!.n), (await import("./slots")).GAMES_INDEX_KEY);
     expect(await ok.read("h", c!.n)).toBeNull();
     expect(JSON.parse(localStorage.getItem(BACKUPS_INDEX_KEY)!).h).toHaveLength(1);
+  });
+});
+
+describe("a backup's packing, in idle slices", () => {
+  it("reads a parked game's packing and is read by it, byte for byte, the user's map", async () => {
+    const keys = (await readMapText(userMap.trim()))!.keys as Record<string, string>;
+    let idles = 0;
+    const idle = () => {
+      idles++;
+      return Promise.resolve();
+    };
+    const sliced = await packSliced(keys, idle);
+    expect(await unpackKeys(sliced)).toEqual(keys);
+    expect(await unpackSliced(await packKeys(keys), idle)).toEqual(keys);
+    // (Its gzip fed a slice at a time: a big railway's is many steps, none of them the whole.)
+    expect(idles).toBeGreaterThan(10);
   });
 });
 

@@ -76,17 +76,30 @@ const out = await p.evaluate(async (runs) => {
   let busy = 0;
   const obs = new PerformanceObserver((l) => l.getEntries().forEach((e) => (busy += e.duration)));
   try { obs.observe({ type: "longtask" }); } catch {}
+  // (The longest the main thread is held at once during the backup: the biggest gap between ticks of a timer chain.)
+  let longest = 0;
+  let probing = true;
+  let last = performance.now();
+  const tick = () => {
+    const t = performance.now();
+    longest = Math.max(longest, t - last);
+    last = t;
+    if (probing) setTimeout(tick, 0);
+  };
+  setTimeout(tick, 0);
   const t0 = performance.now();
   const copy = await safety.backups.take(w.slots.openId, w.slots.liveKeys(), "kept");
   const backupMs = performance.now() - t0;
+  probing = false;
   const live = Object.values(w.slots.liveKeys()).reduce((a, v) => a + v.length, 0);
   obs.disconnect();
-  return { packMs, before: med(before), after: med(after), firstGuarded: first, backupMs, copyChars: copy?.chars ?? null, liveChars: live, saveChars: localStorage.getItem("woodrail.game.v2").length };
+  return { longest, packMs, before: med(before), after: med(after), firstGuarded: first, backupMs, copyChars: copy?.chars ?? null, liveChars: live, saveChars: localStorage.getItem("woodrail.game.v2").length };
 }, RUNS);
 console.log(`CPU ×${CPU}, ${RUNS} runs, the user's map (${out.saveChars.toLocaleString()} chars of railway, ${out.liveChars.toLocaleString()} in all its keys)`);
 console.log(`  autosave, as before:         ${out.before.toFixed(2)} ms (median)`);
 console.log(`  autosave, with the guard:    ${out.after.toFixed(2)} ms (median); its first a page (parses what's stored): ${out.firstGuarded.toFixed(2)} ms`);
 console.log(`  a backup (gzip, write, read back, unpack, check): ${out.backupMs.toFixed(1)} ms, off the start-up path`);
+console.log(`  its longest hold on the main thread at once: ${out.longest.toFixed(1)} ms (on the game's page, its own frames in it: tools/perf/backup-slices.mjs measures the backup alone)`);
 console.log(`  of it, the gzip alone (packKeys): ${out.packMs.toFixed(1)} ms of wall time`);
 console.log(`  a backup's size: ${out.copyChars?.toLocaleString()} chars`);
 await b.close();

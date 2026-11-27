@@ -9,7 +9,7 @@
  * when what comes back is byte for byte what was given. Copies are keyed by the game's id, bounded per game
  * (`KEEP`) and in all (`BACKUP_BUDGET`), the least precious going first.
  */
-import { packKeys, unpackKeys, type SlotKeys, type SlotStorage } from "./slots";
+import type { SlotKeys, SlotStorage } from "./slots";
 
 export const BACKUPS_INDEX_KEY = "woodrail.games.backups.v1";
 export const backupDataKey = (gameId: string, n: number): string => `woodrail.games.backup.${gameId}.${n}`;
@@ -41,6 +41,84 @@ const LET_GO: readonly BackupKind[] = ["load", "day", "replaced", "kept"];
 type Keys = Record<string, string>;
 type Index = Record<string, Backup[]>;
 
+/**
+ * A backup's work is done in short steps, each in an idle moment, so none holds the main thread longer than a frame
+ * (spec, Costs: a copy of a big railway is about 60 ms of work on a mid phone, done all at once a dropped frame or
+ * three). The packing is the same as a parked game's (`packKeys` in slots.ts: the keys' JSON gzipped, base64), done
+ * here in slices so no step is big; either reads the other's.
+ */
+const SLICE_CHARS = 32 * 1024;
+type Idle = () => Promise<void>;
+const g = globalThis as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number };
+/** The next idle moment (or soon, where there's no `requestIdleCallback`: Safari). */
+export const nextIdle: Idle = () =>
+  new Promise((r) => (g.requestIdleCallback ? void g.requestIdleCallback(() => r(), { timeout: 2000 }) : void setTimeout(r, 0)));
+
+async function gzipSliced(text: string, idle: Idle): Promise<Uint8Array> {
+  const cs = new CompressionStream("gzip");
+  const out = new Response(cs.readable).arrayBuffer();
+  const w = cs.writable.getWriter();
+  const enc = new TextEncoder();
+  for (let i = 0; i < text.length; i += SLICE_CHARS) {
+    await idle();
+    await w.write(enc.encode(text.slice(i, i + SLICE_CHARS)));
+  }
+  await w.close();
+  return new Uint8Array(await out);
+}
+
+async function gunzipSliced(bytes: Uint8Array, idle: Idle): Promise<string> {
+  const ds = new DecompressionStream("gzip");
+  const out = new Response(ds.readable).text();
+  const w = ds.writable.getWriter();
+  for (let i = 0; i < bytes.length; i += SLICE_CHARS / 4) {
+    await idle();
+    await w.write(bytes.subarray(i, i + SLICE_CHARS / 4) as Uint8Array<ArrayBuffer>);
+  }
+  await w.close();
+  return await out;
+}
+
+async function toBase64Sliced(bytes: Uint8Array, idle: Idle): Promise<string> {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x2000) {
+    if (i > 0 && i % 0x8000 === 0) await idle();
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x2000));
+  }
+  await idle();
+  return btoa(s);
+}
+
+function fromBase64(s: string): Uint8Array {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** A game's keys packed as a parked game's are, in idle slices. */
+export async function packSliced(keys: Readonly<Keys>, idle: Idle = nextIdle): Promise<string> {
+  await idle();
+  const text = JSON.stringify(keys);
+  return toBase64Sliced(await gzipSliced(text, idle), idle);
+}
+
+/** Packed keys read back (null: they don't read), in idle slices. */
+export async function unpackSliced(packed: string, idle: Idle = nextIdle): Promise<Keys | null> {
+  try {
+    await idle();
+    const text = await gunzipSliced(fromBase64(packed), idle);
+    await idle();
+    const v = JSON.parse(text) as unknown;
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    const out: Keys = {};
+    for (const [k, x] of Object.entries(v)) if (typeof x === "string") out[k] = x;
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /** A short hash of a game's keys (FNV-1a over their JSON, hex). */
 export function keysHash(keys: Readonly<Keys>): string {
   const text = JSON.stringify(Object.keys(keys).sort().map((k) => [k, keys[k]]));
@@ -61,6 +139,7 @@ export class BackupStore {
     private readonly keys: SlotKeys,
     private readonly now: () => number = () => Date.now(),
     readonly budget = BACKUP_BUDGET,
+    private readonly idle: Idle = nextIdle,
   ) {}
 
   private index(): Index {
@@ -137,23 +216,30 @@ export class BackupStore {
     const own: Keys = {};
     for (const k of this.keys.live) if (typeof keys[k] === "string") own[k] = keys[k];
     if (own[this.keys.save] === undefined) return null;
+    await this.idle();
     const hash = keysHash(own);
+    await this.idle();
     const before = this.list(gameId);
     const t = this.now();
     if (kind === "load" && before[0]?.hash === hash) return before[0];
     const as: BackupKind = kind === "load" && !before.some((b) => b.kind === "day" && dayOf(b.at) === dayOf(t)) ? "day" : kind;
-    const packed = await packKeys(own);
+    const packed = await packSliced(own, this.idle);
+    await this.idle();
     const n = Math.max(0, ...before.map((b) => b.n)) + 1;
     const key = backupDataKey(gameId, n);
     if (!this.put(key, packed, gameId, n)) return null;
     // Good only once read back: the stored text as written, and its keys unpacked byte for byte as given.
+    await this.idle();
     const back = this.get(key);
-    const keysBack = back === packed ? await unpackKeys(back) : null;
+    const keysBack = back === packed ? await unpackSliced(back, this.idle) : null;
+    if (keysBack) await this.idle();
     if (!keysBack || keysHash(keysBack) !== hash || Object.keys(own).some((k) => keysBack[k] !== own[k])) {
       this.remove1(key);
       return null;
     }
+    await this.idle();
     const b: Backup = { n, at: t, kind: as, ...this.factsOf(own), chars: packed.length, hash };
+    await this.idle();
     const i = this.index();
     i[gameId] = [...(i[gameId] ?? []), b];
     if (!this.writeIndex(i)) {
@@ -169,7 +255,7 @@ export class BackupStore {
   async read(gameId: string, n: number): Promise<Keys | null> {
     const b = this.list(gameId).find((x) => x.n === n);
     const packed = b ? this.get(backupDataKey(gameId, n)) : null;
-    const keys = packed === null ? null : await unpackKeys(packed);
+    const keys = packed === null ? null : await unpackSliced(packed, this.idle);
     return keys && b && keysHash(keys) === b.hash ? keys : null;
   }
 
