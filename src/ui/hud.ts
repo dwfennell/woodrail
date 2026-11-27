@@ -1353,19 +1353,16 @@ export class Hud {
     // The room the tray takes at the screen's foot, for the cards that stand on it (`--tray-room` in style.css: a
     // workshop's card at 2000×1165 ran under the tray's tabs, its foot set for a shorter tray). Measured when the tray
     // or the window changes size, never per frame; a tray not shown (0 tall) keeps the last room, so a card doesn't jump.
-    if (typeof ResizeObserver !== "undefined") {
-      let room = "";
-      const fitRoom = () => {
-        const r = this.tray.getBoundingClientRect();
-        const px = `${Math.round(innerHeight - r.top)}px`;
-        if (r.height <= 0 || px === room) return;
-        document.documentElement.style.setProperty("--tray-room", (room = px));
-      };
-      new ResizeObserver(fitRoom).observe(this.tray);
-      addEventListener("resize", fitRoom);
-      // (A fold measures it at once, not by the observer's next turn: a slow page's cards stood on the open tray's room.)
-      this.fitTrayRoom = fitRoom;
-    }
+    // Folding or opening it measures again itself too (`setTrayFolded`).
+    const root = document.documentElement;
+    this.fitTrayRoom = () => {
+      const r = this.tray.getBoundingClientRect();
+      const px = `${Math.round(innerHeight - r.top)}px`;
+      if (r.height <= 0 || root.style.getPropertyValue("--tray-room") === px) return;
+      root.style.setProperty("--tray-room", px);
+    };
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(this.fitTrayRoom).observe(this.tray);
+    addEventListener("resize", this.fitTrayRoom);
 
     // Beside the HUD, not in it, so a toast shows over the panels opened over the HUD too (the Blueprints board).
     this.root.after(this.toastEl);
@@ -1546,8 +1543,6 @@ export class Hud {
   private openTrayTab: (id: string, shelf?: string) => void = () => {};
   private trayFoldBtn!: HTMLButtonElement;
   private trayFolded = false;
-  /** Measures the room the tray takes for `--tray-room` (set with the tray; nothing without a ResizeObserver). */
-  private fitTrayRoom: () => void = () => {};
 
   /** The tray folded to its tabs and tools (on a phone; a bigger screen has room and shows no pull), or open. */
   private setTrayFolded(on: boolean, save = true): void {
@@ -1555,13 +1550,19 @@ export class Hud {
     this.trayFolded = on;
     this.tray.classList.toggle("folded", on);
     this.root.classList.toggle("tray-folded", on);
-    this.fitTrayRoom();
     const title = on ? "Open the tray" : "Fold the tray away, for more of the map";
     this.trayFoldBtn.title = title;
     this.trayFoldBtn.setAttribute("aria-label", title);
     this.trayFoldBtn.setAttribute("aria-expanded", String(!on));
     if (save) saveTrayFolded(on);
+    // Measured now, the class just set (one layout, on a tap), not only in the next rendering step where the observer
+    // reports: on CI's software GL, busy drawing, that came after the e2e looked (phone-room `fold`, 2026-11-27: room
+    // 159 over a 59 px tray, every run). And again a frame on, for anything the fold moves after it.
+    this.fitTrayRoom();
+    requestAnimationFrame(() => this.fitTrayRoom());
   }
+  /** Measure the room the tray takes at the screen's foot into `--tray-room` (set up with the tray). */
+  private fitTrayRoom: () => void = () => {};
   private reopenTray: () => void = () => {};
 
   /**
@@ -2551,7 +2552,7 @@ export class Hud {
   /** Offer Cloud save in the menu (the build has a cloud to save to: `VITE_CLOUD_URL`). */
   addCloudItem(onTap: () => void): void {
     this.linesItem.after(
-      button("☁ Cloud save", "Save online, or load your railway from another device", () => {
+      button("☁ Cloud save", "Keep your railway online, or load it with a code", () => {
         this.menu.hidden = true;
         onTap();
       }, "menu-item"),

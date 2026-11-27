@@ -9,8 +9,9 @@ binding = "SAVES"
 bucket_name = "woodrail-saves"
 
 [vars]
-# The pages that may call the Worker (comma separated): the deployed game. (Pages on localhost, any port, always may.)
-ALLOWED_ORIGINS = "https://dwfennell.github.io"
+# The pages that may call the Worker (comma separated): the deployed game, on GitHub Pages and on itch.io (itch serves
+# every HTML game from html-classic.itch.zone, in a frame on the game's page). (Pages on localhost, any port, always may.)
+ALLOWED_ORIGINS = "https://dwfennell.github.io,https://html-classic.itch.zone"
 # (And the secret CODE_KEY, set with `wrangler secret put CODE_KEY`: never here.)
 # Where feedback opens its issues (only once the secret GITHUB_TOKEN is set too).
 GITHUB_REPO = "dwfennell/woodrail"
@@ -28,3 +29,11 @@ dataset = "woodrail_stats"
 name = "FEEDBACK_LIMIT"
 namespace_id = "4201"
 simple = { limit = 5, period = 60 }
+
+# Sync-code lookups (GET, HEAD and PUT under /v1/saves), per IP: a lookup takes 1, and one that finds nothing (a wrong
+# code, or a new one's first copy) 5 more, so a page guessing codes gets about 20 tries a minute, and a player's game
+# (nearly all finds) never comes near it. Free: the same binding as FEEDBACK_LIMIT.
+[[ratelimits]]
+name = "CODE_LIMIT"
+namespace_id = "4202"
+simple = { limit = 120, period = 60 }

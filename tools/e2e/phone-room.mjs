@@ -172,6 +172,17 @@ suite.add("fold", async () => {
   await p.waitForTimeout(500);
   const room = await p.evaluate(() => ({ room: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tray-room")), tray: innerHeight - document.querySelector(".tray").getBoundingClientRect().top }));
   check("folded, the cards' footing (--tray-room) is the folded tray's", Math.abs(room.room - room.tray) <= 2 && room.tray < 80, JSON.stringify(room));
+  // …at once, not a frame on: opened and folded again in one go, the footing follows each (on CI's busy software GL
+  // the next frame came after the check above, 2026-11-27: room 159 over a 59 px tray, every run).
+  const atOnce = await p.evaluate(() => {
+    const pull = document.querySelector(".tray-fold");
+    const read = () => ({ room: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tray-room")), tray: Math.round(innerHeight - document.querySelector(".tray").getBoundingClientRect().top) });
+    pull.click();
+    const opened = read();
+    pull.click();
+    return { opened, folded: read() };
+  });
+  check("…and at once, with no frame between: opened, then folded again", atOnce.opened.room === atOnce.opened.tray && atOnce.opened.tray > 100 && atOnce.folded.room === atOnce.folded.tray && atOnce.folded.tray < 80, JSON.stringify(atOnce));
   await ctx.close();
 });
 

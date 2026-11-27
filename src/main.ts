@@ -19,8 +19,9 @@ import { mapCode, parseMapCode, type MapSettings } from "./landscape/water";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { loadLinkedMap, mapText, readMapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
-import { deserializeWorld, GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, lockSaves, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
+import { describeLoad, deserializeWorld, GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, lockSaves, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, reportLine, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
+import { showCode } from "./persist/sync-code";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker, goalTickTitle, payGoal, secondEngineTip, trayRing, type GoalGuide } from "./game/goals";
@@ -153,12 +154,15 @@ import { ChainHintsView, type HintLine, type HintRing } from "./render/chain-hin
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { DEFAULT_CHOICES, NEW_GAME_WARNING, NewGameSheet, type NewGameChoices } from "./ui/new-game";
 import { nameOfLand, PICTURE_MAX_CHARS, SlotStore } from "./persist/slots";
-import { autosaveGame, openGameSave } from "./persist/startup";
+import { autosaveGame, openGameSave, type SaveSafety } from "./persist/startup";
+import { BackupStore } from "./persist/backups";
+import { WriteGuard } from "./persist/write-guard";
 import { GamesSheet, smallPicture } from "./ui/games-sheet";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
-import { CloudCard } from "./ui/cloud-card";
+import { CloudCard, keepCodeText } from "./ui/cloud-card";
+import { storageMayNotLast } from "./persist/storage-life";
 import { titleOffers, type TitleOffer } from "./persist/cloud-known";
 import { Snapshots } from "./stats/snapshots";
 import { pageStats } from "./stats/stats";
@@ -244,11 +248,21 @@ let olderSave = false;
  * game says, once, as it's entered. It's never saved over (`keepUnreadableGame`).
  */
 let unreadableNote: string | null = null;
+/** The open game loaded, but not all of it (`LoadReport`): what's said as it's entered, once, and sent as a crash report. */
+let lossyLoad: { say: string; line: string } | null = null;
+/** The open game loaded cleanly: its backup, taken a little after the game starts (`BackupStore`). */
+let backupAtLoad: (() => Promise<unknown>) | null = null;
 
 /** At start-up: the open Game save loaded once, one that won't load kept and never saved over (`openGameSave`). */
 async function keepUnreadableGame(): Promise<ReturnType<typeof loadFromStorage>> {
-  const { saved, note } = await openGameSave(slots);
+  const { saved, note, report, backup } = await openGameSave(slots, saveSafety);
   unreadableNote = note;
+  backupAtLoad = backup;
+  const say = describeLoad(report);
+  if (say) {
+    lossyLoad = { say, line: reportLine(report) };
+    console.warn(`Woodrail: the game's save loaded lossily: ${lossyLoad.line}`);
+  }
   return saved;
 }
 
@@ -270,6 +284,10 @@ function initialWorld(game: ReturnType<typeof loadFromStorage> | undefined = und
 }
 
 const RESUME_KEY = "woodrail.resume";
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** How long after start-up the open game's backup is taken (ms): off the loading's path, the keys as they loaded. */
+const BACKUP_AFTER_MS = 4000;
 
 /** Reload the page, then go straight back into this mode (saved first) rather than to the title. */
 function reloadInto(mode: GameMode, url?: string): void {
@@ -297,27 +315,33 @@ function takeResume(): string | null {
  * Game mode's games ("Your games": persist/slots.ts): the open one in the game's keys, the others parked. Mended (an
  * old single save made game 1) before anything reads them, the cloud too.
  */
-const slots = new SlotStore(
-  {
-    getItem: (k) => {
-      try {
-        return localStorage.getItem(k);
-      } catch {
-        return null;
-      }
-    },
-    setItem: (k, v) => localStorage.setItem(k, v),
-    removeItem: (k) => {
-      try {
-        localStorage.removeItem(k);
-      } catch {
-        // no storage
-      }
-    },
+const slotStorage = {
+  getItem: (k: string) => {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
   },
-  GAME_SLOT_KEYS,
-);
+  setItem: (k: string, v: string) => localStorage.setItem(k, v),
+  removeItem: (k: string) => {
+    try {
+      localStorage.removeItem(k);
+    } catch {
+      // no storage
+    }
+  },
+};
+const slots = new SlotStore(slotStorage, GAME_SLOT_KEYS);
 slots.startUp();
+
+/**
+ * Save safety (spec docs/superpowers/specs/2026-11-26-save-safety.md): each Game game's last good copies (`BackupStore`,
+ * beside Your games), and the write guard on Game mode's autosave. What it says goes to the HUD's toasts once the game
+ * is made (`sayToPlayer`).
+ */
+let sayToPlayer: (text: string) => void = (text) => console.warn(`Woodrail: ${text}`);
+const saveSafety: SaveSafety = { guard: new WriteGuard(), backups: new BackupStore(slotStorage, GAME_SLOT_KEYS), say: (text) => sayToPlayer(text) };
 
 /**
  * Cloud saves (see persist/cloud.ts), in a build with a cloud to save to (`VITE_CLOUD_URL`; not the artifact build):
@@ -338,8 +362,14 @@ const cloud = ((): CloudSync | null => {
   }
 })();
 /**
+ * Where cloud saves are used: on itch.io (the itch build, `VITE_ITCH`), and whether this browser may forget the page's
+ * saves and the code with them (an iPhone's or iPad's, in itch's frame: storage-life.ts). Said on the card and the title.
+ */
+// (Dev only, for e2e:cloud's `itch` group: `?itch` on the page plays the itch build's part, the frame and all.)
+const cloudWhere = { itch: import.meta.env.VITE_ITCH === "1" || (import.meta.env.DEV && new URLSearchParams(location.search).has("itch")), mayForget: storageMayNotLast() };
+/**
  * "Help improve Woodrail": anonymous play stats, opt-in (see stats/stats.ts and docs/stats.md). They go to the cloud
- * Worker: `VITE_STATS_URL`, else `VITE_CLOUD_URL` (the itch build has stats without cloud saves). Neither: no stats.
+ * Worker: `VITE_STATS_URL`, else `VITE_CLOUD_URL` (the itch release sets both). Neither: no stats.
  */
 const stats = pageStats(((import.meta.env.VITE_STATS_URL ?? import.meta.env.VITE_CLOUD_URL ?? "") as string).trim(), __BUILD_ID__ || "dev");
 addEventListener("error", (e) => stats.record({ e: "error", msg: String(e.message || e.error || "error").slice(0, 200) }));
@@ -384,11 +414,11 @@ function takeCloudNote(): CloudNotes {
 
 /** What a cloud check did to a mode's railway, as a toast. */
 const CLOUD_NOTES: Record<Exclude<SyncNote, null>, string> = {
-  "took-cloud": "Loaded your newer railway from the cloud. The other one is kept (Cloud save → Restore).",
-  "kept-here": "This railway is newer than the one in the cloud, so it's kept. The other one is kept too (Cloud save → Restore).",
-  "both-changed": "Your railway was changed on another device too. That one is kept (Cloud save → Restore).",
+  "took-cloud": "Loaded your newer railway from the cloud. The one from this device is kept: ☰ Cloud save to bring it back.",
+  "kept-here": "Kept this railway: it's newer than the cloud's. The cloud's copy is kept too: ☰ Cloud save to bring it back.",
+  "both-changed": "This railway was changed on another device too. You're playing the newer one; the other is kept: ☰ Cloud save to bring it back.",
   "other-game": "A game from your other device is in Your games (☰ Your games).",
-  newer: "Your railway online was saved by a newer version of the game: update to carry on with it.",
+  newer: "Your railway online was saved by a newer Woodrail: reload the page to update, and carry on with it.",
 };
 
 startLog();
@@ -1544,7 +1574,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function scheduleSave(kind: EditKind = "layout"): void {
     // (The first time the player builds, cloud saves come on by themselves, unless they turned them off: an edit of
     // theirs, one they could undo. A new map, the game's own deliveries and growth, aren't.)
-    if (kind === "layout" && editor.canUndo) cloud?.autoOn();
+    // Said once, with the code: it's the way back to the railway, and where the browser may forget it, the only way.
+    if (kind === "layout" && editor.canUndo && cloud?.autoOn() && cloud.code) {
+      const said = `Your railway now saves online. Your code: ${showCode(cloud.code)}. ${cloudWhere.mayForget ? keepCodeText(cloudWhere) : "It's in ☰ Cloud save."}`;
+      hud.toast(said, false, cloudWhere.mayForget ? 15000 : 8000, () => openCloudCard?.());
+    }
     cloud?.edited(mode, kind);
     if (kind === "layout" && mode === "game") {
       snapshots.edited(goalDone, () => goals.doneCount);
@@ -1612,7 +1646,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     } else {
       // (The railway, its session tagged with the open game, and its progress: `autosaveGame`.)
       const data = progress.toJSON();
-      autosaveGame(game.world, slots, { ...session, situations: situations.toJSON() }, data);
+      autosaveGame(game.world, slots, { ...session, situations: situations.toJSON() }, data, saveSafety);
       // (Your games' goals and coins for it: now and then.)
       if (performance.now() - factsAt > FACTS_EVERY_MS) {
         factsAt = performance.now();
@@ -1713,7 +1747,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
   });
   addEventListener("pagehide", saveOnLeaving);
-  addEventListener("pageshow", () => (savedOnLeaving = false));
+  // Back (a page kept by the browser, shown again: pagehide ended its stretch of play): a new stretch, as when it's
+  // shown again after hiding. (Only on visibilitychange before: play after a pagehide and pageshow wasn't counted, and
+  // e2e:stats' last plain count hung on whether the browser also sent a visibilitychange, 2026-11-27 CI.)
+  addEventListener("pageshow", () => {
+    savedOnLeaving = false;
+    if (playing && stretchFrom === null) stretchFrom = performance.now();
+  });
   // Back online: what's waiting goes up.
   addEventListener("online", () => void cloud?.flush());
 
@@ -1738,16 +1778,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   };
 
   /**
-   * The title's "Load a cloud save" (a build with a cloud): the cloud card's code entry over the title, Cancel back to
+   * The title's "Load with a code" (a build with a cloud): the cloud card's code entry over the title, Cancel back to
    * it. Loaded, the game starts on that railway (Game's, else Sandbox's).
    */
   let titleCloud: CloudCard | null = null;
+  /** Open the ☰ Cloud save card (once it's made, in play). */
+  let openCloudCard: (() => void) | null = null;
   const loadCloud = cloud
     ? () => {
         titleCloud ??= new CloudCard(title.root, cloud, {
           mode: () => "game",
           reload: () => reloadInto(hasSave("game") ? "game" : "sandbox"),
           toast: (m) => hud.toast(m),
+          where: cloudWhere,
         });
         title.root.classList.add("cloud-open");
         titleCloud.showEntry(() => title.root.classList.remove("cloud-open"));
@@ -1771,12 +1814,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       continueCloud: cloud ? continueCloud : undefined,
       games: () => openGames(),
     },
-    { thumbnails },
+    { thumbnails, cloudNote: cloud && cloudWhere.mayForget ? "Been here before? On iPhone and iPad, itch.io forgets your railway when you leave: load it again with your code." : undefined },
   );
   /** The title's cards as storage has them now (Continue for a mode with a save, Your games while there's a game). */
   function showTitleCards(): void {
     const games = slots.list().length;
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") || games > 0 }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") }, games);
+  }
+
+  // Save safety's say goes to the toasts now; the game loaded cleanly at start: its backup, off the start-up path.
+  sayToPlayer = (text) => hud.toast(text, false, 12000);
+  if (backupAtLoad) {
+    const take = backupAtLoad;
+    backupAtLoad = null;
+    setTimeout(() => void take().catch((e: unknown) => console.warn("Woodrail: the game's backup wasn't taken", e)), BACKUP_AFTER_MS);
   }
 
   /** Your games: every Game-mode game kept on the device. */
@@ -1794,6 +1845,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     },
     remove: (id) => {
       slots.remove(id);
+      saveSafety.backups.removeGame(id);
       if (title.shown) showTitleCards();
     },
     addFromText: async (text) => {
@@ -1819,7 +1871,48 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (playing) game.paused = gamesPaused;
       hud.setPaused(game.paused);
     },
+    earlier: (id) => saveSafety.backups.list(id),
+    restoreAsGame: async (id, n) => {
+      const keys = await saveSafety.backups.read(id, n);
+      if (!keys) return { ok: false, say: "That copy couldn't be read back." };
+      const at = saveSafety.backups.list(id).find((b) => b.n === n)?.at ?? Date.now();
+      const d = new Date(at);
+      const r = await slots.add(keys, `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+      if (!r.ok) return { ok: false, say: r.error };
+      if (title.shown) showTitleCards();
+      return { ok: true, say: `Added “${r.value.name}”. Open it to play.` };
+    },
+    restoreOver: (id, n) => restoreOver(id, n),
   });
+
+  /**
+   * Your games' Replace on an earlier version: the game as it is now kept as a `replaced` copy first (read back: with
+   * no room for it, nothing's replaced), then its keys written (the open game's page starting again on them).
+   */
+  async function restoreOver(id: string, n: number): Promise<{ ok: boolean; say: string }> {
+    const keys = await saveSafety.backups.read(id, n);
+    if (!keys) return { ok: false, say: "That copy couldn't be read back." };
+    const isOpen = id === slots.openId;
+    if (isOpen && playing && mode === "game") save();
+    const now = await slots.keysOf(id);
+    if (now && !(await saveSafety.backups.take(id, now, "replaced"))) return { ok: false, say: "No room to keep the game as it is now, so nothing was replaced: delete a game first." };
+    if (isOpen) {
+      await flushCloud();
+      switching = true;
+    }
+    const r = await slots.replace(id, keys);
+    if (!r.ok) {
+      switching = false;
+      return { ok: false, say: r.error };
+    }
+    if (!isOpen) return { ok: true, say: "Replaced. What it was is kept as an earlier version." };
+    cloud?.edited("game");
+    playing = false;
+    clearTimeout(saveTimer);
+    saveLastMode("game");
+    reloadInto("game");
+    return { ok: true, say: "" };
+  }
   /** Paused or not when Your games was opened in play (it pauses the game: nothing's drawn behind it). */
   let gamesPaused = false;
   function openGames(note?: string): void {
@@ -1924,7 +2017,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const offline = "Can't reach the cloud right now. Try again soon.";
     if (offer.current) {
       const res = await cloud.takeNewer(offer.mode);
-      if (!res.ok) return res.error === "offline" ? offline : res.error === "newer" ? "Saved by a newer version of the game: update this one first" : "Still saving: try again in a moment";
+      if (!res.ok) return res.error === "offline" ? offline : res.error === "newer" ? "Saved by a newer Woodrail: reload the page to update, then try again" : "Still saving: try again in a moment";
       if (res.changed) {
         try {
           if (res.note) sessionStorage.setItem(CLOUD_NOTE_KEY, JSON.stringify({ mode: offer.mode, note: res.note }));
@@ -1950,7 +2043,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       setTimeout(showCloudOffers, 4000);
       return "That railway isn't saved online any more";
     }
-    return res.error === "newer" ? "Saved by a newer version of the game: update this one first" : offline;
+    return res.error === "newer" ? "Saved by a newer Woodrail: reload the page to update, then try again" : res.error === "tries" ? "Too many tries from here: wait a minute, then try again" : offline;
   }
 
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
@@ -7637,6 +7730,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(unreadableNote, false, 12000);
       unreadableNote = null;
     }
+    // (The game loaded, but not all of it: said, and sent as a crash report's counts and names, never the map.)
+    if (lossyLoad !== null && next === "game") {
+      hud.toast(lossyLoad.say, false, 12000);
+      crashes?.report("save-mended", { message: `save loaded lossily: ${lossyLoad.line}` });
+      lossyLoad = null;
+    }
     if (olderSave) {
       olderSave = false;
       hud.toast("Your last map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
@@ -8265,8 +8364,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         reloadInto(mode);
       },
       toast: (m) => hud.toast(m),
+      where: cloudWhere,
     });
     hud.addCloudItem(() => card.show());
+    openCloudCard = () => card.show();
     cloud.onNote = (_m, note) => note && hud.toast(CLOUD_NOTES[note], false, 7000);
     // A newer copy from another device, taken while playing: the game starts again on it (without saving this one over
     // it), and says so then.
