@@ -861,3 +861,33 @@ Where it ends: routing cases with the dispatcher on, 5 known wrong (from 38); fu
 - **Fuzz 38 with signals.** Not diagnosed: no spare end on its line, and `DEAD_COME` with signals doesn't change it.
 - **Fuzz 39.** Stalls with the dispatcher off too ("too-many"): not the dispatcher's.
 - **The branch and the hand-run ring (`known-on`).** branch 2×one/2×own opposed stops:far deliver but are judged a stall; ring1 2×mix opposed (D) is a hand-run train's own planning on a ring, not the dispatcher's.
+
+## 15. Sections mode, the dispatcher off (2026-11-26, `claude/sections-smooth`)
+
+New games ship with the dispatcher off, so sections and the router are what players get. This section covers making them smoother, measured on the same bar.
+
+### 15.1 Where the stands are
+
+`JAMS_STANDS=1` on the jams test logs every routed train's stand over 20 s (`JAMS_STAND_S`): what its card said, the train it named, and how long that train moved meanwhile. `scripts/jams-stands.mjs` runs the reference maps, and `tools/stands-report.mjs` sorts each stand into proper (it ended, and the named train moved or was worked for half of it) or needless (`long`, `blocker-still`, `none-named`, `deadlock`).
+
+- **The user's two maps of 2026-11-26** already work about as well as with the dispatcher on. Over 3 seeds with it off: sprocket-farm 1206 against 1213 stops, clover-pink3 764 against 767, with no jams. There were about 10 stands a seed, half of them proper, and no points-waits.
+- **The rest:** the losses with it off are deadlocks the jam clearing removes, of kind in-way, too-many and signals. They come on user-2026-11-21 (303 against 536 stops with it on), wren (326 against 556), dandelion and rowan-3. Next to that are the needless waits for a line's turn (`line-wait-for`).
+
+### 15.2 What's in
+
+| Switch | What it does | Measured |
+|---|---|---|
+| `LINE_END_STOP` (economy) | A routed train pulls up at a stop its line ends at on through track even with nothing to do there, and turns (`endsHere`). Before, run through empty, it went on round the loops beyond. | two-train 91 → 138 stops (3 seeds); own-12 52/59/59 → 65/70/70, jams 31/38/38 → 40/44/43 (the knot of §15.3 re-forming, trains working their line where they circled); own-11 seed 1 113 → 111 (noise); the user's two maps identical |
+| `TAIL_AGAINST` (sections) | For an asker just turned at its line's end (60 s), a train running into its slot with an axle behind on the way going against it isn't "ahead the same way" (`sameWayAhead`). | netActed on the two-train map with `LINE_END_STOP`, 3/3 → 0. For every asker it cost dandelion 13, rowan-2 29, rowan-3 8 stops (6 seeds) |
+| `SHOWN_RED` (display) | The player sees a signal red while the train standing at it is held by the router or sections (`Sim.shownRed`, `markShown`). The sim's aspect is unchanged, and greenHeld judges the shown one. | greenHeld 18 → 0 on 8 maps; jams identical to main on all 24 |
+| oneOwner's follow excuse (invariant) | A train following a moving one through points nose to tail, on one path, the same way, isn't two on the points. | Fires on own-12 only: 186 ticks, 2 follows |
+
+Off: `HELD_RED`, the sim's own aspect red for such a held train. It held trains: own-12 57 → 10 stops, own-03 69 → 25.
+
+The dispatcher's recent fixes (`HANDOFF`, `ASIDE`, `DEAD_COME`, `TAKEN_POS`, `DETOUR_AT`, `LOOSE_PASS`) don't carry over as they stand. Each acts on a dispatcher grant or hand-off, `LOOSE_PASS` included: it fires only for a way the dispatcher's train holds.
+
+### 15.3 What's left
+
+- **own-12's knot at pieces 69, 71 and 79.** It's there from the first 20 s on main: Green two at 69 from 19 s, Red two at 71 from 21 s, and five or more lines' trains waiting on each other there (in-way and signals). That's the many-lines junction the dispatcher's search is for. A small rule in sections doesn't untangle it.
+- **own-12's two oneOwner breaks left.** A train runs onto points 33 behind a train standing with its tail over them. The sim's follow guard lets a follower close up onto points that a standing train's car is over. A fix there touches every map.
+- **The deadlocks of §15.1** (user-2026-11-21, wren, dandelion): not taken on yet.
