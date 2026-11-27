@@ -1353,17 +1353,17 @@ export class Hud {
     // The room the tray takes at the screen's foot, for the cards that stand on it (`--tray-room` in style.css: a
     // workshop's card at 2000×1165 ran under the tray's tabs, its foot set for a shorter tray). Measured when the tray
     // or the window changes size, never per frame; a tray not shown (0 tall) keeps the last room, so a card doesn't jump.
-    if (typeof ResizeObserver !== "undefined") {
-      let room = "";
-      const fitRoom = () => {
-        const r = this.tray.getBoundingClientRect();
-        const px = `${Math.round(innerHeight - r.top)}px`;
-        if (r.height <= 0 || px === room) return;
-        document.documentElement.style.setProperty("--tray-room", (room = px));
-      };
-      new ResizeObserver(fitRoom).observe(this.tray);
-      addEventListener("resize", fitRoom);
-    }
+    // Folding or opening it measures again itself too, a frame on (CI 2026-11-27: folded after a card closed, the
+    // observer's word never came, and a card stood on the open tray's room, 159 px over a 59 px tray).
+    const root = document.documentElement;
+    this.fitTrayRoom = () => {
+      const r = this.tray.getBoundingClientRect();
+      const px = `${Math.round(innerHeight - r.top)}px`;
+      if (r.height <= 0 || root.style.getPropertyValue("--tray-room") === px) return;
+      root.style.setProperty("--tray-room", px);
+    };
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(this.fitTrayRoom).observe(this.tray);
+    addEventListener("resize", this.fitTrayRoom);
 
     // Beside the HUD, not in it, so a toast shows over the panels opened over the HUD too (the Blueprints board).
     this.root.after(this.toastEl);
@@ -1556,7 +1556,10 @@ export class Hud {
     this.trayFoldBtn.setAttribute("aria-label", title);
     this.trayFoldBtn.setAttribute("aria-expanded", String(!on));
     if (save) saveTrayFolded(on);
+    requestAnimationFrame(() => this.fitTrayRoom());
   }
+  /** Measure the room the tray takes at the screen's foot into `--tray-room` (set up with the tray). */
+  private fitTrayRoom: () => void = () => {};
   private reopenTray: () => void = () => {};
 
   /**

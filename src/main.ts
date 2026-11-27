@@ -1725,7 +1725,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
   });
   addEventListener("pagehide", saveOnLeaving);
-  addEventListener("pageshow", () => (savedOnLeaving = false));
+  // Back (a page kept by the browser, shown again: pagehide ended its stretch of play): a new stretch, as when it's
+  // shown again after hiding. (Only on visibilitychange before: play after a pagehide and pageshow wasn't counted, and
+  // e2e:stats' last plain count hung on whether the browser also sent a visibilitychange, 2026-11-27 CI.)
+  addEventListener("pageshow", () => {
+    savedOnLeaving = false;
+    if (playing && stretchFrom === null) stretchFrom = performance.now();
+  });
   // Back online: what's waiting goes up.
   addEventListener("online", () => void cloud?.flush());
 
