@@ -6,6 +6,7 @@ import { engineView } from "../../game/engine-status";
 import { routeStops } from "../../game/route-stops";
 import { loadBugMap } from "../bugmap";
 import MAP from "./reports/2026-11-27-muffin-warehouse-full.txt?raw";
+import MUFFIN_MAP from "./reports/2026-11-27-warehouse2-full-muffin.txt?raw";
 
 /**
  * The user's map (2026-11-27, seed 770187, saved minutes before the report): "how is warehouse 2 full?" Muffin, on a
@@ -54,5 +55,30 @@ describe("the user's 2026-11-27 map: \"how is warehouse 2 full?\"", () => {
     // (It did come to say so: grain at the farm for the mill, milk at the dairy for the bakery.)
     expect(full).toBeGreaterThan(0);
     expect(said.size).toBeGreaterThan(0);
+  }, 120_000);
+
+  it("Muffin at the moment of the screenshots: the bakery, not Warehouse 2, is what has no room for flour", async () => {
+    const { world } = await loadBugMap(MUFFIN_MAP);
+    const { sim, economy } = world;
+    const names = routeStops(world);
+    const nameOf = (id: number) => names.find((s) => s.depotId === id)?.name ?? "";
+    const muffin = [...sim.trains()].map((t) => t.cars[0].id).find((e) => sim.nameOf(e) === "Muffin")!;
+    const line = economy.lines.get(economy.lineIdOf.get(muffin)!)!;
+    expect(line.name).toBe("Orange line 4");
+    expect(line.stops.map((s) => nameOf(s.depotId))).toEqual(["Bakery", "Mill", "Warehouse 2", "Farm yard", "Dairy farm"]);
+    const store = economy.depot(WAREHOUSE)!;
+    expect(store.piles[CARGO.flour.index]).toBe(0);
+    // (The bakery has 11 flour of 12 and Muffin carries 2: no room for more. Warehouse 2 would pass flour on to it.)
+    const not = economy.notLoadingAt(sim.findCar(muffin)!.train.id);
+    expect(not).toMatchObject({ why: "no-room", kind: "flour", takerRoom: "aboard" });
+    expect(nameOf(not!.depot.id)).toBe("Mill");
+    expect(nameOf(not!.taker!.id)).toBe("Bakery");
+    let said = "";
+    for (let i = 0; i < 30 * SIM_HZ && !said.startsWith("Not loading"); i++) {
+      sim.tick();
+      economy.tick();
+      if (i % SIM_HZ === 0) said = engineView(sim, economy, muffin, nameOf).status;
+    }
+    expect(said).toBe("Not loading flour at Mill: Bakery has room only for what's on board");
   }, 120_000);
 });
