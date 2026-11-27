@@ -553,7 +553,9 @@ export class Invariants {
    * Either `l` has no axle left on them (a car over them only) and has one on the piece past the end `f` leaves them by,
    * `f`'s axles on them all on one path, driven toward that end; or `f` has none on them yet (its front car over them),
    * its front axle on the piece before, running in by the end `l`'s axles on them (all on one path) came in by; or both
-   * have axles on them, all on one path facing one way, `f`'s front axle behind `l`'s last along it. (own-12, 748 s: Puffin a coupler's gap behind
+   * have axles on them, all on one path facing one way, `f`'s front axle behind `l`'s last along it.
+   * Over the 24 reference maps (1800 s, the dispatcher off): it excuses only own-12's two follows through points 33
+   * (186 ticks); own-12's two left are trains run onto points 33 behind a standing one's tail (a break still). (own-12, 748 s: Puffin a coupler's gap behind
    * Muffin, Muffin's last axle just off points 33, Puffin's first just on.)
    */
   private followsThrough(f: number, l: number, pieceId: number): boolean {
