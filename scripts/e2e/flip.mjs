@@ -172,7 +172,7 @@ const layOut = () =>
     const ok = (type, pose) => why(type, pose) === null;
     const ground = (fx, fy) => w.interaction.groundAt(r.left + r.width * fx, r.top + r.height * fy);
     const free = [];
-    for (let fy = 0.3; fy <= 0.62; fy += 0.08) for (let fx = 0.18; fx <= 0.82; fx += 0.16) {
+    for (let fy = 0.22; fy <= 0.66; fy += 0.04) for (let fx = 0.1; fx <= 0.9; fx += 0.05) {
       const g = ground(fx, fy);
       if (g) free.push(g);
     }
@@ -181,7 +181,7 @@ const layOut = () =>
     // Each piece on its own spot, well clear of the others (and of open ground left for the loose case).
     const spot = (type, test) => {
       for (const g of free) {
-        if (used.some((u) => Math.hypot(u.x - g.x, u.z - g.z) < 700)) continue;
+        if (used.some((u) => Math.hypot(u.x - g.x, u.z - g.z) < 480)) continue;
         const pose = poseForCentre(type, false, g.x, g.z, h);
         if (!ok(type, pose) || (test && !test(pose))) continue;
         used.push(g);
@@ -191,18 +191,22 @@ const layOut = () =>
     };
     const lay = (type, pose) => w.editor().place(type, pose, 0, false);
     // (A curve on a piece's end `c` in a scratch layout: where it'd lie, plain or mirrored.)
-    const curveOn = (type, pose, c, flipped) => {
+    const curveOn = (type, pose, c, flipped, baseFlipped = false) => {
       const l = new Layout();
-      const a = l.addPiece(type, pose, 0, false);
+      const a = l.addPiece(type, pose, 0, baseFlipped);
       const n = appendPiece(l, "curve-large", flipped, connectorRef(a, c));
       return n < 0 ? null : l.getPiece(n);
     };
-    const s = spot("straight-216");
+    // (A curve fits on the end used, either way round.)
+    const bothWays = (type, c) => (pose) => [false, true].every((f) => { const n = curveOn(type, pose, c, f); return n && why("curve-large", n.pose, n.flipped) === null; });
+    const s = spot("straight-216", bothWays("straight-216", 1));
     if (s) placed.straight = lay("straight-216", s);
-    const pts = spot("switch");
+    const pts = spot("switch", bothWays("switch", 2));
     if (pts) placed.points = lay("switch", pts);
-    const c1 = spot("curve-large", (pose) => [false, true].every((f) => { const n = curveOn("curve-large", pose, 1, f); return n && ok("curve-large", n.pose) && why("curve-large", n.pose, n.flipped) === null; }));
-    if (c1) placed.curve = lay("curve-large", c1);
+    // This one laid mirrored: a curve carried onto its end comes out of the tray unmirrored, and is shown mirrored to
+    // turn on round (`keepTurning`): the case reported, where Flip set the tray's hand to the one already shown.
+    const c1 = spot("curve-large", (pose) => why("curve-large", pose, true) === null && [false, true].every((f) => { const n = curveOn("curve-large", pose, 1, f, true); return n && why("curve-large", n.pose, n.flipped) === null; }));
+    if (c1) placed.curve = w.editor().place("curve-large", c1, 0, true);
     // The second curve: the one turning on from it fits; flipped (an S) it'd run into a straight laid across its far end.
     const c2 = spot("curve-large", (pose) => {
       const on = curveOn("curve-large", pose, 1, false);
@@ -219,7 +223,7 @@ const layOut = () =>
       placed.blocker = lay("straight-108", poseForCentre("straight-108", false, far.x, far.z, far.heading + Math.PI / 2));
     }
     // Open ground for a curve held loose, clear of all of it.
-    const g = free.find((g) => !used.some((u) => Math.hypot(u.x - g.x, u.z - g.z) < 700) && ok("curve-large", poseForCentre("curve-large", false, g.x, g.z, h)) && ok("curve-large", poseForCentre("curve-large", true, g.x, g.z, h)));
+    const g = free.find((g) => !used.some((u) => Math.hypot(u.x - g.x, u.z - g.z) < 480) && ok("curve-large", poseForCentre("curve-large", false, g.x, g.z, h)) && ok("curve-large", poseForCentre("curve-large", true, g.x, g.z, h)));
     placed.loose = g ? { x: g.x, z: g.z } : null;
     await w.settled();
     return placed;
@@ -278,7 +282,8 @@ async function touchTrial(at, before = async () => {}) {
   const tap2 = async (sel) => {
     const xy = await centre(sel);
     await touch("touchStart", [{ x: to[0], y: to[1], id: 1 }, { x: xy[0], y: xy[1], id: 2 }]);
-    await touch("touchEnd", [{ x: to[0], y: to[1], id: 1 }]);
+    // (The second finger lifts, alone: CDP's touchEnd lists the points that end. The first still holds.)
+    await touch("touchEnd", [{ x: xy[0], y: xy[1], id: 2 }]);
     await frames();
   };
   await before(tap2);
@@ -313,7 +318,9 @@ function mirrored(name, t, { snapped = true } = {}) {
 async function mouseGroup() {
   await openSandbox(false);
   const at = await layOut();
-  check("mouse: track laid for each case (straight, points, two curves, a blocker, open ground)", at.straight >= 0 && at.points >= 0 && at.curve >= 0 && at.blockedCurve >= 0 && at.blocker >= 0 && !!at.loose, JSON.stringify(at));
+  const ready = at.straight >= 0 && at.points >= 0 && at.curve >= 0 && at.blockedCurve >= 0 && at.blocker >= 0 && !!at.loose;
+  check("mouse: track laid for each case (straight, points, two curves, a blocker, open ground)", ready, JSON.stringify(at));
+  if (!ready) return;
   await shot("mouse-layout");
   let t = await mouseTrial(await screen(at.loose.x, 0, at.loose.z), "key");
   mirrored("mouse, loose, F", t, { snapped: false });
@@ -404,17 +411,18 @@ async function touchGroup() {
   await openSandbox(true);
   const at = await layOut();
   check("touch: track laid for each case", at.points >= 0 && at.curve >= 0 && !!at.loose, JSON.stringify(at));
+  if (!(at.points >= 0 && at.curve >= 0 && at.loose)) return;
   let t = await touchTrial(await screen(at.loose.x, 0, at.loose.z));
   mirrored("touch, loose", t, { snapped: false });
   await remove(t.id);
-  t = await touchTrial(await pastEnd(at.points, 2));
+  t = await touchTrial(await pastEnd(at.points, 2, -12));
   mirrored("touch, the points' end", t);
   await remove(t.id);
-  t = await touchTrial(await pastEnd(at.curve, 1));
+  t = await touchTrial(await pastEnd(at.curve, 1, -12));
   mirrored("touch, a curve's end", t);
   await shot("touch-curve-end");
   await remove(t.id);
-  t = await touchTrial(await pastEnd(at.curve, 1), async (tap2) => tap2(".tray-orient button:first-child"));
+  t = await touchTrial(await pastEnd(at.curve, 1, -12), async (tap2) => tap2(".tray-orient button:first-child"));
   mirrored("touch, a curve's end after Turn", t);
   await remove(t.id);
 }
