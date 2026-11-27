@@ -52,3 +52,19 @@ export function onFullscreenChange(f: (on: boolean) => void): void {
   document.addEventListener("fullscreenchange", fire);
   document.addEventListener("webkitfullscreenchange", fire);
 }
+
+/**
+ * Should ☰ offer the home screen? On an iPhone (no fullscreen for a page there: Safari's and Chrome's bars stay) in
+ * the browser, where this page is a home-screen app (its manifest: the GitHub Pages copy, not itch's frame): added to
+ * the home screen, it opens with no browser bars. Not once opened from there, nor inside another site's frame.
+ */
+export function homeScreenOffered(): boolean {
+  const n = navigator as Navigator & { standalone?: boolean };
+  if (!/iPhone|iPod/.test(n.userAgent)) return false;
+  if (n.standalone === true || matchMedia("(display-mode: standalone)").matches) return false;
+  if (window.self !== window.top) return false;
+  return !!document.querySelector('link[rel="manifest"]');
+}
+
+/** What ☰'s "Play full screen" says on an iPhone. */
+export const HOME_SCREEN_HOW = "Tap Share, then Add to Home Screen: Woodrail opens from there with no browser bars. Bring this railway along with ☰ ☁ Cloud save.";

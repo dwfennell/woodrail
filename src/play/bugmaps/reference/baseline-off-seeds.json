@@ -293,6 +293,34 @@
   "seeds": 3,
   "seconds": 1800
  },
+ "user-2026-11-26-clover-pink3.txt": {
+  "stops": 764,
+  "min": 759,
+  "max": 770,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 0,
+  "jams": 0,
+  "running": 10,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800
+ },
+ "user-2026-11-26-sprocket-farm.txt": {
+  "stops": 1206.3333333333333,
+  "min": 1202,
+  "max": 1212,
+  "firstJam": 1800,
+  "firstJamMin": 1800,
+  "stuckBefore": 0.3333333333333333,
+  "jams": 0,
+  "running": 10,
+  "breaks": 0,
+  "firstBreak": null,
+  "seeds": 3,
+  "seconds": 1800
+ },
  "wren.txt": {
   "stops": 326.3333333333333,
   "min": 304,

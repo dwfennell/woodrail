@@ -1,4 +1,4 @@
-import { connectorRef, getPieceDef, indexOfRef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathExitConnector, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
+import { connectorRef, DOUBLE_TRACK_SPACING, getPieceDef, indexOfRef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathExitConnector, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
 import { ACCELERATION, ADV_OK, brakeTo, CAR_SPECS, COUPLER_GAP, flipCursor, SIM_DT, SIM_HZ, walkTrack, type Cursor, type Sim, type Train } from "../sim";
 import { LineTally } from "./line-tally";
 
@@ -570,6 +570,30 @@ const NO_RIDERS: Riders = { count: 0, from: -1 };
 const NO_PLACES: readonly number[] = [];
 
 /**
+ * The player is shown a signal red while the train standing at it is held there by the router or by sections
+ * (`Sim.shownRed`; display only, the sim's aspect as it was): on (SHOWN_RED=0: off). Else, the dispatcher off, it
+ * showed clear (its block free) with the train standing at it: greenHeld (18 breaks on eight reference maps).
+ */
+export const SHOWN_RED = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).SHOWN_RED !== "0";
+/**
+ * A signal shows red while the train standing at it is held there by the router or by sections, the dispatcher off
+ * (`heldGateAt`): off (HELD_RED=1: on). Else it showed clear (its block free) with the train standing at it: greenHeld
+ * (18 breaks on eight reference maps; 3 with it on). Off: the red is the sim's too, not only what the player sees, and
+ * it holds trains: 3 seeds' means with it on, own-12 57 -> 10 stops, own-03 69 -> 25, complex-3 552 -> 516, rowan-1
+ * 455 -> 420, rowan-2 547 -> 501. Wanted: the aspect shown, not the one the sim drives by.
+ */
+export const HELD_RED = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HELD_RED === "1";
+/** How near (mm, nose to the joint, past the front axle's inset) a held train stands to a signal to be at it. */
+const HELD_RED_NEAR = 80;
+
+/**
+ * A routed train pulls up at a stop its line ends at on through track even with nothing to do there, and turns
+ * (`endsHere`): on (LINE_END_STOP=0: off). Else, run through, it went on round the loops beyond (the user's two-train
+ * map: Conker's line, 5 stops in 10 minutes for 30 with the dispatcher on).
+ */
+export const LINE_END_STOP = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).LINE_END_STOP !== "0";
+
+/**
  * Depots, their piles and the cargo riding on wagons. Pure and deterministic: everything advances in whole sim
  * ticks from `tick()`, called once after every `Sim.tick()`.
  */
@@ -689,6 +713,7 @@ export class Economy {
     sim.standsWithin = (train) => this.sections.standsWithin(train);
     sim.turnsNose = (train) => this.sections.turnsNose(train) || !!this.dispatcher?.q9Turns(train);
     this.sections = new Sections(layout, sim, {
+      dispatchedWay: (engine) => this.dispatcher?.grantedWay(engine)?.pieces,
       lineOf: (engine) => {
         const id = this.lineIdOf.get(engine);
         return id !== undefined && this.lines.has(id) && this.routes.has(engine) ? id : -1;
@@ -760,7 +785,30 @@ export class Economy {
     sim.pathLocks = { locks: (t, points, choice) => router.pathLocks(t, points, choice), way: (t, id, entry) => router.pathWay(t, id, entry), version: () => router.locksVersion };
     // (And sections' waiting points: a mark shows clear for a line's train only once its move past it is granted.)
     const sections = this.sections;
-    sim.signalGate = { at: (ref) => sections.gateAt(ref), version: () => sections.gateVersion(), callOn: (ref, trainId) => sections.callOnAt(ref, trainId) };
+    sim.signalGate = {
+      at: (ref) => {
+        // (The train held standing at it first: a path signal is red only for the train named, and sections' gate can
+        // name one further back in the slot while the one at the signal is held for another (own-12, 162 s).)
+        const h = HELD_RED ? this.heldGateAt(ref) : -1;
+        return h !== -1 ? h : sections.gateAt(ref);
+      },
+      // (Worked out first: the sim reads the gate only once its version changes.)
+      version: () => {
+        if (HELD_RED && this.heldGateTick !== this.sim.ticks) this.refreshHeldGate();
+        return sections.gateVersion() * 65536 + (HELD_RED ? this.heldGateVer : 0);
+      },
+      callOn: (ref, trainId) => sections.callOnAt(ref, trainId),
+    };
+    // (Shown red, display only: the train held standing at a signal: `SHOWN_RED`.)
+    sim.shownRed = SHOWN_RED
+      ? {
+          at: (ref) => this.heldGateAt(ref),
+          version: () => {
+            if (this.heldGateTick !== this.sim.ticks) this.refreshHeldGate();
+            return this.heldGateVer;
+          },
+        }
+      : null;
     this.stalls = new Stalls(sim, this.sections, {
       lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
       routeWait: (engine) => this.dispatcher?.waitingOn(engine) ?? this.router.waitingOn(engine),
@@ -850,9 +898,12 @@ export class Economy {
       if (this.sim.pieceOccupied(p)) return true;
       for (const [e, t] of this.trackOf) {
         if (e === engine || t.pieceId !== p) continue;
-        // (Given to a train still heading there: its route's next stop is this depot.)
+        // (Given to a train still heading there: its route's next stop is this depot. Not one on another railway, which
+        // can never come: the user's 2026-11-26 map, Sprocket aimed from its own loop at Warehouse 2 on the main line
+        // held its one track for good, and Teal line 2 waited at its points for it, the main line jammed behind.)
         const r = this.routes.get(e);
-        if (r && r.stops.length > 0 && r.stops[r.next % r.stops.length].depotId === t.depotId && this.sim.findCar(e)) return true;
+        const other = r && r.stops.length > 0 && r.stops[r.next % r.stops.length].depotId === t.depotId ? this.sim.findCar(e) : undefined;
+        if (other && this.networkOf(other.train.bogies[0].pieceId) === this.networkOf(p)) return true;
       }
       return false;
     };
@@ -1122,11 +1173,25 @@ export class Economy {
     return this.tracks.get(depotId);
   }
 
-  /** A depot's further tracks on the map now (its roads, in order: track 2, track 3). */
+  /**
+   * A depot's further tracks on the map now, beside its yard (its roads, in order: track 2, track 3). One left behind
+   * when the yard was moved isn't one of its tracks (the user's 2026-11-26 map: Warehouse 2 moved onto the main line,
+   * its second and third tracks lying loose where it was, so its card said "It has 3 tracks already" and offered no
+   * second track beside it where it stands now); moved back beside it, it is again.
+   */
   roadsOf(depotId: number): readonly DepotState[] {
     const t = this.tracks.get(depotId);
-    return t ? t.roads.filter((r) => this.onMap(r)) : NO_ROADS;
+    if (!t) return NO_ROADS;
+    // (Kept per layout revision, pieces, joints and tracks version: asked many times a tick.)
+    const L = this.layout;
+    const had = this.roadsKept.get(depotId);
+    if (had && had.rev === L.revision && had.pieces === L.piecesVersion && had.joints === L.jointsVersion && had.tracks === this.tracksVersion) return had.roads;
+    const yard = this.depots[depotId];
+    const roads = t.roads.filter((r) => this.onMap(r) && (!yard || besideYard(L, yard.pieceId, r.pieceId)));
+    this.roadsKept.set(depotId, { rev: L.revision, pieces: L.piecesVersion, joints: L.jointsVersion, tracks: this.tracksVersion, roads });
+    return roads;
   }
+  private readonly roadsKept = new Map<number, { rev: number; pieces: number; joints: number; tracks: number; roads: readonly DepotState[] }>();
 
   /** How many tracks a depot has now: its own, and its roads on the map. */
   trackCount(depotId: number): number {
@@ -2894,20 +2959,39 @@ export class Economy {
       const d = new Dispatcher({
         layout: this.layout,
         sim,
+        giveWayAhead: (t, into) => this.router.giveWayRoad(t, new Set(into.keys()), into),
         route: (e) => {
           const route = this.routeOf(e);
           if (!route || route.stops.length === 0) return null;
           // (A depot of several tracks: its next stop is the track it's sent to (`trackFor`, as the router and sections
           // steer for), or stands on; as its own piece, own-10's Logs one was planned onto the sawmill's track a Planks
           // train stood on, with its second track free, and the four trains knotted in 10 s.)
-          const i = route.next % route.stops.length;
-          const stops = route.stops.map((x, k) => {
-            const d = this.depots[x.depotId];
-            if (!d || !this.onMap(d)) return -1;
-            if (k !== i || !TRACKS_IN_DISPATCH.on || !this.tracks.has(d.id)) return d.pieceId;
-            return route.at ? this.trackAt(e, d) : this.trackFor(e, d);
-          });
-          return stops.every((p) => p >= 0) ? { stops, next: route.next, at: !!route.at } : null;
+          const n = route.stops.length;
+          const i = route.next % n;
+          // (Not a stop on another railway than the train's: no way leads there (`skipApart`), and planned round by it
+          // the train was held for good on the mill's track, the user's 2026-11-26 map with the dispatcher on. Its next
+          // is the next stop kept.)
+          const t = this.sim.findCar(e)?.train;
+          const net = t ? this.networkOf(t.bogies[0].pieceId) : -1;
+          const kept = (k: number) => net === -1 || this.stopOnRailway(route.stops[k].depotId, net);
+          const stops: number[] = [];
+          let next = -1;
+          for (let j = 0; j < n && next === -1; j++) if (kept((i + j) % n)) next = (i + j) % n;
+          if (next === -1) return null;
+          let at = 0;
+          for (let k = 0; k < n; k++) {
+            if (!kept(k)) continue;
+            if (k === next) at = stops.length;
+            const d = this.depots[route.stops[k].depotId];
+            if (!d || !this.onMap(d)) return null;
+            // (A further stop of several tracks: one of them on the train's railway, where its own isn't (the user's
+            // 2026-11-26 map: Warehouse 1's own track on the main line, its second on the green line Pink line 3 and
+            // Teal line 3 run on; planned round by its own, they stood for good).
+            const own = k !== i && this.tracks.has(d.id) && net !== -1 && this.networkOf(d.pieceId) !== net ? this.reachableTracks(d).find((p) => this.networkOf(p) === net) : undefined;
+            stops.push(own !== undefined ? own : k !== i || !TRACKS_IN_DISPATCH.on || !this.tracks.has(d.id) ? d.pieceId : route.at ? this.trackAt(e, d) : this.trackFor(e, d));
+          }
+          // (All kept, as nearly always: as before, its own next.)
+          return { stops, next: stops.length === n ? route.next : at, at: !!route.at && next === i };
         },
         // (Busy: the depot or a kit's stop holds it (working, its dwell), or it's turning back: it asks for nothing.)
         busy: (train) => train.turnback >= 0 || this.depotCap(train) === 0 || this.kitStops.cap(train) === 0,
@@ -2918,6 +3002,10 @@ export class Economy {
         lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
         swapping: (engine) => this.sections.swapping(engine),
           couldSwap: (engine) => this.sections.couldSwap(engine),
+          couldStepAside: (engine) => this.sections.couldStepAside(engine),
+          sectionsGate: (ref) => this.sections.gateAt(ref),
+          sectionsGateVersion: () => this.sections.gateVersion(),
+          asideNow: (engine) => this.sections.asideNow(engine),
           swapFailed: (engine) => this.sections.swapFailed(engine),
         pointsWaitBy: (engine) => {
           const w = this.router.waitOf(engine);
@@ -2944,6 +3032,58 @@ export class Economy {
     }
   }
   private gateBefore: Sim["signalGate"] = null;
+
+  /** Signals (`Signal.at`) a train stands at held by the router or sections (`HELD_RED`): the train's id. */
+  private heldGate = new Map<number, number>();
+  private heldGateNext = new Map<number, number>();
+  private heldGateTick = -1;
+  private heldGateVer = 0;
+  /**
+   * The train standing at the signal at `ref` (its nose at the mark's stop point, facing it), held there by the router
+   * (short of points set or locked for another train) or by sections (a line's wait), or −1. With the dispatcher off the
+   * sim showed such a signal clear, its block free, while the train stood at it: greenHeld (eight reference maps).
+   * Worked out once a tick, from the waits; a map lookup a signal after.
+   */
+  private heldGateAt(ref: number): number {
+    if (this.heldGateTick !== this.sim.ticks) this.refreshHeldGate();
+    return this.heldGate.get(ref) ?? -1;
+  }
+  private refreshHeldGate(): void {
+    this.heldGateTick = this.sim.ticks;
+    const now = this.heldGateNext;
+    now.clear();
+    // (With the dispatcher on, its own aspects say it: `Sim.signalOwner`.)
+    if (this.layout.signalCount > 0 && !this.dispatcher && (this.routes.size > 0 || this.sections.enabled))
+      for (const t of this.sim.trains()) {
+        if (t.speed !== 0 || t.derailed || t.bogies.length === 0) continue;
+        const net = this.drive(t);
+        if (net === 0) continue;
+        let held = false;
+        for (const c of t.cars) if (c.kind === "engine" && (this.router.waitOf(c.id) || this.sections.waitOf(c.id))) held = true;
+        if (!held) continue;
+        const forward = net > 0;
+        const b = forward ? t.bogies[0] : t.bogies[t.bogies.length - 1];
+        const p = this.layout.getPiece(b.pieceId);
+        if (!p) continue;
+        const def = getPieceDef(p.type, p.flipped);
+        const exit = pathExitConnector(def, b.pathIndex, forward ? b.reversed : !b.reversed);
+        if (exit === -1) continue;
+        const ref = connectorRef(b.pieceId, exit);
+        const mark = this.layout.signalAt(ref);
+        if (!mark || mark.held || mark.forced) continue;
+        const len = pathLength(def.paths[b.pathIndex].geom);
+        const toJoint = forward ? len - b.s : b.s;
+        const inset = CAR_SPECS[(forward ? t.cars[0] : t.cars[t.cars.length - 1]).kind].bogieInset;
+        if (toJoint > HELD_RED_NEAR + inset) continue;
+        now.set(mark.at, t.id);
+      }
+    let same = now.size === this.heldGate.size;
+    if (same) for (const [k, v] of now) if (this.heldGate.get(k) !== v) same = false;
+    if (same) return;
+    this.heldGateNext = this.heldGate;
+    this.heldGate = now;
+    this.heldGateVer++;
+  }
 
   /**
    * The speed limit a depot puts on a powered train: on an automatic depot where one of its cars has work, it pulls up
@@ -2992,7 +3132,9 @@ export class Economy {
     if (!train.cars.some((car) => !s.done.has(car.id) && this.needsService(d, car.id))) {
       // But a routed train's "Wait here till full" stop never is: it pulls up (goods may yet come), while a wagon could
       // take some. (Pulled up, with none coming (the depot idle), it goes on.)
-      if (s.stood || !this.waitsHere(train, d)) {
+      // (Nor is a stop its line ends at on through track (`turnAtLineEnds`, `LINE_END_STOP`): it pulls up to turn there,
+      // work or none, else it ran on round the loops beyond, the long way to its next stop or never there.)
+      if (s.stood || !(this.waitsHere(train, d) || (LINE_END_STOP && this.endsHere(train)))) {
         // Its work here done after a halt: it sets off (the guard's flag).
         if (s.halted) this.departed(s);
         s.phase = NONE;
@@ -3499,6 +3641,7 @@ export class Economy {
     this.work();
     this.kitStops.tick();
     if (this.routes.size > 0) this.advanceRoutes();
+    if (this.routes.size > 0) this.skipApart();
     if (this.routes.size > 0) this.skipShort();
     if (this.routes.size > 0) this.turnAtLineEnds();
     // (Trains taken off their line, stopping once clear of points.)
@@ -3914,6 +4057,26 @@ export class Economy {
    * dispatcher on, or ran round the loops beyond for good with it off (the user's two-train map, 2026-11-22). Looked at
    * once a visit (its next stop, the track, its last turn, which way it's driven): a plan search or two then.
    */
+  /**
+   * Has `turnAtLineEnds` found this routed train's stop, the one it's at, its line's end on through track (it turns
+   * there)? A map lookup; what it decided for the train as it stands now (its next stop, the track, its last turn, the
+   * way it's driven).
+   */
+  private endsHere(train: Train): boolean {
+    if (this.turnLooked.size === 0) return false;
+    let was: string | undefined;
+    let r: Route | undefined;
+    for (const car of train.cars) {
+      was = this.turnLooked.get(car.id);
+      if (was !== undefined) {
+        r = this.routes.get(car.id);
+        break;
+      }
+    }
+    if (was === undefined || !was.endsWith(":turn") || !r?.at) return false;
+    const net = this.drive(train);
+    return was === `${r.next}:${this.layout.revision}:${train.lastTurn?.tick ?? -1}:${Math.sign(net)}:turn`;
+  }
   private turnAtLineEnds(): void {
     for (const [engine, r] of this.routes) {
       if (!r.at || r.stops.length < 2) {
@@ -3948,6 +4111,104 @@ export class Economy {
       if (here && this.sim.turnBackHere(t.id, here.pieceId)) this.turnLooked.set(engine, `${key}:turned`);
     }
   }
+  /**
+   * A routed train whose next stop is on another railway than its own (no track of the stop's, its yard's or a further
+   * one, joined to the track the train is on: the user's 2026-11-26 map, Warehouse 2 moved onto the main line beside
+   * Orange line 2's loop, never joined to it) goes on to the next of its stops on its railway, and its card says why
+   * (`apartSkipOf`): no search could find a way there, whatever the switches. Else it ran round its loop for good past
+   * its own farm, dairy, bakery and mill, the whole line dead for the one stop, and the card named the wrong stop. None
+   * of its stops on its railway: it runs on as it was, the card saying so. A map lookup a routed train a tick (`networkOf`
+   * is kept per joints and pieces version), nothing allocated; the stops looked at only when its next stop, its railway
+   * or the track changes.
+   */
+  private skipApart(): void {
+    const joints = this.layout.jointsVersion;
+    const pieces = this.layout.piecesVersion;
+    for (const [engine, r] of this.routes) {
+      if (r.at || r.stops.length < 2) continue;
+      const t = this.sim.findCar(engine)?.train;
+      if (!t || t.derailed) continue;
+      const net = this.networkOf(t.bogies[0].pieceId);
+      const was = this.apartLooked.get(engine);
+      if (was && was.next === r.next && was.joints === joints && was.pieces === pieces && was.net === net) continue;
+      const look = { next: r.next, joints, pieces, net };
+      this.apartLooked.set(engine, look);
+      const stop = r.stops[r.next % r.stops.length];
+      if (this.stopOnRailway(stop.depotId, net)) continue;
+      let i = -1;
+      for (let k = 1; k < r.stops.length; k++) {
+        const j = (r.next + k) % r.stops.length;
+        if (r.stops[j].depotId !== stop.depotId && this.stopOnRailway(r.stops[j].depotId, net)) {
+          i = j;
+          break;
+        }
+      }
+      if (i === -1) {
+        // (None of its stops on its railway: nothing to go on to. Said, as it runs.)
+        this.apartSkips.set(engine, { depotId: stop.depotId, next: r.next % r.stops.length, none: true });
+        continue;
+      }
+      r.next = i;
+      this.nextStamp++;
+      resetVias(r);
+      this.apartSkips.set(engine, { depotId: stop.depotId, next: i });
+      look.next = r.next;
+    }
+  }
+  private readonly apartLooked = new Map<number, { next: number; joints: number; pieces: number; net: number }>();
+  private readonly apartSkips = new Map<number, { depotId: number; next: number; none?: true }>();
+
+  /**
+   * Is stop `depotId` on railway `net` (`railwayOf`): any of its tracks a train can reach (`reachableTracks`). A depot
+   * off the map (picked up, in the hand) counts as on it: nothing is said or skipped for it.
+   */
+  private stopOnRailway(depotId: number, net: number): boolean {
+    const d = this.liveDepot(depotId);
+    if (!d) return true;
+    // (Kept per joints, pieces and tracks version: asked a tick by the dispatcher's routes.)
+    const k = this.railsKey;
+    if (k[0] !== this.layout.jointsVersion || k[1] !== this.layout.piecesVersion || k[2] !== this.tracksVersion) {
+      k[0] = this.layout.jointsVersion;
+      k[1] = this.layout.piecesVersion;
+      k[2] = this.tracksVersion;
+      this.rails.clear();
+    }
+    let nets = this.rails.get(depotId);
+    if (!nets) this.rails.set(depotId, (nets = new Set(this.reachableTracks(d).map((p) => this.networkOf(p)))));
+    return nets.has(net);
+  }
+  private readonly railsKey = [-1, -1, -1];
+  private readonly rails = new Map<number, Set<number>>();
+
+  /**
+   * The stop a routed train passes over as it's on another railway (`skipApart`), while it heads for the stop after
+   * (`none`: none of its stops is on its railway). For its card. Null: none.
+   */
+  apartSkipOf(engine: number): { depotId: number; none?: true } | null {
+    const s = this.apartSkips.get(engine);
+    if (!s) return null;
+    const r = this.routes.get(engine);
+    if (!r || r.stops.length === 0 || r.next % r.stops.length !== s.next || r.stops.every((st) => st.depotId !== s.depotId)) {
+      this.apartSkips.delete(engine);
+      return null;
+    }
+    // (Joined since: it goes there next lap.)
+    const t = this.sim.findCar(engine)?.train;
+    if (t && this.stopOnRailway(s.depotId, this.networkOf(t.bogies[0].pieceId))) {
+      this.apartSkips.delete(engine);
+      return null;
+    }
+    return s;
+  }
+
+  /**
+   * Which railway (track joined to one another, whatever the switches) a piece is on: a number every piece of it shares,
+   * −1 for none. Two stops with no railway in common can't be on one line's way.
+   */
+  railwayOf(pieceId: number): number {
+    return this.networkOf(pieceId);
+  }
+
   private readonly turnLooked = new Map<number, string>();
   private readonly shortLooked = new Map<number, string>();
   private readonly shortSkips = new Map<number, { depotId: number; next: number; at: number; stood?: true }>();
@@ -4209,4 +4470,23 @@ export function riderStop(d: Pick<DepotState, "role">): boolean {
 /** The "town" a rider stop is for: its town's id, or for an airport its own (no town's: −2 less its depot id). */
 function stopTown(d: Pick<DepotState, "role" | "townId" | "id">): number {
   return d.role === "airport" || d.role === "mast" ? -2 - d.id : d.townId;
+}
+
+/** How far beside a yard (mm, across it) its further tracks may lie: its third track's place and a track's width more. */
+const ROAD_ACROSS = 3 * DOUBLE_TRACK_SPACING;
+/** How far along a yard (mm) a further track's middle may lie from the yard's: a yard's length. */
+const ROAD_ALONG = 216;
+/** How far from the yard's way a further track may turn (sin of the angle: 20°). */
+const ROAD_TURN = Math.sin((20 * Math.PI) / 180);
+
+/** Does piece `road` lie beside yard piece `yard`, as a further track of it (`Economy.roadsOf`)? Either way along it. */
+function besideYard(layout: Layout, yard: number, road: number): boolean {
+  const a = layout.getPiece(yard);
+  const b = layout.getPiece(road);
+  if (!a || !b) return false;
+  const dx = b.pose.x - a.pose.x;
+  const dz = b.pose.z - a.pose.z;
+  const c = Math.cos(a.pose.heading);
+  const s = Math.sin(a.pose.heading);
+  return Math.abs(dx * c + dz * s) <= ROAD_ALONG && Math.abs(-dx * s + dz * c) <= ROAD_ACROSS && Math.abs(Math.sin(b.pose.heading - a.pose.heading)) <= ROAD_TURN;
 }

@@ -165,6 +165,34 @@ export function legStop(economy: Economy, d: DepotState, via?: readonly number[]
 }
 
 /**
+ * The railways (`Economy.railwayOf`: track joined to one another, whatever the switches) a stop's place is on: those of
+ * each of its tracks a train can reach. Empty: not on the map.
+ */
+export function railwaysOf(economy: Economy, depotId: number): Set<number> {
+  const d = economy.liveDepot(depotId);
+  return new Set(d ? economy.reachableTracks(d).map((p) => economy.railwayOf(p)) : []);
+}
+
+/**
+ * Is stop `k` of a line on a railway none of its other stops is on (no track joins it to theirs: the user's 2026-11-26
+ * Warehouse 2, moved onto the main line beside Orange line 2's loop)? False with no other stop on the map, or for a
+ * place off the map (in the hand). For the sheet's word when a place is tapped in.
+ */
+export function stopApart(economy: Economy, stops: readonly RouteStopDef[], k: number): boolean {
+  const mine = railwaysOf(economy, stops[k].depotId);
+  if (mine.size === 0) return false;
+  let others = 0;
+  for (let i = 0; i < stops.length; i++) {
+    if (i === k || stops[i].depotId === stops[k].depotId) continue;
+    const theirs = railwaysOf(economy, stops[i].depotId);
+    if (theirs.size === 0) continue;
+    others++;
+    for (const r of theirs) if (mine.has(r)) return false;
+  }
+  return others > 0;
+}
+
+/**
  * The stop (an index into `stops`) the train with this engine comes to first along its way: the shortest of the ways a
  * routed train would take from its front (as the drawn line and the router choose at points; it turns round only where
  * the track ends) to each stop on the map, the earlier stop on a tie. −1: it's not on the track, or reaches none.

@@ -508,6 +508,8 @@ export class Game {
     this.scene.add(this.boats.group);
     this.riverBoats = new RiverBoatsView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.riverBoats.group);
+    // (Made goods on barges' decks are drawn with the wagons' loads: instanced, no draw call of their own.)
+    this.depotView.boatLoads = this.riverBoats;
     this.ferriesView = new FerriesView(this.propLibrary, this.mats, () => this.invalidate(), (id) => this.trainView.carObject(id));
     this.scene.add(this.ferriesView.group);
     this.yardsView = new YardsView(this.propLibrary, () => this.invalidate());
@@ -1341,6 +1343,9 @@ export class Game {
     let ambient = false;
     // Signal arms gliding to a new aspect (about 0.3 s): frames only while they do.
     if (this.marksView.animate(dt)) active = true;
+    // The player's boats: placed by game time since the fleet's last tick (still while paused). Before the depots: the
+    // made goods on their decks are drawn with the depots' loads, where the barges are this frame.
+    if (this.riverBoats.update(this.fleet, this.economy.boats, Math.min(2, Math.max(0, this.simSeconds - this.fleet.tickedAt)), this.camera, this.ambientEye, this.layout.piecesVersion)) ambient = true;
     // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
     const trainsMoved = this.trainsChanged();
     const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused, trainsMoved || tipping || this.trainView.hoisted, this.ambientEye);
@@ -1396,9 +1401,7 @@ export class Game {
     // Airships touring in view (by their masts' clocks; still while paused).
     const ships = this.shipSource;
     if (ships && this.airshipView.update(ships.masts(), ships.phase, ships.radius, ships.height, this.ambientEye, this.paused)) ambient = true;
-    // The player's boats: placed by game time since the fleet's last tick (still while paused).
     const sinceTick = Math.min(2, Math.max(0, this.simSeconds - this.fleet.tickedAt));
-    if (this.riverBoats.update(this.fleet, this.economy.boats, sinceTick, this.camera, this.ambientEye, this.layout.piecesVersion)) ambient = true;
     // The train ferries, at their slips or out at sea (nothing to do with no slip on the map: a look at the depots).
     if (this.ferriesView.update(this.ferries, this.economy, this.layout, this.sim, sinceTick, this.camera, this.ambientEye)) ambient = true;
     // The yards: a hull on the ways (placed when its stage changes), a launch sliding into the water (a short flourish).
@@ -1832,9 +1835,10 @@ export class Game {
   private markAspects(): { markClear(id: number): boolean; readonly signalsVersion: number } {
     const game = this;
     return {
-      markClear: (id) => game.sim.markClear(id),
+      // (As the player is shown them: a train held standing at one shows it red, `Sim.shownRed`.)
+      markClear: (id) => game.sim.markShown(id),
       get signalsVersion() {
-        return game.sim.signalsVersion;
+        return game.sim.shownVersion;
       },
     };
   }

@@ -2,7 +2,8 @@ import { CARGO, CARGO_KINDS, GOODS_ICON, type CargoKind } from "../economy/cargo
 import { pilesOf, RECIPES } from "../economy/economy";
 import type { TownStatus } from "./towns";
 import type { DepotRole } from "../economy";
-import { DEPOT_NAMES, depotName, type World } from "./world";
+import { DEPOT_NAMES, type World } from "./world";
+import { placeName } from "./route-stops";
 import { SITE_ROLES, type MapSite, type SiteRole } from "../landscape";
 import { SITE_NAMES, siteBlueprint } from "./map-sites";
 
@@ -54,14 +55,14 @@ export function mapMarkers(world: World, statusOf: (townId: number) => TownStatu
     const state = pieceId === undefined ? undefined : world.economy.depotAtPiece(pieceId);
     const kinds = pilesOf(d.kind);
     const stock = state ? kinds.filter((k) => !RECIPES[d.kind].owed?.includes(k) || state.piles[CARGO[k].index] > 0).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${state.piles[CARGO[k].index]}`).join(" · ") : "";
-    out.push({ key: `depot:${d.id}`, kind: d.kind, x: d.centre.x, z: d.centre.z, title: DEPOT_NAMES[d.kind], detail: stock, glyph: depotGlyph(d.kind) });
+    out.push({ key: `depot:${d.id}`, kind: d.kind, x: d.centre.x, z: d.centre.z, title: state ? placeName(world, state.id) : DEPOT_NAMES[d.kind], detail: stock, glyph: depotGlyph(d.kind) });
   }
   // The industries the player has put down (a workshop): not the map's own, nor a town's station.
   const own = new Set(world.depots.values());
   for (const d of world.economy.allDepots()) {
     if (d.role === "town" || own.has(d.pieceId)) continue;
     const piece = world.layout.getPiece(d.pieceId);
-    const title = depotName(world, d);
+    const title = placeName(world, d.id);
     if (!piece || !title) continue;
     // (A school's goods go into its research: it has no piles to list. A workshop's stone only while it holds some.)
     const stock = (d.role === "school" ? [] : pilesOf(d.role).filter((k) => !RECIPES[d.role].owed?.includes(k) || d.piles[CARGO[k].index] > 0)).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${d.piles[CARGO[k].index]}`).join(" · ");

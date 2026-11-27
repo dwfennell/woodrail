@@ -1,6 +1,7 @@
 import { describe as describeGoods } from "../economy/goods";
 import type { BoatState } from "../economy";
-import { BULK, capacityOf, depotLabel, loaded, MAX_BARGES, type Fleet } from "../game/boats";
+import { BARGE_GOODS, capacityOf, loaded, MAX_BARGES, type Fleet } from "../game/boats";
+import { depotLabel } from "../game/route-stops";
 import { BUILD_LABEL, cancel as cancelOrder, isYard, order as orderBuild, progressOf, stillNeeds, tickYards, whyNotOrder, YARD_BUILDS, YARD_COSTS } from "../game/yards";
 import type { YardBuild } from "../economy";
 import type { Game } from "../game/game";
@@ -36,6 +37,13 @@ export interface WaterControls {
   open(boatId: number): void;
   /** A new map: no boat's card open, no planning. */
   reset(): void;
+  /**
+   * What the open boat's card is about, to keep clear of the card (main.ts `keepCardSubjectInView`): a number that
+   * changes when it does (the boat, planning, its stops' count), or −1 with no boat's card open. Cheap: a frame's.
+   */
+  subjectKey(): number;
+  /** The boat and (planning) its stops' landings, on the ground, for the camera to frame. */
+  subjectPoints(): { x: number; z: number }[];
 }
 
 export function attachWater(ctx: WaterContext): WaterControls {
@@ -91,8 +99,8 @@ export function attachWater(ctx: WaterContext): WaterControls {
 
   function viewOf(b: BoatState): BoatCardView {
     const n = loaded(b);
-    const what = BULK.filter((k) => (b.load[k] ?? 0) > 0);
-    const load = n === 0 ? "Empty: barges carry logs, stone, coal, ore and grain" : `Carrying ${n} of ${capacityOf(b)}: ${describeGoods(Object.fromEntries(what.map((k) => [k, b.load[k]])))}`;
+    const what = BARGE_GOODS.filter((k) => (b.load[k] ?? 0) > 0);
+    const load = n === 0 ? "Empty: barges carry any goods" : `Carrying ${n} of ${capacityOf(b)}: ${describeGoods(Object.fromEntries(what.map((k) => [k, b.load[k]])))}`;
     const current = b.docked || b.stops.length < 2 ? b.from : (b.from + 1) % b.stops.length;
     return {
       id: b.id,
@@ -100,7 +108,7 @@ export function attachWater(ctx: WaterContext): WaterControls {
       barges: b.barges,
       maxBarges: MAX_BARGES,
       load,
-      status: fleet.status(b),
+      status: fleet.status(b, (id) => depotLabel(game, id)),
       stops: b.stops.map((s, i) => ({ label: depotLabel(game, s.depotId), action: s.action, current: i === current })),
       planning,
       more: b.barges < MAX_BARGES ? "More barges: build them at a boatyard (each carries 4 loads)." : "",
@@ -244,6 +252,23 @@ export function attachWater(ctx: WaterContext): WaterControls {
       if (events.length > 0) game.invalidate();
     },
     open: openBoat,
+    subjectKey() {
+      const b = card.openId === -1 ? undefined : game.economy.boats.get(card.openId);
+      return b ? b.id * 1000 + (planning ? 500 + b.stops.length : 0) : -1;
+    },
+    subjectPoints() {
+      const b = card.openId === -1 ? undefined : game.economy.boats.get(card.openId);
+      if (!b) return [];
+      const at = game.fleet.where(b);
+      const pts: { x: number; z: number }[] = at ? [{ x: at.x, z: at.z }] : [];
+      if (planning) {
+        for (const st of b.stops) {
+          const p = game.layout.getPiece(game.economy.depot(st.depotId)?.pieceId ?? -1);
+          if (p) pts.push({ x: p.pose.x, z: p.pose.z });
+        }
+      }
+      return pts;
+    },
     reset() {
       game.ferries.reset(game.world);
       setPlanning(false);

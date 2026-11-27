@@ -3,7 +3,7 @@ import { EXPLAINER_TITLES, type ExplainerId } from "./explainer-keys";
 import { GOALS, type Goal, type GoalProgress } from "../game/goals";
 import { type Journal, type JournalEntry, type JournalPlace } from "../game/journal";
 import { STICKERS, type Sticker, type StickerTheme } from "../game/stickers";
-import { grandOf, type AchievementView } from "../game/grand";
+import { grandOf, ridersWords, type AchievementView } from "../game/grand";
 import { CARGO, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { kindsOf } from "../economy/goods";
 
@@ -380,7 +380,8 @@ export class GoalsPanel {
   private fitShow(): void {
     this.root.classList.remove("show-tight", "title-small");
     if (!this.root.classList.contains("collapsed") || this.now.clientWidth === 0) return;
-    const cut = () => this.now.scrollWidth > this.now.clientWidth + 1;
+    // (Across, or down: on a phone the title is one line, cut with … past it.)
+    const cut = () => this.now.scrollWidth > this.now.clientWidth + 1 || this.now.scrollHeight > this.now.clientHeight + 1;
     if (cut()) this.root.classList.add("show-tight");
     // (Cut even then, "Bring planks to the workshop" at 390 px (QA): the title a little smaller.)
     if (cut()) this.root.classList.add("title-small");
@@ -451,7 +452,7 @@ export class GoalsPanel {
             .map((st, i) => {
               const goods = kindsOf(st.goods)
                 .map((k) => `<span title="${escapeHtml(CARGO[k as CargoKind].label)}">${st.goods[k]} ${GOODS_ICON[k as CargoKind]}</span>`)
-                .join(" ") + (st.riders ? ` <span>${st.riders} 🧑 riders</span>` : "");
+                .join(" ") + (st.riders ? ` <span>🧑 ${ridersWords(st.riders)}</span>` : "");
               const cls = i < v.done ? "done" : i === v.done && v.town ? "now" : "";
               return `<li class="${cls}"><b>${i < v.done ? "✓ " : ""}${escapeHtml(st.name)}</b> <span class="ach-goods">${goods}</span></li>`;
             })

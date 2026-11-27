@@ -44,6 +44,9 @@ const STACKS: Readonly<Record<string, { storey: number; most: number }>> = {
   "row-court": { storey: 20, most: 3 },
 };
 
+/** The most storeys any model can gain (the save's limit is held to it: save-limits.test.ts). */
+export const MOST_STOREYS = Math.max(...Object.values(STACKS).map((s) => s.most));
+
 /** The most storeys this model can gain (0 if it has no blocks). */
 export const mostStoreys = (asset: string): number => STACKS[asset]?.most ?? 0;
 

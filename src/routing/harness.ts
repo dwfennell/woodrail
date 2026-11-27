@@ -275,6 +275,7 @@ export class HarnessRun implements InvariantWorld {
   private wire(): void {
     const { layout, sim } = this;
     this.sections = new Sections(layout, sim, {
+      dispatchedWay: (engine) => this.dispatcher?.grantedWay(engine)?.pieces,
       lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
       live: (lineId) => {
         const live: number[] = [];
@@ -325,9 +326,14 @@ export class HarnessRun implements InvariantWorld {
           busy: (train) => train.turnback >= 0,
           drive,
           granted: (engine) => this.sections.steerSoon.add(engine),
+          giveWayAhead: (t, into) => this.router.giveWayRoad(t, new Set(into.keys()), into),
           lineOf: (engine) => (this.routes.has(engine) ? (this.lineOf.get(engine) ?? -1) : -1),
           swapping: (engine) => this.sections.swapping(engine),
           couldSwap: (engine) => this.sections.couldSwap(engine),
+          couldStepAside: (engine) => this.sections.couldStepAside(engine),
+          sectionsGate: (ref) => this.sections.gateAt(ref),
+          sectionsGateVersion: () => this.sections.gateVersion(),
+          asideNow: (engine) => this.sections.asideNow(engine),
           swapFailed: (engine) => this.sections.swapFailed(engine),
         })
       : null;
@@ -386,6 +392,10 @@ export class HarnessRun implements InvariantWorld {
   /** Does the dispatcher hold this train (`twoOwners`)? */
   dispatched(train: Train): boolean {
     return !!this.dispatcher?.holds(train);
+  }
+
+  heldEngines(): Iterable<number> {
+    return this.dispatcher?.heldEngines() ?? [];
   }
 
   steerHint(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined {

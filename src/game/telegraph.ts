@@ -1,7 +1,8 @@
 import type { RouteStopDef } from "../economy";
 import { firstStopAhead, lineOf, startLine } from "./lines";
 import { LEVER_REACH, trackDistance, wiredPoles } from "./lineside";
-import { depotName, type World } from "./world";
+import type { World } from "./world";
+import { placeName } from "./route-stops";
 
 /**
  * The Telegraph's "see every train, call one home" (tech tree S2): a signal box's card lists the trains in its reach
@@ -47,11 +48,11 @@ export function trainsInReach(world: Pick<World, "layout" | "sim" | "props">, x:
 export type Home = { readonly depotId: number; readonly kind: "depot" | "station"; readonly name: string };
 
 /** Where Call home sends this engine's train: its line's first stop, else the station it comes to first; null: none. */
-export function homeOf(world: Pick<World, "economy" | "landscape">, engine: number): Home | null {
+export function homeOf(world: Pick<World, "economy" | "landscape" | "layout">, engine: number): Home | null {
   const e = world.economy;
   const line = lineOf(e, engine);
   const first = line?.stops.map((s) => e.depot(s.depotId)).find((d) => d && e.onMap(d));
-  if (first) return { depotId: first.id, kind: "depot", name: depotName(world, first) };
+  if (first) return { depotId: first.id, kind: "depot", name: placeName(world, first.id) };
   const stations: RouteStopDef[] = e
     .allDepots()
     .filter((d) => d.role === "town" && e.onMap(d))
@@ -59,13 +60,13 @@ export function homeOf(world: Pick<World, "economy" | "landscape">, engine: numb
   const k = firstStopAhead(e, engine, stations);
   if (k === -1) return null;
   const d = e.depot(stations[k].depotId)!;
-  return { depotId: d.id, kind: "station", name: depotName(world, d) };
+  return { depotId: d.id, kind: "station", name: placeName(world, d.id) };
 }
 
 export type CallResult = { ok: true; home: Home } | { ok: false; why: "no-train" | "no-home" };
 
 /** Call this engine's train home (see the module's note). */
-export function callHome(world: Pick<World, "economy" | "landscape">, engine: number): CallResult {
+export function callHome(world: Pick<World, "economy" | "landscape" | "layout">, engine: number): CallResult {
   const e = world.economy;
   const found = e.sim.findCar(engine);
   if (!found || found.train.derailed) return { ok: false, why: "no-train" };

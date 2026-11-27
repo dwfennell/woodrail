@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from "vitest/config";
 import { gitShortHash, nativeBuild, updateCheckOn } from "./scripts/build-info.mjs";
 import { debugReports } from "./scripts/debug-reports.mjs";
+import { homeScreenApp } from "./scripts/home-screen.mjs";
 import { workerChunks } from "./scripts/worker-chunks.mjs";
 
 // Names this build, so caches of things it generates (track piece geometry) are only reused by the same build, and so
@@ -45,7 +46,7 @@ function nativePage(): Plugin {
 
 export default defineConfig(({ command }) => ({
   // "Send to Claude" reports from the dev server, written to .reports/.
-  plugins: [debugReports(), versionFile(), workerChunks(), ...(nativeBuild() ? [nativePage()] : [])],
+  plugins: [debugReports(), versionFile(), workerChunks(), homeScreenApp(), ...(nativeBuild() ? [nativePage()] : [])],
   define: {
     __NATIVE__: nativeBuild() ? "true" : "false",
     // Empty in dev and tests: nothing is cached there.

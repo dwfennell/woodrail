@@ -8,13 +8,13 @@ import { note } from "../debug/report";
 import { blockWord } from "./blocks";
 import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
-import { fullscreenAvailable, onFullscreenChange, toggleFullscreen } from "./fullscreen";
+import { fullscreenAvailable, HOME_SCREEN_HOW, homeScreenOffered, onFullscreenChange, toggleFullscreen } from "./fullscreen";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
 import { MAX_ENGINE_NAME } from "../sim/engine-names";
 import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
-import { loadFavourites, saveFavourites } from "./prefs";
+import { loadFavourites, loadTrayFolded, saveFavourites, saveTrayFolded } from "./prefs";
 import { pillCount, pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
@@ -372,6 +372,8 @@ export class Hud {
   private redoItem!: HTMLButtonElement;
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
+  /** Under a place's name, what kind of place it is where the name doesn't say ("River landing"). */
+  private readonly depotKind = el("div", "card-sub depot-kind");
   private readonly depotStock = el("div", "depot-stock");
   /** What the depot card's goods line last drew (`updateDepotCard`). */
   private depotStockKey = "";
@@ -668,6 +670,12 @@ export class Hud {
     this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
     this.fullItem = narrow("Fullscreen", "Fill the screen with the game", toggleFullscreen);
     this.fullItem.hidden = this.fullBtn.hidden;
+    // An iPhone has no fullscreen for a page: from the home screen, the GitHub Pages copy opens without the bars.
+    const homeItem = button("Play full screen", "How to play without the browser's bars", () => {
+      this.menu.hidden = true;
+      this.toast(HOME_SCREEN_HOW, false, 7000);
+    }, "menu-item home-screen-item");
+    homeItem.hidden = !homeScreenOffered();
     this.menu.append(this.redoItem, this.landItem);
     // Sandbox's chain hints (cards, the map, a few tips) can be switched off for free play.
     this.chainItem = button("Chain hints: on", "Show where industries' goods come from and go", () => {
@@ -698,6 +706,7 @@ export class Hud {
       this.linesItem,
       this.soundItem,
       this.fullItem,
+      homeItem,
       this.chainItem,
       this.tipsItem,
       this.dispatcherItem,
@@ -889,7 +898,7 @@ export class Hud {
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotKind, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.depotPower.hidden = true;
     this.root.appendChild(this.depotCard);
@@ -1270,6 +1279,8 @@ export class Hud {
     let list: TrayTab[] = [];
     this.openTrayTab = (id, shelf) => {
       const tab = list.find((t) => t.id === id);
+      // (Show me, a goal, the tutorial: what it shows is on the shelves, so a folded tray opens.)
+      if (tab) this.setTrayFolded(false);
       if (tab) openTab(tab, shelf);
     };
     this.reopenTray = () => {
@@ -1285,6 +1296,8 @@ export class Hud {
         // its tabs, its shelves put away for the map's sake: a tab tapped there puts the pencil down, so they show.)
         const t = button(tab.label, `${tab.label}`, () => {
           if (this.drawing && getComputedStyle(scroller).display === "none") this.handlers.trayDraw(false);
+          // (Folded away on a phone: a tab tapped opens the tray again, on that tab.)
+          this.setTrayFolded(false);
           openTab(tab);
         }, "tab");
         t.dataset.tab = tab.id;
@@ -1330,6 +1343,12 @@ export class Hud {
     fitWatch.observe(head);
     fitWatch.observe(tools);
     this.tray.append(head, scroller);
+    // On a phone (style.css `.tray-fold`), a pull on the tray's top edge folds it down to its tabs and tools, for more
+    // of the map; a tap on it or on a tab opens it again. Kept on this device. (Open the first time: the shelves are
+    // where a new player starts.)
+    this.trayFoldBtn = button(uiIcon("fold"), "", () => this.setTrayFolded(!this.trayFolded), "tray-fold");
+    this.tray.append(this.trayFoldBtn);
+    this.setTrayFolded(loadTrayFolded(), false);
     this.root.appendChild(this.tray);
     // The room the tray takes at the screen's foot, for the cards that stand on it (`--tray-room` in style.css: a
     // workshop's card at 2000×1165 ran under the tray's tabs, its foot set for a shorter tray). Measured when the tray
@@ -1523,6 +1542,21 @@ export class Hud {
   /** Rebuild the tray's tabs for a mode (set in the constructor, where the tray is built). */
   private showTabs: (mode: GameMode, keep?: boolean) => void = () => {};
   private openTrayTab: (id: string, shelf?: string) => void = () => {};
+  private trayFoldBtn!: HTMLButtonElement;
+  private trayFolded = false;
+
+  /** The tray folded to its tabs and tools (on a phone; a bigger screen has room and shows no pull), or open. */
+  private setTrayFolded(on: boolean, save = true): void {
+    if (on === this.trayFolded && save) return;
+    this.trayFolded = on;
+    this.tray.classList.toggle("folded", on);
+    this.root.classList.toggle("tray-folded", on);
+    const title = on ? "Open the tray" : "Fold the tray away, for more of the map";
+    this.trayFoldBtn.title = title;
+    this.trayFoldBtn.setAttribute("aria-label", title);
+    this.trayFoldBtn.setAttribute("aria-expanded", String(!on));
+    if (save) saveTrayFolded(on);
+  }
   private reopenTray: () => void = () => {};
 
   /**
@@ -2279,7 +2313,7 @@ export class Hud {
     this.hideCards();
     this.pieceCard.hidden = false;
     this.root.classList.add("card-open");
-    this.pieceTitle.textContent = title;
+    setStatedTitle(this.pieceTitle, title);
     this.pieceDetail.textContent = detail;
     this.pieceDetail.hidden = detail === "";
     this.pieceDetail.classList.remove("warn");
@@ -2309,7 +2343,7 @@ export class Hud {
    */
   /** The open piece card's title, changed in place (a signal's: what it shows now, as its aspect changes). */
   setPieceTitle(title: string): void {
-    this.pieceTitle.textContent = title;
+    if (this.pieceTitle.textContent !== title) setStatedTitle(this.pieceTitle, title);
   }
 
   /** The open piece card's detail line said as a warning (`warn-ink`: a signal too short to wait at). */
@@ -2628,9 +2662,12 @@ export class Hud {
     this.depotWiki.setAttribute("aria-label", "This industry on the Woodrail wiki");
   }
 
-  showDepotCard(title: string): void {
+  /** A place's card: its name, and (where the name doesn't say) what kind of place it is under it. */
+  showDepotCard(title: string, kind = ""): void {
     this.hideCards();
     this.depotTitle.textContent = title;
+    this.depotKind.textContent = kind;
+    this.depotKind.hidden = kind === "";
     this.depotLineBtn.hidden = true;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
@@ -3001,7 +3038,13 @@ export class Hud {
   /** Open the "Learn more" sheet for explainer `id` (`onClose` once it's closed). */
   showExplainer(id: ExplainerId, onClose?: () => void): void {
     this.tips.hide();
-    const open = (sheet: ExplainerSheet) => sheet.show(id, onClose ?? (() => {}));
+    // Closed: a toast put at the sheet's foot (no room above it) goes where it would now, not left over the place card
+    // under it (e2e:learn-more: a tap on its Learn more went to the toast).
+    const closed = () => {
+      this.refitToast();
+      onClose?.();
+    };
+    const open = (sheet: ExplainerSheet) => sheet.show(id, closed);
     if (this.explainers) return open(this.explainers);
     // (Its words, pictures and code are loaded the first time: nothing of them before.)
     void loadExplainerSheet().then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
@@ -3476,4 +3519,27 @@ export function depotModeText(auto: boolean, waitFull: boolean | null): string {
   if (waitFull === null) return "";
   if (!auto) return "Trains run straight through; move cargo by hand.";
   return waitFull ? "Trains wait under the crane till every wagon is full." : "Trains take what's ready and go on.";
+}
+
+/**
+ * A card's title that says a state after a " · " ("Signal · red: a train is on the line ahead"): the name stays the
+ * title, one line, and the state goes on its own line under it in body type (docs/agents/card-system.md: a title never
+ * wraps into a paragraph). The text is kept whole (the " · " hidden, not dropped), so the title reads as before.
+ */
+export function setStatedTitle(el: HTMLElement, title: string): void {
+  const at = title.indexOf(" · ");
+  if (at < 0) {
+    el.textContent = title;
+    return;
+  }
+  const main = document.createElement("span");
+  main.className = "title-main";
+  main.textContent = title.slice(0, at);
+  const sep = document.createElement("span");
+  sep.className = "title-sep";
+  sep.textContent = " · ";
+  const state = document.createElement("span");
+  state.className = "title-state";
+  state.textContent = title.slice(at + 3);
+  el.replaceChildren(main, sep, state);
 }
