@@ -14,6 +14,12 @@
 //      steam speed (never stopped), and the sawmill waits for a spark (its card says so). The power station's card
 //      says one engine is at steam speed.
 //   6. Reloaded: the turbine still stands, the sawmill is still asked for.
+//   The spark balance on the top bar ("⚡ spare/made", src/game/spark-text.ts), all along: hidden before any spark is
+//   made; "1/1" with the turbine's spark, "5/5" with the power station's, "4/5" once the sawmill takes one; counting
+//   down as electric engines are added one by one, red at a shortfall ("−2/5"); a tap opens its sheet (where sparks
+//   come from, what takes them, what goes without), 0 frames drawn while it's open and paused, the bar's count left
+//   untouched while nothing changes; the same after a reload. Pictures into docs/agents/shots/sparks-*.jpg at 390×844
+//   and 1440×900.
 //
 // Usage: npm run e2e:power [-- <out dir>]   (default out: e2e-out/power)
 import { existsSync, mkdirSync } from "node:fs";
@@ -157,6 +163,20 @@ const dragTurbine = async (at) => {
   await frames();
   return true;
 };
+/** The spark balance on the top bar: null while hidden, else its count ("3/5"), and whether it's red. */
+const sparks = () =>
+  p.evaluate(() => {
+    const e = document.querySelector(".topbar .sparks");
+    if (!e || e.hidden || e.getBoundingClientRect().width === 0) return null;
+    return { label: e.querySelector(".sp-count")?.textContent ?? "", short: e.classList.contains("short") };
+  });
+/** Wait for the balance to read `label` (it's counted once a second), and return what it reads. */
+const sparksRead = async (label) => {
+  await p.waitForFunction((l) => document.querySelector(".topbar .sparks:not([hidden]) .sp-count")?.textContent === l, label, { timeout: 8000 }).catch(() => {});
+  return sparks();
+};
+const SHOTS = `${ROOT}/docs/agents/shots`;
+const shotJpg = (n) => p.screenshot({ path: `${SHOTS}/sparks-${n}.jpg`, type: "jpeg", quality: 80, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
 const turbines = () => p.evaluate(() => [...window.woodrail.world.props.all()].filter((x) => x.asset === "mech-wind-turbine").map((x) => ({ x: x.x, z: x.z, y: x.y })));
 const inBox = () => p.evaluate(() => document.querySelector(".tray-item[data-key='prop:mech-wind-turbine'] .have")?.textContent ?? null);
 
@@ -177,6 +197,8 @@ await p.waitForTimeout(500);
 const keys = await p.evaluate(() => [...document.querySelectorAll(".tray-item[data-key]")].map((e) => e.dataset.key));
 check("1. Wind farm learned: the wind turbine is on the Industries tab", keys.includes("prop:mech-wind-turbine"), JSON.stringify(keys.filter((k) => k.includes("power") || k.includes("wind"))));
 check("…two in the toy box", (await inBox()) === "2", String(await inBox()));
+await p.waitForTimeout(1500);
+check("…no spark made yet: no spark balance on the top bar", (await sparks()) === null, JSON.stringify(await sparks()));
 
 // Where to try it: a flat square near the first town, and a hilltop, each clear for the turbine.
 const spots = await p.evaluate(async () => {
@@ -236,6 +258,8 @@ if (spots.hill) {
   const now = await turbines();
   check("…dragged onto a hilltop: it stands there, on the hill", now.length === 1 && now[0].y > 0, JSON.stringify(now));
   check("…one fewer in the toy box", (await inBox()) === "1", String(await inBox()));
+  const one = await sparksRead("1/1");
+  check("…its spark shows on the top bar: ⚡ 1/1 (1 spare of 1 made)", one?.label === "1/1" && !one.short, JSON.stringify(one));
   const card = await p.evaluate(() => [...document.querySelectorAll(".piece-card")].filter((e) => !e.hidden).map((e) => e.textContent).join(" "));
   check("…its card says it makes a spark of power, counted as it stands (1 in all)", /A spark of power\. 1 in all/.test(card), card);
   // Its rotor turns while in view, near enough to see.
@@ -281,6 +305,24 @@ const station = await p.evaluate(async () => {
   return { error: "no room for a power station" };
 });
 check("3. a power station with coal is down (setup)", station.depot !== undefined, JSON.stringify(station));
+// (And a school, so the top bar has its research pill, as a game with power would: setup, for the bar's fit below.)
+const school = await p.evaluate(async () => {
+  const w = window.woodrail;
+  const i = w.interaction;
+  const c = w.world.landscape.towns[0].centre;
+  for (let ring = 2; ring < 30; ring++)
+    for (let k = 0; k < 16; k++)
+      for (const heading of [0, Math.PI / 2]) {
+        const a = (k * Math.PI) / 8 + 0.2;
+        const pose = { x: Math.round((c.x + Math.cos(a) * ring * 150) / 18) * 18, z: Math.round((c.z + Math.sin(a) * ring * 150) / 18) * 18, heading };
+        if (i.placement("depot-school", false, pose, 0, -1).reason) continue;
+        w.editor().place("depot-school", pose, 0, false);
+        await new Promise((r) => setTimeout(r, 300));
+        return w.economy.allDepots().some((d) => d.role === "school");
+      }
+  return false;
+});
+check("…and a school (setup: the research pill on the top bar)", school === true);
 // (The sparks are counted once a second.)
 await p.waitForTimeout(1500);
 if (station.depot !== undefined) {
@@ -289,6 +331,8 @@ if (station.depot !== undefined) {
   const lines = await powerLines();
   check("…its card, by a tap: 5 sparks, 4 from coal and 1 from the wind, 5 spare", open && lines.some((l) => /5 sparks: 4 from coal, 1 from the wind/.test(l)) && lines.some((l) => /^5 spare/.test(l)), JSON.stringify({ open, lines }));
   await shot("3-power-card");
+  const five = await sparksRead("5/5");
+  check("…the top bar: ⚡ 5/5", five?.label === "5/5" && !five.short, JSON.stringify(five));
   await closeCards();
 }
 
@@ -326,6 +370,10 @@ if (sawmill !== null) {
   const lines = await powerLines();
   check("…its card's ⚡ Power this yard, tapped: it says it's powered, 1.5× as fast", asked && lines.some((l) => /Powered: works 1.5× as fast/.test(l)), JSON.stringify({ opened, asked, lines }));
   await shot("4-sawmill-powered");
+  const four = await sparksRead("4/5");
+  check("…the top bar counts it: ⚡ 4/5", four?.label === "4/5" && !four.short, JSON.stringify(four));
+  await closeCards();
+  await shotJpg("390-balance");
   await closeCards();
   await glideTo({ x: 0, z: -4000 }, 3000);
   const after = await plankRate(30000);
@@ -371,15 +419,55 @@ const engines = await p.evaluate(async () => {
   };
   const first = put(ids[1], 100);
   const one = first === null ? null : w.sim.topSpeed(w.sim.getTrain(first)) / ENGINE_SPEED;
-  const more = [];
-  for (const [n, s] of [[2, 60], [2, 160], [3, 60], [3, 160], [4, 100]]) more.push(put(ids[n], s));
-  if (more.some((x) => x === null)) return { error: "no room for six engines", more };
-  // (Counted once a second in the game: the next count is waited for below.)
-  return { one, trains: [first, ...more] };
+  // (The other five are put on one at a time below, the top bar read after each.)
+  window.__putEngine = (n, s) => put(ids[n], s);
+  return { one, trains: [first] };
 });
 check("5. one electric engine on a line, with a spark, runs at 1.4×", Math.abs((engines.one ?? 0) - 1.4) < 1e-6, JSON.stringify(engines));
-await p.waitForTimeout(1500);
 if (engines.trains) {
+  // The balance counts down as each engine is put on (the sawmill holds one spark): 3/5, 2/5, 1/5, 0/5, then short.
+  const seen = [(await sparksRead("3/5"))?.label];
+  for (const [[n, at], want] of [[[2, 60], "2/5"], [[2, 160], "1/5"], [[3, 60], "0/5"], [[3, 160], "\u22121/5"], [[4, 100], "\u22122/5"]]) {
+    engines.trains.push(await p.evaluate(([n, at]) => window.__putEngine(n, at), [n, at]));
+    seen.push((await sparksRead(want))?.label);
+  }
+  check("…the top bar counts down as electric engines are added: 3/5, 2/5, 1/5, 0/5, −1/5, −2/5", seen.join(" ") === "3/5 2/5 1/5 0/5 \u22121/5 \u22122/5" && !engines.trains.includes(null), JSON.stringify({ seen, trains: engines.trains }));
+  const red = await sparks();
+  check("…short of sparks: drawn red", red?.short === true, JSON.stringify(red));
+  // Tapped: its sheet says where the sparks come from, what takes them, and what goes without.
+  await closeCards();
+  await tapButton(".topbar .sparks");
+  const sheet = await p.evaluate(() => {
+    const e = document.querySelector(".sparks-sheet");
+    return e && !e.hidden ? { lines: [...e.querySelectorAll(".sparks-line")].map((l) => ({ text: l.textContent, warn: l.classList.contains("warn") })), stamp: e.querySelector(".sparks-stamp")?.textContent } : null;
+  });
+  const said = (re) => !!sheet?.lines.some((l) => re.test(l.text));
+  check(
+    "…a tap opens its sheet: 5 made (4 from coal, 1 from the wind), 6 electric engines, the shortfall naming the engine at steam speed and the waiting sawmill",
+    !!sheet && sheet.stamp === "2 short" && said(/5 sparks made: 4 from coal \(1 power station\), 1 from the wind \(1 turbine\)/) && said(/Electric engines: 6, 1 at steam speed/) && sheet.lines.some((l) => l.warn && /^2 sparks short\. .*runs at steam speed; the sawmill waits for a spark\./.test(l.text)),
+    JSON.stringify(sheet),
+  );
+  await shotJpg("390-sheet");
+  // Paused with the sheet open: nothing drawn, and the bar's count isn't touched while the balance holds.
+  await p.evaluate(() => [...document.querySelectorAll("button")].find((e) => /^Pause/.test(e.title))?.click());
+  await p.waitForFunction(() => window.woodrail.paused, null, { timeout: 10000 }).catch(() => {});
+  await settle();
+  const idle = await p.evaluate(async () => {
+    const e = document.querySelector(".topbar .sparks");
+    let touched = 0;
+    const mo = new MutationObserver((m) => (touched += m.length));
+    mo.observe(e, { subtree: true, childList: true, characterData: true, attributes: true });
+    const f0 = window.woodrail.framesDrawn;
+    await new Promise((r) => setTimeout(r, 4000));
+    mo.disconnect();
+    return { frames: window.woodrail.framesDrawn - f0, touched, open: !document.querySelector(".sparks-sheet").hidden };
+  });
+  check("…paused with the sheet open: 0 frames drawn, the bar's count untouched (asked once a second, changed only when it does)", idle.frames === 0 && idle.touched === 0 && idle.open, JSON.stringify(idle));
+  await p.evaluate(() => [...document.querySelectorAll("button")].find((e) => /^(Play|Resume|Pause)/.test(e.title) && window.woodrail.paused)?.click());
+  // A tap on the map puts the sheet away.
+  await tapped(() => p.touchscreen.tap(200, 500));
+  check("…a tap elsewhere puts it away", await p.evaluate(() => document.querySelector(".sparks-sheet").hidden));
+  await shotJpg("390-short");
   const speeds = await p.evaluate(async (trains) => {
     const { ENGINE_SPEED } = await import("/src/sim/index.ts");
     const w = window.woodrail;
@@ -413,6 +501,46 @@ const back = await p.evaluate((id) => {
   return { turbines: [...w.world.props.all()].filter((x) => x.asset === "mech-wind-turbine").length, asked: id === null ? null : w.economy.depot(id).powerAsk };
 }, sawmill);
 check("6. reloaded: the turbine still stands, the sawmill is still asked for", back.turbines === 1 && back.asked > 0, JSON.stringify(back));
+if (engines.trains) {
+  const again = await sparksRead("\u22122/5");
+  check("…the top bar after the reload: ⚡ −2/5, red", again?.label === "\u22122/5" && again.short, JSON.stringify(again));
+  // The same at 1440×900: the balance beside the brand, its sheet under it.
+  await p.setViewportSize({ width: 1440, height: 900 });
+  await settle();
+  const wide = await p.evaluate(() => {
+    const r = (s) => document.querySelector(s)?.getBoundingClientRect();
+    const b = r(".brand");
+    const sp = r(".topbar .sparks");
+    return { brandRight: b?.right, sparksLeft: sp?.left, top: sp?.top, h: sp?.height };
+  });
+  check("…at 1440×900: beside the brand, 44 px tall", !!wide.sparksLeft && wide.sparksLeft - wide.brandRight < 16 && wide.h >= 44, JSON.stringify(wide));
+  await shotJpg("1440-short");
+  await p.evaluate(() => document.querySelector(".topbar .sparks").click());
+  await p.waitForTimeout(300);
+  await shotJpg("1440-sheet");
+  await p.evaluate(() => window.woodrail.hud.closeSparkSheet());
+  // It fits on a 360 px phone held upright and on a phone on its side: the coins, the date, the balance, the research
+  // pill and the bar's buttons in one row, nothing off the screen or over another.
+  for (const [width, height] of [[360, 740], [740, 360]]) {
+    await p.setViewportSize({ width, height });
+    await settle();
+    await p.waitForTimeout(300);
+    const row = await p.evaluate(() => {
+      const r = (s) => {
+        const e = document.querySelector(s);
+        if (!e || e.hidden) return null;
+        const b = e.getBoundingClientRect();
+        return b.width > 0 ? { l: Math.round(b.left), r: Math.round(b.right), t: Math.round(b.top), b: Math.round(b.bottom) } : null;
+      };
+      const all = [...document.querySelectorAll(".topbar .actions > button")].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.getBoundingClientRect());
+      return { width: innerWidth, brand: r(".brand"), coins: r(".brand .coins"), date: r(".brand .game-date"), sparks: r(".topbar .sparks"), pill: r(".research-pill"), last: all.length ? Math.round(Math.max(...all.map((b) => b.right))) : null };
+    });
+    const inOrder = row.brand && row.sparks && row.pill && row.last !== null && row.brand.r <= row.sparks.l + 1 && row.sparks.r <= row.pill.l && row.pill.r <= row.last && row.last <= row.width - 10;
+    check(`…at ${width}×${height}: the coins, date, balance, research pill and buttons all fit in the top bar`, !!inOrder && !!row.coins && !!row.date && row.pill.r - row.pill.l >= 44 && row.sparks.r - row.sparks.l >= 40, JSON.stringify(row));
+    await p.screenshot({ path: `${SHOTS}/sparks-${width}-bar.jpg`, type: "jpeg", quality: 85, clip: { x: 0, y: 0, width, height: 120 } }).catch(() => {});
+  }
+  await p.setViewportSize({ width: 390, height: 844 });
+}
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(`\n${failures === 0 ? "e2e:power: all passed" : `e2e:power: ${failures} failed`}`);

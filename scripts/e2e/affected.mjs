@@ -371,7 +371,7 @@ export const RULES = [
   // Water transport: the landing, boats, cargo ships, the lighthouse, the ferry, the yards.
   [["src/game/boats.ts", "src/game/ferry.ts", "src/game/harbours.ts", "src/ui/boat-card.ts", "src/ui/water-controls.ts", "src/render/river-boats-view.ts", "src/render/ferries-view.ts", "src/render/boats-view.ts", "src/economy/boats.ts", "src/catalogue/assets/water.ts", "src/catalogue/assets/boat-parts.ts", "src/game/yards.ts", "src/render/yards-view.ts"], ["water"]],
   // Power as sparks and the wind farm (late-game spec W1).
-  [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
+  [["src/game/power.ts", "src/game/spark-text.ts", "src/style.css", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
   // The new-game sheet and how hilly a map is (chosen before a new game, saved with the map).
   [["src/ui/new-game.ts", "src/landscape/hills.ts", "src/landscape/water.ts", "src/landscape/edges.ts", "src/landscape/generate.ts", "src/ui/title.ts", "src/ui/hud.ts", "src/persist/landscape-data.ts", "src/persist/landscape-schema.ts"], ["new-game", "tutorial"]],
   // Your games: several Game-mode games side by side (the slots, the list, the title's and ☰'s ways in, the cloud's).
