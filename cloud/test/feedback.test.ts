@@ -162,7 +162,7 @@ describe("feedback: the endpoint", () => {
     }
     expect((await post(report(), {}, "https://evil.example")).status).toBe(403);
     // (Saves keep their own, narrower, list.)
-    expect((await worker.fetch(new Request(`${BASE}/v1/saves/game`, { headers: { Origin: "https://html-classic.itch.zone", "X-Woodrail-Code": "acorn-badge-otter-0420" } }), env)).status).toBe(403);
+    expect((await worker.fetch(new Request(`${BASE}/v1/saves/game`, { headers: { Origin: "https://v6p9d9t4.ssl.hwcdn.net", "X-Woodrail-Code": "acorn-badge-otter-0420" } }), env)).status).toBe(403);
   });
 
   it("lists the latest reports, newest first, only with the admin key", async () => {

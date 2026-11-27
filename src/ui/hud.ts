@@ -2546,7 +2546,7 @@ export class Hud {
   /** Offer Cloud save in the menu (the build has a cloud to save to: `VITE_CLOUD_URL`). */
   addCloudItem(onTap: () => void): void {
     this.linesItem.after(
-      button("☁ Cloud save", "Save online, or load your railway from another device", () => {
+      button("☁ Cloud save", "Keep your railway online, or load it with a code", () => {
         this.menu.hidden = true;
         onTap();
       }, "menu-item"),

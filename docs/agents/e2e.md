@@ -86,7 +86,7 @@ learned).
 to read its tabs (K1 compares them).
 
 **cloud** (`scripts/e2e/cloud.mjs`, about 19 min idle, 27 with a CPU hog): `sandbox` (steps 1–6, devices A and B),
-`game-sync` (7–8) and `game-rewards` (9–10), and `auto` (cloud saves turned on by themselves when a piece is laid, the title's Continue from cloud, a gone code, offline, Turn off). Each Game group sets up two devices (C and D) on a code of its own, so it
+`game-sync` (7–8) and `game-rewards` (9–10), `auto` (cloud saves turned on by themselves when a piece is laid, with the code said in a toast, the title's Continue from cloud, a gone code, offline, Turn off), and `itch` (about 1 min: an iPhone with the game in another site's frame, as on itch.io; the title's plain word and Load with a code, the card's code to write down; storage cleared, the code typed on the title, the railway back). Each Game group sets up two devices (C and D) on a code of its own, so it
 can run alone; each run starts its own Worker on a free port (`CLOUD_PORT` to pin one), so `E2E_SHARD=1/2` and `2/2`
 can run side by side. As one group, a gate's 1700 s timeout fell on step 10 with every check before it passing.
 

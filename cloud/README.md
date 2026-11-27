@@ -7,8 +7,8 @@ on another device. The game's side of it is `src/persist/cloud.ts`, and its card
 
 | Request | What it does |
 | --- | --- |
-| `PUT /v1/saves/:mode` | Stores a bundle (the game gzips it). The copy it replaces is kept as `:mode.prev`. |
-| `GET /v1/saves/:mode` | Returns the bundle. With `?prev=1`, returns the one before it. |
+| `PUT /v1/saves/:mode` | Stores a bundle (the game gzips it). The copy it replaces may be kept as `:mode.prev` (below). |
+| `GET /v1/saves/:mode` | Returns the bundle. With `?prev=1`, returns the earlier copy (`:mode.prev`). |
 | `HEAD /v1/saves/:mode` | Returns the headers only: what's there, without the bytes. |
 | `POST /v1/stats` | Anonymous play stats from players who said yes, into Analytics Engine (see `docs/stats.md`). Any origin. |
 | `POST /feedback` | "Report a bug or give feedback": stored under `feedback/<id>/`, and a GitHub issue opened if `GITHUB_TOKEN` is set (see `docs/feedback.md`). |
@@ -27,13 +27,26 @@ on another device. The game's side of it is `src/persist/cloud.ts`, and its card
   stored the bundle by its own clock. Every response carries `X-Server-Now`, so a game compares edits by the Worker's
   clock rather than another device's.
 
+- **The earlier copy** (`:mode.prev`) is the railway as it was before the player last sat down to play. A PUT moves
+  the copy it replaces there only if that copy had rested 10 minutes (`PREV_REST_MS`), or there's no earlier copy yet,
+  or the PUT asks with `X-Keep-Prev: 1` (the game does after a restore, so going back can be undone). Moved on every
+  PUT, it would be the copy from 30 s before, nearly the same. The game offers it on the Cloud save card ("Earlier
+  copy online").
+
 ### Limits
 
 - **Size:** 2 MB per bundle, or the request gets a 413. A big railway gzips to well under 200 KB.
 - **Rate:** one PUT per code and mode every 10 s, or the request gets a 429. The game sends at most every 30 s, and
   when its page hides.
-- **CORS:** only the pages listed in `ALLOWED_ORIGINS` in `wrangler.toml`, plus `http://localhost` and
-  `http://127.0.0.1` on any port. A page from any other origin gets a 403.
+- **Guessing codes:** every lookup under a code (GET, HEAD, PUT) is counted per IP by the `CODE_LIMIT` rate-limit
+  binding (`wrangler.toml`: 120 a minute). One that finds nothing (a wrong code, or a new code's first copy) costs 5
+  more (`MISS_COST`), so a page guessing codes gets about 20 tries a minute, while a player's game, which nearly always
+  finds its own, never comes near it. Past the limit a lookup gets a 429 before anything is looked up, so it says
+  nothing about the code. The binding is free on Workers (as `FEEDBACK_LIMIT`), counted per Cloudflare location, and
+  not exact. `127.0.0.1` and `::1` (`wrangler dev`, the e2e) aren't counted.
+- **CORS:** only the pages listed in `ALLOWED_ORIGINS` in `wrangler.toml` (the game on GitHub Pages, and on itch.io:
+  `https://html-classic.itch.zone`, where itch serves every HTML game), plus `http://localhost` and
+  `http://127.0.0.1` on any port. A page from any other origin gets a 403. CORS guards pages only: the code is the key.
 - **No overwriting unseen:** a PUT names the copy it was made from (`X-Base-Saved-At`), and R2 stores it only if that
   copy is still there (`onlyIf` its etag), and the first PUT under a code only if there's still nothing (`onlyIf`
   `etagDoesNotMatch: "*"`). If another device's copy got in first, the PUT gets a 409.
@@ -79,8 +92,8 @@ These are the steps to run once:
    npx wrangler r2 bucket create woodrail-saves
    openssl rand -hex 32 | npx wrangler secret put CODE_KEY
    ```
-3. Check `ALLOWED_ORIGINS` in `wrangler.toml`. It must include the game's origin, which is
-   `https://dwfennell.github.io` for GitHub Pages (an origin has no path).
+3. Check `ALLOWED_ORIGINS` in `wrangler.toml`. It must include the game's origins: `https://dwfennell.github.io` for
+   GitHub Pages and `https://html-classic.itch.zone` for itch.io (an origin has no path).
 4. Deploy the Worker, and note the URL it prints (`https://woodrail-cloud.<subdomain>.workers.dev`):
    ```sh
    npx wrangler deploy
@@ -92,8 +105,8 @@ These are the steps to run once:
 6. Give the game the URL. In the GitHub repo, go to Settings → Secrets and variables → Actions → Variables, and add
    `WOODRAIL_CLOUD_URL` set to that URL. The Pages workflow builds with it as `VITE_CLOUD_URL`, and the next deploy of
    the game shows Cloud save in the menu. While the variable is unset, the game has no Cloud save. The claude.ai
-   artifact build (`npm run build:artifact`) never has it. The same variable turns on play stats ("Help improve
-   Woodrail", `docs/stats.md`) in the Pages build and in itch releases.
+   artifact build (`npm run build:artifact`) never has it. The same variable turns on cloud saves in itch releases
+   (`docs/itch-builds.md`), and play stats ("Help improve Woodrail", `docs/stats.md`) in both.
 7. Feedback (optional; see `docs/feedback.md` for the token): `npx wrangler secret put GITHUB_TOKEN` (a fine-grained
    token, Issues: Read and write on `dwfennell/woodrail` only) and `npx wrangler secret put ADMIN_KEY`, then deploy
    again. Without them, reports are stored and nothing more.
@@ -108,12 +121,10 @@ These are the steps to run once:
 ### Before it goes wide
 
 These limits aren't in v1:
-- Rate limits on HEAD and GET per client, against guessing codes. Use the Workers rate-limiting binding, or a WAF
-  rule on the route.
 - A rate limit on `POST /v1/stats`. Anyone can send made-up stats today (each batch is capped at 16 KB and 50
   events); it costs only noise in the numbers.
-- A tighter limit on PUTs under codes with nothing saved yet. Today anyone can store 2 MB under a fresh code every
-  10 s.
+- A tighter limit on PUTs under codes with nothing saved yet. A fresh code's first PUT now counts as a miss
+  (`CODE_LIMIT`), so about 20 new codes a minute per IP, of 2 MB each at most.
 
 ### Known limits (the game's side)
 

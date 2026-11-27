@@ -92,7 +92,7 @@ async function boot() {
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--mute-audio", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 }
 
 /** A device's page, played into Sandbox. */
@@ -202,7 +202,7 @@ suite.add(
     const shown = await a.evaluate(() => document.querySelector(".cloud-code").textContent);
     const code = shown.trim().replace(/ /g, "-");
     check("on: a code of three words and four digits, and “Saved online”", /^[a-z]{3,5}-[a-z]{3,5}-[a-z]{3,5}-\d{4}$/.test(code), `${shown} · ${await a.evaluate(() => document.querySelector(".cloud-status").textContent)}`);
-    check("…with the kind warning", /Only share it with people you'd let play your railway/.test(await card(a)));
+    check("…with the kind warning", /Share it only with people you'd let play your railway/.test(await card(a)));
     check("the code is never in a URL", !(await a.evaluate(() => location.href)).includes(code.split("-")[0]));
     const r1 = await remote(code);
     check("A's railway is in the cloud", r1.status === 200 && r1.size > 0, JSON.stringify(r1));
@@ -213,7 +213,7 @@ suite.add(
     const bp = await device(ctxB);
     const seedB0 = await seed(bp);
     await menu(bp, "Cloud save");
-    await tap(bp, "Load a save from another device");
+    await tap(bp, "Load with a code");
     await bp.fill(".cloud-input", "not a code");
     await tap(bp, "Load");
     await bp.waitForFunction(() => !document.querySelector(".cloud-error")?.hidden, null, { timeout: 10000 });
@@ -231,7 +231,7 @@ suite.add(
     check("B carries on with A's railway (after a reload, straight into Sandbox)", seedB === seedA && seedB0 !== seedA, `A ${seedA}; B ${seedB0} → ${seedB}`);
     check("B keeps the code", (await bp.evaluate(() => JSON.parse(localStorage.getItem("woodrail.cloud.v1")).code)) === code);
 
-    // 2b. E: a new device, from the title screen's "Load a cloud save" (by taps): Cancel goes back to the title; the code
+    // 2b. E: a new device, from the title screen's "Load with a code" (by taps): Cancel goes back to the title; the code
     // and Load start the game on A's railway.
     const ctxE = await newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     const ep = await ctxE.newPage();
@@ -255,14 +255,14 @@ suite.add(
       const q = document.querySelector(".title-cloud").getBoundingClientRect();
       return { text: document.querySelector(".title-cloud").textContent, h: q.height, inside: q.left >= 0 && q.right <= innerWidth };
     });
-    check("title: a quiet “Load a cloud save”, a finger's height", /Load a cloud save/.test(link.text) && link.h >= 44 && link.inside, JSON.stringify(link));
+    check("title: a quiet “Load with a code”, a finger's height", /Load with a code/.test(link.text) && link.h >= 44 && link.inside, JSON.stringify(link));
     await tapEl(".title-cloud");
     const entry = await ep.evaluate(() => {
       const c = document.querySelector(".title-screen .cloud-card");
       const q = c?.getBoundingClientRect();
       return { open: !!c && !c.hidden, input: !!c?.querySelector(".cloud-input"), says: c?.textContent ?? "", inside: !!q && q.top >= 0 && q.bottom <= innerHeight, cards: getComputedStyle(document.querySelector(".title-cards")).visibility };
     });
-    check("…opens the code entry over the title, saying what Load does", entry.open && entry.input && /kept aside and can be restored/.test(entry.says) && entry.inside && entry.cards === "hidden", JSON.stringify(entry));
+    check("…opens the code entry over the title, saying what Load does", entry.open && entry.input && /is kept, and you can bring it back/.test(entry.says) && entry.inside && entry.cards === "hidden", JSON.stringify(entry));
     await tapEl(".title-screen .cloud-card button:not(.primary)");
     const back = await ep.evaluate(() => ({ closed: document.querySelector(".title-screen .cloud-card").hidden, title: window.woodrail.title.shown, cards: getComputedStyle(document.querySelector(".title-cards")).visibility }));
     check("…Cancel: back to the title", back.closed && back.title && back.cards === "visible", JSON.stringify(back));
@@ -303,7 +303,7 @@ suite.add(
     await inSandbox(a);
     check("A, started again, opens B's newer railway", (await seed(a)) === seedB2, `A ${await seed(a)}; B ${seedB2}`);
     await menu(a, "Cloud save");
-    check("…with no backup offered (nothing of A's was lost)", !/Restore/.test(await card(a)), await card(a));
+    check("…with no backup offered (nothing of A's was lost)", !/Bring back/.test(await card(a)), await card(a));
     await tap(a, "Done");
     console.log(`  bundle sizes (gzipped): ${r1.size} B, ${r2.size} B`);
 
@@ -366,7 +366,7 @@ suite.add(
     await menu(a, "Cloud save");
     check(
       "back online, an edit made offline before the other device's: A takes B's (and says so), keeps its own to restore, sends nothing over it (QA B2)",
-      seedAOff !== seedB6 && (await seed(a)) === seedB6 && r7.savedAt === r6.savedAt && /Restore the railway from/.test(await card(a)) && /newer railway/.test(told),
+      seedAOff !== seedB6 && (await seed(a)) === seedB6 && r7.savedAt === r6.savedAt && /Bring back the other railway/.test(await card(a)) && /newer railway/.test(told),
       `A offline ${seedAOff}; B ${seedB6}; A now ${await seed(a)}; cloud ${r6.savedAt} → ${r7.savedAt}; said “${told}”; card ${await card(a)}`,
     );
     await ctxA.close();
@@ -399,7 +399,7 @@ async function gameDevices() {
   await d.goto(URL);
   await inMode(d, "game");
   await menu(d, "Cloud save");
-  await tap(d, "Load a save from another device");
+  await tap(d, "Load with a code");
   await d.fill(".cloud-input", code2);
   const dIn = d.waitForEvent("load", { timeout: 60000 });
   await tap(d, "Load");
@@ -587,7 +587,7 @@ suite.add(
     await menu(c, "Cloud save");
     check(
       "Game mode: a layout edit outranks progress made later: C takes D's track (and says so, its own kept to restore), its earnings merged in",
-      g2.layoutAt > g1.layoutAt && (await c.evaluate(() => window.woodrail.layout.pieceCount)) === piecesD && (await coins(c)) === dCoins + 55 && g3.layoutAt === g2.layoutAt && /newer railway/.test(toldC) && /Restore the railway from/.test(await card(c)),
+      g2.layoutAt > g1.layoutAt && (await c.evaluate(() => window.woodrail.layout.pieceCount)) === piecesD && (await coins(c)) === dCoins + 55 && g3.layoutAt === g2.layoutAt && /newer railway/.test(toldC) && /Bring back the other railway/.test(await card(c)),
       `D pieces ${piecesD}, C now ${await c.evaluate(() => window.woodrail.layout.pieceCount)}; D coins ${dCoins}, C earned +55 → ${await coins(c)}; cloud layout ${g2.layoutAt} → ${g3.layoutAt}; said “${toldC}”`,
     );
 
@@ -763,6 +763,8 @@ suite.add(
     await f.waitForFunction(() => !!JSON.parse(localStorage.getItem("woodrail.cloud.v1") ?? "null")?.code, null, { timeout: 10000 }).catch(() => {});
     const codeF = (await meta(f))?.code;
     check("auto: …turns cloud saves on, a code made for this device", /^[a-z]{3,5}-[a-z]{3,5}-[a-z]{3,5}-\d{4}$/.test(codeF ?? ""), JSON.stringify(await meta(f)));
+    const toldCode = await f.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
+    check("auto: …and says so once, with the code to keep", toldCode.includes(`Your code: ${(codeF ?? "").replace(/-/g, " ")}`) && /saves online/.test(toldCode), toldCode);
     let rf = await remote(codeF);
     for (let i = 0; i < 160 && rf.status !== 200; i++) {
       await new Promise((r) => setTimeout(r, 250));
@@ -796,7 +798,7 @@ suite.add(
 
     // F takes G's code: its own railway kept aside, and its own code remembered.
     await menu(f, "Cloud save");
-    await tap(f, "Load a save from another device");
+    await tap(f, "Load with a code");
     await f.fill(".cloud-input", codeG.replace(/-/g, " "));
     const reloaded = f.waitForEvent("load", { timeout: 60000 });
     await tap(f, "Load");
@@ -864,6 +866,124 @@ suite.add(
     check("Turn off: the title offers nothing from the cloud", await f.evaluate(() => [...document.querySelectorAll(".title-cloud-go")].every((b) => b.closest("[hidden]"))));
   },
   { about: "cloud saves on by themselves (a piece laid), the title's Continue from cloud, a gone code, offline, Turn off" },
+);
+
+// itch.io on an iPhone (2026-11-26): the game in a frame on another site (itch's html-classic.itch.zone in its page on
+// itch.io), where WebKit's storage doesn't last: the owner's games there were gone at every reload. H, an iPhone, plays
+// in such a frame (a page of its own round the game's: another site, localhost round 127.0.0.1); the title says plainly
+// that the railway is forgotten and makes "Load with a code" its main way in; Cloud save turned on, the card says to
+// write the code down. Its storage cleared (a new context: what the iPhone does to it), the title's Load with a code,
+// the code typed in, says what itch's shared storage means, and Load: the railway is back. `?itch` plays the itch
+// build's part (dev only: main.ts `cloudWhere`). Pictures: docs/agents/shots/cloud-itch-*.
+suite.add(
+  "itch",
+  async () => {
+    const { shot, quiet } = await import("./lib/shot.mjs");
+    // (The page round the frame, on a server of its own on localhost: another site than the game's 127.0.0.1. A page
+    // routed in by Playwright counts as a public one, and Chromium won't put a local page in its frame.)
+    const { createServer: httpServer } = await import("node:http");
+    const host = httpServer((_q, res) => {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(`<!doctype html><meta name="viewport" content="width=device-width"><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style><iframe src="${URL}/?itch" allow="clipboard-write"></iframe>`);
+    });
+    await new Promise((r) => host.listen(0, "localhost", r));
+    const HOST = `http://localhost:${host.address().port}/`;
+    const iphone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1" };
+    /** An iPhone with nothing kept: the page round the frame, and the game in it. */
+    const openFramed = async () => {
+      const ctx = await newContext(iphone);
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => errors.push(String(e)));
+      await p.goto(HOST);
+      let fr = null;
+      for (let i = 0; i < 100 && !fr; i++) {
+        fr = p.frames().find((x) => x.url().startsWith(URL));
+        if (!fr) await p.waitForTimeout(100);
+      }
+      if (!fr) throw new Error(`no game frame (${URL}): ${p.frames().map((x) => x.url()).join(", ")}`);
+      await fr.evaluate(() => localStorage.setItem("woodrail.helpSeen", "1"));
+      await fr.waitForFunction(() => !!window.woodrail && window.woodrail.title.shown && !window.woodrail.title.root.classList.contains("placing") && !!document.querySelector(".title-cloud"), null, { timeout: 180000 });
+      return { ctx, p, fr };
+    };
+    /** A tap on what `sel` finds in the frame (its place on the page: the frame fills it). */
+    const tapIn = async (p, fr, sel) => {
+      const r = await fr.evaluate((sel) => {
+        const e = [...document.querySelectorAll(sel)].find((x) => x.offsetParent && getComputedStyle(x).visibility !== "hidden");
+        if (!e) return null;
+        e.scrollIntoView({ block: "center" });
+        const q = e.getBoundingClientRect();
+        return [q.x + q.width / 2, q.y + q.height / 2];
+      }, sel);
+      if (!r) throw new Error(`nothing to tap: ${sel}`);
+      await p.touchscreen.tap(r[0], r[1]);
+      await p.waitForTimeout(250);
+    };
+    const tapText = async (p, fr, label) => {
+      const sel = await fr.evaluate((label) => {
+        const all = [...document.querySelectorAll(".cloud-card:not(.stats-card) button")];
+        const i = all.findIndex((b) => b.textContent.trim() === label && b.offsetParent);
+        if (i < 0) return null;
+        all[i].dataset.e2eTap = "1";
+        return "[data-e2e-tap]";
+      }, label);
+      if (!sel) throw new Error(`no ${label} on the card: ${await fr.evaluate(() => document.querySelector(".cloud-card:not(.stats-card)")?.textContent)}`);
+      await tapIn(p, fr, sel);
+      await fr.evaluate(() => document.querySelector("[data-e2e-tap]")?.removeAttribute("data-e2e-tap"));
+    };
+
+    const h = await openFramed();
+    const framedOk = await h.fr.evaluate(() => window.self !== window.top);
+    const foot = await h.fr.evaluate(() => {
+      const b = document.querySelector(".title-cloud");
+      const q = b.getBoundingClientRect();
+      return { note: document.querySelector(".title-cloud-note")?.textContent ?? "", main: b.classList.contains("main"), h: q.height, inside: q.left >= 0 && q.right <= innerWidth && q.bottom <= innerHeight };
+    });
+    check("itch, iPhone: the game in another site's frame", framedOk);
+    check("itch, iPhone: the title says the railway is forgotten, and Load with a code is its main way in (a finger's height)", /itch\.io forgets your railway/.test(foot.note) && foot.main && foot.h >= 44 && foot.inside, JSON.stringify(foot));
+    await shot(h.p, `${SHOTS}cloud-itch-title.jpg`, { type: "jpeg", quality: 80 });
+    // Into Sandbox, a new map, Cloud save on.
+    await h.fr.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
+    await h.fr.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+    await h.fr.evaluate(() => (window.woodrail.paused = true));
+    await menu(h.fr, "New map");
+    await h.fr.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    const seedH = await seed(h.fr);
+    await h.fr.waitForFunction(() => (localStorage.getItem("woodrail.autosave.v3") ?? "").includes(`"seed":${window.woodrail.landscape.seed},`), null, { timeout: 20000 });
+    await menu(h.fr, "Cloud save");
+    await tapText(h.p, h.fr, "Turn on");
+    await h.fr.waitForFunction(() => /Saved online/.test(document.querySelector(".cloud-status")?.textContent ?? ""), null, { timeout: 30000 });
+    const onCard = await h.fr.evaluate(() => {
+      const c = document.querySelector(".cloud-card:not(.stats-card)");
+      const keep = c.querySelector(".cloud-keep");
+      const q = c.getBoundingClientRect();
+      const copy = [...c.querySelectorAll("button")].find((b) => b.textContent.trim() === "Copy");
+      return { code: c.querySelector(".cloud-code").textContent, keep: keep?.textContent ?? "", urgent: keep?.classList.contains("urgent"), copy: copy ? copy.offsetHeight : 0, inside: q.top >= 0 && q.bottom <= innerHeight + 1, first: c.querySelector(".card-title").nextElementSibling?.className };
+    });
+    check("itch, iPhone: the card leads with the code, a Copy a finger's height, and says plainly to write it down", /^[a-z]{3,5} [a-z]{3,5} [a-z]{3,5} \d{4}$/.test(onCard.code) && /Write this code down/.test(onCard.keep) && onCard.urgent && onCard.copy >= 44 && onCard.inside && /cloud-label/.test(onCard.first ?? ""), JSON.stringify(onCard));
+    await quiet(h.fr, 10_000);
+    await shot(h.p, `${SHOTS}cloud-itch-card.jpg`, { type: "jpeg", quality: 80 });
+    const r = await remote(onCard.code.replace(/ /g, "-"));
+    check("itch, iPhone: the railway is in the cloud", r.status === 200, JSON.stringify(r));
+    await h.ctx.close();
+
+    // The iPhone forgets it all: a new context, nothing kept. The title's Load with a code, the code typed, Load.
+    const h2 = await openFramed();
+    const empty = await h2.fr.evaluate(() => localStorage.getItem("woodrail.cloud.v1") === null && localStorage.getItem("woodrail.autosave.v3") === null);
+    check("itch, iPhone, back again: nothing kept here (no code, no railway)", empty);
+    await tapIn(h2.p, h2.fr, ".title-cloud");
+    const said = await h2.fr.evaluate(() => document.querySelector(".title-screen .cloud-card")?.textContent ?? "");
+    check("itch: the code entry says what itch's shared storage means for the code", /other games can read what this page keeps/.test(said), said);
+    await shot(h2.p, `${SHOTS}cloud-itch-entry.jpg`, { type: "jpeg", quality: 80 });
+    await h2.fr.fill(".title-screen .cloud-input", onCard.code);
+    const loaded = h2.fr.waitForNavigation({ timeout: 60000 });
+    await tapIn(h2.p, h2.fr, ".title-screen .cloud-card button.primary");
+    await loaded;
+    await h2.fr.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+    check("itch, iPhone: …Load: the railway is back, in two taps and the code", (await seed(h2.fr)) === seedH, `want ${seedH}, got ${await seed(h2.fr)}`);
+    await h2.ctx.close();
+    host.close();
+  },
+  { about: "itch.io on an iPhone: the game in another site's frame, the title's plain word and Load with a code, the card's code to write down; storage cleared, the code typed on the title, the railway back" },
 );
 
 await suite.run(async (_g, go) => {

@@ -66,7 +66,7 @@ describe("stats", () => {
   });
 
   it("leaves the saves' origin check as it was", async () => {
-    const res = await worker.fetch(new Request("https://cloud.test/v1/saves/game", { headers: { Origin: "https://html-classic.itch.zone", "X-Woodrail-Code": "acorn-badge-otter-0420" } }), env);
+    const res = await worker.fetch(new Request("https://cloud.test/v1/saves/game", { headers: { Origin: "https://v6p9d9t4.ssl.hwcdn.net", "X-Woodrail-Code": "acorn-badge-otter-0420" } }), env);
     expect(res.status).toBe(403);
   });
 });

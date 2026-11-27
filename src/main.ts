@@ -21,6 +21,7 @@ import { loadLinkedMap, mapText, readMapText } from "./persist/bug-map";
 import { loadSaveSchemas } from "./persist/schemas";
 import { deserializeWorld, GAME_SLOT_KEYS, hasOlderSave, hasSave, loadFromStorage, lockSaves, loadGoals, loadProgress, loadSession, loadStickers, loadStickersSeen, loadTips, modeKeys, OLDER_SAVE, PROGRESS_KEYS, SAVE_VERSION, saveGoals, saveProgress, saveSession, saveStickers, saveStickersSeen, saveTips, saveToStorage, serializeWorld } from "./persist/save";
 import { cloudSupported, CloudSync, WorkerBackend, type EditKind, type SyncNote } from "./persist/cloud";
+import { showCode } from "./persist/sync-code";
 import { gameMerger } from "./persist/progress-merge";
 import { recentErrors, reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker, goalTickTitle, payGoal, secondEngineTip, trayRing, type GoalGuide } from "./game/goals";
@@ -158,7 +159,8 @@ import { GamesSheet, smallPicture } from "./ui/games-sheet";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import { installFocusRing } from "./ui/focus-ring";
-import { CloudCard } from "./ui/cloud-card";
+import { CloudCard, keepCodeText } from "./ui/cloud-card";
+import { storageMayNotLast } from "./persist/storage-life";
 import { titleOffers, type TitleOffer } from "./persist/cloud-known";
 import { Snapshots } from "./stats/snapshots";
 import { pageStats } from "./stats/stats";
@@ -338,8 +340,14 @@ const cloud = ((): CloudSync | null => {
   }
 })();
 /**
+ * Where cloud saves are used: on itch.io (the itch build, `VITE_ITCH`), and whether this browser may forget the page's
+ * saves and the code with them (an iPhone's or iPad's, in itch's frame: storage-life.ts). Said on the card and the title.
+ */
+// (Dev only, for e2e:cloud's `itch` group: `?itch` on the page plays the itch build's part, the frame and all.)
+const cloudWhere = { itch: import.meta.env.VITE_ITCH === "1" || (import.meta.env.DEV && new URLSearchParams(location.search).has("itch")), mayForget: storageMayNotLast() };
+/**
  * "Help improve Woodrail": anonymous play stats, opt-in (see stats/stats.ts and docs/stats.md). They go to the cloud
- * Worker: `VITE_STATS_URL`, else `VITE_CLOUD_URL` (the itch build has stats without cloud saves). Neither: no stats.
+ * Worker: `VITE_STATS_URL`, else `VITE_CLOUD_URL` (the itch release sets both). Neither: no stats.
  */
 const stats = pageStats(((import.meta.env.VITE_STATS_URL ?? import.meta.env.VITE_CLOUD_URL ?? "") as string).trim(), __BUILD_ID__ || "dev");
 addEventListener("error", (e) => stats.record({ e: "error", msg: String(e.message || e.error || "error").slice(0, 200) }));
@@ -384,11 +392,11 @@ function takeCloudNote(): CloudNotes {
 
 /** What a cloud check did to a mode's railway, as a toast. */
 const CLOUD_NOTES: Record<Exclude<SyncNote, null>, string> = {
-  "took-cloud": "Loaded your newer railway from the cloud. The other one is kept (Cloud save → Restore).",
-  "kept-here": "This railway is newer than the one in the cloud, so it's kept. The other one is kept too (Cloud save → Restore).",
-  "both-changed": "Your railway was changed on another device too. That one is kept (Cloud save → Restore).",
+  "took-cloud": "Loaded your newer railway from the cloud. The one from this device is kept: ☰ Cloud save to bring it back.",
+  "kept-here": "Kept this railway: it's newer than the cloud's. The cloud's copy is kept too: ☰ Cloud save to bring it back.",
+  "both-changed": "This railway was changed on another device too. You're playing the newer one; the other is kept: ☰ Cloud save to bring it back.",
   "other-game": "A game from your other device is in Your games (☰ Your games).",
-  newer: "Your railway online was saved by a newer version of the game: update to carry on with it.",
+  newer: "Your railway online was saved by a newer Woodrail: reload the page to update, and carry on with it.",
 };
 
 startLog();
@@ -1544,7 +1552,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function scheduleSave(kind: EditKind = "layout"): void {
     // (The first time the player builds, cloud saves come on by themselves, unless they turned them off: an edit of
     // theirs, one they could undo. A new map, the game's own deliveries and growth, aren't.)
-    if (kind === "layout" && editor.canUndo) cloud?.autoOn();
+    // Said once, with the code: it's the way back to the railway, and where the browser may forget it, the only way.
+    if (kind === "layout" && editor.canUndo && cloud?.autoOn() && cloud.code) {
+      const said = `Your railway now saves online. Your code: ${showCode(cloud.code)}. ${cloudWhere.mayForget ? keepCodeText(cloudWhere) : "It's in ☰ Cloud save."}`;
+      hud.toast(said, false, cloudWhere.mayForget ? 15000 : 8000, () => openCloudCard?.());
+    }
     cloud?.edited(mode, kind);
     if (kind === "layout" && mode === "game") {
       snapshots.edited(goalDone, () => goals.doneCount);
@@ -1738,16 +1750,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   };
 
   /**
-   * The title's "Load a cloud save" (a build with a cloud): the cloud card's code entry over the title, Cancel back to
+   * The title's "Load with a code" (a build with a cloud): the cloud card's code entry over the title, Cancel back to
    * it. Loaded, the game starts on that railway (Game's, else Sandbox's).
    */
   let titleCloud: CloudCard | null = null;
+  /** Open the ☰ Cloud save card (once it's made, in play). */
+  let openCloudCard: (() => void) | null = null;
   const loadCloud = cloud
     ? () => {
         titleCloud ??= new CloudCard(title.root, cloud, {
           mode: () => "game",
           reload: () => reloadInto(hasSave("game") ? "game" : "sandbox"),
           toast: (m) => hud.toast(m),
+          where: cloudWhere,
         });
         title.root.classList.add("cloud-open");
         titleCloud.showEntry(() => title.root.classList.remove("cloud-open"));
@@ -1771,7 +1786,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       continueCloud: cloud ? continueCloud : undefined,
       games: () => openGames(),
     },
-    { thumbnails },
+    { thumbnails, cloudNote: cloud && cloudWhere.mayForget ? "Been here before? On iPhone and iPad, itch.io forgets your railway when you leave: load it again with your code." : undefined },
   );
   /** The title's cards as storage has them now (Continue for a mode with a save, Your games while there's a game). */
   function showTitleCards(): void {
@@ -1924,7 +1939,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const offline = "Can't reach the cloud right now. Try again soon.";
     if (offer.current) {
       const res = await cloud.takeNewer(offer.mode);
-      if (!res.ok) return res.error === "offline" ? offline : res.error === "newer" ? "Saved by a newer version of the game: update this one first" : "Still saving: try again in a moment";
+      if (!res.ok) return res.error === "offline" ? offline : res.error === "newer" ? "Saved by a newer Woodrail: reload the page to update, then try again" : "Still saving: try again in a moment";
       if (res.changed) {
         try {
           if (res.note) sessionStorage.setItem(CLOUD_NOTE_KEY, JSON.stringify({ mode: offer.mode, note: res.note }));
@@ -1950,7 +1965,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       setTimeout(showCloudOffers, 4000);
       return "That railway isn't saved online any more";
     }
-    return res.error === "newer" ? "Saved by a newer version of the game: update this one first" : offline;
+    return res.error === "newer" ? "Saved by a newer Woodrail: reload the page to update, then try again" : res.error === "tries" ? "Too many tries from here: wait a minute, then try again" : offline;
   }
 
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
@@ -8265,8 +8280,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         reloadInto(mode);
       },
       toast: (m) => hud.toast(m),
+      where: cloudWhere,
     });
     hud.addCloudItem(() => card.show());
+    openCloudCard = () => card.show();
     cloud.onNote = (_m, note) => note && hud.toast(CLOUD_NOTES[note], false, 7000);
     // A newer copy from another device, taken while playing: the game starts again on it (without saving this one over
     // it), and says so then.

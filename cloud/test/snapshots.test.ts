@@ -68,7 +68,7 @@ describe("snapshots: the endpoint", () => {
     const pre = await worker.fetch(new Request(`${BASE}/v1/snapshots`, { method: "OPTIONS", headers: { Origin: "https://html-classic.itch.zone" } }), E);
     expect(pre.status).toBe(204);
     expect(pre.headers.get("Access-Control-Allow-Origin")).toBe("https://html-classic.itch.zone");
-    const saves = await worker.fetch(new Request(`${BASE}/v1/saves/game`, { headers: { Origin: "https://html-classic.itch.zone", "X-Woodrail-Code": "acorn-badge-otter-0420" } }), E);
+    const saves = await worker.fetch(new Request(`${BASE}/v1/saves/game`, { headers: { Origin: "https://v6p9d9t4.ssl.hwcdn.net", "X-Woodrail-Code": "acorn-badge-otter-0420" } }), E);
     expect(saves.status).toBe(403);
   });
 });
