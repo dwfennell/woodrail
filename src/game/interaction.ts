@@ -10,7 +10,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type LeverPost, t
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, flipCursor, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, inTunnel, tunnelsOn, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { METRO_KIT, isSecretKit, SPLICE_POINTS, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
+import { METRO_KIT, isSecretKit, SPLICE_POINTS, DRAW_TYPES, connectorRef, createWorldConnector, gapFill, isKit, kitOf, Layout, findLowCrossing, lowCrossings, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, keepTurning, seatBy, getPieceDef, waitAhead, WAIT_AHEAD, isBridge, isLift, isPlainStraight, isTunnelMouth, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { ONE_WAY_SIGNAL_ITEM, SIGNAL_ITEM, trayKey } from "../ui/tray-catalogue";
 import { markGhost, markSetGhost, placeGhost, placeSetGhost } from "../render/signal-marks-view";
@@ -1432,6 +1432,7 @@ export class Interaction {
     if (item === this.armed || (item && this.armed && trayKey(item) === trayKey(this.armed))) return;
     this.armed = item;
     this.flipPressed = false;
+    this.flipSeat = null;
     if (this.carried) this.carryCursor(false);
     this.carried = false;
     this.carryAt = null;
@@ -1874,6 +1875,13 @@ export class Interaction {
    * comes back over the map, from the tray's turn and flip: this outlasts it.)
    */
   private flipPressed = false;
+  /**
+   * Flip pressed while the piece in hand was seated on a free end (`target`) by its end `connector`: it stays seated
+   * by that end there, mirrored, as it's moved about on that end (findSnap picks the end that turns it least from how
+   * it's held, and by its other end a curve flipped lies just as it did before: 2026-11-27). Till it's seated on
+   * another end, put down, or another's taken.
+   */
+  private flipSeat: { target: number; connector: number } | null = null;
 
   /**
    * Which way the next model from the tray faces (its front, world heading): the way the last one placed or turned
@@ -2007,6 +2015,7 @@ export class Interaction {
     // the mouse is over the button (the ghost hidden, its hand remembered).
     const shown = !holding && this.preview && !this.preview.auto && mirrors(this.preview.type) ? this.preview.heldFlipped : null;
     if (holding) this.flipSelected();
+    else if (this.preview) this.pinFlipSeat(this.preview);
     this.trayFlipped = shown !== null ? !shown : !this.trayFlipped;
     this.flipPressed = true;
     this.guided = null;
@@ -4348,6 +4357,12 @@ export class Interaction {
     return null;
   }
 
+  /** Flip pressed for `m`: if it's a new piece seated on an end, keep it seated by the same of its ends (`flipSeat`). */
+  private pinFlipSeat(m: Extract<Mode, { kind: "drag-piece" }>): void {
+    if (m.pieceId !== -1 || m.auto || !mirrors(m.type)) return;
+    if (m.snap.kind === "snapped" && m.snap.target >= 0) this.flipSeat = { target: m.snap.target, connector: m.snap.connector };
+  }
+
   flipSelected(): void {
     if (this.mode.kind === "drag-piece") {
       const m = this.mode;
@@ -4359,6 +4374,7 @@ export class Interaction {
         }
         return;
       }
+      this.pinFlipSeat(m);
       m.heldFlipped = !m.heldFlipped;
       m.flipped = m.heldFlipped;
       this.flipPressed = true;
@@ -5245,6 +5261,12 @@ export class Interaction {
           return;
         }
       }
+      // Flipped while seated here: seated by the same of its ends, mirrored (not by its other end: the same shape).
+      const pin = this.flipSeat;
+      if (pin && m.pieceId === -1 && !keepingTurn && m.snap.kind === "snapped") {
+        if (m.snap.target !== pin.target) this.flipSeat = null;
+        else if (m.snap.connector !== pin.connector) m.snap = seatBy(this.game.layout, holdType, m.heldFlipped, m.snap, pin.connector) ?? m.snap;
+      }
       if (m.auto) {
         const fit = m.snap.kind === "snapped" && m.snap.connector <= 1 ? fitAutoStraight(this.game.layout, m.snap.pose, m.snap.y, m.snap.connector as 0 | 1, [m.pieceId]) : null;
         // Shrink to meet a free end along its line, or bend (a join) to meet one a little to one side.
@@ -5546,7 +5568,10 @@ export class Interaction {
           this.hud.toast("Dug an underpass so trains fit under");
         } else id = lay();
         // (The next one from the tray turns on with the curve it meets again, till Flip's pressed for it.)
-        if (isNew) this.flipPressed = false;
+        if (isNew) {
+          this.flipPressed = false;
+          this.flipSeat = null;
+        }
         if (covers) this.hud.toast(covers.length === 1 ? "Straight back in the box" : `${covers.length} straights back in the box`);
         else if (fill.length > 0) this.hud.toast(fill.length === 1 ? "A straight closes the gap" : "Straights close the gap");
         g.trackView.setHidden(id, true);

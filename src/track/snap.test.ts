@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { connectorRef, Layout } from "./layout";
 import { solveParentPose, transformPose, type Pose } from "./math";
 import { getPieceDef } from "./pieces";
-import { appendPiece, findSnap, findSnapAhead, findSnapAtPoint, flipToKeepTurning, keepTurning } from "./snap";
+import { appendPiece, findSnap, findSnapAhead, findSnapAtPoint, flipToKeepTurning, keepTurning, seatBy } from "./snap";
 import { RAMP_LENGTH, RISER_HEIGHT } from "./constants";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
@@ -500,6 +500,30 @@ describe("a train lift held square across a line (QA: dropped loose, held at π 
       const ahead = findSnapAhead(l, LIFT, false, P(0, 600, heading), 0, { x: 6, z: 432 + 60 });
       expect(ahead.kind, `ahead, held ${heading}`).toBe("snapped");
       if (ahead.kind === "snapped") expect(Math.cos(ahead.pose.heading - Math.PI / 2)).toBeCloseTo(1, 6);
+    }
+  });
+});
+
+describe("seatBy (Flip keeps a curve seated by the same of its ends)", () => {
+  /** A piece's ends' places, to the mm: two that agree lie the same. */
+  const shape = (type: "curve-large" | "curve-small" | "curve-wide", flipped: boolean, pose: Pose) =>
+    getPieceDef(type, flipped).connectors.map((c) => { const a = transformPose(pose, c.pose, P(0, 0)); return `${Math.round(a.x)},${Math.round(a.z)}`; }).sort().join(" ");
+  it("a curve flipped by its other end lies as it did; by the same end it's mirrored", () => {
+    for (const type of ["curve-large", "curve-small", "curve-wide"] as const) {
+      const l = new Layout();
+      const s = l.addPiece("straight-216", P(0, 0, deg(30)));
+      // Held unflipped, seated on the straight's end 1 by its end 0.
+      const end = l.worldConnector(connectorRef(s, 1), { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+      const c0 = getPieceDef(type, false).connectors[0];
+      const pose = solveParentPose(c0.pose, { x: end.x, z: end.z, heading: end.heading + Math.PI }, P(0, 0));
+      const snap = { kind: "snapped" as const, pose, y: 0, connector: 0, target: connectorRef(s, 1), distance: 0, flipped: false };
+      const before = shape(type, false, pose);
+      const other = seatBy(l, type, true, snap, 1)!;
+      const same = seatBy(l, type, true, snap, 0)!;
+      expect(shape(type, true, other.pose)).toBe(before);
+      expect(shape(type, true, same.pose)).not.toBe(before);
+      expect(same.flipped).toBe(true);
+      expect(same.connector).toBe(0);
     }
   });
 });
