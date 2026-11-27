@@ -1814,7 +1814,7 @@ export class Hud {
     // (Squeezed to a finger's width, at 360 px beside the coins, the date and the spark balance: its 📘 and its bar
     // alone, not "Pi… rese…"; its title still says it.)
     // (Busy, its count alone, as short as it goes.)
-    if (!p.hidden && v && !this.sparkBtn.hidden && p.clientWidth > 0 && p.clientWidth < 60) {
+    if (!p.hidden && v && this.sparkBtn?.hidden === false && p.clientWidth > 0 && p.clientWidth < 60) {
       if (v.idle) p.classList.add("rp-bare");
       else {
         p.classList.add("rp-goods");
@@ -1840,6 +1840,11 @@ export class Hud {
     const cut = () => over(n);
     if (cut()) p.classList.add("rp-small");
     if (cut()) p.classList.add("rp-wrap");
+    // (Beside the spark balance, a name still cut after both ("Pick rese…" at 390 px): its 📘 alone, as at 360.)
+    if (cut() && v.idle && this.sparkBtn?.hidden === false) {
+      p.classList.remove("rp-small", "rp-wrap");
+      p.classList.add("rp-bare");
+    }
   }
 
   /** Show the railway's date (null: hide it, outside Game mode). The page is touched only when the text changes. */
