@@ -169,6 +169,7 @@ export function trainIcon(kinds: readonly CarKind[]): string {
 }
 
 const UI_PATHS = {
+  fold: `<path d="m6 9.5 6 6 6-6"/>`,
   undo: `<path d="M9 7 4.5 11.5 9 16"/><path d="M5 11.5h9.5a5 5 0 0 1 0 10H11"/>`,
   redo: `<path d="m15 7 4.5 4.5L15 16"/><path d="M19 11.5H9.5a5 5 0 0 0 0 10H13"/>`,
   pause: `<rect x="6.5" y="5" width="3.6" height="14" rx="1.4" fill="currentColor" stroke="none"/><rect x="13.9" y="5" width="3.6" height="14" rx="1.4" fill="currentColor" stroke="none"/>`,

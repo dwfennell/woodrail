@@ -275,10 +275,20 @@ const clearSpotNear = (site) => p.evaluate(async ([s, station]) => {
     }
   return null;
 }, [site, town.station]);
+/**
+ * Start tapped till the plot's bar is up (three tries): a tap on the card just opened again, as it redraws its row, was
+ * now and then lost (red on main as well: "there's a clear spot by Larkfield" with no plot to start from).
+ */
+const startSiting = async () => {
+  for (let i = 0; i < 3; i++) {
+    await tap('.grand-ticket[data-grand="exhibition"] .grand-start');
+    const up = await p.waitForFunction(() => document.querySelector(".site-bar") && !document.querySelector(".site-bar").hidden, null, { timeout: 10000 }).then(() => true, () => false);
+    if (up) break;
+  }
+  await settle();
+};
 // Start: placing, before paying (spec 2026-11-22-grand-placement.md, step 2).
-await tap('.grand-ticket[data-grand="exhibition"] .grand-start');
-await p.waitForFunction(() => document.querySelector(".site-bar") && !document.querySelector(".site-bar").hidden, null, { timeout: 30000 }).catch(() => {});
-await settle();
+await startSiting();
 /** The site being placed (the interaction's pending prop), the bar and what's paid. */
 const siting = () => p.evaluate(async () => {
   const w = window.woodrail;
@@ -321,9 +331,7 @@ await p.evaluate((d) => window.woodrail.interaction.openDepotCard(d), town.depot
 await p.waitForFunction(() => document.querySelector(".town-tab")?.getBoundingClientRect().width > 0, null, { timeout: 20000 }).catch(() => {});
 if (await p.evaluate(() => document.querySelector(".town-card")?.dataset.tab !== "projects")) await tap('.town-tab[data-tab="projects"]');
 if (await p.evaluate(() => !document.querySelector('.grand-ticket[data-grand="exhibition"]'))) await tap('.grand-row[data-grand="exhibition"]');
-await tap('.grand-ticket[data-grand="exhibition"] .grand-start');
-await p.waitForFunction(() => document.querySelector(".site-bar") && !document.querySelector(".site-bar").hidden, null, { timeout: 30000 }).catch(() => {});
-await settle();
+await startSiting();
 const s3 = await siting();
 const draftSpot = await clearSpotNear({ prop: s3.prop, ...s3.at });
 check("2. there's a clear spot by Larkfield to drag it to", !!draftSpot, JSON.stringify(draftSpot));
@@ -723,9 +731,15 @@ const turning = await p.evaluate(async () => {
   for (let t = 0; t < 30000 && w.framesDrawn - n0 < 2; t += 250) await new Promise((r) => setTimeout(r, 250));
   const running = w.framesDrawn - n0;
   w.paused = true;
-  // (The frame under way when it paused let finish: two animation frames, then a moment.)
+  // (The frame under way when it paused let finish: two animation frames, then till the count stands still for a
+  // second (up to 10 s). A frame takes a second or two under SwiftShader on a loaded box: one begun as it paused once
+  // landed in the count after a fixed 600 ms.)
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  await new Promise((r) => setTimeout(r, 600));
+  for (let last = -1, still = 0, t = 0; still < 1000 && t < 10000; t += 250) {
+    await new Promise((r) => setTimeout(r, 250));
+    still = w.framesDrawn === last ? still + 250 : 0;
+    last = w.framesDrawn;
+  }
   const n1 = w.framesDrawn;
   await new Promise((r) => setTimeout(r, 2500));
   const paused = w.framesDrawn - n1;

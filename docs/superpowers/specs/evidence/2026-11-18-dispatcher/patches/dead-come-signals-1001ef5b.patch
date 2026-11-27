@@ -1,0 +1,21 @@
+diff --git a/src/routing/dispatcher.ts b/src/routing/dispatcher.ts
+index 55fc65d5..6a05dad9 100644
+--- a/src/routing/dispatcher.ts
++++ b/src/routing/dispatcher.ts
+@@ -189,6 +189,7 @@ const HAND_COME_STILL = ((globalThis as { process?: { env: Record<string, string
+ /** `headOnAhead` waived where the plan has all delivering, this train first, the one it would meet with no move now: on (HEAD_TRUST=0: off). */
+ const HEAD_TRUST_TURN = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HEAD_TRUST_TURN !== "0";
+ export const HEAD_TRUST = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).HEAD_TRUST !== "0" };
++const DEAD_COME_SIG = ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_COME_SIG === "1";
+ export const TURN_ASK = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).TURN_ASK !== "0" };
+ /** `ONE_LINE_SHORT`'s search again for two trains, the other granted on into a dead end (`deadShort`): on (DEAD_SHORT=0: off). */
+ export const DEAD_SHORT = { on: ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {}).DEAD_SHORT !== "0" };
+@@ -1341,7 +1342,7 @@ export class Dispatcher {
+       // out of the loop toward the junction while the one in the far dead end turned, the two met between; nose to nose).)
+       // (Not with signals laid: there a move up to a signal's waiting point on the line is the signals' to keep apart, and
+       // refused, the line1 sig cases stood for good.)
+-      if (singleBy < 0 && DEAD_COME.on && this.host.layout.signalCount === 0) singleBy = this.comingBackBy(engine, tt, way, placed);
++      if (singleBy < 0 && DEAD_COME.on && (this.host.layout.signalCount === 0 || (DEAD_COME_SIG && !(tt.frontRef[to] >= 0 && !!this.host.layout.signalAt(tt.frontRef[to]))))) singleBy = this.comingBackBy(engine, tt, way, placed);
+       if (singleBy >= 0) to = -1;
+     }
+     // (Points on the move the router has locked for another train, or another train is on: not granted; it waits on that

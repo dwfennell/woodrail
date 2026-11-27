@@ -431,7 +431,8 @@ export class Invariants {
       return;
     }
     const at = this.signalFaced(t, net > 0);
-    if (at === null || !sim.signalList().find((g) => g.key === at)?.clear) {
+    // (As the player is shown it: red for a train held standing at it, `Sim.shownRed`.)
+    if (at === null || !sim.signalList().find((g) => g.key === at)?.clear || sim.shownRedAt(at)) {
       m.green = 0;
       m.greenSaid = false;
       return;
@@ -526,6 +527,11 @@ export class Invariants {
           const pa = pathsOf(ids[i]);
           const pb = pathsOf(ids[j]);
           if (!pa.some((a) => pb.some((b) => meet(a, b)))) continue;
+          // (One following the other through on the same path, nose to its tail: not two on the points.)
+          if (this.followsThrough(ids[i], ids[j], pieceId) || this.followsThrough(ids[j], ids[i], pieceId)) {
+            this.followsExcused++;
+            continue;
+          }
           const k = `${pieceId}:${Math.min(ids[i], ids[j])}:${Math.max(ids[i], ids[j])}`;
           now.add(k);
           if (this.owners.has(k)) continue;
@@ -537,6 +543,74 @@ export class Invariants {
         }
     }
     this.owners = now;
+  }
+
+  /** oneOwner: ticks a pair was excused as one following the other through (`followsThrough`). */
+  followsExcused = 0;
+
+  /**
+   * oneOwner's one excuse: train `f` follows train `l` through points `pieceId` nose to tail, going its way, `l` moving.
+   * Either `l` has no axle left on them (a car over them only) and has one on the piece past the end `f` leaves them by,
+   * `f`'s axles on them all on one path, driven toward that end; or `f` has none on them yet (its front car over them),
+   * its front axle on the piece before, running in by the end `l`'s axles on them (all on one path) came in by; or both
+   * have axles on them, all on one path facing one way, `f`'s front axle behind `l`'s last along it.
+   * Over the 24 reference maps (1800 s, the dispatcher off): it excuses only own-12's two follows through points 33
+   * (186 ticks); own-12's two left are trains run onto points 33 behind a standing one's tail (a break still). (own-12, 748 s: Puffin a coupler's gap behind
+   * Muffin, Muffin's last axle just off points 33, Puffin's first just on.)
+   */
+  private followsThrough(f: number, l: number, pieceId: number): boolean {
+    const { sim, layout } = this.world;
+    const lt = sim.getTrain(l);
+    const ft = sim.getTrain(f);
+    if (!lt || !ft || lt.speed === 0) return false;
+    const p0 = layout.getPiece(pieceId);
+    if (!p0) return false;
+    const def0 = getPieceDef(p0.type, p0.flipped);
+    // (The follower's front car over them only, its front axle on the piece before, while the leader's axles are still
+    // on them, all on one path: the follower runs in by the end the leader came in by.)
+    if (!ft.bogies.some((b) => b.pieceId === pieceId)) {
+      const theirs = lt.bogies.filter((b) => b.pieceId === pieceId);
+      if (theirs.length === 0 || theirs.some((b) => b.pathIndex !== theirs[0].pathIndex)) return false;
+      const fnet = this.world.drive(ft);
+      const lnet = this.world.drive(lt);
+      if (fnet === 0 || lnet === 0) return false;
+      const fb = fnet > 0 ? ft.bogies[0] : ft.bogies[ft.bogies.length - 1];
+      const fp = layout.getPiece(fb.pieceId);
+      if (!fp) return false;
+      const fexit = pathExitConnector(getPieceDef(fp.type, fp.flipped), fb.pathIndex, fnet > 0 ? fb.reversed : !fb.reversed);
+      const into = fexit === -1 ? -1 : layout.joinedConnector(connectorRef(fb.pieceId, fexit));
+      if (into === -1 || pieceOfRef(into) !== pieceId) return false;
+      const lb = theirs[0];
+      const lexit = pathExitConnector(def0, lb.pathIndex, lnet > 0 ? lb.reversed : !lb.reversed);
+      const path = def0.paths[lb.pathIndex];
+      const lentry = lexit === path.from ? (path.to ?? -1) : path.from;
+      return connectorRef(pieceId, lentry) === into;
+    }
+    const fnet = this.world.drive(ft);
+    const lnet = this.world.drive(lt);
+    // (Both with axles on them: the follower's front axle and the leader's last on the same path, the same way, the
+    // follower's behind along it (a cursor's `s` runs the way it faces).)
+    if (lt.bogies.some((b) => b.pieceId === pieceId)) {
+      if (fnet <= 0 || lnet <= 0) return false;
+      const fb = ft.bogies[0];
+      const lb = lt.bogies[lt.bogies.length - 1];
+      if (fb.pieceId !== pieceId || lb.pieceId !== pieceId) return false;
+      const all = [...ft.bogies, ...lt.bogies].filter((b) => b.pieceId === pieceId);
+      if (all.some((b) => b.pathIndex !== fb.pathIndex || b.reversed !== fb.reversed)) return false;
+      return fb.s < lb.s;
+    }
+    const mine = ft.bogies.filter((b) => b.pieceId === pieceId);
+    if (mine.length === 0 || mine.some((b) => b.pathIndex !== mine[0].pathIndex)) return false;
+    const net = this.world.drive(ft);
+    if (net === 0) return false;
+    const def = def0;
+    const b = mine[0];
+    const exit = pathExitConnector(def, b.pathIndex, net > 0 ? b.reversed : !b.reversed);
+    if (exit === -1) return false;
+    const past = layout.joinedConnector(connectorRef(pieceId, exit));
+    if (past === -1) return false;
+    const beyond = pieceOfRef(past);
+    return lt.bogies.some((x) => x.pieceId === beyond);
   }
 
   /** oneOwner: the pieces and pairs said, while they last. */

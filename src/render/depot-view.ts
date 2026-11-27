@@ -8,6 +8,7 @@ import type { Layout, PieceTypeId, Pose } from "../track";
 import { kitOf, TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
 import { TRACK_GAP } from "../game/depot-tracks";
+import type { BoatLoads } from "./river-boats-view";
 import { AUTO_HEIGHT, AUTO_LENGTH, AUTO_WIDTH, BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
@@ -765,7 +766,8 @@ export function spanLayout(spec: DepotLayout, tracks: number): DepotLayout {
 /** One kind of goods as drawn: its parts (instanced, a unit per instance), who each drawn unit belongs to, and the copy a crane or a hand carries. */
 interface UnitMeshes {
   readonly parts: InstancedMesh[];
-  readonly owners: CargoSlot[];
+  /** (Null for a load on a barge's deck: a tap there is the boat's, `RiverBoatsView.boatAt`.) */
+  readonly owners: (CargoSlot | null)[];
   readonly carried: Group;
   /** Units drawn so far this frame. */
   n: number;
@@ -810,6 +812,10 @@ export class DepotView {
   /** Picking owners for wagon loads by car id, made once per car. */
   private readonly carOwners = new Map<number, CargoSlot>();
   private cargoMeshes: InstancedMesh[] = [];
+  /** Made goods on barges' decks, drawn with the wagons' loads (`RiverBoatsView`): set once by the game. */
+  boatLoads: BoatLoads | null = null;
+  /** `boatLoads.loadsVersion` when the loads were last placed. */
+  private boatLoadsSeen = -1;
   /** The game time (s) at the last `update`: what turns, turns by the game time gone since. */
   private simSeen = -1;
   /** The wagon loads as last drawn (a signature: cars, kinds, counts). */
@@ -2094,8 +2100,11 @@ export class DepotView {
     return true;
   }
 
+  /** A load on a barge's deck (no owner: a tap there is the boat's). */
+  private readonly putBoat = (kind: CargoKind, m: Matrix4): void => this.put(kind, m, null);
+
   /** Draw one unit of cargo this frame. */
-  private put(kind: CargoKind, m: Matrix4, owner: CargoSlot): void {
+  private put(kind: CargoKind, m: Matrix4, owner: CargoSlot | null): void {
     const u = this.units[kind];
     if (!this.room(u)) return;
     u.owners[u.n] = owner;
@@ -2174,6 +2183,7 @@ export class DepotView {
       this.framesDirty ||
       (this.layout?.revision ?? 0) !== this.revisionSeen ||
       economy.wagonCapacity !== this.capacitySeen ||
+      (this.boatLoads?.loadsVersion ?? -1) !== this.boatLoadsSeen ||
       this.pilesChanged(drag) ||
       this.wagonsKey(economy, carIds, carCount, drag) !== this.wagonsSeen;
     if (placeAll) this.placeAll(economy, carIds, carCount, carObject, drag);
@@ -2307,6 +2317,11 @@ export class DepotView {
         if (look || count <= 0) continue;
       }
       for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m, count), owner);
+    }
+    // Barges' decks (a boat out of view keeps its loads where it was last seen: its version moves only in view).
+    if (this.boatLoads) {
+      this.boatLoads.forEachLoad(this.putBoat);
+      this.boatLoadsSeen = this.boatLoads.loadsVersion;
     }
     const wagons = this.wagonsKey(economy, carIds, carCount, drag);
     if (wagons !== this.wagonsSeen) {

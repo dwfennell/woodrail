@@ -132,15 +132,52 @@ describe("boats", () => {
     expect(boat.load.log).toBe(BARGE_LOADS);
   });
 
-  it("carry only bulk goods: planks stay on the jetty", () => {
+  it("carry any goods but the post: planks and stone go aboard, mail stays on the jetty", () => {
     const { w, A, fleet } = setup();
     const from = w.economy.depot(A)!;
-    from.piles[CARGO.planks.index] = 5;
-    from.piles[CARGO.stone.index] = 2;
+    from.piles[CARGO.planks.index] = 2;
+    from.piles[CARGO.stone.index] = 1;
+    from.piles[CARGO.mail.index] = 3;
     const boat = fleet.launch(A)!;
     fleet.serve(boat, boat.stops[0]);
-    expect(boat.load).toEqual({ stone: 2 });
-    expect(from.piles[CARGO.planks.index]).toBe(5);
+    expect(boat.load).toEqual({ planks: 2, stone: 1 });
+    expect(from.piles[CARGO.mail.index]).toBe(3);
+  });
+
+  it("carry paint from a landing to a town's landing: Pick up there, Drop at the town's, and it's delivered", () => {
+    const { w, A, B, fleet } = setup();
+    const from = w.economy.depot(A)!;
+    const to = w.economy.depot(B)!;
+    from.piles[CARGO.paint.index] = 3;
+    const boat = fleet.launch(A)!;
+    fleet.addStop(boat.id, B);
+    // (The player's chips: Pick up at the first landing, Only drop at the town's.)
+    boat.stops[0].action = "pick";
+    while (boat.stops[1].action !== "drop") fleet.cycleAction(boat.id, 1);
+    fleet.serve(boat, boat.stops[0]);
+    expect(boat.load).toEqual({ paint: 3 });
+    expect(from.piles[CARGO.paint.index]).toBe(0);
+    let docked = false;
+    for (let i = 0; i < 2000 && !docked; i++) docked = fleet.tick(1).some((e) => e.kind === "docked" && e.depotId === B);
+    expect(docked).toBe(true);
+    expect(to.piles[CARGO.paint.index]).toBe(3);
+    expect(boat.load.paint ?? 0).toBe(0);
+    expect(w.economy.boatDelivered).toBe(3);
+  });
+
+  it("don't load straight back on what they just dropped (a Drop and pick up stop at a landing)", () => {
+    const { w, A, B, fleet } = setup();
+    w.economy.depot(A)!.piles[CARGO.paint.index] = 2;
+    w.economy.depot(B)!.piles[CARGO.planks.index] = 1;
+    const boat = fleet.launch(A)!;
+    fleet.addStop(boat.id, B);
+    // (Both stops Drop and pick up: B's planks are picked up, as A takes them; B's paint just dropped isn't.)
+    boat.stops[0].action = "both";
+    fleet.serve(boat, boat.stops[0]);
+    const done = fleet.serve(boat, boat.stops[1]);
+    expect(done).toEqual({ dropped: 2, picked: 1 });
+    expect([boat.load.planks, boat.load.paint ?? 0]).toEqual([1, 0]);
+    expect(w.economy.depot(B)!.piles[CARGO.paint.index]).toBe(2);
   });
 
   it("stop where they are when stopped, and hold still with no time passing (a paused game)", () => {

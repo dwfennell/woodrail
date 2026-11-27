@@ -10,7 +10,7 @@ import type { Bag } from "../economy/goods";
 import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, MAX_WAGON_CAPACITY, givesChoice, isStore, pilesOf, RECIPES, ANYWHERE, type BoatState, type Riders, type CargoKind, type DepotState, type RouteStopDef, type StoreMode } from "../economy";
 
 import { connectorRef, cornersFromOneLever, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, pieceOfRef, relaxJoints, pathLength, angleDiff, isLift, type SignalStyle, type Pose, type RelaxOptions } from "../track";
-import { BARGE_LOADS, isBulk, isDock, MAX_BOATS } from "../game/boats";
+import { BARGE_LOADS, bargeCarries, isDock, MAX_BOATS } from "../game/boats";
 import { joinSavedLine, LINE_COLOURS, loadSavedLines, MAX_VIAS, type SavedLine } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, serializeLandscape } from "./landscape-data";
@@ -222,7 +222,7 @@ function boatsOf(world: World, renumbered: ReadonlyMap<number, number>): Pick<Sa
     if (stops.length === 0) continue;
     const from = Math.max(0, stops.indexOf(b.stops[b.from]));
     const load: Record<string, number> = {};
-    for (const [k, n] of Object.entries(b.load)) if (n && isBulk(k as CargoKind)) load[k] = n;
+    for (const [k, n] of Object.entries(b.load)) if (n && bargeCarries(k as CargoKind)) load[k] = n;
     boats.push({
       name: b.name,
       barges: b.barges,
@@ -676,7 +676,7 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean; repor
     const load: BoatState["load"] = {};
     let room = b.barges * BARGE_LOADS;
     for (const [k, n] of Object.entries(b.load)) {
-      if (!(CARGO_KINDS as readonly string[]).includes(k) || !isBulk(k as CargoKind)) continue;
+      if (!(CARGO_KINDS as readonly string[]).includes(k) || !bargeCarries(k as CargoKind)) continue;
       const take = Math.min(n, room);
       if (take < n) note(clamped, "barge loads");
       if (take > 0) load[k as CargoKind] = take;
