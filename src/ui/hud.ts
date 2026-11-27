@@ -1814,7 +1814,7 @@ export class Hud {
     // (Squeezed to a finger's width, at 360 px beside the coins, the date and the spark balance: its 📘 and its bar
     // alone, not "Pi… rese…"; its title still says it.)
     // (Busy, its count alone, as short as it goes.)
-    if (!p.hidden && v && p.clientWidth > 0 && p.clientWidth < 60) {
+    if (!p.hidden && v && !this.sparkBtn.hidden && p.clientWidth > 0 && p.clientWidth < 60) {
       if (v.idle) p.classList.add("rp-bare");
       else {
         p.classList.add("rp-goods");
