@@ -87,3 +87,22 @@ Numbers are in the branch's report.
   `guard`: the starter map in play over the user's game in storage (the 2026-11-22 state). An edit by taps trips the
   guard, the toast shows, the copy holds the game byte for byte, and Earlier versions lists it with 10 trains and 267
   pieces. Add as a game, then Open, gets it back.
+
+## The cloud: not built here (flagged)
+
+Save safety stays out of the cloud sync (`src/persist/cloud*`, the cloud parts of `slots.ts`, the Worker's sync), which
+another branch is changing. What it does today, and what it should do when the two meet:
+
+- **A cloud pull writes the live keys itself** (`cloud.ts`'s own `storage.setItem`, then a reload), not through
+  `autosaveGame`, so the write guard never sees it. On the reload the pulled game loads cleanly: the guard knows it
+  and its `load` backup is taken, so the game as it was before the pull survives only as the cloud's own one backup
+  (Cloud save → Restore), not in Earlier versions. **Should:** before a pull writes over a game, take a `kept` copy of
+  the keys it replaces (`BackupStore.take(id, keys, "kept")`, read back), and run the guard's rule (`tripOf`) on the
+  pulled railway against the local one: a pull that trips (another seed, the starter map, near-empty) asks the player
+  instead of taking it quietly.
+- **A park or a code typed in** (`parkOpen`) moves the open game's keys under Your games; backups are keyed by the
+  game's id, so they follow it. Nothing needed.
+- **A restore from Earlier versions** calls `cloud?.edited("game")` (as any edit does), so the restored game goes up
+  as the newest. Nothing changed in the cloud code for it.
+- **The Worker:** only its crash report check, which now takes the kind `save-mended` (`cloud/src/crash.ts`); nothing
+  of the sync. It needs a deploy before those reports are taken.
