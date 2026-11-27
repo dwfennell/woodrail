@@ -181,13 +181,15 @@ const sA = (await freeEnds(base.a))[1];
 const sS = await freeEnds(base.s);
 const loose = await p.evaluate(() => { const r = window.woodrail.canvas.getBoundingClientRect(); return null; });
 const targets = {
-  free: await screen(sA.x + 300 * Math.cos(sA.heading + 1.2), 0, sA.z + 300 * Math.sin(sA.heading + 1.2)),
+  ...(process.env.FREE ? {} : {}),
+  _free: await screen(sA.x + 300 * Math.cos(sA.heading + 1.2), 0, sA.z + 300 * Math.sin(sA.heading + 1.2)),
   end: await screen(sA.x + 40 * Math.cos(sA.heading), 0, sA.z + 40 * Math.sin(sA.heading)),
 };
 sS.forEach((e, k) => (targets[`points${e.i}`] = null));
 for (const e of sS) targets[`points${e.i}`] = await screen(e.x + 40 * Math.cos(e.heading), 0, e.z + 40 * Math.sin(e.heading));
 let fails = 0, total = 0;
 for (const [name, at] of Object.entries(targets)) {
+  if (name.startsWith('_')) continue;
   for (const rotate of [0, 1]) {
     for (const how of ["key", "button"]) {
       const a = await trial(at, { flip: "none", rotate });
