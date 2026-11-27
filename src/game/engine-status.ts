@@ -606,7 +606,7 @@ export function engineView(
     // (Not over a held-up train's "Waiting: … in the way": what holds it comes first.)
     if (s.kind === "running" || s.kind === "slowing" || s.kind === "stopped") {
       const not = economy.notLoadingAt(found.train.id);
-      if (not) return { status: notLoadingText(not.why, not.kind, nameOf(not.depot.id), not.taker ? nameOf(not.taker.id) : "", !!not.takerFull), blocker: null };
+      if (not) return { status: notLoadingText(not.why, not.kind, nameOf(not.depot.id), not.taker ? nameOf(not.taker.id) : "", not.takerRoom), blocker: null };
     }
   }
   // (Itself the train at the signal inside the loop: nobody else to show.)

@@ -5341,6 +5341,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** A warehouse's or industry's own setting stopping what the line would drop or pick up there, said in words. */
   function blockedTexts(stops: readonly RouteStopDef[], plan: ReturnType<typeof game.economy.routePlan>): Set<string> {
     const blocked = new Set<string>();
+    let names: ReturnType<typeof routeStops> | undefined;
     stops.forEach((st, k) => {
       const d = plan[k] && (plan[k].notDrops.length || plan[k].notPicks.length) ? game.economy.depot(st.depotId) : undefined;
       if (!d) return;
@@ -5351,8 +5352,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         else for (const g of plan[k].notPicks) blocked.add(givesBlockText(name, g));
         return;
       }
-      for (const g of plan[k].notDrops) blocked.add(storeBlockText(true, g, storeModeOf(d, g)));
-      for (const g of plan[k].notPicks) blocked.add(storeBlockText(false, g, storeModeOf(d, g)));
+      names ??= routeStops(game.world);
+      const name = names.find((s) => s.depotId === d.id)?.name ?? "The warehouse";
+      for (const g of plan[k].notDrops) blocked.add(storeBlockText(true, g, storeModeOf(d, g), name));
+      for (const g of plan[k].notPicks) blocked.add(storeBlockText(false, g, storeModeOf(d, g), name));
     });
     return blocked;
   }
