@@ -142,6 +142,11 @@ const PLACE_GRID = CELL / 4;
 const JOIN_REACH = 80;
 
 /** Along-track distance from the first car's leading axle to car `index`'s leading axle (see `Sim.addTrain`). */
+/** Is this piece's mirror image another shape, not seated by its other end (a curve)? Not a ramp's or buffer's flip, which only swaps its ends' peg and hole. */
+function mirrors(type: PieceTypeId): boolean {
+  return getPieceDef(type, false).flippable && getPieceDef(type, true) !== getPieceDef(type, false) && !flipSwapsEnds(type);
+}
+
 function trainSpan(cars: readonly { kind: CarKind }[], index: number): number {
   let d = 0;
   for (let i = 0; i < index; i++) {
@@ -1996,8 +2001,13 @@ export class Interaction {
   /** Tray "Flip": mirrors the piece in hand (if any) and every piece taken out after it. */
   flipTrayPiece(): void {
     const holding = this.mode.kind === "drag-piece";
+    // Flip mirrors what's shown. A carried or waiting curve may be shown mirrored from the tray's setting (turned on as
+    // the curve it meets: `keepTurning`), so the tray's hand becomes the other of the one shown, not just the other of
+    // the tray's own (which, for such a curve, was the hand already shown: Flip did nothing, 2026-11-27). Kept while
+    // the mouse is over the button (the ghost hidden, its hand remembered).
+    const shown = !holding && this.preview && !this.preview.auto && mirrors(this.preview.type) ? this.preview.heldFlipped : null;
     if (holding) this.flipSelected();
-    this.trayFlipped = !this.trayFlipped;
+    this.trayFlipped = shown !== null ? !shown : !this.trayFlipped;
     this.flipPressed = true;
     this.guided = null;
     // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out. (Carried, its ghost flips.)
@@ -4109,13 +4119,17 @@ export class Interaction {
         const pose = solveParentPose(c.pose, seat, { x: 0, z: 0, heading: 0 });
         return this.placement(type, hand, pose, t.y - c.y, pieceId).reason === null;
       });
-    // (A ramp's or buffer's flip only swaps its ends' peg and hole: no other shape.)
-    const flippable = getPieceDef(type, false).flippable && getPieceDef(type, true) !== getPieceDef(type, false) && !flipSwapsEnds(type);
+    const flippable = mirrors(type);
     const hint = fits(flipped, snap.connector) ? "Turn it to fit (↻\u00a0Turn)" : flippable && fits(!flipped, -1) ? "Flip it to fit (⇋\u00a0Flip)" : null;
     this.hintFor = { key, hint };
     return hint;
   }
   private hintFor: { key: string; hint: string | null } | null = null;
+
+  /** A piece flipped by the player that can't go here as flipped: why, and that Flip puts it back. */
+  private flipHint(reason: PlaceBlock): string {
+    return `Flipped, it won't fit: ${this.blockMessage(reason)} (⇋\u00a0Flip back)`;
+  }
 
   /**
    * The same end, seated by another of the piece's ends, as held otherwise (not mirrored), where it can go: the one
@@ -5308,7 +5322,10 @@ export class Interaction {
       // Seated on an end where it can't go, but seated by another of its ends there it can (a curve bending the other
       // way, clear of a house): it goes that way. (Never mirrored: that's the player's Flip.) Turn still turns it.
       // (Not a depot spliced into a straight: that snap has no end of its own.)
-      if (placed.reason && m.snap.kind === "snapped" && m.snap.target >= 0 && !m.auto) {
+      // Not once Flip's been pressed for a piece whose other end is its mirror (a curve): seated by that end, it would
+      // lie just as it did before the Flip. It stays as flipped, refused, and says why (`flipHint`).
+      const flippedByHand = this.flipPressed && m.pieceId === -1 && mirrors(m.type);
+      if (placed.reason && m.snap.kind === "snapped" && m.snap.target >= 0 && !m.auto && !flippedByHand) {
         const turned = this.turnedSeat(m.type, m.flipped, m.snap, m.pieceId);
         if (turned) {
           m.snap = turned;
@@ -5327,6 +5344,8 @@ export class Interaction {
       m.hint =
         !reason || reason === spliceWhy
           ? null
+          : flippedByHand && m.snap.kind === "snapped"
+            ? this.flipHint(reason)
           : isYardBlock(reason) || (m.covers && this.splices(m.type))
             ? // A depot taking straights' place, refused for anything (its yard, its trees, the river): Flip, if it'd
               // fit turned right round (QA: a Harvester short of trees said nothing of Flip, though it fit flipped).

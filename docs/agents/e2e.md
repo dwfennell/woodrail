@@ -74,6 +74,12 @@ own room. On the test clock and Battery saver, a tray item's shelf tapped straig
 finger, laid, a curve joined on) and `mouse` (1440×900: Shift+R twice, laid at 30°, a loop of eight from the tray that
 closes, R on to the next eighth). Each on a fresh Sandbox page (#seed-24).
 
+**flip** (`scripts/e2e/flip.mjs`, about 8 min): Flip on a curve being placed mirrors what's shown, and the laid piece's
+hand is checked. `mouse` (1440×900, a carried curve, F or the tray's Flip: loose, on a straight's, a points' and a
+curve's end, after R, and flipped into a straight: refused, saying "Flipped, it won't fit", Flip back lays it) and
+`touch` (390×844, a held curve, Flip tapped by a second finger: loose, a points' end, a curve's end, after Turn). Each
+on a fresh Sandbox page (#seed-24), its track laid by the editor (setup).
+
 **joints** (`scripts/e2e/joints.mjs`): `qa-line` (QA's drawn line's joints through a reload, an older build's save),
 `slip-draw` (a Draw stroke along a 45° crossing's turn makes it a slip, Game mode). Each on a fresh page.
 
