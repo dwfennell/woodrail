@@ -3164,6 +3164,27 @@ class Playthrough {
   }
 
   /**
+   * Coins earned an hour from the first City ★ (level 4) to the end of the play (spec
+   * 2026-11-27-towns-buy-what-they-need.md, Balance: the late-game band), and of that the staples' share: "1120/h over
+   * 1.6 h (staples 0%)", or "-" if no City ★ came at least 30 min before the end.
+   */
+  lateIncome(): string {
+    const late = this.lateRate();
+    return late ? `${Math.round(late.perHour)}/h over ${late.hours.toFixed(1)} h (staples ${Math.round(100 * late.staples)}%)` : "-";
+  }
+  lateRate(): { perHour: number; hours: number; staples: number } | null {
+    const P = this.p;
+    const from = this.firsts["level 4"];
+    const end = P.rows.at(-1);
+    if (from === undefined || !end || end.minute - from < 30) return null;
+    const at = P.rows.find((r) => r.minute >= from);
+    if (!at) return null;
+    const hours = (end.minute - at.minute) / 60;
+    const earned = end.earned - at.earned;
+    return { perHour: earned / hours, hours, staples: earned > 0 ? (end.staples - at.staples) / earned : 0 };
+  }
+
+  /**
    * Spec §5's bands at 180 min with 1 train a line (P5, as the CoS set them on 2026-10-20): first research by minute 8;
    * at least main's researched count by 180 (7 on a seed main has no figure for); the City at minute 60-90; no stretch
    * of 45 min or more with no planks into a town; and the guard: no research stall over 15 min, coins at 180 at least
@@ -3603,6 +3624,7 @@ class Playthrough {
         const b = at((h - 1) * 60);
         return `h${h}:${a.earned - (b?.earned ?? 0)}/${a.staples - (b?.staples ?? 0)}`;
       }).join(" ")} (coins earned that hour / of that, for staples)`,
+      `LATE ${this.lateIncome()}`,
       `INCOME all ${P.income.all} grow ${P.income.grow} unneeded ${Object.values(P.income.unneeded).reduce((a, b) => a + b, 0)} (${Object.entries(P.income.unneeded).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ") || "none"})`,
       `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,
