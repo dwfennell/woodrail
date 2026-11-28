@@ -83,3 +83,38 @@ selling chain ends (on the user's map, 5 511 coins in 30 min; 2 181 with this ch
 - If late income is still too easy after this, halve the staples again or make them fill a town's own want (a City ★
   wants some bread, cheese…), rather than retune growth prices, which the early bands rest on.
 
+
+## Follow-up (2026-11-28): the late band, and where late money comes from
+
+**The late band.** `BALANCE_MINUTES=300 npm run balance:sweep -- --from 0 --to 40` plays on to 300 min and checks
+coins earned an hour from the first City ★ (`checkLateBands`, `LATE_BAND` 300-1 500). On main, seeds 0-40: City ★ at
+133-294 min (none on 35, 37); 34 seeds judged at 415-1 188 an hour, median about 585; all pass. The staples' share is
+0% on every seed: this player never builds a chain past the mill and the quarry, so the band guards the play-through's
+own late game, not a real player's.
+
+**Players' own maps** (`INCOME_MAPS=1`, src/play/income-maps.test.ts: every Game map in the repo, 30 min on as saved,
+towns, fares and boats wired as main wires them), coins an hour on the late ones (City ★★ or more):
+
+| Map | all | growth goods | staples | fares |
+| --- | ---: | ---: | ---: | ---: |
+| rookhurst (this report) | 10 634 | 3 758 | 1 710 (16%, bread) | 5 166 |
+| warehouse2-full-muffin | 9 916 | 2 392 | 2 412 (24%, bread) | 5 112 |
+| teal-line-planks-hint | 9 526 | 4 352 | 0 | 5 174 |
+| sprocket-farm | 9 338 | 3 888 | 432 (5%, bread) | 5 018 |
+| clover-pink3 | 8 608 | 3 460 | 0 | 5 076 |
+| grand-exhibition-overlap | 6 764 | 3 364 | 0 | 3 400 |
+
+Fares are about half to two thirds of a late player's coins; the staples (only bread, on these maps) 0-24%. Boats
+nothing.
+
+**Staples: the options, coins an hour on the two maps with the most** (rookhurst / warehouse2):
+
+- Now (half price): 10 634 / 9 916.
+- A quarter of the price: 9 779 (−8%) / 8 710 (−12%).
+- Not bought at all: 8 924 (−16%) / 7 504 (−24%); then nothing but a harbour buys the food, toy, car, oil and water chains.
+- Big cities needing some staples to grow: no cut. A good a town needs is paid in full, so each loaf earns more; growth
+  slows instead.
+
+Recommendation: a quarter of the price if any trim is wanted; it's small. The real lever for late money is fares; a
+change there (e.g. fares that don't rise with a city's size) would be its own proposal with these maps as the before.
+Nothing here is changed until chosen.

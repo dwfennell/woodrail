@@ -109,6 +109,9 @@ const RUN = !!ENV.BALANCE;
  */
 const HILLS: Hilliness = isHilliness(ENV.BALANCE_HILLS) ? ENV.BALANCE_HILLS : DEFAULT_HILLS;
 const MAX_MINUTES = Number(ENV.BALANCE_MINUTES ?? 180);
+/** The late-game play's length (BALANCE_MINUTES=300), and its band of coins earned an hour after the first City ★. */
+const LATE_MINUTES = 300;
+const LATE_BAND: readonly [number, number] = [300, 1500];
 /** Most trains on the line once routes are learned (1: only the goods train). */
 const PER_LINE = Number(ENV.BALANCE_TRAINS_PER_LINE ?? 1);
 /** Passing loops laid on the line once it's to have more than one train (default: one per extra train; BALANCE_NOLOOP=1: none). */
@@ -1731,6 +1734,7 @@ describe.skipIf(!RUN)("balance play-through", () => {
     }
     expect(P.p.rows.length).toBeGreaterThan(0);
     if (MAX_MINUTES === 180 && PER_LINE === 1) P.checkBands();
+    if (MAX_MINUTES === LATE_MINUTES && PER_LINE === 1) P.checkLateBands();
   }, 3_600_000);
 });
 
@@ -3161,6 +3165,23 @@ class Playthrough {
     }
     P.note(`restored the old ${role} ${Math.round(away)} mm from the line${spur !== -1 ? ", on a spur" : ""} (${describeGoods(restorePrice(role).goods)} + ${restorePrice(role).coins} coins)`);
     return { id: done.pieceId, beyond: freeEnd(P, done.pieceId) };
+  }
+
+  /**
+   * The late-game band (BALANCE_MINUTES=300, spec 2026-11-27-towns-buy-what-they-need.md, Balance): from the first City
+   * ★ to minute 300, coins earned an hour within `LATE_BAND`. On seeds 0-40 (main, 2026-11-28) it was 415-1 188 an
+   * hour (median about 585), the staples 0% on every seed: this player builds no chain past the mill and the quarry, so
+   * the band guards its own late game against a change that floods it with coins or starves it, not how easy a real
+   * player's is (their maps make 4 200-10 600 an hour: INCOME_MAPS=1, src/play/income-maps.test.ts). A seed
+   * whose City ★ comes less than 30 min before the end (7 of 41) isn't judged.
+   */
+  checkLateBands(): void {
+    const late = this.lateRate();
+    if (late) {
+      expect.soft(late.perHour, `late coins an hour at least ${LATE_BAND[0]}`).toBeGreaterThanOrEqual(LATE_BAND[0]);
+      expect.soft(late.perHour, `late coins an hour at most ${LATE_BAND[1]}`).toBeLessThanOrEqual(LATE_BAND[1]);
+    }
+    console.log(`BANDS late ${this.lateIncome()} (band ${LATE_BAND[0]}-${LATE_BAND[1]}/h)`);
   }
 
   /**
