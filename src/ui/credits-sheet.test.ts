@@ -15,6 +15,12 @@ describe("☰ Credits", () => {
   it("names every library the game ships with", () => {
     const deps = Object.keys((JSON.parse(pkgSrc) as { dependencies: Record<string, string> }).dependencies);
     const named = CREDITS.map((c) => c.what.toLowerCase()).join(" ");
-    for (const d of deps) expect(named, d).toContain(d.toLowerCase());
+    // A scoped package is named by its project (@capacitor/android: Capacitor) or the work in it (@fontsource/nunito:
+    // Nunito, the font).
+    const name = (d: string) => {
+      const scoped = /^@([^/]+)\/(.+)$/.exec(d.toLowerCase());
+      return scoped ? [scoped[1], scoped[2], scoped[2].replaceAll("-", " ")] : [d.toLowerCase()];
+    };
+    for (const d of deps) expect(name(d).some((n) => named.includes(n)), d).toBe(true);
   });
 });
