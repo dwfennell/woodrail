@@ -100,6 +100,7 @@ export const SUITES = {
   "route-insert": { script: "e2e:route-insert", minutes: 4 },
   "train-off-line": { script: "e2e:train-off-line", minutes: 4 },
   "swap-engine": { script: "e2e:swap-engine", minutes: 4 },
+  history: { script: "e2e:history", minutes: 6 },
   "tech-tree-5": { script: "e2e:tech-tree-5", minutes: 4 },
 };
 
@@ -292,6 +293,8 @@ export const RULES = [
   [["src/game/lines.ts", "src/ui/line-sheet.ts"], ["train-off-line"]],
   // Swap engine (the card's Engine, its sheet): the engine's look in place, the train kept on its line.
   [["src/game/swap-engine.ts", "src/ui/engine-sheet.ts", "src/game/engines.ts", "src/render/train-view.ts"], ["swap-engine"]],
+  // A train's or boat's delivery history: the log, its sheet and its words (spec 2026-11-28-delivery-history.md).
+  [["src/economy/history.ts", "src/ui/history-sheet.ts", "src/ui/history-text.ts", "tools/e2e/history.mjs"], ["history"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
   ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips", "situation-help", "phone-room"]],
   [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen", "phone-room"]],

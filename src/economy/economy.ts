@@ -1,5 +1,6 @@
 import { connectorRef, DOUBLE_TRACK_SPACING, getPieceDef, indexOfRef, isKit, isSecretKit, LOOKOUT_KIT, METRO_KIT, MAX_CONNECTORS, OBSERVATORY_KIT, pathExitConnector, pathLength, pieceOfRef, pointsWayFrom, type Layout } from "../track";
-import { ACCELERATION, ADV_OK, brakeTo, CAR_SPECS, COUPLER_GAP, flipCursor, SIM_DT, SIM_HZ, walkTrack, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, ADV_OK, brakeTo, CAR_SPECS, COUPLER_GAP, flipCursor, SIM_DT, SIM_HZ, trainKey, walkTrack, type Cursor, type Sim, type Train } from "../sim";
+import { HaulLog } from "./history";
 import { LineTally } from "./line-tally";
 
 /** A game month in sim ticks (calendar.ts's `MONTH_S`, 120 s): the span the Lines list counts a line's loads over. */
@@ -700,6 +701,8 @@ export class Economy {
   /** Bumped when goods reach a town (what it still wants may change). */
   private wantsStamp = 0;
   private events: EconomyEvent[] = [];
+  /** Each train's and boat's delivery history (src/economy/history.ts): fed by the crane's moves and riders' steps. */
+  readonly history = new HaulLog();
   /** The other half of the event double buffer (no new array each drain). */
   private drained: EconomyEvent[] = [];
   /** Station events since the last drain (see `StationEvent`), and the other half of their double buffer. */
@@ -722,6 +725,8 @@ export class Economy {
     // (A train that turns round keeps its id: its visit to a stop and its school run's pass end there, as when a turn
     // gave it a new id.)
     sim.onTurnedRound?.((id) => this.turnedRound(id));
+    // (The history's game time: the ticks run, till the game puts its session clock in.)
+    this.history.clock = () => this.ticksRun * SIM_DT;
     this.kitStops.onStop = (kind, pieceId, trainId) => this.stationNote(kind, pieceId, trainId, -1);
     sim.speedCap = (train) => this.capFor(train);
     // (A train the router holds short of points claims nothing there: routing spec §13 step 7.)
@@ -1583,7 +1588,7 @@ export class Economy {
   seatsOf: ((carId: number) => number) | null = null;
 
   /** Someone got off a coach at station `to`, having got on at `from` (Game mode pays their fare). */
-  onAlight: ((from: DepotState, to: DepotState, carId: number) => void) | null = null;
+  onAlight: ((from: DepotState, to: DepotState, carId: number) => number | void) | null = null;
 
   /**
    * Would someone on this coach get off here (see `alightWho`)?
@@ -1773,6 +1778,52 @@ export class Economy {
   }
 
   /** The places this coach's riders want, each with how many (for its card). */
+  /**
+   * Where a unit of `kind` picked up at `d` by `train` is meant to go (the history's pickups): on a line, the first
+   * stop after this one round the line that drops it and takes it in (a sorting van's mail: where post is taken);
+   * hand-run, or no stop takes it: −1. Asked once a pickup line of a visit, not every unit.
+   */
+  meantFor(train: Train, d: DepotState, kind: CargoKind): number {
+    const route = this.routeOfTrain(train);
+    const n = route?.stops.length ?? 0;
+    if (!route || n < 2 || !Number.isInteger(route.next)) return -1;
+    let i = -1;
+    for (let k = 0; k < n; k++) {
+      const j = (route.next + k) % n;
+      if (route.stops[j].depotId === d.id) {
+        i = j;
+        break;
+      }
+    }
+    if (i < 0) return -1;
+    const want: CargoKind = kind === "mail" && sortsMail(train) ? "post" : kind;
+    for (let k = 1; k < n; k++) {
+      const s = route.stops[(i + k) % n];
+      if (s.action === "pick" || s.depotId === d.id) continue;
+      const t = this.liveDepot(s.depotId);
+      if (t && t.auto && RECIPES[t.role].takes.includes(want) && storeLetsIn(t, want)) return t.id;
+    }
+    return -1;
+  }
+
+  /** A rider's place (`placeKey`) as a depot for the history: a town's station, a place's own depot; −1 anywhere. */
+  placeDepot(place: number): number {
+    if (place === ANYWHERE) return -1;
+    if (place <= -2) return this.depots[-2 - place] ? -2 - place : -1;
+    for (const d of this.depots) if (d && d.role === "town" && d.townId === place && !this.isHalt(d)) return d.id;
+    return -1;
+  }
+
+  /** How many riders on this coach got on at `from`. */
+  private ridersFrom(carId: number, from: number): number {
+    const r = this.riders.get(carId);
+    if (!r) return 0;
+    if (!r.froms) return r.from === from ? r.count : 0;
+    let n = 0;
+    for (const f of r.froms) if (f === from) n++;
+    return n;
+  }
+
   ridersByPlace(carId: number): Map<number, number> {
     const out = new Map<number, number>();
     const r = this.riders.get(carId);
@@ -3599,6 +3650,11 @@ export class Economy {
 
   private endVisit(s: Service): void {
     if (s.halted) this.departed(s);
+    else {
+      // (Its history's visit there ends too, halted or not: a call next lap is a new visit.)
+      const t = this.sim.getTrain(s.trainId);
+      if (t) this.history.left(trainKey(t));
+    }
     if (s.depotId !== -1 && this.craneBy.get(s.depotId) === s.trainId) this.craneBy.delete(s.depotId);
     s.phase = NONE;
     s.depotId = -1;
@@ -3724,13 +3780,19 @@ export class Economy {
       const loads = this.craneLoads * (this.liftLoad && d.role === "warehouse" ? LIFT_LOADS : 1);
       for (let n = 0; n < loads; n++) {
         if (this.canUnload(d, s.carId)) {
-          this.events.push({ kind: "unloaded", depotId: d.id, cargo: this.cargoOf(s.carId).kind! });
+          const kind = this.cargoOf(s.carId).kind!;
+          this.events.push({ kind: "unloaded", depotId: d.id, cargo: kind });
           const lineId = this.lineOfTrain(train);
           if (lineId !== -1) this.lineLoads.add(lineId, this.ticksRun);
           this.unloadOne(d, s.carId);
+          this.history.dropped(trainKey(train), s.carId, d.id, kind, this.cargoOf(s.carId).count === 0, d.role === "town" ? d.townId : -1);
         } else if (this.loadKind(d, s.carId) !== null) {
-          this.events.push({ kind: "loaded", depotId: d.id, cargo: this.loadKind(d, s.carId)! });
+          const kind = this.loadKind(d, s.carId)!;
+          this.events.push({ kind: "loaded", depotId: d.id, cargo: kind });
+          const empty = this.cargoOf(s.carId).count === 0;
           this.loadOne(d, s.carId);
+          const key = trainKey(train);
+          this.history.picked(key, s.carId, d.id, kind, this.history.pickPlace(key, d.id, kind) ?? this.meantFor(train, d, kind), empty);
         } else break;
         this.loadsMoved++;
       }
@@ -3766,14 +3828,17 @@ export class Economy {
         // (Paid while still aboard: the fare reads what the coach's riders have had, `Riders.scenic`.)
         // (At an airport they wait in its lounge for a plane.)
         if (d.role === "airport" || d.role === "mast") d.flyers++;
-        if (from) this.onAlight?.(from, d, car.id);
+        const fare = from ? this.onAlight?.(from, d, car.id) : 0;
+        const fromId = r!.froms ? r!.froms[off] : r!.from;
         this.takeRider(car.id, off);
+        this.history.alighted(trainKey(train), car.id, d.id, fromId, typeof fare === "number" ? fare : 0, this.ridersFrom(car.id, fromId));
         this.stationNote("off", d.pieceId, s.trainId, car.id);
       } else if (on >= 0) {
         const place = d.wants[on];
         d.wants.splice(on, 1);
         d.waiting--;
         this.addRider(car.id, d.id, place);
+        this.history.boarded(trainKey(train), car.id, d.id, this.placeDepot(place));
         this.stationNote("on", d.pieceId, s.trainId, car.id);
       }
     }
@@ -4498,6 +4563,8 @@ export class Economy {
   /** A train halted at a depot sets off: its "left" station event (once a halt). */
   private departed(s: Service): void {
     s.halted = false;
+    const t = this.sim.getTrain(s.trainId);
+    if (t) this.history.left(trainKey(t));
     const d = s.depot;
     if (d) this.stationNote("left", d.pieceId, s.trainId, -1);
   }
@@ -4561,6 +4628,13 @@ export class Economy {
     for (const id of this.cargo.keys()) if (!this.sim.findCar(id)) this.cargo.delete(id);
     for (const id of this.riders.keys()) if (!this.sim.findCar(id)) this.riders.delete(id);
     for (const id of this.routes.keys()) if (!this.sim.findCar(id)) this.routes.delete(id);
+    // (A train's history goes with its engine; a car's or a boat's "came aboard" with it.)
+    const h = this.history;
+    for (const id of h.trains.keys()) if (!this.sim.findCar(id)) h.trains.delete(id);
+    for (const id of h.carSince.keys()) if (!this.sim.findCar(id)) h.carSince.delete(id);
+    for (const id of h.riderSince.keys()) if (!this.sim.findCar(id)) h.riderSince.delete(id);
+    for (const id of h.boats.keys()) if (!this.boats.has(id)) h.boats.delete(id);
+    for (const id of h.boatSince.keys()) if (!this.boats.has(id)) h.boatSince.delete(id);
     // An engine gone: off its line. A line no train runs stays (lines are the player's, with or without trains), but
     // for a transient one (a call home), which is forgotten.
     for (const id of this.lineIdOf.keys()) if (!this.routes.has(id)) this.lineIdOf.delete(id);

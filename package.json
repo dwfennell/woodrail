@@ -117,6 +117,7 @@
     "e2e:route-insert": "node scripts/e2e/lib/run.mjs tools/e2e/route-insert.mjs",
     "e2e:train-off-line": "node scripts/e2e/lib/run.mjs tools/e2e/train-off-line.mjs",
     "e2e:swap-engine": "node scripts/e2e/lib/run.mjs tools/e2e/swap-engine.mjs",
+    "e2e:history": "node scripts/e2e/lib/run.mjs tools/e2e/history.mjs",
     "build:artifact": "node scripts/artifact-build.mjs",
     "build:itch": "node scripts/itch-build.mjs",
     "build:native": "node scripts/native-build.mjs",

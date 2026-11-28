@@ -79,6 +79,8 @@ export interface HudHandlers {
   swapEnds(): void;
   /** The engine card's Engine: the sheet of engines to swap it for (game/swap-engine.ts). */
   swapEngine?(): void;
+  /** The engine card's History: the train's deliveries (ui/history-sheet.ts). */
+  history?(): void;
   /** The engine card, waiting to turn back where the track ends: turn round now and run on to the next stop. */
   continueOn(): void;
   /** The engine card, waiting for a full load: go now with what it has (this stop only). */
@@ -251,6 +253,8 @@ function setToggle(b: HTMLButtonElement, on: boolean): void {
 
 /** A little camera (Follow). */
 const CAMERA_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 8h3l1.6-2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.4" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
+/** History: a clock whose hand winds back (the log of what a train or boat did). */
+const HISTORY_ICON = `<svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true"><path d="M4.6 12a7.6 7.6 0 1 0 2.2-5.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6.2 3.6v3.4h3.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v4.3l2.8 1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 /** The way arrow, pointing right before it's turned. */
 const WAY_ARROW = `<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M4 12h13M12 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
@@ -432,6 +436,8 @@ export class Hud {
   private readonly swapBtn: HTMLButtonElement;
   /** Engine (the engine card's): swap the engine for another kind, in place. */
   readonly engineSwapBtn: HTMLButtonElement;
+  /** History, on an engine's card: what the train picked up and dropped off (ui/history-sheet.ts). */
+  readonly engineHistoryBtn: HTMLButtonElement;
   private readonly engineDecoupleBtn: HTMLButtonElement;
   private readonly carDecoupleBtn: HTMLButtonElement;
   private readonly engineStatus = el("div", "engine-status");
@@ -774,6 +780,11 @@ export class Hud {
     this.followBtn = button("", "Follow this train with the camera", h.follow, "corner follow");
     this.followBtn.innerHTML = CAMERA_ICON;
     this.engineCard.append(this.followBtn);
+    // History (what it picked up and dropped off, stop by stop: ui/history-sheet.ts), the card's other tool, beside the
+    // camera: the tools row under the line is full once Paint shows.
+    this.engineHistoryBtn = button("", "History: what this train picked up and dropped off lately", () => h.history?.(), "corner train-history");
+    this.engineHistoryBtn.innerHTML = HISTORY_ICON;
+    this.engineCard.append(this.engineHistoryBtn);
     // Top to bottom by purpose (impeccable critique of 2026-11-05, the user's layout B): what it carries, a line under
     // its name; what it's doing and the fix for it; Go or Stop, Leave now and the way; its line; the train's own tools.
     // What it carries, in one line, and Delete cargo beside it (two taps: the goods are gone, not unloaded anywhere).

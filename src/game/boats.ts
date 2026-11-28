@@ -491,6 +491,9 @@ export class Fleet {
     let picked = 0;
     const both = stop.action === "both";
     const droppedHere = new Set<CargoKind>();
+    // (For its history: what it dropped and picked up here, and where each pickup is for.)
+    const logDrops = new Map<CargoKind, number>();
+    const logPicks = new Map<CargoKind, { n: number; to: number }>();
     if (stop.action !== "pick") {
       for (const k of BARGE_GOODS) {
         const have = b.load[k] ?? 0;
@@ -504,6 +507,7 @@ export class Fleet {
         b.load[k] = have - n;
         dropped += n;
         droppedHere.add(k);
+        logDrops.set(k, n);
         if (b.loadedAt[k] !== undefined && b.loadedAt[k] !== d.id) this.economy.boatDelivered += n;
         if (b.load[k] === 0) delete b.loadedAt[k];
       }
@@ -520,10 +524,25 @@ export class Fleet {
         addTo(b.load, k, n);
         b.loadedAt[k] = d.id;
         picked += n;
+        logPicks.set(k, { n, to: this.meantFor(b, stop, k) });
       }
     }
+    this.economy.history.boatServed(b.id, d.id, logDrops, logPicks);
     if (dropped + picked > 0) this.economy.acceptsChanged();
     return { dropped, picked };
+  }
+
+  /** The next stop after `at` round this boat's route that drops `k` and whose dock takes it in (its depot id), or −1. */
+  meantFor(b: BoatState, at: BoatStop, k: CargoKind): number {
+    const i = b.stops.indexOf(at);
+    const n = b.stops.length;
+    for (let j = 1; j < n; j++) {
+      const s = b.stops[(Math.max(0, i) + j) % n];
+      if (s === at || s.depotId === at.depotId || s.action === "pick") continue;
+      const d = this.economy.depot(s.depotId);
+      if (d && RECIPES[d.role].takes.includes(k) && (d.role !== "landing" || storeLetsIn(d, k))) return d.id;
+    }
+    return -1;
   }
 
   /** Does a stop on this boat's route other than `at` take `k` (it drops there, and its dock takes it in)? */

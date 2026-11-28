@@ -5,7 +5,8 @@ import { addSitesToOldSave, depotPieceType, fixedPieces, GAMES_KEY, HALT_KITS, I
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps, healTownSquares } from "../props/towns";
-import { CAR_LOOKS, Sim } from "../sim";
+import { CAR_LOOKS, Sim, trainKey } from "../sim";
+import { loadLog, saveLog } from "../economy/history";
 import type { Bag } from "../economy/goods";
 import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, LIFT_STACK, MAX_WAGON_CAPACITY, givesChoice, isStore, pilesOf, RECIPES, ANYWHERE, type BoatState, type Riders, type CargoKind, type DepotState, type RouteStopDef, type StoreMode } from "../economy";
 
@@ -149,7 +150,11 @@ export function serializeWorld(world: World): SaveData {
     savedLine.set(line.stops, line.id);
     lines.push({ id: line.id, colour: line.colour, name: line.name, stops });
   }
+  // (Each train's delivery history, on its key engine; depots by their saved index, one not saved −1.)
+  const history = world.economy.history;
+  const depotIndex = (id: number) => renumbered.get(id) ?? -1;
   const trains: SaveData["trains"] = [...sim.trains()].map((t) => {
+    const key = trainKey(t);
     return {
       cars: t.cars.map((c) => {
         const cargo = world.economy.cargoOf(c.id);
@@ -170,6 +175,8 @@ export function serializeWorld(world: World): SaveData {
           ...(line ? { line } : {}),
           ...(off.length > 0 ? { off } : {}),
           ...(riders.count > 0 && renumbered.has(riders.from) ? { riders: savedRiders(riders, renumbered) } : {}),
+          ...(c.id === key ? logOf(saveLog(history.trains.get(key), depotIndex)) : {}),
+          ...sinceOf(world, c.id, cargo.count, riders.count, renumbered),
         };
       }),
       lead: { ...t.bogies[0] },
@@ -205,6 +212,22 @@ export function serializeWorld(world: World): SaveData {
   };
 }
 
+/** A log for the save, or nothing (none yet). */
+const logOf = (h: ReturnType<typeof saveLog>): { history?: NonNullable<ReturnType<typeof saveLog>> } => (h ? { history: h } : {});
+
+/** Where a car's load or its riders came aboard (depots renumbered), or nothing. */
+function sinceOf(world: World, carId: number, goods: number, riders: number, renumbered: ReadonlyMap<number, number>): { since?: [number, number][] } {
+  const h = world.economy.history;
+  const out: [number, number][] = [];
+  if (riders > 0) {
+    for (const [from, at] of h.riderSince.get(carId) ?? []) if (renumbered.has(from)) out.push([renumbered.get(from)!, Math.round(at)]);
+  } else if (goods > 0) {
+    const s = h.carSince.get(carId);
+    if (s && renumbered.has(s.from)) out.push([renumbered.get(s.from)!, Math.round(s.at)]);
+  }
+  return out.length > 0 ? { since: out.slice(0, MAX_RIDERS) } : {};
+}
+
 /** The yards' orders (renumbered as the depots are) and what the shipyards have built. */
 function yardsOf(world: World, renumbered: ReadonlyMap<number, number>): Pick<SaveData, "yards" | "built"> {
   const yards = [...world.economy.yardOrders]
@@ -212,6 +235,13 @@ function yardsOf(world: World, renumbered: ReadonlyMap<number, number>): Pick<Sa
     .map(([id, o]) => ({ depot: renumbered.get(id)!, build: o.build, got: Object.fromEntries(Object.entries(o.got).filter(([, n]) => (n ?? 0) > 0)) as Record<string, number> }));
   const { shipsBuilt: ships, ferriesBuilt: ferries } = world.economy;
   return { ...(yards.length > 0 ? { yards } : {}), ...(ships + ferries > 0 ? { built: { ships, ferries } } : {}) };
+}
+
+/** Where each good on a boat came aboard (depots renumbered), or nothing. */
+function boatSinceOf(world: World, b: BoatState, renumbered: ReadonlyMap<number, number>): { since?: [number, number, number][] } {
+  const out: [number, number, number][] = [];
+  for (const [good, s] of world.economy.history.boatSince.get(b.id) ?? []) if (renumbered.has(s.from) && Object.values(b.load).some((n) => (n ?? 0) > 0)) out.push([good, renumbered.get(s.from)!, Math.round(s.at)]);
+  return out.length > 0 ? { since: out } : {};
 }
 
 /** The boats, their stops renumbered as the depots are (a stop at a depot no longer on the map is left out). */
@@ -234,6 +264,8 @@ function boatsOf(world: World, renumbered: ReadonlyMap<number, number>): Pick<Sa
       t: b.docked || stops.length !== b.stops.length ? 0 : b.t,
       going: b.going,
       home: renumbered.get(b.home) ?? renumbered.get(stops[0].depotId)!,
+      ...logOf(saveLog(world.economy.history.boats.get(b.id), (id) => renumbered.get(id) ?? -1)),
+      ...boatSinceOf(world, b, renumbered),
     });
   }
   return boats.length > 0 ? { boats: boats.slice(0, MAX_BOATS) } : {};
@@ -617,6 +649,17 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean; repor
       if (car.kind === "engine" && name) sim.setName(car.id, name);
       const livery = t.cars[i].livery;
       if (livery) sim.setLivery(car.id, livery);
+      // Its train's delivery history (saved on its key engine), and where its load or its riders came aboard.
+      const log = t.cars[i].history;
+      if (log) economy.history.trains.set(trainKey(train), loadLog(log, (d) => !!economy.depot(d)));
+      for (const [from, at] of t.cars[i].since ?? []) {
+        if (!economy.depot(from)) continue;
+        if (car.kind === "passenger") {
+          let m = economy.history.riderSince.get(car.id);
+          if (!m) economy.history.riderSince.set(car.id, (m = new Map()));
+          m.set(from, at);
+        } else economy.history.carSince.set(car.id, { from, at });
+      }
       const on = t.cars[i].line;
       if (car.kind === "engine" && on) {
         joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next, on.via);
@@ -686,6 +729,14 @@ export function deserializeWorld(data: unknown, opts: { sandbox?: boolean; repor
     const from = kept ? Math.min(b.from, stops.length - 1) : 0;
     const id = boatId++;
     economy.boats.set(id, { id, name: b.name, barges: b.barges, load, stops, from, docked: kept ? b.docked : true, t: kept ? b.t : 0, going: b.going, home: isDock(economy.depot(b.home)) ? b.home : stops[0].depotId, loadedAt: {} });
+    // (Its history, and where its goods came aboard.)
+    if (b.history) economy.history.boats.set(id, loadLog(b.history, (d) => !!economy.depot(d)));
+    for (const [good, from, at] of b.since ?? []) {
+      if (!economy.depot(from)) continue;
+      let m = economy.history.boatSince.get(id);
+      if (!m) economy.history.boatSince.set(id, (m = new Map()));
+      m.set(good, { from, at });
+    }
   }
   if (broughtBack.length > 0) {
     // (Pinned as the editor pins: map pieces, lifts, and track under a train.)

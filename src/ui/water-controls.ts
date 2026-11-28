@@ -26,6 +26,8 @@ export interface WaterContext {
   saved: () => void;
   /** The player's coins changed: save them. */
   paid: () => void;
+  /** A boat's History sheet (its card's History). */
+  history?: (boatId: number) => void;
 }
 
 export interface WaterControls {
@@ -63,6 +65,7 @@ export function attachWater(ctx: WaterContext): WaterControls {
       fleet.removeStop(open, i);
       ctx.saved();
     },
+    history: () => ctx.history?.(open),
     goStop: () => {
       const b = game.economy.boats.get(open);
       if (!b) return;

@@ -136,7 +136,8 @@ import { loadCached, saveCached } from "./render/piece-cache";
 import { forgetTextureCache, texturesMade, useTextureCache } from "./render/textures";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, pieceOfRef, PIECE_TYPES, type Ignore, type Layout, type PieceTypeId, type Pose } from "./track";
-import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
+import { flipCursor, trainKey, type CarKind, type CarLook, type Cursor } from "./sim";
+import { historyView } from "./ui/history-text";
 import { Hud } from "./ui/hud";
 import { installSwipeGuard } from "./ui/swipe-guard";
 import { viewOf } from "./ui/controls-tutorial";
@@ -430,6 +431,34 @@ let reports: Reporter | null = null;
 
 function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>, cloudNotes: CloudNotes): void {
   const game = new Game(canvas, opening.world);
+
+  // A train's or boat's History sheet (ui/history-sheet.ts, spec 2026-11-28-delivery-history.md): its log, by the card's
+  // History. Drawn again only when its log changes or a minute turns (the "ago"s); its code loaded the first time.
+  /** The log a History sheet's subject reads ("train:<engine car id>": its train's, by `trainKey`; "boat:<id>"). */
+  const historyLogOf = (subject: string) => {
+    const [kind, idText] = subject.split(":");
+    const id = Number(idText);
+    if (kind === "boat") return game.economy.boats.has(id) ? { log: game.economy.history.boats.get(id), name: game.economy.boats.get(id)!.name } : null;
+    const found = game.sim.findCar(id);
+    return found ? { log: game.economy.history.trains.get(trainKey(found.train)), name: game.sim.nameOf(id) || "This train" } : null;
+  };
+  const historySheet = lazy(async () => new (await import("./ui/history-sheet")).HistorySheet({
+    keyOf: (subject) => {
+      // (Its boat or engine gone: the sheet closes.)
+      const boat = subject.startsWith("boat:");
+      if (boat ? !game.economy.boats.has(Number(subject.slice(5))) : !game.sim.findCar(Number(subject.slice(6)))) return -1;
+      return game.economy.history.version * 1000 + (Math.floor(game.simSeconds / 30) % 1000);
+    },
+    view: (subject) => {
+      const s = historyLogOf(subject)!;
+      const names = routeStops(game.world);
+      const nameOf = (id: number) => names.find((st) => st.depotId === id)?.name ?? lostStopName(game.world, id);
+      const what = subject.startsWith("boat:") ? "the docks it called at lately, newest first. Tap one to see it." : "the stops it called at lately, newest first. Tap one to see it.";
+      return { name: s.name, what, view: historyView(s.log, game.simSeconds, nameOf) };
+    },
+    frame: (depotId) => showPlace(depotId),
+  }), lazyFailed);
+
   // With drawn-only geometry freed after upload (gpu-only.ts), a lost context can't be rebuilt in place: reload instead.
   game.restoreInPlace = !gpuOnlyEnabled();
   // Dev builds (the dev server, or `?dev`): the train invariants checked as the game runs, a red badge when one breaks
@@ -669,6 +698,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const why = swapRefusal(game.world, id, null, swapRules());
         if (why) return hud.toast(SWAP_WHY[why] || "Can't swap this engine now", false, 2500);
         engineSheet.use((s) => s.show(id));
+      },
+      history: () => {
+        const id = interaction.openEngineCarId;
+        if (id !== -1) historySheet.use((s) => s.show(`train:${id}`));
       },
       continueOn: () => continueTrain(),
       leaveNow: () => leaveNow(),
@@ -1489,6 +1522,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (siting) endSiting(false);
     game.setWorld(world);
     water?.reset();
+    // (A History sheet was the old map's train's or boat's.)
+    historySheet.now?.close();
     shownDelivered = new Map();
     announced = new Set();
     updateConnections(false);
@@ -2313,7 +2348,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     grandGoods: () => advanceGrand(),
     received: (town, kind, n, before) => {
       const firstFlour = !progress.firstFlour;
-      payDelivery(progress, kind, n, before, town);
+      // (Its coins shared out among the trains' drops there they're for: their history, src/economy/history.ts.)
+      game.economy.history.paid(town.id, kind, n, payDelivery(progress, kind, n, before, town));
       hud.setCoins(progress.coins);
       if (firstFlour && progress.firstFlour) note({ kind: "milestone", text: `First flour! ${town.name} pays a ${FIRST_FLOUR_BONUS}🪙 bonus`, place: { x: town.station.x, z: town.station.z } }, 3600);
       // The first milk, bread or fruit any town has had (the dairy chain, the orchard): a milestone, once a game.
@@ -3471,6 +3507,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     isGame: () => mode === "game",
     saved: () => scheduleSave(),
     paid: () => scheduleSave("progress"),
+    history: (boatId) => historySheet.use((s) => s.show(`boat:${boatId}`)),
   });
   // Secrets on the map (Game mode): found by laying track to them, their cards, midsummer (src/ui/secret-controls.ts).
   secrets = attachSecrets({
@@ -7942,6 +7979,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (e.key === "Escape" && mapView.open) closeMap(true, true);
     if (e.key === "Escape" && board.open) setBoardOpen(false);
     if (e.key === "Escape" && engineSheet.now?.open) engineSheet.now.close();
+    if (e.key === "Escape" && historySheet.now?.open) historySheet.now.close();
     // (A line sheet with no train's card under it: Esc closes it, as it closes a card. A train's planning ends as its
     // card closes.)
     if (e.key === "Escape" && planning && sheetEngine === -1) setPlanning(false);
@@ -8179,6 +8217,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.onCameraMoved = () => hud.coach.cameraMoved();
   game.onFrame = (dt) => {
     devChecks?.frame();
+    // (An open History sheet: drawn again only when its key changes.)
+    historySheet.now?.refresh();
     interaction.refreshDepotCard();
     showSchoolYard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.

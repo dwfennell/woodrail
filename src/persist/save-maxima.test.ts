@@ -18,6 +18,8 @@ import { createLine, LINE_NAME_MAX, MAX_VIAS, renameLine } from "../game/lines";
 import { MOST_STOREYS } from "../props/storeys";
 import { Journal, JOURNAL_CAP } from "../game/journal";
 import { deserializeWorld, serializeWorld, type SaveData } from "./save";
+import { LOG_LINES, LOG_VISITS } from "../economy/history";
+import { trainKey } from "../sim";
 import { saveSchema, sessionSchema } from "./save-schema";
 
 afterEach(() => vi.restoreAllMocks());
@@ -106,6 +108,31 @@ function worldAtMaxima(): { world: World; progress: Progress } {
   renameLine(e, l.id, "L".repeat(LINE_NAME_MAX + 10));
   // Town houses with every storey they can have.
   for (const p of world.props.all()) if (p.building !== undefined) world.props.setStoreys(p.id, MOST_STOREYS);
+  // The delivery history at its most (src/economy/history.ts), recorded by its own calls: the train's last
+  // `LOG_VISITS` visits and more, each with `LOG_LINES` lines and more (riders for many places), coins, long rides and a
+  // late clock; each coach's riders from many stops, each wagon's load's origin; each boat's visits and goods aboard.
+  const h = e.history;
+  let now = 10_000_000;
+  h.clock = () => now;
+  const depots = e.allDepots();
+  const key = trainKey(train);
+  const coach = train.cars.find((c) => c.kind === "passenger")!;
+  for (let v = 0; v < LOG_VISITS + 5; v++) {
+    now += 997;
+    const at = depots[v % depots.length].id;
+    for (let k = 0; k < LOG_LINES + 3; k++) h.boarded(key, coach.id, at, depots[(v + k + 1) % depots.length].id);
+    for (let k = 0; k < 3; k++) h.dropped(key, train.cars[train.cars.length - 2].id, at, "coal", false, town.townId);
+    h.alighted(key, coach.id, at, depots[(v + 1) % depots.length].id, 1_000_000, 1);
+    h.left(key);
+  }
+  h.paid(town.townId, "coal", 3, 50_000_000);
+  for (const c of train.cars) if (c.kind === "hopper") h.picked(key, c.id, landing.id, "coal", town.id, true);
+  for (const b of fleet.all())
+    for (let v = 0; v < LOG_VISITS + 2; v++) {
+      now += 61;
+      const picks = new Map(pilesOf("landing").slice(0, LOG_LINES + 2).map((k) => [k, { n: 99, to: landing.id }] as const));
+      h.boatServed(b.id, depots[v % depots.length].id, new Map(pilesOf("landing").slice(0, 4).map((k) => [k, 99] as const)), picks);
+    }
   // Counts the game never caps: deliveries, ships built.
   e.shipsBuilt = 5000;
   e.ferriesBuilt = 5000;
@@ -150,6 +177,12 @@ describe("a Game world at the game's maxima", () => {
     // (What was put there is what was saved: the maxima themselves.)
     expect(Math.max(...data.depots.flatMap((d) => d.piles))).toBe(Math.max(...world.economy.allDepots().map((d) => capAt(d))));
     expect(data.trains[0].cars[0].name).toBe("🚂".repeat(MAX_ENGINE_NAME));
+    // The history at its most: a full ring of full visits on the engine and each boat, kept as it was.
+    const log = data.trains[0].cars[0].history!;
+    expect(log.length).toBe(LOG_VISITS);
+    expect(Math.max(...log.map((v) => v[2].length))).toBe(LOG_LINES);
+    expect(data.boats!.every((b) => b.history?.length === LOG_VISITS)).toBe(true);
+    expect(data.trains[0].cars.some((c) => (c.since?.length ?? 0) > 1)).toBe(true);
   });
 
   it("its session (a full Journal, a long clock) and progress (coins and counts) round-trip too", () => {

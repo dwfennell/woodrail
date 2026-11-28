@@ -270,6 +270,7 @@ export function attachPassengers(world: World, p: () => Progress, paid?: (fare: 
   world.economy.onAlight = (from, to, carId) => {
     const fare = payFare(world, p(), from, to, carId, month?.(), year?.());
     paid?.(fare, from, to);
+    return fare;
   };
 }
 

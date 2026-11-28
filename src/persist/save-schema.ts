@@ -6,6 +6,7 @@ import { MAX_VIAS } from "../game/lines";
 import { BARGE_LOADS, MAX_BARGES, MAX_BOATS } from "../game/boats";
 import { JOURNAL_CAP, JOURNAL_KEY_MAX, JOURNAL_POINTS_MAX, JOURNAL_TEXT_MAX } from "../game/journal";
 import { landscapeSchema } from "./landscape-schema";
+import { LOG_LINES, LOG_VISITS } from "../economy/history";
 import { MAX_PILE, MAX_RIDERS, MAX_SAVED_SPEED, SAVE_VERSION } from "./save-limits";
 
 /**
@@ -22,6 +23,15 @@ const pieceSchema = z.object({
   y: z.number().finite(),
   flipped: z.boolean(),
 });
+
+/**
+ * A train's or boat's delivery history (src/economy/history.ts), oldest first: each visit its game time (s), its depot
+ * (an index in `depots`, −1 gone) and its lines, each [good (cargo index, 40 riders), count, drop 1 or pickup 0, place
+ * (depot index, −1), coins, seconds ridden in all]. No new save version: older saves simply have none.
+ */
+const historySchema = z
+  .array(z.tuple([z.number().finite().min(0), z.number().int().min(-1), z.array(z.tuple([z.number().int().min(0).max(63), z.number().int().min(0), z.union([z.literal(0), z.literal(1)]), z.number().int().min(-1), z.number().int().min(0), z.number().int().min(0)])).max(LOG_LINES)]))
+  .max(LOG_VISITS);
 
 const trainSchema = z.object({
   cars: z
@@ -49,6 +59,10 @@ const trainSchema = z.object({
         // line had no room for it. Optional: older saves work them out afresh.)
         /** `via`: via points passed on the way to its next stop (routing spec §3.5). */
         line: z.object({ id: z.number().int().min(1), next: z.number().int().min(0), joined: z.number().int().min(0).optional(), held: z.literal(true).optional(), via: z.number().int().min(1).optional() }).optional(),
+        /** Its train's delivery history (on the train's key engine: `trainKey`). Absent: none yet. */
+        history: historySchema.optional(),
+        /** Where its load (or each lot of its riders) came aboard: [depot index, game time (s)]. Absent: not known. */
+        since: z.array(z.tuple([z.number().int().min(0), z.number().finite().min(0)])).max(MAX_RIDERS).optional(),
       }),
     )
     .min(1),
@@ -191,6 +205,10 @@ export const saveSchema = z.object({
         t: z.number().finite().min(0),
         going: z.boolean(),
         home: z.number().int().min(0),
+        /** Its delivery history (as an engine's). Absent: none yet. */
+        history: historySchema.optional(),
+        /** Where each good on board came aboard: [cargo index, depot index, game time (s)]. */
+        since: z.array(z.tuple([z.number().int().min(0).max(63), z.number().int().min(0), z.number().finite().min(0)])).max(CARGO_SLOTS).optional(),
       }),
     )
     .max(MAX_BOATS)

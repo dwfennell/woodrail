@@ -36,6 +36,8 @@ export interface BoatCardHandlers {
   cycleStop(index: number): void;
   removeStop(index: number): void;
   goStop(): void;
+  /** Its History sheet (ui/history-sheet.ts). */
+  history?(): void;
 }
 
 /** The boats' route colour (the river's blue, darker so it reads on wood). */
@@ -117,6 +119,7 @@ export class BoatCard {
     // Actions: Route (Done while planning) and Go / Stop, side by side at the foot; one painted block at a time.
     const row = div("card-actions boat-actions");
     row.append(button(`chip text route-plan${v.planning ? " on" : ""}`, v.planning ? "Done" : "✎ Route", v.planning ? "Done planning" : "Plan this boat's route: tap landings in order", () => this.h.plan(!v.planning)));
+    if (!v.planning && this.h.history) row.append(button("chip text boat-history", "History", "What this boat picked up and dropped off lately, stop by stop", () => this.h.history?.()));
     row.append(button(`chip text boat-go${v.going ? " going" : " primary"}`, v.going ? `<span class="go-icon">■</span> Stop` : "Go", v.going ? "Stop the boat where it is" : "Set the boat going", () => this.h.goStop()));
     el.append(row);
     if (v.more) el.append(text("card-foot boat-more", v.more));

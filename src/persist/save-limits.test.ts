@@ -38,6 +38,7 @@ import { Progress } from "../game/progress";
 import { TECHS } from "../game/tech";
 import { buildStarterWorld } from "../game/world";
 import { NAME_MAX, SlotStore, UNREADABLE_PREFIX } from "./slots";
+import { LOG_LINES, LOG_VISITS, RIDERS } from "../economy/history";
 import { GAME_SLOT_KEYS, serializeWorld } from "./save";
 import { saveSchema, sessionSchema } from "./save-schema";
 import { schemaBounds, type Bound } from "./schema-bounds";
@@ -104,6 +105,10 @@ const REACH: Record<string, { reach: () => number; why: string }> = {
   "save.trains[].cars[].name": { reach: () => 2 * MAX_ENGINE_NAME, why: "an engine's name" },
   "save.trains[].cars[].livery": { reach: () => Math.max(longest(LIVERIES.map((l) => l.id)), longest(PAINT_COLOURS.flatMap((b) => PAINT_COLOURS.map((t) => ownLivery(b, t))))), why: "a livery: the paint shop's, or your own colours" },
   "save.trains[].cars[].cargo.count": { reach: () => Math.max(WAGON_CAPACITY, MAX_WAGON_CAPACITY), why: "a wagon's load (`wagonCapacity`, more with the Smithy)" },
+  "save.trains[].cars[].history": { reach: () => LOG_VISITS, why: "a train's history: its last visits (`LOG_VISITS`, a ring)" },
+  "save.trains[].cars[].history[][2]": { reach: () => LOG_LINES, why: "a visit's lines (`LOG_LINES`)" },
+  "save.trains[].cars[].history[][2][][0]": { reach: () => RIDERS, why: "a line's good: a cargo index, or `RIDERS`" },
+  "save.trains[].cars[].since": { reach: () => most(Object.values(SEATS) as number[]), why: "where a coach's riders got on: one a stop, at most one a rider (a wagon's load: one)" },
   "save.trains[].cars[].off": { reach: () => CARGO_KINDS.length, why: "goods a wagon is switched off for" },
   "save.trains[].cars[].riders.count": { reach: () => most(Object.values(SEATS) as number[]), why: "a coach's seats (`SEATS`)" },
   "save.trains[].cars[].riders.to": { reach: () => most(Object.values(SEATS) as number[]), why: "one per rider" },
@@ -130,6 +135,11 @@ const REACH: Record<string, { reach: () => number; why: string }> = {
   "save.lines[].name": { reach: () => Math.max(LINE_NAME_MAX, longest(LINE_COLOURS.map((c) => `${c.name} line `)) + NUMBERED), why: "a name typed (`LINE_NAME_MAX`) or given (`freeName`: \"Red line 2\")" },
   "save.lines[].stops[]|1[3]": { reach: () => MAX_VIAS, why: "a stop's via points" },
   "save.boats": { reach: () => MAX_BOATS, why: "the boats" },
+  "save.boats[].history": { reach: () => LOG_VISITS, why: "a boat's history: its last visits (`LOG_VISITS`, a ring)" },
+  "save.boats[].history[][2]": { reach: () => LOG_LINES, why: "a visit's lines (`LOG_LINES`)" },
+  "save.boats[].history[][2][][0]": { reach: () => RIDERS, why: "a line's good: a cargo index, or `RIDERS`" },
+  "save.boats[].since": { reach: () => CARGO_SLOTS, why: "where each good aboard came on: one a good" },
+  "save.boats[].since[][0]": { reach: () => CARGO_SLOTS - 1, why: "a cargo index" },
   "save.boats[].name": { reach: () => Math.max(longest(BOAT_NAMES), "Boat ".length + NUMBERED), why: "a boat's name" },
   "save.boats[].barges": { reach: () => MAX_BARGES, why: "a boat's barges" },
   "save.boats[].load{}": { reach: () => MAX_BARGES * BARGE_LOADS, why: "what its barges hold" },

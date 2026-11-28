@@ -215,6 +215,38 @@ describe("boats", () => {
   });
 });
 
+describe("a boat's history", () => {
+  it("logs picked up at one landing meant for the other, dropped there from the first with the time they rode, kept in a save", async () => {
+    const { deserializeWorld, serializeWorld } = await import("../persist/save");
+    const { w, A, B, fleet } = setup();
+    let now = 0;
+    w.economy.history.clock = () => now;
+    w.economy.depot(A)!.piles[CARGO.log.index] = 10;
+    const boat = fleet.launch(A)!;
+    fleet.addStop(boat.id, B);
+    fleet.serve(boat, boat.stops[0]);
+    let docked = false;
+    for (let i = 0; i < 2000 && !docked; i++) {
+      now = i + 1;
+      docked = fleet.tick(1).some((e) => e.kind === "docked" && e.depotId === B);
+    }
+    const log = w.economy.history.boats.get(boat.id)!;
+    const [drop, pick] = log.visits();
+    expect(pick).toMatchObject({ depotId: A, lines: [{ drop: false, good: CARGO.log.index, n: BARGE_LOADS, place: B }] });
+    expect(drop).toMatchObject({ depotId: B, lines: [{ drop: true, good: CARGO.log.index, n: BARGE_LOADS, place: A, coins: 0 }] });
+    expect(drop.lines[0].rode / BARGE_LOADS).toBe(now);
+    const data = JSON.parse(JSON.stringify(serializeWorld(w)));
+    const back = deserializeWorld(data);
+    if (!back.ok) throw new Error(back.error);
+    const [b2] = [...back.value.economy.boats.values()];
+    const ids = (id: number) => back.value.economy.allDepots().findIndex((d) => d.pieceId === w.economy.depot(id)!.pieceId);
+    expect(back.value.economy.history.boats.get(b2.id)!.visits().map((v) => [v.depotId, v.lines[0].place])).toEqual([
+      [ids(B), ids(A)],
+      [ids(A), ids(B)],
+    ]);
+  });
+});
+
 describe("boats in a save", () => {
   it("come back where they were: their route, barges, load and how far they'd sailed", async () => {
     const { deserializeWorld, serializeWorld } = await import("../persist/save");

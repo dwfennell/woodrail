@@ -335,6 +335,8 @@ export class Game {
     this.depots = world.depots;
     this.ruins = world.ruins;
     this.economy = world.economy;
+    // (Its trains' and boats' history is on the session clock, as the Journal is.)
+    this.economy.history.clock = () => this.simSeconds;
     this.watchSwitches();
     this.watchRoadVehicles();
     this.props = world.props;
@@ -575,6 +577,8 @@ export class Game {
     this.depots = world.depots;
     this.ruins = world.ruins;
     this.economy = world.economy;
+    // (Its trains' and boats' history is on the session clock, as the Journal is.)
+    this.economy.history.clock = () => this.simSeconds;
     this.watchSwitches();
     this.props = world.props;
     this.hiddenProp = -1;
