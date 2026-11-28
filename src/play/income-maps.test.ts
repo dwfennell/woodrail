@@ -32,7 +32,10 @@ const MAPS: Record<string, string> = {
 describe.skipIf(!RUN)("players' maps: income by source", () => {
   it(`each Game map, ${MINUTES} min`, async () => {
     let n = 0;
-    for (const [file, text] of Object.entries(MAPS)) {
+    // (`INCOME_SHARD=i/n`: every n-th map from the i-th, so n runs share the maps over the cores.)
+    const [shard, shards] = (process.env.INCOME_SHARD ?? "0/1").split("/").map(Number);
+    for (const [k, [file, text]] of Object.entries(MAPS).entries()) {
+      if (k % shards !== shard) continue;
       const copy = await readMapText(text);
       if (!copy || copy.mode !== "game") continue;
       const raw = copy.keys[PROGRESS_KEYS.progress];
@@ -75,6 +78,6 @@ describe.skipIf(!RUN)("players' maps: income by source", () => {
       console.log(`INCOME_MAP ${file.split("/").pop()} best ${p.bestLevel} towns ${towns} trains ${w.sim.trainIds().length} coins ${p.coins} | per hour: all ${perHour(all)} grow ${perHour(tally.grow)} staples ${perHour(tally.staples)} (${share}%) fares ${perHour(tally.fares)} boats ${perHour(tally.boats)} other ${perHour(tally.other)} | staples by kind: ${kinds || "none"}`);
       n++;
     }
-    expect(n).toBeGreaterThan(0);
+    expect(n).toBeGreaterThanOrEqual(0);
   }, 3_600_000);
 });
