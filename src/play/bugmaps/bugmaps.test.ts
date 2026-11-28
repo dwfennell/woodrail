@@ -88,8 +88,9 @@ const MAPS: { file: string; seconds: number; arrivals: number; what: string; kno
     // only once the leader's tail is off them.)
     // (heldFree came off 2026-11-11: the hand-run trains coming onto the routed train's way ask for it short of the
     // points (`Sections.comesInto`). oneOwner 11 → 14 then, still close following through points.)
+    // (oneOwner came off 2026-11-26: the invariant now excuses a train following another nose to tail through points
+    // on the same path, which is all this map's were.)
     known: [
-      { invariant: "oneOwner", why: "close following through points on a ring (redesign step 6: every train reserves)" },
       // (Load in place, 2026-11-16: a train of four wagons loading at the sawmill stands still there now (it crept under
       // the crane before), and the trains queued behind it stand longer: engine 12 stands 5 s on piece 33 (256.5 s),
       // well back from the train ahead, a piece short of where the core would book it.)

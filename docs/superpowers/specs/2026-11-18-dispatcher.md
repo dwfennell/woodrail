@@ -821,3 +821,73 @@ held. With `Q9S` seed 149 then runs (4/5/5) in the harness. Measured with the di
 Left off. What it shows: Q9 under the dispatcher needs the follower's grant timed to the train ahead coming to a stand
 (an event the dispatcher sees: its sig changes), not decided when it first asks.
 
+
+## 14. Status: parked (2026-11-26)
+
+The dispatcher stays off by default (the user's decision, 2026-11-26): ☰ "Train dispatcher (beta)" turns it on per game. Work on it is parked here: what's left is diminishing returns. `claude/dispatcher-default-25` (default on) stays parked.
+
+### 14.1 What's on
+
+Every switch below is on by default; `NAME=0` turns one off for measuring. With the dispatcher off, none of them changes anything: each is in the dispatcher, or (the two in sections) acts only on a train the dispatcher has granted or handed off.
+
+| Switch | What it does | Fixed |
+|---|---|---|
+| `Q9S`, `Q9S_IN`, `Q9_ONE`, `Q9_FACE`, `Q9_WAIT`, `DEAD_LOOP` | §16 Q9 in the search and the grant: a train turns close behind one train standing at the line's end, facing it, never a queue; it waits close behind while that one still runs in | Q9 trap cases, fuzz 149 |
+| `TURN_ASK` | A train turned at a buffer that isn't its stop asks again (the sim's `onTurnedRound`) | ran past its grant |
+| `DEAD_SHORT` | `ONE_LINE_SHORT`'s second search for two trains, the other granted into a dead end | line1+siding |
+| `HAND_AHEAD` | A hand-run train's facing points thrown early to a free road, the road they lie for a routed train's | line2/line3 mixes |
+| `DISP_SECTIONS` | Sections weigh a dispatched train by its grant, not their own stale move | crossing, ring2 mixes |
+| `KEEP_PIECES` | A grant kept through a rebuild keeps only pieces it was granted | ring1 short |
+| `NAME_BLOCKER` | The blocker named also from trains on a move's branches | cards |
+| `ASIDE` | A stalled pair, a spare end on their line, handed to sections to step one aside (the user's A1) | -spare 2×own, fuzz 94, 189 |
+| `ASIDE_SIG`, `ASIDE_ONE` | …with signals laid too (two of one line only there), and two of one line where the swap planner won't take them | fuzz 7 with signals |
+| `ASIDE_GATE` | While trains are handed off, signals show sections' red for them (else greenHeld: held beside a green signal) | fuzz 7 with signals |
+| `DEAD_COME` | No signals laid: a move onto track a train in a dead end comes back over isn't granted | line1+siding 3×, terminus/wye-spare 3× |
+| `LOOP_LINE`, `DETOUR_AT` | A balloon loop's line; a detour placed at its own node | branch cases |
+| `TAKEN_POS` | None of a stretch delivering: searched again with its members' standing places free; its first move must have a path clear of them | fuzz 34, 111, 126, 165, line1+siding-spare 3× |
+| `LOOSE_PASS` (sections) | A hand-run train isn't held far back for a loop road a dispatched train holds; it runs on to the points, where the router throws them | ring mix: ring fuzz 6, 11, 12, 19, 22, 25, 28, 30, 31 |
+| `HAND_COME` | A hand-run train under way (or turning at a buffer) whose way, points as they lie, runs onto a single line's far end within 6 pieces is coming at a move onto it | fuzz 17, 34 (never-worse) |
+| `HEAD_TRUST`, `HEAD_TRUST_TURN` | `headOnAhead` waived where the plan has all delivering, this train first, the other with no move now, and the move into its turn at a line's end | fuzz 4 |
+
+Off, measuring only (`NAME=1`): `DETOUR_SOON` (cost clover 81 stops, rowan-2 46); `STOP_IN` (not needed with `LOOSE_PASS`, cost user-2026-11-21 17 stops); `HAND_COME_STILL` (cost fuzz 17 and 34).
+
+Where it ends: routing cases with the dispatcher on, 5 known wrong (from 38); fuzz 40 × 600 s with it on, no real invariant breaks (heldFree shadow notes only), and the never-worse check's lines and rings clean; jams, 24 maps × 3 seeds, at main's numbers; decide p98 about 1.5 ms alone on rowan-1, the slowest.
+
+### 14.2 What's left, and why
+
+- **The loop knot (fuzz 22; fuzz 30 with signals).** A single line with a passing loop and three trains: both loop roads end up with a train facing the same way and the third granted onto the single stretch beyond. The search's value swings between none and all delivering decision to decision for a minute before, so there's no one plan to trust (as `HEAD_TRUST` does for fuzz 4). Needs the search to see further, or back-ups (parked: p98, and the user's rule on turns).
+- **Queued turns short of a stop (fuzz 37, 125: `known-on`).** One line, three trains, a stop at the line's end: the oracle has the second come in close behind the first at its stop, turn there short of its own stop, and go out first. Five pieces are missing: the search's "line's end" ignoring a free buffer piece, a close-up node where the node behind has points, the turn short of its own stop (in the search and `q9End`), the single-line rule letting the planned turn by, and `q9End` refusing a line the swap planner could take. With all five the first knot clears and comes back the other way at 88 s (two trains granted out of and into the end in one tick; the single-line check misses a train just turned at the buffer). Turning short of its own stop alone broke 31 cases. Patches: `evidence/2026-11-18-dispatcher/patches/q9-queued-turn-a-04d2304f.patch` and `-b-` (on 04d2304f).
+- **`DEAD_COME` with signals (fuzz 34 with signals; helps 30).** A train turned at its stop in a dead end, a second granted onto the single track it must come out over. `DEAD_COME` refuses that, but only with no signals laid. On with signals it fixes fuzz 34 (14/14/15 stops; 15 each off) and helps 30 (17 stops, against 2), but makes about 20 line1/ring `sig:*` cases go wrong; narrowing to a move not ending at a signal facing its way didn't help. Needs a test for when signals do keep the two apart. Patch: `evidence/2026-11-18-dispatcher/patches/dead-come-signals-1001ef5b.patch` (`DEAD_COME_SIG=1`).
+- **Fuzz 38 with signals.** Not diagnosed: no spare end on its line, and `DEAD_COME` with signals doesn't change it.
+- **Fuzz 39.** Stalls with the dispatcher off too ("too-many"): not the dispatcher's.
+- **The branch and the hand-run ring (`known-on`).** branch 2×one/2×own opposed stops:far deliver but are judged a stall; ring1 2×mix opposed (D) is a hand-run train's own planning on a ring, not the dispatcher's.
+
+## 15. Sections mode, the dispatcher off (2026-11-26, `claude/sections-smooth`)
+
+New games ship with the dispatcher off, so sections and the router are what players get. This section covers making them smoother, measured on the same bar.
+
+### 15.1 Where the stands are
+
+`JAMS_STANDS=1` on the jams test logs every routed train's stand over 20 s (`JAMS_STAND_S`): what its card said, the train it named, and how long that train moved meanwhile. `scripts/jams-stands.mjs` runs the reference maps, and `tools/stands-report.mjs` sorts each stand into proper (it ended, and the named train moved or was worked for half of it) or needless (`long`, `blocker-still`, `none-named`, `deadlock`).
+
+- **The user's two maps of 2026-11-26** already work about as well as with the dispatcher on. Over 3 seeds with it off: sprocket-farm 1206 against 1213 stops, clover-pink3 764 against 767, with no jams. There were about 10 stands a seed, half of them proper, and no points-waits.
+- **The rest:** the losses with it off are deadlocks the jam clearing removes, of kind in-way, too-many and signals. They come on user-2026-11-21 (303 against 536 stops with it on), wren (326 against 556), dandelion and rowan-3. Next to that are the needless waits for a line's turn (`line-wait-for`).
+
+### 15.2 What's in
+
+| Switch | What it does | Measured |
+|---|---|---|
+| `LINE_END_STOP` (economy) | A routed train pulls up at a stop its line ends at on through track even with nothing to do there, and turns (`endsHere`). Before, run through empty, it went on round the loops beyond. | two-train 91 → 138 stops (3 seeds); own-12 52/59/59 → 65/70/70, jams 31/38/38 → 40/44/43 (the knot of §15.3 re-forming, trains working their line where they circled); own-11 seed 1 113 → 111 (noise); the user's two maps identical |
+| `TAIL_AGAINST` (sections) | For an asker just turned at its line's end (60 s), a train running into its slot with an axle behind on the way going against it isn't "ahead the same way" (`sameWayAhead`). | netActed on the two-train map with `LINE_END_STOP`, 3/3 → 0. For every asker it cost dandelion 13, rowan-2 29, rowan-3 8 stops (6 seeds) |
+| `SHOWN_RED` (display) | The player sees a signal red while the train standing at it is held by the router or sections (`Sim.shownRed`, `markShown`). The sim's aspect is unchanged, and greenHeld judges the shown one. | greenHeld 18 → 0 on 8 maps; jams identical to main on all 24 |
+| oneOwner's follow excuse (invariant) | A train following a moving one through points nose to tail, on one path, the same way, isn't two on the points. | Fires on own-12 only: 186 ticks, 2 follows |
+
+Off: `HELD_RED`, the sim's own aspect red for such a held train. It held trains: own-12 57 → 10 stops, own-03 69 → 25.
+
+The dispatcher's recent fixes (`HANDOFF`, `ASIDE`, `DEAD_COME`, `TAKEN_POS`, `DETOUR_AT`, `LOOSE_PASS`) don't carry over as they stand. Each acts on a dispatcher grant or hand-off, `LOOSE_PASS` included: it fires only for a way the dispatcher's train holds.
+
+### 15.3 What's left
+
+- **own-12's knot at pieces 69, 71 and 79.** It's there from the first 20 s on main: Green two at 69 from 19 s, Red two at 71 from 21 s, and five or more lines' trains waiting on each other there (in-way and signals). That's the many-lines junction the dispatcher's search is for. A small rule in sections doesn't untangle it.
+- **own-12's two oneOwner breaks left.** A train runs onto points 33 behind a train standing with its tail over them. The sim's follow guard lets a follower close up onto points that a standing train's car is over. A fix there touches every map.
+- **The deadlocks of §15.1** (user-2026-11-21, wren, dandelion): not taken on yet.

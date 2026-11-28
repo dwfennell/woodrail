@@ -2,7 +2,9 @@
 //
 // itch serves an HTML game from a hashed path in an iframe on html-classic.itch.zone, so the build uses relative paths.
 // A new itch build only goes up when a release is published, so there's no update check and no version.json.
-// Cloud saves are off: the Worker's CORS check would have to let in itch.zone, an origin every itch game shares.
+// Cloud saves are on, to the Worker at VITE_CLOUD_URL if it's set (the release workflow sets it), and the game knows it's
+// on itch (VITE_ITCH): there an iPhone's or iPad's browser forgets the page's saves and the sync code with them, so the
+// code is shown to keep, and the title has a way to type it in (docs/itch-builds.md, "Cloud saves").
 // Play stats (docs/stats.md) go to VITE_STATS_URL if it's set (the release workflow sets it).
 // Models stay .glb (itch serves any file type), so unlike the artifact build nothing is renamed.
 import { execFileSync } from "node:child_process";
@@ -16,7 +18,7 @@ rmSync(ZIP, { force: true });
 execFileSync("npx", ["tsc", "--noEmit"], { stdio: "inherit" });
 execFileSync("npx", ["vite", "build", "--base=./", "--outDir", OUT, "--emptyOutDir"], {
   stdio: "inherit",
-  env: { ...process.env, WOODRAIL_NO_UPDATE_CHECK: "1", VITE_CLOUD_URL: "" },
+  env: { ...process.env, WOODRAIL_NO_UPDATE_CHECK: "1", VITE_CLOUD_URL: process.env.VITE_CLOUD_URL ?? "", VITE_ITCH: "1" },
 });
 rmSync(join(OUT, "version.json"), { force: true });
 

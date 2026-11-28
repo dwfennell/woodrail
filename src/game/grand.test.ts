@@ -4,10 +4,10 @@ import { checkProp, TrackIndex, type Footprint } from "../props/placement";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { CATALOGUE } from "../catalogue/assets";
 import { kindsOf, total } from "../economy/goods";
-import { advanceGrands, achievements, centralWhy, countRider, earned, GRAND_CENTRAL_KITS, moveCentralKit, HUB_FARE, hubFare, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ROYAL_GIFT, siteAsset, siteMoveRule, siteSpot, siteWhy, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
+import { advanceGrands, achievements, centralWhy, countRider, earned, GRAND_CENTRAL_KITS, moveCentralKit, HUB_FARE, hubFare, exhibitionGift, FAIR_MONTH, FAIR_RIDERS, fairTown, giveExhibition, GRAND_LEVEL, grandOf, grandRiders, grandRow, GRANDS, growthCut, PILGRIMS, ridersWords, ROYAL_GIFT, siteAsset, siteMoveRule, siteSpot, siteWhy, stageLacks, startGrand, unionFootprint, WHEEL_COINS, wheelTickets, type GrandId } from "./grand";
 import { RECIPES } from "../economy/economy";
 import { CARRIES } from "../economy/cargo";
-import { FULL_PAY } from "./towns";
+import { STAPLES } from "./towns";
 import { isGift, ruleOf } from "./things";
 import { fareFor, ROYAL_FARE, SEATS } from "./passengers";
 import { appendPiece, connectorRef, getPieceDef } from "../track";
@@ -325,6 +325,27 @@ describe("building it, stage by stage, by train", () => {
     expect(receivedBy(w, town.id).stone).toBe(stone + 4);
   });
 
+  // Towns buy what they need (spec 2026-11-27-towns-buy-what-they-need.md): bricks only for a grand project under way.
+  it("a city takes bricks only while its project's stage lacks them; past that, and in a city with none, they stay on the train", () => {
+    const { w, life, p } = game();
+    const town = w.landscape.towns[0];
+    growTo(w, life, town.id, GRAND_LEVEL);
+    // No project under way: the city doesn't need bricks and takes none (what a town receives is what it's paid for).
+    expect(w.economy.accepts!(w.economy.depotAtPiece(w.stations.get(town.id)!)!, "bricks")).toBe(false);
+    expect(deliverByTrain(w, w.stations.get(town.id)!, "bricks", 6)).toBe(6);
+    expect(receivedBy(w, town.id).bricks ?? 0).toBe(0);
+    p.coins = 1000;
+    build(w, p, town, "exhibition");
+    bringStage(w, life, town, "exhibition");
+    const plan = w.economy.grandPlans.get("exhibition")!;
+    expect(plan.stage).toBe(1);
+    // The iron hall lacks 10 bricks: of 12 brought, it takes 10 and the train keeps 2.
+    expect(deliverByTrain(w, w.stations.get(town.id)!, "bricks", 12)).toBe(2);
+    expect(plan.got.bricks).toBe(10);
+    expect(stageLacks("exhibition", plan, "bricks")).toBe(0);
+    expect(receivedBy(w, town.id).bricks ?? 0).toBe(0);
+  });
+
   it("four stages by train: earned, an achievement in the Journal, its site the finished hall", () => {
     const { w, life, p } = game();
     const town = w.landscape.towns[0];
@@ -489,9 +510,9 @@ describe("the Cathedral", () => {
 });
 
 describe("the glassworks", () => {
-  it("makes glass of coal (its sand from its own pit: it needs no coast), and towns buy glass at the full price", () => {
+  it("makes glass of coal (its sand from its own pit: it needs no coast), and a town takes it only for its grand project", () => {
     expect(RECIPES.glassworks).toMatchObject({ takes: ["coal"], gives: ["glass"] });
-    expect(FULL_PAY.has("glass")).toBe(true);
+    expect(STAPLES.has("glass")).toBe(false);
     expect(RECIPES.town.takes).toContain("glass");
     expect(CARRIES.van).toContain("glass");
     expect(ruleOf("piece:depot-glassworks")?.tech).toBe("glassworks");
@@ -649,5 +670,17 @@ describe("Grand Central", () => {
     for (let i = 0; i < 7; i++) countRider(w, town.id, w.landscape.towns[1].id);
     const back = reload(w);
     expect(back.economy.grandPlans.get("central")).toMatchObject({ stage: 2, riders: 7, prop: -1 });
+  });
+});
+
+describe("a riders stage's words", () => {
+  // The player asked what Grand Central's "Every line meets" meant (2026-11-26): it counts riders by train getting on or
+  // off at the city's station (`countRider`). The stage and its row say so, and the row shows how many so far.
+  it("says what counts, and how many so far", () => {
+    const stage = grandOf("central")!.stages.find((s) => s.riders);
+    expect(stage?.name).toBe("Riders to or from the city");
+    expect(ridersWords(60)).toBe("60 riders to or from the city by train");
+    expect(ridersWords(60, 12)).toBe("Riders to or from the city by train: 12 / 60");
+    expect(ridersWords(60, 75)).toBe("Riders to or from the city by train: 60 / 60");
   });
 });

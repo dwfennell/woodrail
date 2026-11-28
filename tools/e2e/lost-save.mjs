@@ -8,7 +8,8 @@
 //   2. a reload: still parked, still byte for byte, still one entry;
 //   3. Your games, Load a map from text, the player's pre-wipe "Copy map for a bug report" text pasted, Add to Your
 //      games: "(from text)" added beside it (nothing replaced); Open: the page starts again on it, its seed 770187 and
-//      all its pieces, in play; and saved again it loads (kept after a reload).
+//      all its pieces, trains, towns and depots, in play, its trains running; and saved again it loads (kept after a
+//      reload).
 // Pictures in the out dir (about 3 min).
 //
 // Usage: npm run e2e:lost-save [-- <out dir>]   (default out: e2e-out/lost-save)
@@ -25,7 +26,10 @@ mkdirSync(OUT, { recursive: true });
 const TEXT = readFileSync(`${ROOT}/src/persist/fixtures/2026-11-23-lift-warehouse-game.txt`, "utf8").trim();
 const COPY = JSON.parse(gunzipSync(Buffer.from(TEXT.slice("woodrail-map:1:".length).replace(/-/g, "+").replace(/_/g, "/"), "base64")).toString());
 const SAVE = "woodrail.game.v2";
-const PIECES = JSON.parse(COPY.keys[SAVE]).pieces.length;
+const GAME = JSON.parse(COPY.keys[SAVE]);
+const PIECES = GAME.pieces.length;
+// (What else it holds, checked once it's open: its trains, towns and depots, every one, and none of the trains off the track.)
+const WANT = { trains: GAME.trains.length, towns: GAME.towns.length, depots: GAME.depots.length };
 // The lost game made unreadable by any build: a warehouse pile below nothing.
 const badSave = (() => {
   const d = JSON.parse(COPY.keys[SAVE]);
@@ -127,7 +131,8 @@ try {
   check("3. Load a map from text", await tap(p, ".games-sheet .games-load-open"));
   await p.fill(".games-load-text", TEXT);
   check("3. Add to Your games", await tap(p, ".games-sheet .games-load-add"));
-  await p.waitForTimeout(600);
+  // (The add gzips the game: on a slow page that's seconds, so wait for its note, not a set time.)
+  await p.waitForFunction(() => /Added|Couldn't|No room/.test(document.querySelector(".games-sheet:not([hidden]) .games-note:not([hidden])")?.textContent ?? ""), null, { timeout: 60000 }).catch(() => {});
   s = await parked();
   await shot(p, "3-added");
   const added = s.games.find((g) => g.name === "770187-gentle (from text)");
@@ -136,14 +141,33 @@ try {
   check("3. Open it", await tap(p, `.games-row[data-id="${added?.id}"] .games-open`));
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 240000 });
   await p.waitForTimeout(1500);
-  const w = await p.evaluate(() => ({ seed: window.woodrail.landscape.seed, pieces: [...window.woodrail.layout.pieceIds()].length, open: window.woodrail.slots.openId }));
+  const world = () =>
+    p.evaluate(() => {
+      const w = window.woodrail;
+      const trains = [...w.sim.trains()];
+      return {
+        seed: w.landscape.seed,
+        pieces: [...w.layout.pieceIds()].length,
+        open: w.slots.openId,
+        trains: trains.length,
+        derailed: trains.filter((t) => t.derailed).length,
+        towns: w.stations.size,
+        depots: w.economy.allDepots().length,
+        at: trains.map((t) => t.bogies[0].pieceId + ":" + Math.round(t.bogies[0].s ?? t.bogies[0].t ?? 0)).join(" "),
+      };
+    });
+  const w = await world();
   await shot(p, "3-opened");
   check("3. …in play: the player's game, its seed and every piece", w.seed === 770187 && w.pieces === PIECES && w.open === added?.id, JSON.stringify(w));
+  check("3. …every train, town and depot, no train off the track", w.trains === WANT.trains && w.towns === WANT.towns && w.depots === WANT.depots && w.derailed === 0, JSON.stringify({ ...w, want: WANT }));
+  await p.waitForTimeout(8000);
+  const later = await world();
+  check("3. …its trains running", later.at !== w.at && later.derailed === 0, `${w.at} → ${later.at}`);
   await p.evaluate(() => sessionStorage.setItem("woodrail.resume", "game"));
   await p.reload();
   await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 240000 });
-  const w2 = await p.evaluate(() => ({ seed: window.woodrail.landscape.seed, pieces: [...window.woodrail.layout.pieceIds()].length, games: window.woodrail.slots.list().length }));
-  check("3. …kept after a reload (saved and loaded again)", w2.seed === 770187 && w2.pieces === PIECES && w2.games === 2, JSON.stringify(w2));
+  const w2 = { ...(await world()), games: await p.evaluate(() => window.woodrail.slots.list().length) };
+  check("3. …kept after a reload (saved and loaded again)", w2.seed === 770187 && w2.pieces === PIECES && w2.games === 2 && w2.trains === WANT.trains && w2.towns === WANT.towns && w2.depots === WANT.depots, JSON.stringify(w2));
 } catch (e) {
   check("ran to the end", false, e.message.split("\n")[0]);
 }

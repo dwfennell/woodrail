@@ -1,7 +1,7 @@
 /**
  * Woodrail's cloud saves: one gzipped bundle per sync code and mode, in R2.
  *
- *   PUT  /v1/saves/:mode         store a bundle (the one it replaces is kept as `<mode>.prev`)
+ *   PUT  /v1/saves/:mode         store a bundle (the one it replaces may be kept as `<mode>.prev`: `PREV_REST_MS`)
  *   GET  /v1/saves/:mode         the bundle (`?prev=1`: the one before it)
  *   HEAD /v1/saves/:mode         just its headers: what's there, without the bytes
  *   POST /v1/stats               play stats: under an id from players who said yes, or plain counts (stats.ts)
@@ -19,12 +19,15 @@
  *
  * A PUT may say which copy it was made from (`X-Base-Saved-At`: that copy's `X-Saved-At`, 0 for none): if another has
  * been stored since, it's turned away (409), so a device never writes over a copy it hasn't seen.
+ *
+ * Guessing codes: every lookup under a code (GET, HEAD, PUT) is counted per IP by the `CODE_LIMIT` rate-limit binding,
+ * a lookup that finds nothing `MISS_COST` times more, and past its limit a lookup is a 429 before anything is looked up.
  */
 
 import { readCapped } from "./body";
 import { handleCrash } from "./crash";
 import { handleFeedback, type FeedbackEnv } from "./feedback";
-import { MAX_BYTES, MIN_PUT_INTERVAL_MS, MODES } from "./limits";
+import { MAX_BYTES, MIN_PUT_INTERVAL_MS, MISS_COST, MODES, PREV_REST_MS } from "./limits";
 import { handleSnapshots } from "./snapshots";
 import { handleStats, type StatsEnv } from "./stats";
 
@@ -34,6 +37,8 @@ export interface Env extends StatsEnv, FeedbackEnv {
   ALLOWED_ORIGINS: string;
   /** The secret the codes are keyed under (`wrangler secret put CODE_KEY`; `npm run dev` passes a local one). */
   CODE_KEY: string;
+  /** Per-IP limit on sync-code lookups (wrangler.toml `[[ratelimits]]`). Unset: none. */
+  CODE_LIMIT?: RateLimit;
 }
 
 /** Three words of 3 to 5 letters and four digits, as the game sends it (lowercase, hyphenated): about 43 bits. */
@@ -41,12 +46,16 @@ const CODE = /^[a-z]{3,5}-[a-z]{3,5}-[a-z]{3,5}-\d{4}$/;
 const PATH = /^\/v1\/saves\/([a-z]+)$/;
 const EXPOSED = "X-Saved-At, X-Save-Version, X-Game-Version, X-Stored-At, X-Layout-At, X-Layout-Stored-At, X-Server-Now";
 /** Any port on this machine (the dev server, a preview, a test's own): a page there is the developer's. */
+/** An IP on this machine (`wrangler dev`, the e2e): not counted. */
+const LOOPBACK = new Set(["127.0.0.1", "::1"]);
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 /**
  * Where else the game is served, for feedback only (saves stay with `ALLOWED_ORIGINS`): itch.io (its games are served
  * from shared CDN hosts) and a claude.ai artifact (served from claude's own content hosts).
  */
 const FEEDBACK_HOSTS = /^https:\/\/([a-z0-9-]+\.)*(itch\.zone|itch\.io|hwcdn\.net|claudeusercontent\.com|claude\.ai)$/;
+/** The Android and iOS apps' page (Capacitor's, the same in every Capacitor app): for feedback only, as itch's hosts. */
+const APP_ORIGINS = new Set(["capacitor://localhost", "https://localhost"]);
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -59,7 +68,7 @@ export default {
     const path = new URL(request.url).pathname;
     const snapshots = path === "/v1/snapshots" || path.startsWith("/v1/snapshots/");
     if (path === "/feedback" || path.startsWith("/feedback/") || path === "/crash" || snapshots) {
-      const pageOk = origin === null || allowed || FEEDBACK_HOSTS.test(origin);
+      const pageOk = origin === null || allowed || FEEDBACK_HOSTS.test(origin) || APP_ORIGINS.has(origin);
       const cors: Record<string, string> = origin !== null && pageOk ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : { "Access-Control-Allow-Origin": "*" };
       // Crash reports (crash.ts) and railway snapshots (snapshots.ts): from the same pages as feedback.
       if (path === "/crash") return handleCrash(request, env, cors, pageOk);
@@ -85,7 +94,7 @@ export default {
           status: 204,
           headers: {
             "Access-Control-Allow-Methods": "GET, HEAD, PUT, OPTIONS",
-            "Access-Control-Allow-Headers": "X-Woodrail-Code, X-Saved-At, X-Save-Version, X-Game-Version, X-Base-Saved-At, X-Edit-Kind, X-Edited-At, Content-Type",
+            "Access-Control-Allow-Headers": "X-Woodrail-Code, X-Saved-At, X-Save-Version, X-Game-Version, X-Base-Saved-At, X-Edit-Kind, X-Edited-At, X-Keep-Prev, Content-Type",
             "Access-Control-Max-Age": "86400",
           },
         }),
@@ -104,12 +113,23 @@ async function handle(request: Request, env: Env): Promise<Response> {
   const code = request.headers.get("X-Woodrail-Code") ?? "";
   if (!CODE.test(code)) return text(400, "Missing or malformed code");
   if (!env.CODE_KEY) return text(500, "Not set up: CODE_KEY");
+  // (Counted before anything is looked up: past the limit, nothing is said of the code.)
+  const ip = request.headers.get("CF-Connecting-IP");
+  const limit = env.CODE_LIMIT && ip && !LOOPBACK.has(ip) ? { by: env.CODE_LIMIT, key: `code:${ip}` } : null;
+  if (limit && !(await limit.by.limit({ key: limit.key })).success) return text(429, "Too many tries: wait a minute", { "Retry-After": "60" });
+  /** Found nothing: costs more (and is still answered: the next lookup is the one turned away). */
+  const missed = async () => {
+    if (limit) await Promise.all(Array.from({ length: MISS_COST }, () => limit.by.limit({ key: limit.key })));
+  };
   const key = `saves/${await hmac(env.CODE_KEY, code)}/${mode}`;
 
   if (request.method === "GET" || request.method === "HEAD") {
     const name = url.searchParams.get("prev") === "1" ? `${key}.prev` : key;
     const obj = request.method === "GET" ? await env.SAVES.get(name) : await env.SAVES.head(name);
-    if (!obj) return text(404, "Nothing saved");
+    if (!obj) {
+      await missed();
+      return text(404, "Nothing saved");
+    }
     const headers = metaHeaders(obj);
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(obj.size));
@@ -127,14 +147,18 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (body === null) return text(413, "Too big");
     if (body.byteLength === 0) return text(400, "Empty");
     const current = await env.SAVES.head(key);
+    // (A code's first copy: as much a guess as a lookup that finds nothing.)
+    if (!current) await missed();
     const base = request.headers.get("X-Base-Saved-At");
     if (base !== null && base !== (current?.customMetadata?.savedAt ?? "0")) return text(409, "Changed since");
     const now = Date.now();
     if (current && now - Number(current.customMetadata?.putAt ?? 0) < MIN_PUT_INTERVAL_MS) {
       return text(429, "Too soon", { "Retry-After": String(Math.ceil(MIN_PUT_INTERVAL_MS / 1000)) });
     }
-    // (Read before it's replaced: kept one step back once the new one's in.)
-    const old = current ? await env.SAVES.get(key) : null;
+    // Kept one step back once the new one's in (read before it's replaced): the copy as it was before this sitting's
+    // uploads (it had rested `PREV_REST_MS`), or the first, or on a restore's asking, so the copy restored over goes back.
+    const keepOld = current !== null && (request.headers.get("X-Keep-Prev") === "1" || now - Number(current.customMetadata?.putAt ?? 0) >= PREV_REST_MS || (await env.SAVES.head(`${key}.prev`)) === null);
+    const old = keepOld ? await env.SAVES.get(key) : null;
     const oldBody = old ? await old.arrayBuffer() : null;
     const gameVersion = (request.headers.get("X-Game-Version") ?? "").slice(0, 40);
     // When a copy with a layout edit (the player's, not just the game's progress) was last stored: carried on by a

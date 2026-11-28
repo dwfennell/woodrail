@@ -366,6 +366,12 @@ export class Sim {
    * `aspect` what a signal shows (null: as before). Null: as before.
    */
   signalOwner: { clearFor(ref: number, trainId: number): boolean | null; aspect(ref: number): boolean | null; version(): number } | null = null;
+  /**
+   * What the player is shown red besides the aspects (display only: nothing here drives a train): the train held standing
+   * at a signal (the joint end it guards, `Signal.at`) by the router or sections, which the sim may show clear, its
+   * block free (`Economy`'s `SHOWN_RED`). `version` moves only when the set does.
+   */
+  shownRed: { at(ref: number): number; version(): number } | null = null;
   /** Each plain signal's aspect by its block alone (what trains the owner doesn't hold read). */
   private readonly blockClear = new Map<number, boolean>();
   /**
@@ -1896,6 +1902,27 @@ export class Sim {
     return this.aspects.get(markKey(id)) ?? true;
   }
 
+  /** Is this mark shown clear to the player: at clear (`markClear`), and no train held standing at it (`shownRed`)? */
+  markShown(id: number): boolean {
+    if (!this.markClear(id)) return false;
+    if (!this.shownRed) return true;
+    const m = this.layout.getSignal(id);
+    return !m || this.shownRed.at(m.at) === -1;
+  }
+
+  /** Is the signal with this key (`signalList`) shown red to the player for a train held at it (`shownRed`)? */
+  shownRedAt(key: number): boolean {
+    if (!this.shownRed) return false;
+    this.findSignals();
+    const g = this.signalByKey.get(key);
+    return !!g && g.exit >= 0 && this.shownRed.at(connectorRef(g.pieceId, g.exit)) !== -1;
+  }
+
+  /** `signalsVersion` and the shown reds' (`shownRed`): what the player sees of the signals changed. */
+  get shownVersion(): number {
+    return (Math.imul(this.signalsVersion, 0x01000193) ^ (this.shownRed ? this.shownRed.version() : 0)) | 0;
+  }
+
   /**
    * Why a mark shows what it shows, for its card (signals audit U6): held at red, set Always green, a train on the line
    * ahead (`by`: its id), a train waiting here for its turn on a line (sections' grant), waiting for a train's way
@@ -1908,6 +1935,11 @@ export class Sim {
     if (!m || !g) return { clear, why: "clear", by: -1 };
     if (m.held) return { clear: false, why: "held", by: -1 };
     if (m.forced) return { clear, why: "forced", by: -1 };
+    // (Shown red for the train held standing at it (`shownRed`): waiting there for its turn.)
+    if (clear && this.shownRed) {
+      const held = this.shownRed.at(m.at);
+      if (held !== -1) return { clear: false, why: "turn", by: held };
+    }
     if (clear) return { clear, why: "clear", by: -1 };
     const by = this.blockBy.get(g.key) ?? -1;
     if (by !== -1) return { clear, why: "train", by };

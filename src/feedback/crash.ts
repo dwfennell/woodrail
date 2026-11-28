@@ -8,7 +8,7 @@
  * no id. See docs/feedback.md.
  */
 
-export type CrashKind = "error" | "rejection" | "context-lost";
+export type CrashKind = "error" | "rejection" | "context-lost" | "save-mended";
 
 export interface CrashPayload {
   kind: CrashKind;

@@ -31,6 +31,17 @@ export function stopSentences(k: number, plans: readonly StopPlan[], names: read
   return { drops, picks };
 }
 
+/**
+ * What a town stop leaves on the train, for the open stop (spec 2026-11-27-towns-buy-what-they-need.md): "Rookhurst
+ * doesn't need 🧱 bricks: they ride on". One sentence for all of them. Empty: nothing passes.
+ */
+export function passSentence(name: string, passes: readonly CargoKind[]): string[] {
+  if (passes.length === 0) return [];
+  const list = passes.map(goodWords);
+  const goods = list.length === 1 ? list[0] : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+  return [`${name} doesn't need ${goods}: ${passes.length === 1 && !CARGO[passes[0]].label.endsWith("s") ? "it rides" : "they ride"} on`];
+}
+
 /** What a stop is set to do, as the sheet's two ticks: Drop and Pick up ("auto" and old saves' "both": both). */
 export function ticksOf(action: "auto" | "both" | "drop" | "pick"): { drop: boolean; pick: boolean } {
   return { drop: action !== "pick", pick: action !== "drop" };

@@ -24,6 +24,7 @@ export const SUITES = {
   tutorial: { script: "e2e:tutorial" },
   joints: { script: "e2e:joints", groups: true },
   rotate: { script: "e2e:rotate", groups: true, minutes: 6 },
+  flip: { script: "e2e:flip", groups: true, minutes: 8 },
   ramps: { script: "e2e:ramps", groups: true },
   tray: { script: "e2e:tray", groups: true },
   decks: { script: "e2e:decks" },
@@ -54,6 +55,7 @@ export const SUITES = {
   "new-game": { script: "e2e:new-game", minutes: 8 },
   saves: { script: "e2e:saves", minutes: 6 },
   "lost-save": { script: "e2e:lost-save", minutes: 3 },
+  "save-safety": { script: "e2e:save-safety", minutes: 5 },
   civic: { script: "e2e:civic", minutes: 5 },
   "paint-picker": { script: "e2e:paint-picker", minutes: 4 },
   stickers: { script: "e2e:stickers" },
@@ -64,6 +66,7 @@ export const SUITES = {
   "focus-ring": { script: "e2e:focus-ring", minutes: 4 },
   "hopper-load": { script: "e2e:hopper-load", minutes: 1.5 },
   locked: { script: "e2e:locked", minutes: 6 },
+  "phone-room": { script: "e2e:phone-room", minutes: 4 },
   signals: { script: "e2e:signals", minutes: 17 },
   "learn-more": { script: "e2e:learn-more", minutes: 2 },
   life: { script: "e2e:life", minutes: 4 },
@@ -131,7 +134,9 @@ export function estimate(want) {
 export const SMOKE = ["touch:sandbox-shelves,map-taps,toast-through,trap,train-card,game-shelves", "click:desktop"];
 
 /** Paths that can't change what an e2e sees. */
-export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/routing/cases/**", "tools/cases-*.mjs", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore", "scripts/e2e/lib/diff-kind.mjs", "scripts/**/*.test.mjs"];
+export const IGNORE = ["docs/**", "**/*.md", "src/**/*.test.ts", "src/routing/cases/**", "tools/cases-*.mjs", "src/**/fixtures/**", "tools/blender/**", "tools/shots/**", "tools/perf/**", "tools/design/**", "bench/**", ".claude/**", "catalogue/**/*.blend", ".gitignore", "scripts/e2e/lib/diff-kind.mjs", "scripts/**/*.test.mjs",
+  // The Android/iOS apps alone (docs/native-builds.md): never in the web build the suites run.
+  "android/**", "ios/**", "assets/**", "capacitor.config.ts", "src/native/**", "scripts/native-build.mjs"];
 
 // Touch's groups that plan, run or show routes and lines.
 const TOUCH_ROUTES = "touch:trap,dead-end,routes,defaults,restore,wait,wye,stuck,stuck-lines,forward,hand-wait,via,follow,route-keep,blocker,route-ux,route-ux-more,route-reorder,route-share,route-ring,slips,double-three-way,split";
@@ -189,7 +194,9 @@ export const RULES = [
   ["src/main.ts", SMOKE],
   // The sound follows the view (`hear`, `listen` in main.ts): a whistle post whistles only for an engine on screen.
   [["src/main.ts", "src/audio/hearing.ts"], ["kits"]],
-  ["src/style.css", [...SMOKE, TOUCH_UI, "names", "locked", "focus-ring"]],
+  ["src/style.css", [...SMOKE, TOUCH_UI, "names", "locked", "focus-ring", "phone-room"]],
+  // The home-screen app (manifest, icons, iPhone tags) and ☰'s Play full screen; the tray's pull (e2e:phone-room).
+  [["scripts/home-screen.mjs", "scripts/home-screen.d.mts", "src/assets/app-icons/**"], ["phone-room"]],
   ["cloud/**", ["cloud", "stats", "touch:feedback", "click:feedback"]],
   // Crash reports: sent on a lost drawing and on errors, and the ☰ switch (e2e:gl-lost).
   [["src/feedback/crash.ts", "cloud/src/crash.ts"], ["gl-lost"]],
@@ -261,8 +268,8 @@ export const RULES = [
 
   // UI.
   ["src/ui/**", [...SMOKE, TOUCH_UI, "click:touch-tray"]],
-  [["src/ui/hud.ts", "src/ui/tray-catalogue.ts"], ["names", "locked", "focus-ring", "research", "tray", "sandbox-chains", "touch:tabs-reach"]],
-  ["src/ui/prefs.ts", ["sandbox-chains"]],
+  [["src/ui/hud.ts", "src/ui/tray-catalogue.ts"], ["names", "locked", "focus-ring", "research", "tray", "sandbox-chains", "touch:tabs-reach", "phone-room"]],
+  ["src/ui/prefs.ts", ["sandbox-chains", "phone-room"]],
   [["src/ui/explainers.ts", "src/ui/explainer-sheet.ts", "src/ui/hud.ts", "src/style.css"], ["learn-more", "situation-loops"]],
   [["src/ui/blueprint-board.ts", "src/ui/cost-tag.ts", "src/ui/wiki-link.ts"], ["research", "locked"]],
   // The idle prefetch of lazily loaded sheets, and the loaders it shares with their opens (runs on the build).
@@ -286,8 +293,8 @@ export const RULES = [
   // Swap engine (the card's Engine, its sheet): the engine's look in place, the train kept on its line.
   [["src/game/swap-engine.ts", "src/ui/engine-sheet.ts", "src/game/engines.ts", "src/render/train-view.ts"], ["swap-engine"]],
   ["src/ui/route-drag.ts", ["touch:route-reorder"]],
-  ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips", "situation-help"]],
-  [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen"]],
+  ["src/ui/goals-panel.ts", ["stickers", "research", "feature-tips", "situation-help", "phone-room"]],
+  [["src/ui/fullscreen.ts", "src/ui/swipe-guard.ts"], ["click:fullscreen", "phone-room"]],
   ["src/ui/store-rows.ts", ["warehouse"]],
   // A town's card (its tabs, Next up, the Projects pane): the suites that open one and tap on it.
   [["src/ui/town-ledger.ts", "src/game/town-next.ts"], [...TOWNS, "civic", "post", "grand", "locked", "station-touches"]],
@@ -302,6 +309,8 @@ export const RULES = [
   ["src/game/interaction.ts", [TOUCH_INPUT, CLICK_INPUT]],
   // Turning a held piece: Turn's eighths, the finer 15° steps (Shift+R, a two-finger twist).
   [["src/game/headings.ts", "src/game/interaction.ts", "src/ui/hud.ts", "src/game/touch-camera.ts"], ["rotate"]],
+  // Flip on a piece being placed: the hand shown, a curve turning on as the one it meets (`keepTurning`), the seat.
+  [["src/game/interaction.ts", "src/ui/hud.ts", "src/track/snap.ts"], ["flip"]],
   [["src/game/touch-*", "src/game/drag-rule.ts", "src/game/drop.ts", "src/game/put-away.ts", "src/game/place-facing.ts"], [TOUCH_INPUT, CLICK_INPUT, "names"]],
   [["src/game/camera-director.ts"], [...SMOKE, "touch:select-drag,tight-curves,routes", "tutorial"]],
   [["src/game/draw-*", "src/game/erase.ts", "src/game/track-rules.ts", "src/game/lift-notice.ts"], ["draw", "joints", "ramps", "touch:select-drag,flick", "low-bridge"]],
@@ -369,12 +378,13 @@ export const RULES = [
   // Water transport: the landing, boats, cargo ships, the lighthouse, the ferry, the yards.
   [["src/game/boats.ts", "src/game/ferry.ts", "src/game/harbours.ts", "src/ui/boat-card.ts", "src/ui/water-controls.ts", "src/render/river-boats-view.ts", "src/render/ferries-view.ts", "src/render/boats-view.ts", "src/economy/boats.ts", "src/catalogue/assets/water.ts", "src/catalogue/assets/boat-parts.ts", "src/game/yards.ts", "src/render/yards-view.ts"], ["water"]],
   // Power as sparks and the wind farm (late-game spec W1).
-  [["src/game/power.ts", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
+  [["src/game/power.ts", "src/game/spark-text.ts", "src/style.css", "src/game/engines.ts", "src/game/industries.ts", "src/render/turbines-view.ts", "src/props/kinds.ts", "src/props/placement.ts", "src/render/props/library.ts", "src/ui/hud.ts", "src/main.ts", "src/catalogue/assets/mechanisms.ts"], ["power"]],
   // The new-game sheet and how hilly a map is (chosen before a new game, saved with the map).
   [["src/ui/new-game.ts", "src/landscape/hills.ts", "src/landscape/water.ts", "src/landscape/edges.ts", "src/landscape/generate.ts", "src/ui/title.ts", "src/ui/hud.ts", "src/persist/landscape-data.ts", "src/persist/landscape-schema.ts"], ["new-game", "tutorial"]],
   // Your games: several Game-mode games side by side (the slots, the list, the title's and ☰'s ways in, the cloud's).
   [["src/persist/slots.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/persist/cloud.ts", "src/ui/title.ts", "src/ui/new-game.ts", "src/ui/hud.ts", "src/main.ts"], ["saves"]],
   [["src/persist/slots.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/persist/save-schema.ts", "src/persist/save-limits.ts", "src/persist/bug-map.ts", "src/main.ts", "tools/e2e/lost-save.mjs"], ["lost-save"]],
+  [["src/persist/slots.ts", "src/persist/backups.ts", "src/persist/write-guard.ts", "src/persist/startup.ts", "src/ui/games-sheet.ts", "src/persist/save.ts", "src/main.ts", "tools/e2e/save-safety.mjs"], ["save-safety"]],
   [["src/persist/slots.ts", "src/persist/cloud.ts"], ["cloud", "new-game", "stats"]],
   // The tests' setup (what the game loads on its own, loaded before each test file).
   ["src/test-setup.ts", []],

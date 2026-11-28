@@ -18,6 +18,25 @@ export function saveMuted(muted: boolean): void {
   }
 }
 
+const TRAY_FOLDED_KEY = "woodrail.trayFolded";
+
+/** Is the tray folded to its tabs (a phone, for more of the map)? Open unless the player folded it. */
+export function loadTrayFolded(): boolean {
+  try {
+    return localStorage.getItem(TRAY_FOLDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveTrayFolded(folded: boolean): void {
+  try {
+    localStorage.setItem(TRAY_FOLDED_KEY, folded ? "1" : "0");
+  } catch {
+    // storage unavailable: the choice lasts for this session only
+  }
+}
+
 const FAVOURITES_KEY = "woodrail.favourites";
 
 /** The tray favourites (tray keys, in order), or null if none were ever chosen. */

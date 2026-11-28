@@ -440,14 +440,14 @@ export class SlotStore {
    * A game from elsewhere (a "Copy map for a bug report" text pasted in Your games) parked beside the others under a
    * new id, never in place of one: only the game's own keys of it are kept. Its id, or why not (nothing changed).
    */
-  async add(from: Readonly<Record<string, string>>): Promise<Result<{ id: string; name: string }, string>> {
+  async add(from: Readonly<Record<string, string>>, label = "from text"): Promise<Result<{ id: string; name: string }, string>> {
     const keys: Keys = {};
     for (const k of this.keys.live) if (typeof from[k] === "string") keys[k] = from[k];
     if (keys[this.keys.save] === undefined) return err(UNREADABLE);
     const i = this.index();
     const id = this.freshId(i);
     const was = tagOfSession(keys[this.keys.session])?.name || nameOfSave(keys[this.keys.save]);
-    const name = cleanName(`${was.replace(UNREADABLE_PREFIX, "").slice(0, NAME_MAX - 12)} (from text)`);
+    const name = cleanName(`${was.replace(UNREADABLE_PREFIX, "").slice(0, NAME_MAX - label.length - 3)} (${label})`);
     keys[this.keys.session] = withTag(keys[this.keys.session], { id, name });
     const packed = await packKeys(keys);
     try {
@@ -463,6 +463,52 @@ export class SlotStore {
       return err(NO_ROOM);
     }
     return ok({ id, name });
+  }
+
+  /** A game's keys as stored now: the live keys for the open one, else its parked copy unpacked. Null: none. */
+  async keysOf(id: string): Promise<Keys | null> {
+    if (this.index().open === id) {
+      const live = this.liveKeys();
+      return live[this.keys.save] === undefined ? null : live;
+    }
+    const packed = this.get(parkedKey(id));
+    return packed === null ? null : await unpackKeys(packed);
+  }
+
+  /**
+   * A game's keys replaced by these (an earlier version restored: `BackupStore`), keeping its id and name: the live
+   * keys for the open one (the page should start again on them), else its parked copy. The caller kept what it was
+   * first. Why not, or ok (on no room, nothing's changed).
+   */
+  async replace(id: string, from: Readonly<Record<string, string>>): Promise<Result<void, string>> {
+    const i = this.index();
+    const e = i.games.find((g) => g.id === id);
+    if (!e) return err(UNREADABLE);
+    const keys: Keys = {};
+    for (const k of this.keys.live) if (typeof from[k] === "string") keys[k] = from[k];
+    if (keys[this.keys.save] === undefined) return err(UNREADABLE);
+    keys[this.keys.session] = withTag(keys[this.keys.session], { id, name: e.name });
+    if (i.open === id) {
+      const before = this.liveKeys();
+      try {
+        this.writeLive(keys);
+      } catch {
+        this.restoreLive(before);
+        return err(NO_ROOM);
+      }
+    } else {
+      const before = this.get(parkedKey(id));
+      const packed = await packKeys(keys);
+      try {
+        this.storage.setItem(parkedKey(id), packed);
+      } catch {
+        if (before !== null) this.set1(parkedKey(id), before);
+        return err(NO_ROOM);
+      }
+    }
+    Object.assign(e, this.factsOf((k) => keys[k]), { played: this.now() });
+    this.writeIndex(i);
+    return ok(undefined);
   }
 
   /** A game renamed (an empty name: nothing). Its tag too, when it's the open one. */

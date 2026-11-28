@@ -10,6 +10,8 @@
  *
  *   npm run balance:sweep                                (seeds 0-200, one run a core)
  *   npm run balance:sweep -- --from 0 --to 40 --jobs 2 [--out <dir>]
+ *   BALANCE_MINUTES=300 npm run balance:sweep -- --from 0 --to 40   (the late-game band: coins an hour after the first
+ *                                                                    City ★, its LATE line; about 1.5 min a seed)
  *
  * Other BALANCE_* settings pass through from the environment (e.g. BALANCE_SCHOOL=first for an A/B). Prints each seed's
  * BANDS line and the bands it missed, then a summary; each run's full log goes to <out> (default .balance-sweep/).

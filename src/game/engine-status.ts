@@ -6,6 +6,8 @@ import { storeSkipText } from "./warehouse-text";
 import { keptText, notLoadingText } from "./workshop-text";
 import { loadHint, loadHintText } from "./chains";
 import { RACK_WAIT } from "./engines";
+import { legFromCursor } from "./route-path";
+import { flipCursor, type Cursor } from "../sim/cursor";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
 export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
@@ -481,6 +483,43 @@ function shortEndText(short: { depotId: number; at: number }, nameOf: (depotId: 
   const at = placeLabel(nameOf, short.at);
   return `Can't reach ${nameOf(short.depotId)}: ${at ? `the line end at ${at}` : "a line end on the way"} is too short for it to turn and take the other road. ${SHORT_END_FIX}`;
 }
+/** The fix for a stop on another railway than its line's train (`Economy.apartSkipOf`). */
+export const APART_FIX = "Join its track to this line's, or take it off the line";
+
+/**
+ * The name of a routed train's next stop (standing at one, the stop after) when no way leads from its front to any of
+ * its tracks, whatever the switches, the way it would go; null when one does, or it has none. A walk of the track: only
+ * for a card saying why a train stands, not per tick.
+ */
+function noWayTo(sim: Sim, economy: Economy, engineCarId: number, nameOf: (depotId: number) => string): string | null {
+  const found = sim.findCar(engineCarId);
+  const r = economy.routeOf(engineCarId);
+  if (!found || !r || r.stops.length === 0) return null;
+  const n = r.stops.length;
+  let i = r.next % n;
+  if (r.at) {
+    const here = r.stops[i].depotId;
+    for (let k = 0; k < n && r.stops[i].depotId === here; k++) i = (i + 1) % n;
+  }
+  const d = economy.liveDepot(r.stops[i].depotId);
+  if (!d) return null;
+  const t = found.train;
+  const engine = t.cars[found.index];
+  const way = (engine.lever || 1) * engine.facing;
+  const front: Cursor = { ...(way > 0 ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };
+  if (way < 0) flipCursor(economy.layout, front);
+  for (const p of economy.reachableTracks(d)) if (front.pieceId === p || legFromCursor(economy.layout, front, p) !== null) return null;
+  return nameOf(d.id);
+}
+
+/** Held by the dispatcher with no way on round its line from where it stands (`Dispatcher.noWayOn`): what its card says. */
+export const NO_WAY_ON = "Waiting: no way on round its line from here, though no train is in the way. A stop further on may be out of reach: check its line";
+
+/** A stop passed over as it's on another railway than the train (`Economy.apartSkipOf`): what its card says. */
+export function apartText(apart: { depotId: number; none?: true }, nameOf: (depotId: number) => string): string {
+  return `${apart.none ? "Can't reach" : "Skips"} ${nameOf(apart.depotId)}: no track joins it to the track this train is on. ${APART_FIX}`;
+}
+
 /** The fix for a signal inside a passing loop holding a train over the points (issue #31): the engine and signal cards. */
 export const LOOP_SIGNAL_FIX = "Move that signal to the loop's end";
 /** The fix for a train kept waiting on a long single track lines share (`single-track`): somewhere to pass. */
@@ -535,6 +574,13 @@ export function engineView(
   }
   // Passing (or standing at) a stop that takes goods it carries, and keeping them: why (not on its route, full, set to
   // share, not needed now). Each stop takes what it takes in turn; nothing is held back for one further on.
+  // Running on past a stop of its line on another railway (no track joins them): said before the goods it passes, as
+  // the line itself needs the player (the user's 2026-11-26 map: "Not loading flour at the mill: the warehouse is full"
+  // for a warehouse the train could never get to).
+  if (s.kind === "running") {
+    const apart = economy.apartSkipOf(engineCarId);
+    if (apart) return { status: apartText(apart, nameOf), blocker: null };
+  }
   if (s.kind === "running" || s.kind === "stopped" || s.kind === "slowing" || s.kind === "held-up" || s.kind === "starting") {
     const kept = economy.keptAt(found.train.id);
     if (kept) {
@@ -560,7 +606,7 @@ export function engineView(
     // (Not over a held-up train's "Waiting: … in the way": what holds it comes first.)
     if (s.kind === "running" || s.kind === "slowing" || s.kind === "stopped") {
       const not = economy.notLoadingAt(found.train.id);
-      if (not) return { status: notLoadingText(not.why, not.kind, nameOf(not.depot.id), not.taker ? nameOf(not.taker.id) : "", !!not.takerFull), blocker: null };
+      if (not) return { status: notLoadingText(not.why, not.kind, nameOf(not.depot.id), not.taker ? nameOf(not.taker.id) : "", not.takerRoom, not.store ? nameOf(not.store.id) : ""), blocker: null };
     }
   }
   // (Itself the train at the signal inside the loop: nobody else to show.)
@@ -712,8 +758,16 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // (Room for them all, its line's ends counted: it waits its turn, and no loop is asked for.)
       if (s.more <= 0) return "Waiting its turn on the line";
       return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? (s.other ? OR_MOVE_OTHER : OR_MOVE) : OR_REMOVE}`;
-    case "held-up":
-      return who ? `Waiting: ${inTheWay(who, place)}` : "Waiting: something's in the way";
+    case "held-up": {
+      if (who) return `Waiting: ${inTheWay(who, place)}`;
+      // (Held with no train named: where no way leads from it to where it's aimed, said, with the stop: the user's
+      // 2026-11-26 map, Clover held at Sawmill 2 by the dispatcher, "this train being stopped makes no sense".)
+      const to = noWayTo(sim, economy, engineCarId, nameOf);
+      if (to) return `Waiting: no track it can take leads to ${to} from here`;
+      // (Held by the dispatcher with no way on round its line from here, no train in it: a stop further on.)
+      if (economy.dispatcher?.noWayOn(engineCarId)) return NO_WAY_ON;
+      return "Waiting: something's in the way";
+    }
     case "line-wait-for": {
       const to = placeLabel(nameOf, s.to);
       // (Others have gone first in this wait: said steadily, with how many, not each one in turn as it holds it (Wren's
@@ -737,6 +791,9 @@ function statusText(sim: Sim, economy: Economy, engineCarId: number, s: TrainSta
       // naming both, and the fix.)
       const short = economy.shortSkipOf(engineCarId);
       if (short) return shortEndText(short, nameOf);
+      // (Gone on past a stop on another railway, never joined to its own: said, naming it, and the fix.)
+      const apart = economy.apartSkipOf(engineCarId);
+      if (apart) return apartText(apart, nameOf);
       // (Heading for a stop beyond a train its line has no room for: it'll turn back short of it. Say why.)
       const full = economy.sections.unreachable(engineCarId) ? economy.sections.fullness(engineCarId) : null;
       if (full) return `Can't reach ${nameOf(route.stops[i].depotId)}: ${fullText(full)}`;

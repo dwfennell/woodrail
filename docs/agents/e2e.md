@@ -74,6 +74,12 @@ own room. On the test clock and Battery saver, a tray item's shelf tapped straig
 finger, laid, a curve joined on) and `mouse` (1440×900: Shift+R twice, laid at 30°, a loop of eight from the tray that
 closes, R on to the next eighth). Each on a fresh Sandbox page (#seed-24).
 
+**flip** (`scripts/e2e/flip.mjs`, about 8 min): Flip on a curve being placed mirrors what's shown, and the laid piece's
+hand is checked. `mouse` (1440×900, a carried curve, F or the tray's Flip: loose, on a straight's, a points' and a
+curve's end, after R, and flipped into a straight: refused, saying "Flipped, it won't fit", Flip back lays it) and
+`touch` (390×844, a held curve, Flip tapped by a second finger: loose, a points' end, a curve's end, after Turn). Each
+on a fresh Sandbox page (#seed-24), its track laid by the editor (setup).
+
 **joints** (`scripts/e2e/joints.mjs`): `qa-line` (QA's drawn line's joints through a reload, an older build's save),
 `slip-draw` (a Draw stroke along a 45° crossing's turn makes it a slip, Game mode). Each on a fresh page.
 
@@ -86,7 +92,7 @@ learned).
 to read its tabs (K1 compares them).
 
 **cloud** (`scripts/e2e/cloud.mjs`, about 19 min idle, 27 with a CPU hog): `sandbox` (steps 1–6, devices A and B),
-`game-sync` (7–8) and `game-rewards` (9–10), and `auto` (cloud saves turned on by themselves when a piece is laid, the title's Continue from cloud, a gone code, offline, Turn off). Each Game group sets up two devices (C and D) on a code of its own, so it
+`game-sync` (7–8) and `game-rewards` (9–10), `auto` (cloud saves turned on by themselves when a piece is laid, with the code said in a toast, the title's Continue from cloud, a gone code, offline, Turn off), and `itch` (about 1 min: an iPhone with the game in another site's frame, as on itch.io; the title's plain word and Load with a code, the card's code to write down; storage cleared, the code typed on the title, the railway back). Each Game group sets up two devices (C and D) on a code of its own, so it
 can run alone; each run starts its own Worker on a free port (`CLOUD_PORT` to pin one), so `E2E_SHARD=1/2` and `2/2`
 can run side by side. As one group, a gate's 1700 s timeout fell on step 10 with every check before it passing.
 

@@ -11,7 +11,7 @@ import { canResearch } from "./research";
 import { STICKERS, type StickerContext } from "./stickers";
 import { THING_RULES } from "./things";
 import { buysText } from "./town-ledger";
-import { FOODS, FULL_PAY, payFor, PRICES, townStatus } from "./towns";
+import { FOODS, STAPLES, payFor, PRICES, townStatus } from "./towns";
 import { INDUSTRY_ROLE, syncIndustries, type World } from "./world";
 
 /**
@@ -60,12 +60,14 @@ describe("the goods chains' goods", () => {
     for (const [i, k] of CARGO_KINDS.slice(0, 28).entries()) expect(CARGO[k].index).toBe(i);
   });
 
-  it("towns buy them all at full pay but cocoa (only a chocolate factory takes it), and none is needed to grow", () => {
-    for (const k of ["sugar", "jam", "chocolate", "flowers", "paint", "toys"] as const) {
-      expect(FULL_PAY.has(k), k).toBe(true);
+  it("towns buy sugar, jam, chocolate and toys at half price; flowers and paint only for a grand project; none is needed to grow", () => {
+    for (const k of ["sugar", "jam", "chocolate", "toys"] as const) {
+      expect(STAPLES.has(k), k).toBe(true);
       expect(RECIPES.town.takes, k).toContain(k);
-      expect(payFor(k, townStatus({})), k).toBe(PRICES[k]);
+      expect(payFor(k, townStatus({})), k).toBe(Math.ceil(PRICES[k]! / 2));
     }
+    // (Flowers make paint, paint makes toys and grand projects: a town doesn't buy them, spec 2026-11-27.)
+    for (const k of ["flowers", "paint"] as const) expect(STAPLES.has(k), k).toBe(false);
     expect(["sugar", "jam", "chocolate"].every((k) => FOODS.has(k as CargoKind))).toBe(true);
     expect(RECIPES.town.takes).not.toContain("cocoa");
     // Toys pay the most of any made good but cars (the car factory's, at a University too).
@@ -80,10 +82,11 @@ describe("the goods chains' goods", () => {
   });
 
   it("the News says the first of each, and the town card lists the learned ones", () => {
-    expect(firstFoodNews("jam", 1, 1, "Ashby")).toBe("First jam! 🫙 Ashby buys it at full pay");
-    expect(firstFoodNews("toys", 2, 2, "Ashby")).toBe("First toys! 🧸 Ashby buys them at full pay");
-    expect(buysText(new Set(["sugar", "jam"]))).toBe("Full pay for these too: 🍬 sugar and 🫙 jam");
-    expect(buysText(new Set(["paint"]))).toBe("Full pay for these too: 🌷 flowers and 🎨 paint");
+    expect(firstFoodNews("jam", 1, 1, "Ashby")).toBe("First jam! 🫙 Ashby buys it");
+    expect(firstFoodNews("toys", 2, 2, "Ashby")).toBe("First toys! 🧸 Ashby buys them");
+    expect(buysText(new Set(["sugar", "jam"]))).toBe("Also buys, at half price: 🍬 sugar and 🫙 jam");
+    expect(buysText(new Set(["paint"]))).toBeNull();
+    expect(buysText(new Set(["toys"]))).toBe("Also buys, at half price: 🧸 toys");
   });
 });
 

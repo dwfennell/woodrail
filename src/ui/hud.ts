@@ -8,13 +8,13 @@ import { note } from "../debug/report";
 import { blockWord } from "./blocks";
 import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
-import { fullscreenAvailable, onFullscreenChange, toggleFullscreen } from "./fullscreen";
+import { fullscreenAvailable, HOME_SCREEN_HOW, homeScreenOffered, onFullscreenChange, toggleFullscreen } from "./fullscreen";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
 import { MAX_ENGINE_NAME } from "../sim/engine-names";
 import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
-import { loadFavourites, saveFavourites } from "./prefs";
+import { loadFavourites, loadTrayFolded, saveFavourites, saveTrayFolded } from "./prefs";
 import { pillCount, pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
@@ -25,6 +25,7 @@ import type { ExplainerSheet } from "./explainer-sheet";
 import { loadCreditsSheet, loadExplainerSheet } from "./lazy-chunks";
 import { EXPLAINER_TITLES, explainerIdFor, type ExplainerId } from "./explainer-keys";
 import { WIKI_URL } from "./wiki-link";
+import type { SparkView } from "../game/spark-text";
 
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
@@ -372,6 +373,8 @@ export class Hud {
   private redoItem!: HTMLButtonElement;
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
+  /** Under a place's name, what kind of place it is where the name doesn't say ("River landing"). */
+  private readonly depotKind = el("div", "card-sub depot-kind");
   private readonly depotStock = el("div", "depot-stock");
   /** What the depot card's goods line last drew (`updateDepotCard`). */
   private depotStockKey = "";
@@ -454,6 +457,14 @@ export class Hud {
   private readonly coinTag = el("span", "coins");
   /** Game mode: the railway's date ("Mar 2001", see game/calendar.ts). */
   private readonly dateTag = el("span", "game-date");
+  /** Game mode's spark balance, beside the coins: spare of made ("⚡ 3/5"); tap: where sparks come from, what takes them. */
+  private readonly sparkBtn = el("button", "sparks") as HTMLButtonElement;
+  /** The spark balance's sheet, under the top bar (opened from `sparkBtn`). */
+  private readonly sparkSheet = el("div", "sparks-sheet");
+  /** The spark balance as shown (its key), to touch the page only when it changes. */
+  private sparkKey = "";
+  /** Puts away what opening the spark sheet listened for. */
+  private sparkSheetOff: (() => void) | null = null;
   /** Game mode: the research under way and how far ("📘 Bridges 6/10\uE000"), or "Pick research"; tap: the picker. */
   private readonly researchPill = el("button", "research-pill") as HTMLButtonElement;
   /** What the pill shows now (its whole text and fill): it's redrawn only when this changes. */
@@ -545,6 +556,14 @@ export class Hud {
       }
     });
     top.appendChild(brand);
+    this.sparkBtn.type = "button";
+    this.sparkBtn.hidden = true;
+    this.sparkBtn.setAttribute("aria-expanded", "false");
+    this.sparkBtn.addEventListener("click", () => this.toggleSparkSheet());
+    top.appendChild(this.sparkBtn);
+    this.sparkSheet.hidden = true;
+    this.sparkSheet.setAttribute("role", "dialog");
+    this.sparkSheet.setAttribute("aria-label", "Sparks");
     this.researchPill.type = "button";
     this.researchPill.hidden = true;
     this.researchPill.innerHTML = `<span class="rp-text"><span class="rp-line"><span class="rp-icon" aria-hidden="true">📘</span><span class="rp-name"></span></span><span class="rp-count"></span></span><span class="rp-bar"></span>`;
@@ -582,6 +601,7 @@ export class Hud {
     actions.append(this.menuBtn);
     top.appendChild(actions);
     this.root.appendChild(top);
+    this.root.appendChild(this.sparkSheet);
     // Paused: a red frame round the screen and a sign over the tray that plays again when tapped (#45: a player who
     // paused by accident and reported the stopped trains as a bug). Both static: shown by a class, nothing drawn.
     this.pausedSign.type = "button";
@@ -668,6 +688,12 @@ export class Hud {
     this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
     this.fullItem = narrow("Fullscreen", "Fill the screen with the game", toggleFullscreen);
     this.fullItem.hidden = this.fullBtn.hidden;
+    // An iPhone has no fullscreen for a page: from the home screen, the GitHub Pages copy opens without the bars.
+    const homeItem = button("Play full screen", "How to play without the browser's bars", () => {
+      this.menu.hidden = true;
+      this.toast(HOME_SCREEN_HOW, false, 7000);
+    }, "menu-item home-screen-item");
+    homeItem.hidden = !homeScreenOffered();
     this.menu.append(this.redoItem, this.landItem);
     // Sandbox's chain hints (cards, the map, a few tips) can be switched off for free play.
     this.chainItem = button("Chain hints: on", "Show where industries' goods come from and go", () => {
@@ -698,6 +724,7 @@ export class Hud {
       this.linesItem,
       this.soundItem,
       this.fullItem,
+      homeItem,
       this.chainItem,
       this.tipsItem,
       this.dispatcherItem,
@@ -889,7 +916,7 @@ export class Hud {
     this.depotChain.hidden = true;
     this.depotStore.hidden = true;
     this.depotStore.addEventListener("click", (e) => this.storeClick(e));
-    this.depotCard.append(this.depotTitle, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
+    this.depotCard.append(this.depotTitle, this.depotKind, this.depotChain, this.depotStock, this.depotHelp, this.depotStore, this.depotPickBtn, this.depotLineBtn, depotRow, this.depotModeHint, this.depotYard, this.depotPower, this.depotExtra, this.depotRoutes, this.depotWiki, button("✕", "Close", h.closeCards, "close"));
     this.depotRoutes.hidden = true;
     this.depotPower.hidden = true;
     this.root.appendChild(this.depotCard);
@@ -1270,6 +1297,8 @@ export class Hud {
     let list: TrayTab[] = [];
     this.openTrayTab = (id, shelf) => {
       const tab = list.find((t) => t.id === id);
+      // (Show me, a goal, the tutorial: what it shows is on the shelves, so a folded tray opens.)
+      if (tab) this.setTrayFolded(false);
       if (tab) openTab(tab, shelf);
     };
     this.reopenTray = () => {
@@ -1285,6 +1314,8 @@ export class Hud {
         // its tabs, its shelves put away for the map's sake: a tab tapped there puts the pencil down, so they show.)
         const t = button(tab.label, `${tab.label}`, () => {
           if (this.drawing && getComputedStyle(scroller).display === "none") this.handlers.trayDraw(false);
+          // (Folded away on a phone: a tab tapped opens the tray again, on that tab.)
+          this.setTrayFolded(false);
           openTab(tab);
         }, "tab");
         t.dataset.tab = tab.id;
@@ -1330,21 +1361,26 @@ export class Hud {
     fitWatch.observe(head);
     fitWatch.observe(tools);
     this.tray.append(head, scroller);
+    // On a phone (style.css `.tray-fold`), a pull on the tray's top edge folds it down to its tabs and tools, for more
+    // of the map; a tap on it or on a tab opens it again. Kept on this device. (Open the first time: the shelves are
+    // where a new player starts.)
+    this.trayFoldBtn = button(uiIcon("fold"), "", () => this.setTrayFolded(!this.trayFolded), "tray-fold");
+    this.tray.append(this.trayFoldBtn);
+    this.setTrayFolded(loadTrayFolded(), false);
     this.root.appendChild(this.tray);
     // The room the tray takes at the screen's foot, for the cards that stand on it (`--tray-room` in style.css: a
     // workshop's card at 2000×1165 ran under the tray's tabs, its foot set for a shorter tray). Measured when the tray
     // or the window changes size, never per frame; a tray not shown (0 tall) keeps the last room, so a card doesn't jump.
-    if (typeof ResizeObserver !== "undefined") {
-      let room = "";
-      const fitRoom = () => {
-        const r = this.tray.getBoundingClientRect();
-        const px = `${Math.round(innerHeight - r.top)}px`;
-        if (r.height <= 0 || px === room) return;
-        document.documentElement.style.setProperty("--tray-room", (room = px));
-      };
-      new ResizeObserver(fitRoom).observe(this.tray);
-      addEventListener("resize", fitRoom);
-    }
+    // Folding or opening it measures again itself too (`setTrayFolded`).
+    const root = document.documentElement;
+    this.fitTrayRoom = () => {
+      const r = this.tray.getBoundingClientRect();
+      const px = `${Math.round(innerHeight - r.top)}px`;
+      if (r.height <= 0 || root.style.getPropertyValue("--tray-room") === px) return;
+      root.style.setProperty("--tray-room", px);
+    };
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(this.fitTrayRoom).observe(this.tray);
+    addEventListener("resize", this.fitTrayRoom);
 
     // Beside the HUD, not in it, so a toast shows over the panels opened over the HUD too (the Blueprints board).
     this.root.after(this.toastEl);
@@ -1523,6 +1559,28 @@ export class Hud {
   /** Rebuild the tray's tabs for a mode (set in the constructor, where the tray is built). */
   private showTabs: (mode: GameMode, keep?: boolean) => void = () => {};
   private openTrayTab: (id: string, shelf?: string) => void = () => {};
+  private trayFoldBtn!: HTMLButtonElement;
+  private trayFolded = false;
+
+  /** The tray folded to its tabs and tools (on a phone; a bigger screen has room and shows no pull), or open. */
+  private setTrayFolded(on: boolean, save = true): void {
+    if (on === this.trayFolded && save) return;
+    this.trayFolded = on;
+    this.tray.classList.toggle("folded", on);
+    this.root.classList.toggle("tray-folded", on);
+    const title = on ? "Open the tray" : "Fold the tray away, for more of the map";
+    this.trayFoldBtn.title = title;
+    this.trayFoldBtn.setAttribute("aria-label", title);
+    this.trayFoldBtn.setAttribute("aria-expanded", String(!on));
+    if (save) saveTrayFolded(on);
+    // Measured now, the class just set (one layout, on a tap), not only in the next rendering step where the observer
+    // reports: on CI's software GL, busy drawing, that came after the e2e looked (phone-room `fold`, 2026-11-27: room
+    // 159 over a 59 px tray, every run). And again a frame on, for anything the fold moves after it.
+    this.fitTrayRoom();
+    requestAnimationFrame(() => this.fitTrayRoom());
+  }
+  /** Measure the room the tray takes at the screen's foot into `--tray-room` (set up with the tray). */
+  private fitTrayRoom: () => void = () => {};
   private reopenTray: () => void = () => {};
 
   /**
@@ -1748,11 +1806,23 @@ export class Hud {
    */
   private fitPill(): void {
     const p = this.researchPill;
-    p.classList.remove("rp-small", "rp-wrap", "rp-goods");
+    p.classList.remove("rp-small", "rp-wrap", "rp-goods", "rp-bare");
     const n = p.querySelector<HTMLElement>(".rp-name")!;
     const c = p.querySelector<HTMLElement>(".rp-count")!;
     const v = this.pillView;
     if (v) c.textContent = pillCount(v, 0);
+    // (Squeezed to a finger's width, at 360 px beside the coins, the date and the spark balance: its 📘 and its bar
+    // alone, not "Pi… rese…"; its title still says it.)
+    // (Busy, its count alone, as short as it goes.)
+    if (!p.hidden && v && this.sparkBtn?.hidden === false && p.clientWidth > 0 && p.clientWidth < 60) {
+      if (v.idle) p.classList.add("rp-bare");
+      else {
+        p.classList.add("rp-goods");
+        const over = (e: HTMLElement) => e.scrollWidth > e.clientWidth + 1;
+        for (const fit of [1, 2] as const) if (over(c)) c.textContent = pillCount(v, fit);
+      }
+      return;
+    }
     if (p.hidden || n.clientWidth === 0 || !v) return;
     const over = (e: HTMLElement) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1;
     for (const fit of [1, 2] as const) {
@@ -1770,6 +1840,12 @@ export class Hud {
     const cut = () => over(n);
     if (cut()) p.classList.add("rp-small");
     if (cut()) p.classList.add("rp-wrap");
+    // (Beside the spark balance, a name still cut after both ("Pick rese…" at 390 px): its 📘 alone, as at 360.)
+    const t = p.querySelector<HTMLElement>(".rp-text");
+    if (v.idle && this.sparkBtn?.hidden === false && (cut() || over(c) || (t !== null && over(t)))) {
+      p.classList.remove("rp-small", "rp-wrap");
+      p.classList.add("rp-bare");
+    }
   }
 
   /** Show the railway's date (null: hide it, outside Game mode). The page is touched only when the text changes. */
@@ -1795,6 +1871,79 @@ export class Hud {
       void this.coinTag.offsetWidth;
       this.coinTag.classList.add("pop");
     }
+  }
+
+  /**
+   * Show the spark balance (null: hide it: outside Game mode, or before the map has made a spark). The page is touched
+   * only when what's shown changes; an open sheet is drawn again with it.
+   */
+  setSparks(v: SparkView | null): void {
+    const key = v?.key ?? "";
+    if (key === this.sparkKey) return;
+    this.sparkKey = key;
+    const b = this.sparkBtn;
+    b.hidden = v === null;
+    if (v === null) {
+      this.closeSparkSheet();
+      return;
+    }
+    b.classList.toggle("short", v.short > 0);
+    b.innerHTML = `<span class="sp-icon" aria-hidden="true">⚡</span><span class="sp-count"></span>`;
+    (b.lastChild as HTMLElement).textContent = v.label;
+    b.title = v.title;
+    b.setAttribute("aria-label", v.title);
+    this.drawSparkSheet(v);
+  }
+
+  /** Is the spark sheet open? */
+  get sparkSheetOpen(): boolean {
+    return !this.sparkSheet.hidden;
+  }
+
+  private sparkView: SparkView | null = null;
+
+  private drawSparkSheet(v: SparkView): void {
+    this.sparkView = v;
+    const sh = this.sparkSheet;
+    sh.innerHTML = "";
+    const head = el("div", "sparks-head");
+    head.append(el("span", "sparks-title", "Sparks"), el("span", `sparks-stamp${v.short > 0 ? " short" : ""}`, v.short > 0 ? `${v.short} short` : `${v.spare} spare`));
+    const x = button("✕", "Close", () => this.closeSparkSheet(), "close");
+    head.append(x);
+    sh.append(head);
+    for (const l of v.lines) sh.append(el("div", `sparks-line${l.warn ? " warn" : ""}`, l.text));
+  }
+
+  toggleSparkSheet(open = this.sparkSheet.hidden): void {
+    if (!open) return this.closeSparkSheet();
+    if (!this.sparkView || this.sparkBtn.hidden) return;
+    this.closeMenu();
+    this.sparkSheet.hidden = false;
+    this.sparkBtn.setAttribute("aria-expanded", "true");
+    this.sparkBtn.classList.add("active");
+    // Gone with a tap anywhere else or Esc (nothing per frame: the sheet is still).
+    const away = (e: Event) => {
+      if (e.target instanceof Node && (this.sparkSheet.contains(e.target) || this.sparkBtn.contains(e.target))) return;
+      this.closeSparkSheet();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") this.closeSparkSheet();
+    };
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", key);
+    this.sparkSheetOff = () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", key);
+    };
+  }
+
+  closeSparkSheet(): void {
+    this.sparkSheetOff?.();
+    this.sparkSheetOff = null;
+    if (this.sparkSheet.hidden) return;
+    this.sparkSheet.hidden = true;
+    this.sparkBtn.setAttribute("aria-expanded", "false");
+    this.sparkBtn.classList.remove("active");
   }
 
   /** The Research button (and the pill standing in for it on a phone): lit while the picker's open. */
@@ -2279,7 +2428,7 @@ export class Hud {
     this.hideCards();
     this.pieceCard.hidden = false;
     this.root.classList.add("card-open");
-    this.pieceTitle.textContent = title;
+    setStatedTitle(this.pieceTitle, title);
     this.pieceDetail.textContent = detail;
     this.pieceDetail.hidden = detail === "";
     this.pieceDetail.classList.remove("warn");
@@ -2309,7 +2458,7 @@ export class Hud {
    */
   /** The open piece card's title, changed in place (a signal's: what it shows now, as its aspect changes). */
   setPieceTitle(title: string): void {
-    this.pieceTitle.textContent = title;
+    if (this.pieceTitle.textContent !== title) setStatedTitle(this.pieceTitle, title);
   }
 
   /** The open piece card's detail line said as a warning (`warn-ink`: a signal too short to wait at). */
@@ -2512,7 +2661,7 @@ export class Hud {
   /** Offer Cloud save in the menu (the build has a cloud to save to: `VITE_CLOUD_URL`). */
   addCloudItem(onTap: () => void): void {
     this.linesItem.after(
-      button("☁ Cloud save", "Save online, or load your railway from another device", () => {
+      button("☁ Cloud save", "Keep your railway online, or load it with a code", () => {
         this.menu.hidden = true;
         onTap();
       }, "menu-item"),
@@ -2628,9 +2777,12 @@ export class Hud {
     this.depotWiki.setAttribute("aria-label", "This industry on the Woodrail wiki");
   }
 
-  showDepotCard(title: string): void {
+  /** A place's card: its name, and (where the name doesn't say) what kind of place it is under it. */
+  showDepotCard(title: string, kind = ""): void {
     this.hideCards();
     this.depotTitle.textContent = title;
+    this.depotKind.textContent = kind;
+    this.depotKind.hidden = kind === "";
     this.depotLineBtn.hidden = true;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
@@ -3001,7 +3153,13 @@ export class Hud {
   /** Open the "Learn more" sheet for explainer `id` (`onClose` once it's closed). */
   showExplainer(id: ExplainerId, onClose?: () => void): void {
     this.tips.hide();
-    const open = (sheet: ExplainerSheet) => sheet.show(id, onClose ?? (() => {}));
+    // Closed: a toast put at the sheet's foot (no room above it) goes where it would now, not left over the place card
+    // under it (e2e:learn-more: a tap on its Learn more went to the toast).
+    const closed = () => {
+      this.refitToast();
+      onClose?.();
+    };
+    const open = (sheet: ExplainerSheet) => sheet.show(id, closed);
     if (this.explainers) return open(this.explainers);
     // (Its words, pictures and code are loaded the first time: nothing of them before.)
     void loadExplainerSheet().then(({ ExplainerSheet }) => open((this.explainers ??= new ExplainerSheet(this.root))));
@@ -3476,4 +3634,27 @@ export function depotModeText(auto: boolean, waitFull: boolean | null): string {
   if (waitFull === null) return "";
   if (!auto) return "Trains run straight through; move cargo by hand.";
   return waitFull ? "Trains wait under the crane till every wagon is full." : "Trains take what's ready and go on.";
+}
+
+/**
+ * A card's title that says a state after a " · " ("Signal · red: a train is on the line ahead"): the name stays the
+ * title, one line, and the state goes on its own line under it in body type (docs/agents/card-system.md: a title never
+ * wraps into a paragraph). The text is kept whole (the " · " hidden, not dropped), so the title reads as before.
+ */
+export function setStatedTitle(el: HTMLElement, title: string): void {
+  const at = title.indexOf(" · ");
+  if (at < 0) {
+    el.textContent = title;
+    return;
+  }
+  const main = document.createElement("span");
+  main.className = "title-main";
+  main.textContent = title.slice(0, at);
+  const sep = document.createElement("span");
+  sep.className = "title-sep";
+  sep.textContent = " · ";
+  const state = document.createElement("span");
+  state.className = "title-state";
+  state.textContent = title.slice(at + 3);
+  el.replaceChildren(main, sep, state);
 }

@@ -6,16 +6,18 @@ import { showCode } from "../persist/sync-code";
 const ASK_MS = 4000;
 
 /**
- * The way to a railway saved on another device, the same in both states (cloud off or on) and first on the card
- * (playthrough: "I have a code" / "Use a different code" didn't read as loading a save).
+ * The way to a railway saved under a code (another device's, or this one's before its browser forgot it), the same
+ * words on the card and the title (playthrough: "I have a code" / "Use a different code" didn't read as loading a save;
+ * review 2026-11-26: five names for one thing).
  */
-export const LOAD_LABEL = "Load a save from another device";
+export const LOAD_LABEL = "Load with a code";
 
 const ERRORS: Record<Extract<UseCodeResult, { ok: false }>["error"], string> = {
-  malformed: "That doesn't look like a code: three words and four numbers",
+  malformed: "That's not a code: it's three words and four numbers, like acorn badge otter 0420",
   nothing: "No railway is saved with that code yet",
   offline: "Can't reach the cloud right now. Try again soon.",
-  newer: "That railway was saved by a newer version of the game: update this one first",
+  newer: "That railway was saved by a newer Woodrail: reload the page to update, then try again",
+  tries: "Too many tries from here: wait a minute, then try again",
 };
 
 export interface CloudCardHandlers {
@@ -24,6 +26,19 @@ export interface CloudCardHandlers {
   /** Storage now holds other railways: reload into them (without saving the one showing over them). */
   reload(): void;
   toast(message: string): void;
+  /**
+   * Where the game is played: on itch.io (`itch`: its frame's storage is shared with every itch game, so the code
+   * typed in can be read by them), and whether this browser may forget the page's saves, the code with them
+   * (`mayForget`: storage-life.ts). Unset: neither.
+   */
+  where?: { itch: boolean; mayForget: boolean };
+}
+
+/** Why to keep the code, said under it: the plainer the more it matters. */
+export function keepCodeText(where: CloudCardHandlers["where"]): string {
+  if (where?.mayForget) return "Write this code down! On iPhone and iPad, itch.io forgets your railway when you leave. Load with this code to get it back.";
+  if (where?.itch) return "Keep this code somewhere safe: if this browser forgets your railway, Load with a code brings it back.";
+  return "Keep this code somewhere safe: it's the way back to your railway on any device.";
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
@@ -54,7 +69,10 @@ export class CloudCard {
   private error = "";
   private busy = false;
   private askingOff = false;
+  private askingEarlier = false;
   private askTimer = 0;
+  /** The cloud's earlier copy of the mode being played (asked when the card opens: `CloudSync.earlier`), or null. */
+  private earlier: { savedAt: number } | null = null;
   /** Opened straight to the code (from the title screen): Cancel closes the card and calls this. */
   private cancelTo: (() => void) | null = null;
 
@@ -87,7 +105,16 @@ export class CloudCard {
     this.entering = false;
     this.error = "";
     this.root.hidden = false;
+    this.earlier = null;
     this.draw();
+    // (Asked once as it opens: put in its own place when the answer comes, nothing else moved under a finger.)
+    const mode = this.h.mode();
+    if (this.cloud.code)
+      void this.cloud.earlier(mode).then((e) => {
+        this.earlier = e;
+        const slot = this.root.querySelector<HTMLElement>(".cloud-earlier");
+        if (slot && !this.root.hidden) this.fillEarlier(slot);
+      });
   }
 
   hide(): void {
@@ -127,7 +154,7 @@ export class CloudCard {
       }),
       this.done(),
     );
-    this.root.append(el("p", "cloud-text", this.cloud.turnedOff ? "Off: your railway is saved on this device only. Turn on to keep it safe online, and carry on playing on another device." : "Keep your railway safe online, and carry on playing on another device."), this.loadRow(), row);
+    this.root.append(el("p", "cloud-text", this.cloud.turnedOff ? "Off: your railway is saved on this device only. Turn on to keep it safe online (with a new code), and carry on on another device." : "Keep your railway safe online, and carry on playing on another device."), this.loadRow(), row);
   }
 
   /** The other railway a sync kept on this device (see `CloudSync.backupOf`; dated by its last edit), offered back. */
@@ -135,9 +162,9 @@ export class CloudCard {
     const mode = this.h.mode();
     const kept = this.cloud.backupOf(mode);
     if (kept === null) return;
-    const when = new Date(kept).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
     this.root.append(
-      chip(`Restore the railway from ${when}`, "cloud-restore", async () => {
+      el("div", "cloud-label", "Kept on this device"),
+      chip(`Bring back the other railway (${when(kept)})`, "cloud-restore", async () => {
         if (this.busy) return;
         this.busy = true;
         try {
@@ -145,31 +172,75 @@ export class CloudCard {
             this.h.reload();
             return;
           }
-          this.h.toast("Couldn't restore it: there's no room on this device");
+          this.h.toast("Couldn't bring it back: there's no room on this device");
         } finally {
           this.busy = false;
         }
       }),
+      el("p", "cloud-small", "The one you're playing now is kept in its place, to swap back."),
     );
+  }
+
+  /** The cloud's earlier copy (the railway as it was before you last played), offered back with a second tap. */
+  private fillEarlier(slot: HTMLElement): void {
+    slot.replaceChildren();
+    const e = this.earlier;
+    slot.hidden = e === null;
+    if (e === null) return;
+    const go = chip(this.askingEarlier ? "Go back to it? Tap again" : `Go back to the copy of ${when(e.savedAt)}`, this.askingEarlier ? "asking cloud-earlier-go" : "cloud-earlier-go", async () => {
+      if (this.busy) return;
+      if (!this.askingEarlier) {
+        this.stopAsking();
+        this.askingEarlier = true;
+        this.askTimer = window.setTimeout(() => {
+          this.stopAsking();
+          if (this.open) this.fillEarlier(slot);
+        }, ASK_MS);
+        this.fillEarlier(slot);
+        return;
+      }
+      this.stopAsking();
+      this.busy = true;
+      try {
+        if (await this.cloud.restoreEarlier(this.h.mode())) {
+          this.h.reload();
+          return;
+        }
+        this.h.toast("Couldn't go back to it: can't reach the cloud, or there's no room. Try again soon.");
+      } finally {
+        this.busy = false;
+      }
+      this.fillEarlier(slot);
+    });
+    slot.append(el("div", "cloud-label", "Earlier copy online"), go, el("p", "cloud-small", "Your railway as it was before you last played. The one now is kept online in its place, to swap back."));
   }
 
   private drawOn(code: string): void {
     const codeRow = el("div", "cloud-code-row");
-    codeRow.append(
-      el("span", "cloud-code", showCode(code)),
-      chip("Copy", "", () => void this.copy(showCode(code))),
-    );
+    codeRow.append(el("span", "cloud-code", showCode(code)), chip("Copy", "", () => void this.copy(showCode(code))));
+    // (A phone's share sheet: to Notes, or a message to themselves. Not where sharing isn't allowed: an itch frame may not.)
+    if (typeof navigator.share === "function") {
+      codeRow.classList.add("shares");
+      codeRow.append(chip("Share", "cloud-share", () => void this.share(showCode(code))));
+    }
+    // The code first: it's what most come to the card for (review 2026-11-26).
+    const keep = el("p", `cloud-text cloud-keep${this.h.where?.mayForget ? " urgent" : ""}`, keepCodeText(this.h.where));
     this.root.append(
-      this.loadRow(),
-      el("div", "cloud-status", statusText(this.cloud.status, Date.now())),
       el("div", "cloud-label", "Your code"),
       codeRow,
-      el("p", "cloud-text", "Your railway saves online by itself as you play. Type this code on your other device to carry on there. Only share it with people you'd let play your railway."),
+      keep,
+      el("div", "cloud-status", statusText(this.cloud.status, Date.now())),
+      el("p", "cloud-small", "Your railway saves online by itself as you play. Type the code on another device to carry on there. Share it only with people you'd let play your railway."),
     );
     this.restoreChip();
+    const earlier = el("div", "cloud-earlier");
+    this.root.append(earlier);
+    this.fillEarlier(earlier);
+    this.root.append(this.loadRow());
     const kept = this.cloud.backupOf(this.h.mode()) !== null || this.cloud.backupOf(this.h.mode() === "game" ? "sandbox" : "game") !== null;
-    const off = chip(this.askingOff ? (kept ? "Forget the code and the kept railway? Tap again" : "Forget the code here? Tap again") : "Turn off", this.askingOff ? "asking" : "", () => {
+    const off = chip(this.askingOff ? (kept ? "Tap again: this device forgets your code and the kept railway" : "Tap again: this device forgets your code") : "Turn off", this.askingOff ? "asking" : "", () => {
       if (!this.askingOff) {
+        this.stopAsking();
         this.askingOff = true;
         this.askTimer = window.setTimeout(() => {
           this.stopAsking();
@@ -194,7 +265,7 @@ export class CloudCard {
     input.autocapitalize = "none";
     input.spellcheck = false;
     input.placeholder = "acorn badge otter 0420";
-    input.setAttribute("aria-label", "Sync code");
+    input.setAttribute("aria-label", "Your code");
     const err = el("div", "cloud-error", this.error);
     err.hidden = !this.error;
     const load = chip(this.busy ? "Loading…" : "Load", "primary", () => void this.load(input.value));
@@ -207,12 +278,14 @@ export class CloudCard {
     const row = el("div", "card-row");
     row.append(chip("Cancel", "", () => this.back()), load);
     this.root.append(
-      el("p", "cloud-text", "Type the code from your other device"),
+      el("p", "cloud-text", "Type your code: three words and four numbers"),
       input,
       err,
-      el("p", "cloud-small", "Loads the railway saved with that code. Your railway here is kept aside and can be restored from this card."),
-      row,
+      el("p", "cloud-small", "Loads the railway saved with that code. The one on this device is kept, and you can bring it back from this card."),
     );
+    // On itch.io every game's page shares this browser's storage: the code typed here, they could read (2026-11-26).
+    if (this.h.where?.itch) this.root.append(el("p", "cloud-small cloud-shared", "On itch.io, other games can read what this page keeps in your browser, your code too. Use a code just for here."));
+    this.root.append(row);
     if (!this.busy) requestAnimationFrame(() => input.focus());
   }
 
@@ -266,10 +339,21 @@ export class CloudCard {
     // Selected on the card, to copy (or write down).
     const shown = this.root.querySelector(".cloud-code");
     if (shown) getSelection()?.selectAllChildren(shown);
-    this.h.toast("Couldn't copy it: it's selected to copy, or write it down");
+    this.h.toast("Couldn't copy. It's selected: copy it, or write it down.");
   }
 
-  /** Open straight to the code entry (the title screen's "Load a cloud save"): Cancel closes it and calls `onCancel`. */
+  /** The phone's share sheet with the code; turned away (no permission in a frame, say), copied instead. */
+  private async share(code: string): Promise<void> {
+    try {
+      await navigator.share({ text: `My Woodrail code: ${code}` });
+    } catch (e) {
+      // (Closed by the player: nothing more to do.)
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      await this.copy(code);
+    }
+  }
+
+  /** Open straight to the code entry (the title screen's "Load with a code"): Cancel closes it and calls `onCancel`. */
   showEntry(onCancel: () => void): void {
     this.show();
     this.cancelTo = onCancel;
@@ -301,5 +385,9 @@ export class CloudCard {
   private stopAsking(): void {
     window.clearTimeout(this.askTimer);
     this.askingOff = false;
+    this.askingEarlier = false;
   }
 }
+
+/** A copy's date and time, short: "26 Nov, 14:05". */
+const when = (at: number): string => new Date(at).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });

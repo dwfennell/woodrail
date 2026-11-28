@@ -10,7 +10,10 @@ import { craftNow, craftShort, Crafting, keepsForOrder, lacking, shopOwes, shopO
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker, payGoal } from "../game/goals";
 import { joinedTowns, StickerTracker, TOWN_TIERS } from "../game/stickers";
-import { FULL_PAY, plotPrice } from "../game/towns";
+import { plotPrice, STAPLES } from "../game/towns";
+
+/** Goods no town needs to grow (the staples, and what only grand projects and chains use): the research ranking's. */
+const NOT_GROWTH: ReadonlySet<string> = new Set([...STAPLES, "bricks", "flowers", "paint", "glass"]);
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksAt, schoolTakesFor, researchSpeed, townLandmarks } from "../game/landmarks";
 import { deleteLine, editLine, joinLine, startLine, trainsOn } from "../game/lines";
@@ -106,6 +109,9 @@ const RUN = !!ENV.BALANCE;
  */
 const HILLS: Hilliness = isHilliness(ENV.BALANCE_HILLS) ? ENV.BALANCE_HILLS : DEFAULT_HILLS;
 const MAX_MINUTES = Number(ENV.BALANCE_MINUTES ?? 180);
+/** The late-game play's length (BALANCE_MINUTES=300), and its band of coins earned an hour after the first City ★. */
+const LATE_MINUTES = 300;
+const LATE_BAND: readonly [number, number] = [300, 1500];
 /** Most trains on the line once routes are learned (1: only the goods train). */
 const PER_LINE = Number(ENV.BALANCE_TRAINS_PER_LINE ?? 1);
 /** Passing loops laid on the line once it's to have more than one train (default: one per extra train; BALANCE_NOLOOP=1: none). */
@@ -382,6 +388,9 @@ interface Row {
   levels: number[];
   trains: number;
   riders: number;
+  /** Coins earned so far (`Player.income.all`), and of that, for the staples (`income.staples`). */
+  earned: number;
+  staples: number;
 }
 
 class Player {
@@ -412,6 +421,8 @@ class Player {
   /** The boats of the harbours (`HarbourTrade`), and what they took: loads and coins. */
   readonly harbours = new HarbourTrade();
   readonly boatTook = { loads: 0, coins: 0 };
+  /** Coins earned over the run: town sales for growth, town sales of goods not needed to grow (by kind), and all of it. */
+  readonly income = { grow: 0, unneeded: {} as Record<string, number>, all: 0, staples: 0 };
   /** The minute a boat first took goods off a harbour's quay (−1: none yet). */
   boatFirst = -1;
   /** Stone trains unloaded into a workshop's yard (the crane's own events: no pile is written to by hand). */
@@ -474,7 +485,13 @@ class Player {
     school: (kind, d) => researchWants(this.progress, kind, (id) => schoolTakesFor(this.w, d, this.progress.learned, id)) > 0,
       received: (t, kind, n, before) => {
         this.lastDelivered.set(t.id, this.tick);
-        payDelivery(this.progress, kind, n, before, t);
+        const paid = payDelivery(this.progress, kind, n, before, t);
+        // (Income by what it was for: a good the town wanted to grow, or one it bought without needing it.)
+        const need = Math.max(0, Math.min(n, (before.wants[kind] ?? 0) - (before.got[kind] ?? 0)));
+        const grow = Math.round((paid * need) / n);
+        this.income.grow += grow;
+        if (STAPLES.has(kind)) this.income.staples += paid - grow;
+        if (paid > grow) this.income.unneeded[kind] = (this.income.unneeded[kind] ?? 0) + paid - grow;
       },
       grew: (t, status, built) => {
         this.happened++;
@@ -666,10 +683,13 @@ class Player {
   run(secs: number): void {
     const end = this.tick + secs * SIM_HZ;
     while (this.tick < end) {
+      const was = this.progress.coins;
       this.w.sim.tick();
       this.w.economy.tick();
       this.tick++;
+      this.income.all += Math.max(0, this.progress.coins - was);
       if (this.tick % SIM_HZ !== 0) continue;
+      const before = this.progress.coins;
       this.updatePlanksKept();
       if (ENV.BALANCE_CARGO) this.cargoTrace();
       if (this.planksKept) this.keptSeconds++;
@@ -681,17 +701,20 @@ class Player {
         this.growing = null;
       }
       const coins = this.progress.coins;
+      this.income.all += Math.max(0, coins - before);
       const made = this.crafting.tick(this.w, 1);
       this.spent.buildCoins += coins - this.progress.coins;
       this.research();
       this.everySecond?.();
       // (Boats call at the harbours by themselves, as the game's clock has them: once a second of play.)
+      const ashore = this.progress.coins;
       for (const e of this.harbours.update(this.w, this.progress, 1)) if (e.kind === "sold") this.boatSold(e.goods, e.coins);
       if (made) this.note(`workshop made a ${ruleOf(made)!.label.toLowerCase()}`);
       // (What the cranes did this second: stone off a train into the workshop's yard, for a harbour's price.)
       for (const e of this.w.economy.drainEvents()) if (e.kind === "unloaded" && e.cargo === "stone" && this.w.economy.depot(e.depotId)?.role === "workshop") this.shopStoneIn++;
       this.counters.collect(this.w.economy, this.progress);
       peopleArrive(this.w, this.progress, 1, this.people);
+      this.income.all += Math.max(0, this.progress.coins - ashore);
       for (const engine of this.w.economy.lineIdOf.keys()) if (this.w.economy.spacing.holding(engine)) this.heldSeconds++;
       if (ENV.BALANCE_XTRACE) this.xtrace();
       for (const engine of this.w.economy.lineIdOf.keys()) {
@@ -1711,6 +1734,7 @@ describe.skipIf(!RUN)("balance play-through", () => {
     }
     expect(P.p.rows.length).toBeGreaterThan(0);
     if (MAX_MINUTES === 180 && PER_LINE === 1) P.checkBands();
+    if (MAX_MINUTES === LATE_MINUTES && PER_LINE === 1) P.checkLateBands();
   }, 3_600_000);
 });
 
@@ -1853,6 +1877,8 @@ class Playthrough {
         levels: w().landscape.towns.map((t) => P.town.status(t.id).level),
         trains: w().sim.trainIds().length,
         riders: s.riders,
+        earned: P.income.all,
+        staples: P.income.staples,
       });
       if (minute % 5 === 0) {
         const towns = w()
@@ -2121,10 +2147,10 @@ class Playthrough {
       // workshop's yard and Smithy was never picked); the rest in the blueprints' order, as before. Not what asks a good
       // of a chain the line has (ranked so, Diesel was picked on 8 of 9 seeds and on 4 still waited on its 8 flour at
       // minute 180), nor what such a one needs (Warehouses, College): either way fewer were researched by 180.)
-      // (Goods towns only buy (`FULL_PAY`: the dairy chain, the orchard, juice, cheese, ice cream, bricks) don't count: towns buy it, but no town needs it to grow
+      // (Goods no town needs to grow (`NOT_GROWTH`: the dairy chain, the orchard, juice, cheese, ice cream, bricks) don't count: towns buy it, but no town needs it to grow
       // and no study asks for it, so it stays with the rest, in the blueprints' order. Ranked first, Dairy farm took
       // Junctions' place at minute 166 on seeds 2027 and 1, one fewer researched by 180.)
-      const rank = (id: string) => (goodsUnlocked(id).some((k) => !made.has(k) && !FULL_PAY.has(k)) ? 0 : 1);
+      const rank = (id: string) => (goodsUnlocked(id).some((k) => !made.has(k) && !NOT_GROWTH.has(k)) ? 0 : 1);
       const rest = idle ? [...others].sort((a, b) => rank(a) - rank(b)) : others;
       const order = [...new Set([...toward, ...wished, ...(rich || idle ? rest : [])])];
       // (A filler, picked only as nothing wanted was left, gives way once a wanted one opens (a chain's or a wish's): the
@@ -3142,6 +3168,44 @@ class Playthrough {
   }
 
   /**
+   * The late-game band (BALANCE_MINUTES=300, spec 2026-11-27-towns-buy-what-they-need.md, Balance): from the first City
+   * ★ to minute 300, coins earned an hour within `LATE_BAND`. On seeds 0-40 (main, 2026-11-28) it was 415-1 188 an
+   * hour (median about 585), the staples 0% on every seed: this player builds no chain past the mill and the quarry, so
+   * the band guards its own late game against a change that floods it with coins or starves it, not how easy a real
+   * player's is (their maps make 4 200-10 600 an hour: INCOME_MAPS=1, src/play/income-maps.test.ts). A seed
+   * whose City ★ comes less than 30 min before the end (7 of 41) isn't judged.
+   */
+  checkLateBands(): void {
+    const late = this.lateRate();
+    if (late) {
+      expect.soft(late.perHour, `late coins an hour at least ${LATE_BAND[0]}`).toBeGreaterThanOrEqual(LATE_BAND[0]);
+      expect.soft(late.perHour, `late coins an hour at most ${LATE_BAND[1]}`).toBeLessThanOrEqual(LATE_BAND[1]);
+    }
+    console.log(`BANDS late ${this.lateIncome()} (band ${LATE_BAND[0]}-${LATE_BAND[1]}/h)`);
+  }
+
+  /**
+   * Coins earned an hour from the first City ★ (level 4) to the end of the play (spec
+   * 2026-11-27-towns-buy-what-they-need.md, Balance: the late-game band), and of that the staples' share: "1120/h over
+   * 1.6 h (staples 0%)", or "-" if no City ★ came at least 30 min before the end.
+   */
+  lateIncome(): string {
+    const late = this.lateRate();
+    return late ? `${Math.round(late.perHour)}/h over ${late.hours.toFixed(1)} h (staples ${Math.round(100 * late.staples)}%)` : "-";
+  }
+  lateRate(): { perHour: number; hours: number; staples: number } | null {
+    const P = this.p;
+    const from = this.firsts["level 4"];
+    const end = P.rows.at(-1);
+    if (from === undefined || !end || end.minute - from < 30) return null;
+    const at = P.rows.find((r) => r.minute >= from);
+    if (!at) return null;
+    const hours = (end.minute - at.minute) / 60;
+    const earned = end.earned - at.earned;
+    return { perHour: earned / hours, hours, staples: earned > 0 ? (end.staples - at.staples) / earned : 0 };
+  }
+
+  /**
    * Spec §5's bands at 180 min with 1 train a line (P5, as the CoS set them on 2026-10-20): first research by minute 8;
    * at least main's researched count by 180 (7 on a seed main has no figure for); the City at minute 60-90; no stretch
    * of 45 min or more with no planks into a town; and the guard: no research stall over 15 min, coins at 180 at least
@@ -3574,6 +3638,15 @@ class Playthrough {
       `firsts: ${JSON.stringify(this.firsts)}`,
       `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loop ? "yes" : "-"} goods2 ${this.goods2At < 0 ? "-" : `${Math.round(this.goods2At)} for ${this.goods2For}`}${this.goods2Cut ? " (jammed)" : ""} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min onlyNearest ${[...this.nearestPickup].join("+") || "-"} shopOff ${this.shopShut} schoolShared ${this.schoolShared} townGap ${(P.townGap / 60).toFixed(1)}min loops ${this.loopsAt.join("/") || "-"} stuckLoops ${this.stuckLoops.join("/") || "-"} headOn ${P.headOn} lineHeadOn ${P.headOnLine} stalls ${w.economy.stalls.begun} stuck ${(P.stuckSeconds / 60).toFixed(1)}min lineStall ${P.lineStall.toFixed(1)} arrivals ${P.arrivals} sectionWait ${(P.sectionSeconds / 60).toFixed(1)}min roomWait ${(P.roomSeconds / 60).toFixed(1)}min releases ${w.economy.sections.released}${ENV.BALANCE_TIMING ? ` capUs ${w.economy.sections.capCalls ? ((1000 * w.economy.sections.capMs) / w.economy.sections.capCalls).toFixed(2) : "-"} capCalls ${w.economy.sections.capCalls}` : ""}`,
       `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min on ${P.researchStallOn} (${P.researchStallCause.goodsTrains} goods train(s), ${P.researchStallCause.stops} stops${P.researchStallCause.planks ? ", short of planks" : ""}) school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
+      `COINS ${[30, 60, 90, 120, 150, 180, 240, 300].map((m) => `${m}:${P.rows.find((r) => r.minute === m)?.coins ?? "-"}`).join(" ")}`,
+      `HOURLY ${[1, 2, 3, 4, 5].filter((h) => P.rows.some((r) => r.minute === h * 60)).map((h) => {
+        const at = (m: number) => P.rows.find((r) => r.minute === m);
+        const a = at(h * 60)!;
+        const b = at((h - 1) * 60);
+        return `h${h}:${a.earned - (b?.earned ?? 0)}/${a.staples - (b?.staples ?? 0)}`;
+      }).join(" ")} (coins earned that hour / of that, for staples)`,
+      `LATE ${this.lateIncome()}`,
+      `INCOME all ${P.income.all} grow ${P.income.grow} unneeded ${Object.values(P.income.unneeded).reduce((a, b) => a + b, 0)} (${Object.entries(P.income.unneeded).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ") || "none"})`,
       `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,

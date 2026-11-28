@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from "vitest/config";
-import { gitShortHash, updateCheckOn } from "./scripts/build-info.mjs";
+import { gitShortHash, nativeBuild, updateCheckOn } from "./scripts/build-info.mjs";
 import { debugReports } from "./scripts/debug-reports.mjs";
+import { homeScreenApp } from "./scripts/home-screen.mjs";
 import { workerChunks } from "./scripts/worker-chunks.mjs";
 
 // Names this build, so caches of things it generates (track piece geometry) are only reused by the same build, and so
@@ -19,10 +20,35 @@ function versionFile(): Plugin {
   };
 }
 
+/**
+ * The Android/iOS app's page (docs/native-builds.md): it starts from `src/native/entry.ts`, which gets the saves back
+ * from the app's own storage before the game reads them, and its fonts come with the app (no Google Fonts: it plays
+ * offline).
+ */
+function nativePage(): Plugin {
+  return {
+    name: "woodrail-native-page",
+    apply: "build",
+    // (Before Vite bundles the page's script, so the native entry is what's bundled.)
+    transformIndexHtml: {
+      order: "pre",
+      handler: (html) => {
+        const out = html
+          .replace('<script type="module" src="/src/main.ts"></script>', '<script type="module" src="/src/native/entry.ts"></script>')
+          .replace(/\s*<link rel="preconnect" href="https:\/\/fonts\.googleapis\.com" \/>/, "")
+          .replace(/\s*<link href="https:\/\/fonts\.googleapis\.com\/css2[^>]*>/, "");
+        if (!out.includes("/src/native/entry.ts") || out.includes("fonts.googleapis.com")) throw new Error("native page: index.html's script or font tags have changed");
+        return out;
+      },
+    },
+  };
+}
+
 export default defineConfig(({ command }) => ({
   // "Send to Claude" reports from the dev server, written to .reports/.
-  plugins: [debugReports(), versionFile(), workerChunks()],
+  plugins: [debugReports(), versionFile(), workerChunks(), homeScreenApp(), ...(nativeBuild() ? [nativePage()] : [])],
   define: {
+    __NATIVE__: nativeBuild() ? "true" : "false",
     // Empty in dev and tests: nothing is cached there.
     __BUILD_ID__: JSON.stringify(command === "build" ? BUILD_ID : ""),
     // The update check is for the deployed site: the artifact build (scripts/artifact-build.mjs) turns it off.

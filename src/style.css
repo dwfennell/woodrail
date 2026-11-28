@@ -242,7 +242,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .landing-boats > .card-row:empty { display: none; }
 /* What a placed piece does, under its name: two lines at most at 360 px (piece-info.ts's DETAIL_MAX). */
 .piece-card > .piece-detail { padding: 0 8px; }
-.piece-card .select-more { background: transparent; box-shadow: none; height: 32px; font-size: 14px; color: #8a6036; text-decoration: underline dotted; text-underline-offset: 4px; margin-top: -4px; }
+.piece-card .select-more { background: transparent; box-shadow: none; height: 32px; font-size: 14px; color: var(--wood-ink-soft); text-decoration: underline dotted; text-underline-offset: 4px; margin-top: -4px; }
 /* (Drawn 32 px, a link; it takes a tap 4 px above, clear of the buttons, and 8 below: 44 px.) */
 .piece-card .select-more { position: relative; }
 .piece-card .select-more::after { content: ""; position: absolute; inset: -4px 0 -8px; }
@@ -250,14 +250,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .card.piece-card.group { bottom: auto; top: calc(max(10px, env(safe-area-inset-top)) + 64px); gap: 8px; padding: 10px 14px 12px; }
 .piece-card.group .card-row { flex-wrap: wrap; justify-content: center; }
 .piece-card.group .card-title::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #ffe07a; box-shadow: 0 0 0 2px #e0a93a; margin-right: 8px; vertical-align: 1px; }
-.depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
+.depot-stock { font-size: 14px; font-weight: 700; color: var(--wood-ink-soft); font-variant-numeric: tabular-nums; text-align: center; }
 /* A good and the wagon that carries it, kept together on a line ("🪨 Stone 3/12 🚃 Hopper"): the wagon smaller, quieter. */
 .depot-good { white-space: nowrap; }
-.depot-wagon { font-size: 12px; font-weight: 700; color: #94704c; }
+.depot-wagon { font-size: 12px; font-weight: 700; color: var(--wood-ink-soft); }
 /* A train standing here with the wrong wagons: what it needs, on its own line. */
-.depot-needs { display: block; margin-top: 2px; color: #a35a00; font-size: 13px; }
+.depot-needs { display: block; margin-top: 2px; color: var(--stamp-gold-ink); font-size: 13px; }
 /* A school with nothing to research: its line in amber, and a button for the picker. */
-.depot-stock.idle { color: #a35a00; }
+.depot-stock.idle { color: var(--stamp-gold-ink); }
 /* Sandbox's chain hints on an industry's card: how it's doing (a pill), then a row per good in and out, each with a
    Show chip for the place it names. */
 .depot-chain { display: flex; flex-direction: column; gap: 6px; align-self: stretch; max-width: 360px; margin: 0 auto; }
@@ -694,6 +694,34 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .tray-tools .chip.tray-erase { min-width: 40px; }
   .tray-tools .chip::after { inset: -5px -2px; }
 }
+/* The tray's pull (hud.ts `setTrayFolded`): on a phone held upright, a wooden tab standing up from the tray's top
+   edge folds the tray down to its tabs and tools, for more of the map (a tester on an iPhone: "the usable area seems
+   pretty small"), and opens it again; so does a tab. Drawn 56 × 18, a finger's 44 × 44 to tap (upward, over the map: never over a tab). */
+.tray-fold { display: none; }
+@media (max-width: 640px) and (orientation: portrait) {
+  .tray-fold { display: grid; place-items: center; position: absolute; left: 50%; top: -17px; transform: translateX(-50%); width: 56px; height: 18px; padding: 0 0 1px; border: 0; border-radius: 10px 10px 0 0; cursor: pointer; color: var(--wood-ink-soft); background: var(--wood-panel); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 -3px 4px -2px rgba(40, 22, 6, 0.3); }
+  .tray-fold::after { content: ""; position: absolute; inset: -26px 6px 0; }
+  /* Not while a card or the camera coach stands on the tray (a train's card, a town's): its foot is just over the
+     tray's edge, where the pull's reach would take the taps of the buttons there, and it covers the map anyway. (The
+     coach is set on the open tray's height while it teaches.) */
+  .hud:has(.card:not([hidden])) .tray-fold, .hud:has(.coach:not([hidden])) .tray-fold { display: none; }
+  /* The Paused sign stands clear of the pull's reach (e2e:situation-paused: its tap went to the pull). In the page's
+     own order, so an open card still stands over it (on top, it hid a signal card's Remove: e2e:situation-blocks). */
+  .paused-sign { bottom: calc(var(--tray-room, 156px) + 46px); }
+  .tray-fold .ui-icon { width: 18px; height: 18px; transition: transform 0.2s ease-out; }
+  .tray.folded .tray-fold .ui-icon { transform: rotate(180deg); }
+  /* Folded: the tabs and tools only (Draw still draws: its line goes on the map, not the shelves). */
+  .tray.folded .scroller { display: none; }
+  .tray.folded { padding-bottom: 10px; }
+  /* (Its open tab doesn't hang painted over a shelf that isn't there: bare wood, its colour along its foot, as the
+     others; a tap on it opens that shelf.) */
+  .tray.folded .tab.active { color: var(--wood-ink-soft); text-shadow: none; padding-bottom: 13px; background: var(--groove); box-shadow: inset 0 2px 3px rgba(80, 45, 10, 0.22), inset 0 -4px 0 var(--c); }
+  /* What stands on the tray stands on the folded one: its measured height (`--tray-room`), not the open tray's. */
+  .hud.tray-folded .card { bottom: calc(var(--tray-room, 66px) + 8px); max-height: calc(100dvh - var(--tray-room, 66px) - 8px - max(10px, env(safe-area-inset-top)) - 104px); }
+  .hud.tray-folded .map-bar { bottom: calc(var(--tray-room, 66px) + 8px); }
+  body:has(.hud.tray-folded) .reward-badge { bottom: calc(var(--tray-room, 66px) + 14px); }
+}
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) { .tray-fold .ui-icon { transition: none; } }
 /* The tab strip scrolls (Sandbox's ten tabs on a phone): it fades at an edge with more beyond, and a › past it scrolls
    on (hud.ts `tabEdges`). Only where the tabs share their row with the tools. */
 .tabs-more { display: none; }
@@ -740,6 +768,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-foot[hidden] { display: none; }
 .title-cloud { min-height: 44px; padding: 0 18px 3px; border: 0; border-radius: 9px; background: var(--sheen), var(--maple); box-shadow: inset 0 1px 0 #fff, inset 0 -4px 0 var(--maple-cut), var(--block-drop); font: inherit; font-weight: 800; font-size: 14px; color: var(--wood-ink); cursor: pointer; }
 .title-cloud:hover { filter: brightness(1.04); }
+/* Where the browser may forget the railway (an iPhone in itch's frame): a line saying so on a maple plaque, and the
+   code's way in is the foot's main button, the cloud's blue. */
+.title-foot.noted { flex-direction: column; align-items: center; gap: 6px; max-width: min(420px, calc(100% - 32px)); margin: 0 auto; }
+.title-cloud-note { margin: 0; padding: 6px 12px 7px; border-radius: 9px; background: var(--maple); box-shadow: inset 0 0 0 2px var(--maple-cut); font-size: 13.5px; font-weight: 700; line-height: 1.3; color: var(--wood-ink); text-align: center; }
+.title-cloud.main { background: var(--sheen), var(--blue); box-shadow: inset 0 -4px 0 var(--blue-cut), var(--block-drop); color: var(--paint-ink); font-size: 15px; }
+@media (max-height: 500px) { .title-foot.noted { max-width: 300px; align-items: flex-end; } .title-cloud-note { font-size: 12.5px; text-align: right; } }
 /* A railway in the cloud for this mode (cloud-known.ts `titleOffers`): under the card's buttons, its own look (a
    sky-blue pill: not a third wood button), what it is and when it was saved on a line of its own. */
 .title-cloud-offer { margin-top: 8px; grid-column: 1 / -1; }
@@ -853,6 +887,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .games-buttons .chip { flex: 1 1 0; min-width: 72px; min-height: 44px; justify-content: center; }
 .games-playing { flex: 1 1 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; color: var(--green); }
 .games-ask { flex: 1 1 100%; margin: 0; font-weight: 800; color: var(--stamp-red); }
+.games-row > .games-earlier-open { min-height: 44px; justify-content: center; }
+.games-earlier { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 8px; background: var(--mottle); box-shadow: inset 0 0 0 2px var(--maple-cut); }
+.games-earlier-none { margin: 0; font-size: 14px; line-height: 1.35; color: #5c4632; }
+.games-copy-item { display: flex; flex-direction: column; gap: 6px; }
+.games-copy-item + .games-copy-item { padding-top: 8px; border-top: 2px dashed var(--maple-cut); }
+.games-copy-facts { margin: 0; font-size: 14px; font-weight: 800; line-height: 1.35; color: var(--wood-ink); }
 @media (max-height: 500px) { .games-sheet .games-back { height: 44px; } .games-body { width: min(820px, 100%); padding-top: 8px; } }
 @media (prefers-reduced-motion: reduce) { .games-sheet:not([hidden]) { animation: none; } }
 /* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening. The
@@ -905,6 +945,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (max-width: 640px) {
   .goals.collapsed .goals-show-icon { width: 46px; padding: 0; }
   .goals.collapsed .goals-show-word { display: none; }
+}
+@media (max-width: 640px) and (orientation: portrait) {
+  /* Folded on a phone held upright, one line a finger tall, just under the bar (a tester: "the usable area seems
+     pretty small"): its title on one line (set smaller, then cut, where it's long: goals-panel.ts `fitShow`), the ⌄
+     smaller. Re-rail and a tall card's top follow it up. */
+  .actions > .chip.attention { top: 100px; }
+  .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 104px); }
+  .goals { top: calc(max(10px, env(safe-area-inset-top)) + 50px); }
+  .goals.collapsed .goals-head { padding: 6px 2px 8px 10px; }
+  .goals.collapsed .goals-fold { width: 26px; height: 26px; }
+  .goals.collapsed .goals-now { -webkit-line-clamp: 1; line-clamp: 1; }
 }
 /* (Where the word would cut the goal's title short: the ⌖ alone.) */
 .goals.collapsed.show-tight .goals-show-icon { width: 46px; padding: 0; justify-content: center; }
@@ -1046,11 +1097,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .cloud-load-row .cloud-load { flex: 1; justify-content: center; }
 .cloud-status { font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; }
 .cloud-label { font-size: 13px; font-weight: 800; color: #6a4a2c; text-transform: uppercase; letter-spacing: 0.04em; }
-.cloud-code-row { display: flex; align-items: center; gap: 10px; }
+.cloud-code-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+/* With Share too (a phone): the code on a line of its own, Copy and Share side by side under it. */
+.cloud-code-row.shares .cloud-code { flex-basis: 100%; }
+.cloud-code-row.shares .chip { flex: 1; justify-content: center; }
 .cloud-code { flex: 1; font-size: 22px; font-weight: 800; letter-spacing: 0.02em; color: var(--wood-ink); background: var(--maple); box-shadow: var(--groove-sh), inset 0 0 0 2px var(--maple-cut); border-radius: 8px; padding: 6px 10px; user-select: all; -webkit-user-select: all; }
 .cloud-input { font: 700 18px/1.3 "Woodrail Icons", Nunito, system-ui, sans-serif; border: 1px solid rgba(106, 74, 44, 0.3); border-radius: 10px; padding: 8px 10px; background: #fffaf2; color: #2b2118; }
 .cloud-error { font-size: 14px; font-weight: 700; color: #a3361f; }
 .cloud-card .cloud-restore { align-self: flex-start; }
+.cloud-keep.urgent { font-weight: 800; color: var(--stamp-red); }
+.cloud-earlier { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.cloud-earlier[hidden] { display: none; }
 .cloud-copy-field { position: fixed; left: -9999px; top: 0; opacity: 0; }
 .cloud-credit { margin: 0; font-size: 11px; color: #8a6c4c; text-align: center; }
 /* ☰ Credits: a list in the report card's place, scrolling on a short screen. */
@@ -1600,6 +1657,42 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .brand:has(.game-date:not([hidden])) .coins { padding: 1px 7px 1px 2px; }
   .game-date { font-size: 11px; padding: 0 4px; background: none; }
 }
+/* Game mode's spark balance beside the coins: a beech block, "⚡ spare/made" in the coins' lettering; painted red at a
+   shortfall. Tap: its sheet. (Shown once the map has made a spark: see `showSparks` in main.ts.) */
+.sparks { flex: none; display: inline-flex; align-items: center; gap: 3px; min-width: 44px; min-height: 44px; padding: 0 9px 5px 7px; border: none; border-radius: 10px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--top-drop); font-family: var(--display); font-size: 17px; font-weight: 400; line-height: 1; color: var(--wood-ink); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
+.sparks[hidden] { display: none; }
+/* (Beside the brand: the bar's gap goes after it, unless the research pill follows and takes it.) */
+.sparks { margin-right: auto; }
+.sparks:has(+ .research-pill:not([hidden])) { margin-right: 0; }
+.sparks .sp-icon { font-size: 16px; line-height: 1; }
+.sparks.short { color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); background: var(--sheen), var(--red); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -5px 0 var(--red-cut), var(--top-drop); }
+.sparks:active, .sparks.active { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -3px 0 var(--end-grain), var(--top-drop); }
+.sparks.short:active, .sparks.short.active { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -3px 0 var(--red-cut), var(--top-drop); }
+/* Its sheet: a small beech board under the top bar at the left, a line each for where sparks come from and what
+   takes them; a shortfall stamped red. */
+.sparks-sheet { position: absolute; z-index: 30; top: calc(max(10px, env(safe-area-inset-top)) + 54px); left: max(12px, env(safe-area-inset-left)); width: min(320px, calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right))); padding: 6px 14px 20px; border-radius: 12px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--board-drop); color: var(--wood-ink); display: flex; flex-direction: column; gap: 6px; }
+.sparks-sheet[hidden] { display: none; }
+.sparks-head { position: relative; display: flex; align-items: center; gap: 10px; min-height: 44px; padding-right: 40px; }
+.sparks-title { font: 400 19px/1 var(--display); letter-spacing: 0.02em; }
+.sparks-stamp { padding: 3px 6px; border-radius: 3px; background: var(--mottle); color: var(--stamp-green-ink); box-shadow: inset 0 0 0 1.5px var(--stamp-green); font-size: 12px; font-weight: 900; line-height: 1; transform: rotate(-2deg); font-variant-numeric: tabular-nums; }
+.sparks-stamp.short { color: var(--stamp-red); box-shadow: inset 0 0 0 1.5px var(--stamp-red); }
+.sparks-head .close { top: 0; right: -10px; }
+.sparks-line { font-size: 13.5px; font-weight: 700; line-height: 1.3; }
+.sparks-line.warn { margin-top: 2px; padding: 7px 8px; border-radius: 3px; background: var(--mottle); color: var(--stamp-red); box-shadow: inset 0 0 0 2px var(--stamp-red); font-weight: 800; }
+/* On a phone (the coins over the date) the balance is the brand board's second column, the ⚡ over the count, ruled
+   off in pencil: no gap of its own, so at 360 px the coins, the date, the balance, the research pill and the buttons
+   all fit (the pill keeps its 📘 and its bar). */
+@media (max-width: 640px), (max-height: 520px) and (max-width: 780px) {
+  .topbar:has(.sparks:not([hidden])) { gap: 4px; }
+  .topbar:has(.sparks:not([hidden])) .brand-block { display: none; }
+  .brand:has(.game-date:not([hidden])):has(+ .sparks:not([hidden])) { border-top-right-radius: 0; border-bottom-right-radius: 0; padding-left: 5px; padding-right: 3px; }
+  .brand:has(+ .sparks:not([hidden])) .game-date { padding: 0 2px; }
+  .brand:has(.game-date:not([hidden])) + .sparks { flex-direction: column; justify-content: center; gap: 1px; min-width: 40px; margin-left: -4px; padding: 0 4px 5px; border-top-left-radius: 0; border-bottom-left-radius: 0; font-size: 13.5px; }
+  .brand:has(.game-date:not([hidden])) + .sparks::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 11px; border-left: 1.5px dashed var(--pencil); }
+  .brand:has(.game-date:not([hidden])) + .sparks.short::before { display: none; }
+  .brand:has(.game-date:not([hidden])) + .sparks .sp-icon { font-size: 13px; }
+  .sparks { position: relative; }
+}
 /* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10\uE000"); tap for the picker. */
 .research-pill { position: relative; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 8px 9px; border: none; border-radius: 10px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), var(--top-drop); font: inherit; font-weight: 800; font-size: 14px; color: var(--wood-ink); cursor: pointer; text-align: left; }
 .research-pill[hidden] { display: none; }
@@ -1619,6 +1712,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (Fitted by `fitPill` too: no room for even the good most lacking and "+1" beside the name, the name gives way and the
    count has both lines.) */
 .research-pill.rp-goods .rp-line { display: none; }
+.research-pill.rp-bare .rp-name, .research-pill.rp-bare .rp-count { display: none; }
+.research-pill.rp-bare { justify-content: center; padding-left: 0; padding-right: 0; }
+
 .research-pill.rp-goods .rp-text { display: flex; flex-direction: column; justify-content: center; }
 .research-pill.rp-goods .rp-count { white-space: normal; max-height: 2.4em; line-height: 1.15; }
 /* Nothing up next: "Pick research" is a yellow lacquered block (attention), its dot red. */
@@ -1663,6 +1759,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .research-pill.idle .rp-text { grid-template-areas: "icon name" "icon count"; column-gap: 4px; }
   .research-pill.idle .rp-icon { align-self: center; font-size: 16px; }
 }
+/* Squeezed to a finger's width (at 360 px beside the spark balance), nothing picked: the book alone, centred. */
+.research-pill.rp-bare .rp-text { display: flex; overflow: visible; }
+.research-pill.rp-bare .rp-line { display: flex; flex: none; }
+.research-pill.rp-bare .rp-icon { display: inline; font-size: 18px; }
 /* At 360 px the pill has about 76 px: the book gives way so the count stays whole (QA: "13/14\uE000" lost its log); the
    pill's place, its bar and its colours say what it is. */
 @media (max-width: 370px) {
@@ -1909,14 +2009,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* a via point: a small ring on the rail, its words under it */
 .route-stops > .route-chip.route-via { display: flex; flex: 0 0 auto; min-width: 52px; flex-direction: column; flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: 6px; padding-top: 10px; font-family: "Woodrail Icons", "Nunito", sans-serif; font-weight: 700; font-size: 12px; color: var(--wood-ink-soft); }
 .route-stops > .route-chip.route-via .route-via-dot { order: -1; position: relative; z-index: 1; width: 14px; height: 14px; background: var(--maple); box-shadow: inset 0 0 0 3px var(--line, #888); }
-/* A boat's route in the same pencil frame as a train's line on its card. */
-/* (as the train's card: never wider than the screen, the route scrolling inside it) */
-.boat-card { max-width: calc(100vw - 32px); box-sizing: border-box; }
 /* (its Stop, as the train's: red lacquer, the mark and the word on one centre line) */
-.boat-actions .chip:has(.go-icon) { display: inline-flex; align-items: center; gap: 8px; line-height: 1; color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; background: var(--sheen), var(--red); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--red-cut), var(--block-drop); }
-.boat-card .boat-stops { min-width: 0; max-width: 100%; align-self: stretch; outline: 1.5px dashed var(--pencil); outline-offset: -1px; border-radius: 4px; padding: 6px 8px 6px; }
-/* (a boat's ✎ Route / Done and its ✕s sit beside the rail, centred on it) */
-.route-stops > .route-plan, .route-stops > .boat-unstop { align-self: flex-start; margin: 0 4px; }
+.boat-actions .chip.going { display: inline-flex; align-items: center; gap: 8px; line-height: 1; color: var(--paint-ink); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; background: var(--sheen), var(--red); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -4px 0 var(--red-cut), var(--block-drop); }
 .route-line-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .route-head .route-plan, .route-head .route-leave { flex: 0 0 auto; }
 .route-leave.asking, .goals-new.asking { background: var(--warn-ink); color: #fff; }
@@ -2048,6 +2142,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ls-goods { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 13.5px; font-weight: 700; color: var(--wood-ink-soft); }
 .ls-down { color: var(--blue-cut); }
 .ls-up { color: var(--stamp-green-ink); }
+/* (Goods the line carries that a town on it doesn't need: they ride on. Soft ink, not a warning.) */
+.ls-pass { color: var(--wood-ink-soft); font-weight: 600; }
 .ls-stop.lost .ls-stop-name { text-decoration: line-through; opacity: 0.75; }
 /* An open stop: a maple tile, its options on it. */
 .ls-stop.open, .ls-via.open { grid-template-rows: auto auto; align-items: start; margin: 4px 0; padding: 4px 6px 12px 0; border-radius: 8px; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
@@ -2399,3 +2495,61 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .site-text { font-size: 14px; font-weight: 700; line-height: 1.3; color: #6a5340; text-align: center; }
 .site-row { display: flex; gap: 8px; }
 .site-row .site-build { flex: 1; }
+
+/* ——— The card system (docs/agents/card-system.md) ———
+   Every card is one board in four parts: a head (✕ at the top right in a 44 px corner, a tool at the top left, the
+   name in Lilita 19 px on one line, what it is or its state under it in body type), a body (lines of body type, rows
+   as maple tiles), actions (the buttons that do something, side by side, one painted block at most) and a foot (a
+   hint, under a pencil rule). Its width is set per screen size, never by its words, so a card doesn't change size as a
+   status, a load or a route changes; a line that changes as the game runs (`.live`) keeps two lines' room. */
+:root { --card-w: 460px; }
+.card-sub { align-self: stretch; margin-top: -8px; font-size: 13.5px; font-weight: 700; line-height: 1.3; color: var(--wood-ink-soft); text-align: center; }
+.card-line { align-self: stretch; font-size: 14px; font-weight: 700; line-height: 1.3; color: var(--wood-ink-soft); text-align: center; text-wrap: balance; }
+.card-line.live { min-height: 2.6em; display: grid; place-items: center; }
+.card-actions { display: flex; gap: 8px; align-self: stretch; justify-content: center; }
+.card-actions > .chip { flex: 1 1 0; max-width: 200px; min-height: 48px; }
+.card-foot { align-self: stretch; padding-top: 10px; border-top: 1.5px dashed var(--pencil); font-size: 13px; font-weight: 700; line-height: 1.3; color: var(--wood-ink-soft); text-align: center; text-wrap: balance; }
+/* A title that says a state ("Signal · red: …", hud.ts `setStatedTitle`): the name the title, the state under it. */
+.card-title .title-sep { display: none; }
+.card-title .title-state { display: block; min-height: 2.6em; margin-top: 4px; font-family: "Woodrail Icons", "Nunito", system-ui, sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 0; line-height: 1.3; color: var(--wood-ink-soft); text-wrap: balance; }
+.piece-card > .card-title:has(.title-state) { align-self: stretch; padding: 0 40px; text-align: center; }
+/* Big screens: one width for the cards about a thing on the map (a train, a car, a place, a piece, a boat). */
+@media (min-width: 641px) and (min-height: 521px) {
+  .card:is(.engine-card, .car-card, .depot-card, .piece-card, .land-card, .ruin-card, .secret-card):not(.group) { width: min(var(--card-w), calc(100vw - 24px)); max-width: none; min-width: 0; box-sizing: border-box; }
+}
+/* A phone on its side: the cards docked at the right are one width too (a town's has its own, wider). */
+@media (max-height: 520px) {
+  .card:is(.car-card, .depot-card, .piece-card, .land-card, .ruin-card, .secret-card):not(.group) { width: min(400px, calc(56vw - 24px)); min-width: 0; box-sizing: border-box; }
+}
+/* A phone upright: a card about a place is at most half the screen tall (as the engine's is), so the place keeps room
+   above it (the camera frames it there: main.ts `keepCardSubjectInView`); taller, it scrolls under its head as before. */
+@media (max-width: 640px) and (min-height: 521px) {
+  .card:is(.depot-card, .piece-card):not(.group):not(:has(.depot-extra.ledger)) { max-height: min(50dvh, calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 116px)); }
+}
+
+/* The boat's card: its route a row a stop on the river's blue rail (number, landing, what it does there, ✕). */
+.boat-card .boat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boat-stops { list-style: none; margin: 0; padding: 0; align-self: stretch; display: flex; flex-direction: column; gap: 6px; position: relative; }
+/* (the rail: behind the numbers, from the first to the last) */
+.boat-stops::before { content: ""; position: absolute; left: 25px; top: 24px; bottom: 24px; width: 4px; border-radius: 2px; background: var(--line, #2f6db5); }
+.boat-stop { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; column-gap: 10px; min-height: 52px; padding: 4px 6px 7px 12px; box-sizing: border-box; background: var(--maple); border-radius: 8px; box-shadow: var(--tile-face), var(--tile-drop); }
+.boat-stop:has(.boat-unstop) { grid-template-columns: 28px minmax(0, 1fr) auto 44px; padding-right: 0; }
+.boat-stop-num { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-family: var(--display); font-size: 15px; line-height: 1; color: var(--wood-ink); background: var(--maple); box-shadow: inset 0 0 0 3px var(--line, #2f6db5); }
+.boat-stop.next .boat-stop-num { color: var(--paint-ink); background: var(--line, #2f6db5); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25); }
+.boat-stop-name { min-width: 0; font-size: 15px; font-weight: 800; line-height: 1.2; color: var(--wood-ink); overflow-wrap: anywhere; }
+.boat-stop .boat-stop-action { width: 136px; min-width: 0; height: 40px; padding: 0 8px; font-size: 13px; white-space: nowrap; }
+/* (40 px drawn, a finger's 44 to tap: 2 px above and below in the tile's padding) */
+.boat-stop .boat-stop-action::after { content: ""; position: absolute; inset: -2px 0; }
+.boat-stop .boat-stop-action { position: relative; }
+.boat-unstop { width: 44px; height: 44px; border: none; background: transparent; padding: 0; border-radius: 8px; font-size: 16px; font-weight: 900; color: var(--wood-ink-soft); cursor: pointer; }
+.boat-unstop:hover { background: rgba(150, 100, 50, 0.1); color: var(--stamp-red); }
+/* (planning: where the next tap goes, pencilled, not yet made) */
+.boat-stop-next { background: transparent; box-shadow: none; outline: 1.5px dashed var(--pencil); outline-offset: -1.5px; }
+.boat-stop-next .boat-stop-num { background: var(--beech-hi, #f6e2bd); box-shadow: inset 0 0 0 2px var(--pencil); color: var(--wood-ink-soft); }
+.boat-stop-next .boat-stop-name { font-weight: 700; color: var(--wood-ink-soft); }
+/* (Done is the one painted block while planning: the boat's Stop goes to maple till then) */
+.planning-boat .boat-actions .chip.going { color: var(--wood-ink); text-shadow: none; font-family: inherit; font-weight: 800; font-size: 15px; letter-spacing: 0; background: var(--maple); box-shadow: var(--tile-face), var(--tile-drop); }
+/* (Done on green lacquer in the display face: paint ink on green holds only as large lettering, DESIGN.md) */
+.boat-actions .route-plan.on, .boat-actions .boat-go.primary { font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: 0.02em; }
+/* (a place's kind under its name, kept with the title at the card's top) */
+.card.depot-card > .depot-kind { order: -2; margin-top: -6px; }

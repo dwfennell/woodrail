@@ -48,6 +48,7 @@ export const CREDITS: readonly Credit[] = [
   { what: "polygon-clipping", by: "Mike Fogel", use: "Shaping the track pieces", licence: "MIT", link: "https://github.com/mfogel/polygon-clipping/blob/master/LICENSE" },
   { what: "meshoptimizer", by: "Arseny Kapoulkine", use: "Simpler buildings far away", licence: "MIT", link: "https://github.com/zeux/meshoptimizer/blob/master/LICENSE.md" },
   { what: "Zod", by: "Colin McDonnell", use: "Checking saves as they load", licence: "MIT", link: "https://github.com/colinhacks/zod/blob/main/LICENSE" },
+  { what: "Capacitor", by: "Ionic", use: "The Android and iPhone apps", licence: "MIT", link: "https://github.com/ionic-team/capacitor/blob/main/LICENSE" },
 ];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {

@@ -64,7 +64,7 @@ The game's side is `src/stats/snapshots.ts`; the Worker's is `cloud/src/snapshot
   progress; gzipped), the goals done, why (`goal:<id>` or `building`), the stats' device id, build, host and device.
   The save holds the town names the game gave them, never the player's.
 - `POST /v1/snapshots`, from the game's own pages (feedback's origin check: itch, the GitHub site, claude.ai, local),
-  a few a minute per IP. Stored in R2 (`snapshots/<id>/…`), so they work on itch too, which has no cloud saves.
+  a few a minute per IP. Stored in R2 (`snapshots/<id>/…`).
 - **Reading them** (admin only, `ADMIN_KEY`; see `cloud/README.md`):
 
   ```sh
@@ -96,8 +96,8 @@ from one shared origin). Each event is a data point in Workers Analytics Engine,
 | `double2` | 1 for a new game (`start`) |
 
 The game sends to `VITE_STATS_URL`, or else `VITE_CLOUD_URL`. The GitHub Pages build has `VITE_CLOUD_URL` (the
-`WOODRAIL_CLOUD_URL` repository variable). The itch build has no cloud saves, so its release workflow passes the same
-variable as `VITE_STATS_URL`. The artifact build sends none. Neither set (the Worker not deployed yet): no stats, and
+`WOODRAIL_CLOUD_URL` repository variable). The itch release workflow passes the same variable as both
+`VITE_STATS_URL` and `VITE_CLOUD_URL`. The artifact build sends none. Neither set (the Worker not deployed yet): no stats, and
 nothing is asked.
 
 ## Reading them

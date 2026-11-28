@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
-import { MAX_BYTES, MIN_PUT_INTERVAL_MS } from "../src/limits";
+import { MAX_BYTES, MIN_PUT_INTERVAL_MS, MISS_COST, PREV_REST_MS } from "../src/limits";
 
 const ORIGIN = "http://localhost:5173";
 const CODE = "acorn-badge-otter-0420";
@@ -23,6 +23,7 @@ declare global {
       SAVES: R2Bucket;
       ALLOWED_ORIGINS: string;
       CODE_KEY: string;
+      CODE_LIMIT: RateLimit;
     }
   }
 }
@@ -60,6 +61,15 @@ describe("saves", () => {
     expect(await head.text()).toBe("");
   });
 
+  it("takes saves from the game on itch.io (wrangler.toml's ALLOWED_ORIGINS), not from feedback's other hosts", async () => {
+    const itch = await call("PUT", { origin: "https://html-classic.itch.zone", body: "from itch", headers: { "X-Saved-At": "1", "X-Save-Version": "13" } });
+    expect(itch.status).toBe(200);
+    expect(itch.headers.get("Access-Control-Allow-Origin")).toBe("https://html-classic.itch.zone");
+    const pre = await call("OPTIONS", { origin: "https://html-classic.itch.zone", code: null });
+    expect(pre.headers.get("Access-Control-Allow-Headers")).toContain("X-Keep-Prev");
+    expect((await call("GET", { origin: "https://v6p9d9t4.ssl.hwcdn.net" })).status).toBe(403);
+  });
+
   it("is 404 for a code with nothing saved", async () => {
     expect((await call("GET", { code: "zebra-zebra-zebra-0000" })).status).toBe(404);
     expect((await call("HEAD", { code: "zebra-zebra-zebra-0000" })).status).toBe(404);
@@ -73,6 +83,23 @@ describe("saves", () => {
     const prev = await call("GET", { url: `${URL_}?prev=1` });
     expect(await prev.text()).toBe("one");
     expect(prev.headers.get("X-Saved-At")).toBe("1");
+  });
+
+  it("keeps as prev the copy from before this sitting: a copy only moments old isn't moved there", async () => {
+    await put("before", 1);
+    vi.setSystemTime(Date.now() + PREV_REST_MS + 1);
+    // (A sitting's uploads, 30 s apart: the first moves the rested copy back, the others leave it.)
+    await put("first edit", 2);
+    later();
+    await put("second edit", 3);
+    later();
+    await put("third edit", 4);
+    expect(await (await call("GET")).text()).toBe("third edit");
+    expect(await (await call("GET", { url: `${URL_}?prev=1` })).text()).toBe("before");
+    // A restore asks for the copy it replaces to be kept: the one it went back from is there to go back to.
+    later();
+    await put("before, restored", 5, { headers: { "X-Keep-Prev": "1" } });
+    expect(await (await call("GET", { url: `${URL_}?prev=1` })).text()).toBe("third edit");
   });
 
   it("keeps each mode and each code apart, and stores only a hash of the code", async () => {
@@ -203,5 +230,58 @@ describe("saves", () => {
     expect(evil.status).toBe(403);
     expect(evil.headers.get("Access-Control-Allow-Origin")).toBeNull();
     expect((await call("OPTIONS", { origin: "https://evil.example" })).status).toBe(403);
+  });
+});
+
+describe("guessing codes", () => {
+  /** A limiter that counts what each key took, and says no past `max`. */
+  const counting = (max: number) => {
+    const took = new Map<string, number>();
+    return {
+      took,
+      limit: async ({ key }: { key: string }) => {
+        took.set(key, (took.get(key) ?? 0) + 1);
+        return { success: (took.get(key) ?? 0) <= max };
+      },
+    };
+  };
+  const from = (ip: string, limiter: unknown, code = CODE, method = "HEAD") =>
+    worker.fetch(new Request(URL_, { method, headers: { "X-Woodrail-Code": code, Origin: ORIGIN, "CF-Connecting-IP": ip } }), { ...env, CODE_LIMIT: limiter } as unknown as typeof env);
+
+  it("counts a lookup that finds nothing more than one that finds a railway", async () => {
+    await put("mine");
+    const limiter = counting(1000);
+    expect((await from("1.2.3.4", limiter)).status).toBe(200);
+    expect(limiter.took.get("code:1.2.3.4")).toBe(1);
+    expect((await from("1.2.3.4", limiter, "zebra-zebra-zebra-0000")).status).toBe(404);
+    expect(limiter.took.get("code:1.2.3.4")).toBe(2 + MISS_COST);
+  });
+
+  it("past the limit, a lookup is a 429 before anything is looked up, even for a code that has a railway", async () => {
+    await put("mine");
+    const limiter = counting(2 * (1 + MISS_COST));
+    expect((await from("1.2.3.4", limiter, "zebra-zebra-zebra-0001")).status).toBe(404);
+    expect((await from("1.2.3.4", limiter, "zebra-zebra-zebra-0002")).status).toBe(404);
+    const turned = await from("1.2.3.4", limiter);
+    expect(turned.status).toBe(429);
+    expect(turned.headers.get("Retry-After")).toBe("60");
+    expect(await turned.text()).not.toContain("Nothing");
+    // (Another IP isn't held up.)
+    expect((await from("5.6.7.8", limiter)).status).toBe(200);
+  });
+
+  it("counts a code's first copy as a miss, and leaves this machine's own lookups uncounted", async () => {
+    const limiter = counting(1000);
+    const res = await worker.fetch(new Request(URL_, { method: "PUT", body: "x", headers: { "X-Woodrail-Code": CODE, Origin: ORIGIN, "CF-Connecting-IP": "1.2.3.4", "X-Saved-At": "1", "X-Save-Version": "13" } }), { ...env, CODE_LIMIT: limiter } as unknown as typeof env);
+    expect(res.status).toBe(200);
+    expect(limiter.took.get("code:1.2.3.4")).toBe(1 + MISS_COST);
+    await from("127.0.0.1", limiter, "zebra-zebra-zebra-0000");
+    expect(limiter.took.has("code:127.0.0.1")).toBe(false);
+  });
+
+  it("is on in the Worker as deployed (wrangler.toml's CODE_LIMIT)", async () => {
+    let status = 0;
+    for (let i = 0; i < 40 && status !== 429; i++) status = (await from("9.9.9.9", env.CODE_LIMIT, `zebra-zebra-zebra-${String(i).padStart(4, "0")}`)).status;
+    expect(status).toBe(429);
   });
 });

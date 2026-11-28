@@ -94,21 +94,24 @@ export function housesBy(level: number): number {
 export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14, milk: 5, bread: 12, fruit: 5, juice: 11, cheese: 13, icecream: 20, bricks: 12, autos: 24, fish: 7, oil: 7, water: 4, sugar: 4, jam: 14, chocolate: 18, flowers: 4, paint: 8, toys: 22, glass: 16, post: 8 };
 
 /**
- * Everyday food a town always wants (the dairy chain, the orchard, the juice works, the creamery, the ice cream factory, the harbours' fish, and the goods chains' sugar, jam and
- * chocolate): it takes all a train brings
- * and pays the full price, at any level. Not needed to grow (no level asks for them), so a game without them grows as
- * before.
+ * Everyday food (the dairy chain, the orchard, the juice works, the creamery, the ice cream factory, the harbours' fish,
+ * and the goods chains' sugar, jam and chocolate): a town takes all a train brings, at any level, though no level asks
+ * for it (`STAPLES`).
  */
 export const FOODS: ReadonlySet<CargoKind> = new Set(["milk", "bread", "fruit", "juice", "cheese", "icecream", "fish", "sugar", "jam", "chocolate"]);
 
 /**
- * Goods a town always buys at the full price, at any level, and never needs to grow: everyday food, building goods
- * (bricks), new cars, oil and water (Tank wagons), the toy chain's flowers, paint and toys (2026-11-04), and the post. The town card's "Full pay for these too: …" line, the News's first-of-a-good milestone and pay read this.
+ * Goods a town takes from trains though it doesn't need them to grow (spec 2026-11-27-towns-buy-what-they-need.md):
+ * the ends of chains with no other use in a town, everyday food, new cars, oil and water, and toys, and the post. It
+ * pays half the price for them (the post full: `FULL_PAY`). Everything else a town takes only while it needs it: for its
+ * next level, its place under way, or its grand project's stage (`TownLife`'s `accepts`); the rest rides on, to a stop
+ * that takes it (or a harbour, which buys anything). The town card's "Also buys" line and the News's first-of-a-good
+ * milestone read this.
  */
-export const FULL_PAY: ReadonlySet<CargoKind> = new Set([...FOODS, "bricks", "autos", "oil", "water", "flowers", "paint", "toys", "glass", "post"]);
+export const STAPLES: ReadonlySet<CargoKind> = new Set([...FOODS, "autos", "oil", "water", "toys", "post"]);
 
-/** Goods a town always takes (and pays for), wanted for growth or not: made goods (treats) and the full-pay goods. */
-export const LUXURIES: ReadonlySet<CargoKind> = new Set(["furniture", "tools", ...FULL_PAY]);
+/** Of the staples, what a town pays the full price for though it doesn't need it to grow: the post (src/game/post.ts). */
+export const FULL_PAY: ReadonlySet<CargoKind> = new Set(["post"]);
 
 /**
  * What a hamlet or a village pays for a plank it wants: more than a town does, so a new game's first coins come sooner

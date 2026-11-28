@@ -152,9 +152,9 @@ describe("feedback: the endpoint", () => {
     expect(statuses).toContain(429);
   });
 
-  it("answers the game's pages (Pages, itch, a claude.ai artifact, localhost) and turns others away", async () => {
+  it("answers the game's pages (Pages, itch, a claude.ai artifact, the Android and iOS apps, localhost) and turns others away", async () => {
     mockGitHub();
-    for (const o of ["https://dwfennell.github.io", "https://html-classic.itch.zone", "https://v6p9d9t4.ssl.hwcdn.net", "https://abc.claudeusercontent.com", "http://localhost:5173"]) {
+    for (const o of ["https://dwfennell.github.io", "https://html-classic.itch.zone", "https://v6p9d9t4.ssl.hwcdn.net", "https://abc.claudeusercontent.com", "capacitor://localhost", "https://localhost", "http://localhost:5173"]) {
       const pre = await worker.fetch(new Request(`${BASE}/feedback`, { method: "OPTIONS", headers: { Origin: o } }), env);
       expect(pre.status, o).toBe(204);
       expect(pre.headers.get("Access-Control-Allow-Origin")).toBe(o);
@@ -162,7 +162,8 @@ describe("feedback: the endpoint", () => {
     }
     expect((await post(report(), {}, "https://evil.example")).status).toBe(403);
     // (Saves keep their own, narrower, list.)
-    expect((await worker.fetch(new Request(`${BASE}/v1/saves/game`, { headers: { Origin: "https://html-classic.itch.zone", "X-Woodrail-Code": "acorn-badge-otter-0420" } }), env)).status).toBe(403);
+    expect((await worker.fetch(new Request(`${BASE}/v1/saves/game`, { headers: { Origin: "https://v6p9d9t4.ssl.hwcdn.net", "X-Woodrail-Code": "acorn-badge-otter-0420" } }), env)).status).toBe(403);
+    expect((await worker.fetch(new Request(`${BASE}/v1/saves/game`, { headers: { Origin: "capacitor://localhost", "X-Woodrail-Code": "acorn-badge-otter-0420" } }), env)).status).toBe(403);
   });
 
   it("lists the latest reports, newest first, only with the admin key", async () => {

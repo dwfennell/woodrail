@@ -91,7 +91,7 @@ components:
 
 ## Overview
 
-A Brio-style wooden railway on a phone. The 3D table is the star; the HUD is the toy box it came in. Boards (the tray, cards, the Journal, the menu, the research board) are natural beech with the grain showing and their thickness cut square along the bottom. Rows on a board are maple tiles. The buttons that matter are lacquered blocks in the logo's four colours. State is a peg in a hole; counts, prices and statuses are rubber-stamped; rules between groups are pencil lines. Shadows are short and nearly hard, a block standing on a table, never a soft halo. It should look made, not generated: opinionated, sturdy and warm. Players include children, so words are short and plain, and every win is acknowledged like a toy clicking into place.
+A wooden toy railway on a phone. The 3D table is the star; the HUD is the toy box it came in. Boards (the tray, cards, the Journal, the menu, the research board) are natural beech with the grain showing and their thickness cut square along the bottom. Rows on a board are maple tiles. The buttons that matter are lacquered blocks in the logo's four colours. State is a peg in a hole; counts, prices and statuses are rubber-stamped; rules between groups are pencil lines. Shadows are short and nearly hard, a block standing on a table, never a soft halo. It should look made, not generated: opinionated, sturdy and warm. Players include children, so words are short and plain, and every win is acknowledged like a toy clicking into place.
 
 Mode: Operate (a game HUD). The map comes first; the HUD stays at the edges, costs nothing when nothing moves, and fits a 360 px phone in both orientations.
 
