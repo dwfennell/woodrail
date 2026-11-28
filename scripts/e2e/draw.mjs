@@ -1551,7 +1551,9 @@ async function underSlant() {
   const at = await place(20, 110);
   check("under a bridge at a slant: room for it", !!at);
   if (at) {
-    await look(at.X + 300 * Math.cos(0.35), at.Z + 300 * Math.sin(0.35), [-0.25 * Math.cos(0.35), 1, -0.25 * Math.sin(0.35)], 2100);
+    // Framed so the stroke's start stands clear of the folded tray's pull on a phone held upright (at 300 along and
+    // 2100 away it began under the pull, and the press never reached the track's end).
+    await look(at.X + 260 * Math.cos(0.35), at.Z + 260 * Math.sin(0.35), [-0.25 * Math.cos(0.35), 1, -0.25 * Math.sin(0.35)], 2500);
     await settled(q);
     const was = await underpasses();
     await q.evaluate(() => window.__said.splice(0));
@@ -1612,7 +1614,7 @@ async function underSlant() {
   const at2 = await place(0, 15, false);
   check("along a bridge: room for it", !!at2);
   if (at2) {
-    await look(at2.X + 300, at2.Z, [-0.25, 1, 0], 2100);
+    await look(at2.X + 260, at2.Z, [-0.25, 1, 0], 2500);
     await settled(q);
     const was = await underpasses();
     const { drawn } = await stroke(at2, 0);

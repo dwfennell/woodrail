@@ -33,7 +33,9 @@ async function firstVisit(ctx) {
   await p.goto(URL);
   await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: 180000 });
   await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: 120000 });
+  // (And the loading screen gone: a #seed- link skips the title and starts play only once its entry has played, the
+  // view's glides cancelled then. Show me before it lost its glide: the stations left under the coach.)
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 120000 });
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   return p;
 }
@@ -205,7 +207,7 @@ for (const [w, h] of [[360, 740], [667, 375]]) {
     await p.reload({ timeout: LOAD_MS });
     await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: LOAD_MS });
     await p.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-    await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown, null, { timeout: LOAD_MS });
+    await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: LOAD_MS });
     await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
     const c1b = await coach(p);
     check("a reload part way through goes on from the step it was at", c1b?.done === 1 && /Pinch/.test(c1b.text), JSON.stringify(c1b));
