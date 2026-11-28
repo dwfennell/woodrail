@@ -11,7 +11,7 @@ import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/came
 import { viewRoom } from "./ui/view-room";
 import { Game, MIN_PITCH, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, createWorld, freshGameWorld, landForSale, newMapSeed, plotsForSale, syncMapDepots } from "./game/world";
+import { buildStarterWorld, createWorld, depotName, freshGameWorld, landForSale, newMapSeed, plotsForSale, syncMapDepots } from "./game/world";
 import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, knowsRole, restoredText, restoreRuin, RUIN_NO_WAY, ruinName, trackCanReach, type RestoreOptions } from "./game/restore";
 import { connectedPairs, mapSettingsOf, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
@@ -98,6 +98,7 @@ import { MAST } from "./render/depot-view";
 import { depotPoint as yardPoint } from "./game/harbours";
 import type { AirportAt } from "./render/planes-view";
 import { canPower, POWERED_RATE, powerOf } from "./game/power";
+import { sparkView } from "./game/spark-text";
 import { radioRiders, radioTowns } from "./game/radio";
 import { carLoadWords, trainSummary, type SummaryCar } from "./game/train-summary";
 import { CARGO, CARGO_KINDS, CARRIES, COIN_ICON } from "./economy/cargo";
@@ -4764,12 +4765,35 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * if who has a spark changed.
    */
   function syncPower(): void {
-    if (mode !== "game") return;
+    if (mode !== "game") return showSparks();
     const grid = powerOf(game.world);
     grid.refresh(game.world);
-    if (grid.version === powerVersion) return;
-    powerVersion = grid.version;
-    industriesChanged();
+    if (grid.version !== powerVersion) {
+      powerVersion = grid.version;
+      industriesChanged();
+    }
+    showSparks();
+  }
+  /** Games (by their economy) that have made a spark this session: the balance stays on the bar if the coal runs out. */
+  const sparksSeen = new WeakSet<object>();
+  /**
+   * The spark balance on the top bar (Game mode), from the moment the map makes a spark: spare of made, red at a
+   * shortfall (src/game/spark-text.ts). Asked once a second and after a tap; the page is touched only when it changes.
+   */
+  function showSparks(): void {
+    if (mode !== "game") return hud.setSparks(null);
+    const p = powerOf(game.world).current;
+    if (p.made > 0) sparksSeen.add(game.economy);
+    if (!sparksSeen.has(game.economy)) return hud.setSparks(null);
+    hud.setSparks(
+      sparkView(p, {
+        engine: (id) => game.sim.nameOf(id),
+        yard: (id) => {
+          const d = game.economy.depot(id);
+          return d ? depotName(game.world, d) : "yard";
+        },
+      }),
+    );
   }
   /**
    * A depot card's power (Game mode, once Electricity is learned): a power station's sparks, made and used; a yard's

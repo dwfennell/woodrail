@@ -25,6 +25,7 @@ import type { ExplainerSheet } from "./explainer-sheet";
 import { loadCreditsSheet, loadExplainerSheet } from "./lazy-chunks";
 import { EXPLAINER_TITLES, explainerIdFor, type ExplainerId } from "./explainer-keys";
 import { WIKI_URL } from "./wiki-link";
+import type { SparkView } from "../game/spark-text";
 
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
@@ -456,6 +457,14 @@ export class Hud {
   private readonly coinTag = el("span", "coins");
   /** Game mode: the railway's date ("Mar 2001", see game/calendar.ts). */
   private readonly dateTag = el("span", "game-date");
+  /** Game mode's spark balance, beside the coins: spare of made ("⚡ 3/5"); tap: where sparks come from, what takes them. */
+  private readonly sparkBtn = el("button", "sparks") as HTMLButtonElement;
+  /** The spark balance's sheet, under the top bar (opened from `sparkBtn`). */
+  private readonly sparkSheet = el("div", "sparks-sheet");
+  /** The spark balance as shown (its key), to touch the page only when it changes. */
+  private sparkKey = "";
+  /** Puts away what opening the spark sheet listened for. */
+  private sparkSheetOff: (() => void) | null = null;
   /** Game mode: the research under way and how far ("📘 Bridges 6/10\uE000"), or "Pick research"; tap: the picker. */
   private readonly researchPill = el("button", "research-pill") as HTMLButtonElement;
   /** What the pill shows now (its whole text and fill): it's redrawn only when this changes. */
@@ -547,6 +556,14 @@ export class Hud {
       }
     });
     top.appendChild(brand);
+    this.sparkBtn.type = "button";
+    this.sparkBtn.hidden = true;
+    this.sparkBtn.setAttribute("aria-expanded", "false");
+    this.sparkBtn.addEventListener("click", () => this.toggleSparkSheet());
+    top.appendChild(this.sparkBtn);
+    this.sparkSheet.hidden = true;
+    this.sparkSheet.setAttribute("role", "dialog");
+    this.sparkSheet.setAttribute("aria-label", "Sparks");
     this.researchPill.type = "button";
     this.researchPill.hidden = true;
     this.researchPill.innerHTML = `<span class="rp-text"><span class="rp-line"><span class="rp-icon" aria-hidden="true">📘</span><span class="rp-name"></span></span><span class="rp-count"></span></span><span class="rp-bar"></span>`;
@@ -584,6 +601,7 @@ export class Hud {
     actions.append(this.menuBtn);
     top.appendChild(actions);
     this.root.appendChild(top);
+    this.root.appendChild(this.sparkSheet);
     // Paused: a red frame round the screen and a sign over the tray that plays again when tapped (#45: a player who
     // paused by accident and reported the stopped trains as a bug). Both static: shown by a class, nothing drawn.
     this.pausedSign.type = "button";
@@ -1788,11 +1806,23 @@ export class Hud {
    */
   private fitPill(): void {
     const p = this.researchPill;
-    p.classList.remove("rp-small", "rp-wrap", "rp-goods");
+    p.classList.remove("rp-small", "rp-wrap", "rp-goods", "rp-bare");
     const n = p.querySelector<HTMLElement>(".rp-name")!;
     const c = p.querySelector<HTMLElement>(".rp-count")!;
     const v = this.pillView;
     if (v) c.textContent = pillCount(v, 0);
+    // (Squeezed to a finger's width, at 360 px beside the coins, the date and the spark balance: its 📘 and its bar
+    // alone, not "Pi… rese…"; its title still says it.)
+    // (Busy, its count alone, as short as it goes.)
+    if (!p.hidden && v && this.sparkBtn?.hidden === false && p.clientWidth > 0 && p.clientWidth < 60) {
+      if (v.idle) p.classList.add("rp-bare");
+      else {
+        p.classList.add("rp-goods");
+        const over = (e: HTMLElement) => e.scrollWidth > e.clientWidth + 1;
+        for (const fit of [1, 2] as const) if (over(c)) c.textContent = pillCount(v, fit);
+      }
+      return;
+    }
     if (p.hidden || n.clientWidth === 0 || !v) return;
     const over = (e: HTMLElement) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1;
     for (const fit of [1, 2] as const) {
@@ -1810,6 +1840,12 @@ export class Hud {
     const cut = () => over(n);
     if (cut()) p.classList.add("rp-small");
     if (cut()) p.classList.add("rp-wrap");
+    // (Beside the spark balance, a name still cut after both ("Pick rese…" at 390 px): its 📘 alone, as at 360.)
+    const t = p.querySelector<HTMLElement>(".rp-text");
+    if (v.idle && this.sparkBtn?.hidden === false && (cut() || over(c) || (t !== null && over(t)))) {
+      p.classList.remove("rp-small", "rp-wrap");
+      p.classList.add("rp-bare");
+    }
   }
 
   /** Show the railway's date (null: hide it, outside Game mode). The page is touched only when the text changes. */
@@ -1835,6 +1871,79 @@ export class Hud {
       void this.coinTag.offsetWidth;
       this.coinTag.classList.add("pop");
     }
+  }
+
+  /**
+   * Show the spark balance (null: hide it: outside Game mode, or before the map has made a spark). The page is touched
+   * only when what's shown changes; an open sheet is drawn again with it.
+   */
+  setSparks(v: SparkView | null): void {
+    const key = v?.key ?? "";
+    if (key === this.sparkKey) return;
+    this.sparkKey = key;
+    const b = this.sparkBtn;
+    b.hidden = v === null;
+    if (v === null) {
+      this.closeSparkSheet();
+      return;
+    }
+    b.classList.toggle("short", v.short > 0);
+    b.innerHTML = `<span class="sp-icon" aria-hidden="true">⚡</span><span class="sp-count"></span>`;
+    (b.lastChild as HTMLElement).textContent = v.label;
+    b.title = v.title;
+    b.setAttribute("aria-label", v.title);
+    this.drawSparkSheet(v);
+  }
+
+  /** Is the spark sheet open? */
+  get sparkSheetOpen(): boolean {
+    return !this.sparkSheet.hidden;
+  }
+
+  private sparkView: SparkView | null = null;
+
+  private drawSparkSheet(v: SparkView): void {
+    this.sparkView = v;
+    const sh = this.sparkSheet;
+    sh.innerHTML = "";
+    const head = el("div", "sparks-head");
+    head.append(el("span", "sparks-title", "Sparks"), el("span", `sparks-stamp${v.short > 0 ? " short" : ""}`, v.short > 0 ? `${v.short} short` : `${v.spare} spare`));
+    const x = button("✕", "Close", () => this.closeSparkSheet(), "close");
+    head.append(x);
+    sh.append(head);
+    for (const l of v.lines) sh.append(el("div", `sparks-line${l.warn ? " warn" : ""}`, l.text));
+  }
+
+  toggleSparkSheet(open = this.sparkSheet.hidden): void {
+    if (!open) return this.closeSparkSheet();
+    if (!this.sparkView || this.sparkBtn.hidden) return;
+    this.closeMenu();
+    this.sparkSheet.hidden = false;
+    this.sparkBtn.setAttribute("aria-expanded", "true");
+    this.sparkBtn.classList.add("active");
+    // Gone with a tap anywhere else or Esc (nothing per frame: the sheet is still).
+    const away = (e: Event) => {
+      if (e.target instanceof Node && (this.sparkSheet.contains(e.target) || this.sparkBtn.contains(e.target))) return;
+      this.closeSparkSheet();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") this.closeSparkSheet();
+    };
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", key);
+    this.sparkSheetOff = () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", key);
+    };
+  }
+
+  closeSparkSheet(): void {
+    this.sparkSheetOff?.();
+    this.sparkSheetOff = null;
+    if (this.sparkSheet.hidden) return;
+    this.sparkSheet.hidden = true;
+    this.sparkBtn.setAttribute("aria-expanded", "false");
+    this.sparkBtn.classList.remove("active");
   }
 
   /** The Research button (and the pill standing in for it on a phone): lit while the picker's open. */
