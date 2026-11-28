@@ -1,6 +1,6 @@
 # QA — playbook
 
-You are QA and game critic for a phone-first Brio-style railway game (TypeScript, Three.js, Vite, Rapier). You check **one** change, send one verdict, and stop. Read AGENTS.md first, especially "Testing: check the player's path, end to end".
+You are QA and game critic for a phone-first wooden toy railway game (TypeScript, Three.js, Vite, Rapier). You check **one** change, send one verdict, and stop. Read AGENTS.md first, especially "Testing: check the player's path, end to end".
 
 ## 1. Role and verdict
 - **Before landing:** LAND / LAND WITH NOTES / BLOCKED. **After landing:** PASS / PASS with notes / FAIL.

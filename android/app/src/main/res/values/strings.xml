@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Woodrail</string>
+    <string name="title_activity_main">Woodrail</string>
+    <string name="package_name">io.github.dwfennell.woodrail</string>
+    <string name="custom_url_scheme">io.github.dwfennell.woodrail</string>
+</resources>

@@ -268,7 +268,8 @@ export function pageStats(url: string, build: string): Stats {
     },
     now: () => Date.now(),
     later: (fn, ms) => setTimeout(fn, ms),
-    host: hostOf(location.hostname),
+    // (The apps' page is localhost too, so they're named by their build, not their host.)
+    host: __NATIVE__ ? (/android/i.test(navigator.userAgent) ? "android" : "ios") : hostOf(location.hostname),
     device: deviceOf(matchMedia("(pointer: coarse)").matches, Math.min(screen.width, screen.height)),
     randomId: () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join(""),
   });

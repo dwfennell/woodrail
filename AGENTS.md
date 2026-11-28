@@ -1,6 +1,6 @@
 # Woodrail — notes for agents
 
-A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It runs on phones, so keep CPU and GPU cost in mind.
+A wooden toy railway game: TypeScript, Three.js, Vite, Rapier physics. It runs on phones, so keep CPU and GPU cost in mind. Never name a toy brand in anything a player or a store sees (the game, store listings, devlogs, promo): it's a wooden toy railway, for everyone.
 
 ## Commands
 
@@ -10,6 +10,7 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm run build`
 - `npm run build:artifact`: a build to publish as a claude.ai Artifact (see `docs/artifact-builds.md`)
 - `npm run build:itch`: a build for itch.io, zipped (`woodrail-itch.zip`); releases push it there (see `docs/itch-builds.md`)
+- `npm run build:native`: the Android and iOS apps' build (Capacitor: `android/`, `ios/`), synced into both projects; `npm run native:android` / `native:ios` run it on an emulator, simulator or phone. Google Play first, the App Store later (see `docs/native-builds.md`). Code only for the apps is in `src/native/` and behind `__NATIVE__`
 - `/publish-to-itch`: the release skill: checks, the devlog post (`docs/devlogs/`), moving the `itch` branch (which ships to players: only when the user asks)
 - `E2E_PROFILE=1 npm run e2e:<suite>`: where a suite's time goes, by its script's lines, per group (`scripts/e2e/lib/profile.mjs`). The speed levers (the test clock, moves a few to a frame, device scale 1, Battery saver): `scripts/e2e/lib/fast.mjs`, `docs/agents/e2e.md` "Speed"
 - `npm run fuzz:long [-- --seeds 200 --seconds 1800]`: the long routing fuzz with every train invariant, sharded over the cores; for release points (about 30 game minutes a seed)
