@@ -385,6 +385,9 @@ interface Row {
   levels: number[];
   trains: number;
   riders: number;
+  /** Coins earned so far (`Player.income.all`), and of that, for the staples (`income.staples`). */
+  earned: number;
+  staples: number;
 }
 
 class Player {
@@ -416,7 +419,7 @@ class Player {
   readonly harbours = new HarbourTrade();
   readonly boatTook = { loads: 0, coins: 0 };
   /** Coins earned over the run: town sales for growth, town sales of goods not needed to grow (by kind), and all of it. */
-  readonly income = { grow: 0, unneeded: {} as Record<string, number>, all: 0 };
+  readonly income = { grow: 0, unneeded: {} as Record<string, number>, all: 0, staples: 0 };
   /** The minute a boat first took goods off a harbour's quay (−1: none yet). */
   boatFirst = -1;
   /** Stone trains unloaded into a workshop's yard (the crane's own events: no pile is written to by hand). */
@@ -484,6 +487,7 @@ class Player {
         const need = Math.max(0, Math.min(n, (before.wants[kind] ?? 0) - (before.got[kind] ?? 0)));
         const grow = Math.round((paid * need) / n);
         this.income.grow += grow;
+        if (STAPLES.has(kind)) this.income.staples += paid - grow;
         if (paid > grow) this.income.unneeded[kind] = (this.income.unneeded[kind] ?? 0) + paid - grow;
       },
       grew: (t, status, built) => {
@@ -1869,6 +1873,8 @@ class Playthrough {
         levels: w().landscape.towns.map((t) => P.town.status(t.id).level),
         trains: w().sim.trainIds().length,
         riders: s.riders,
+        earned: P.income.all,
+        staples: P.income.staples,
       });
       if (minute % 5 === 0) {
         const towns = w()
@@ -3590,7 +3596,13 @@ class Playthrough {
       `firsts: ${JSON.stringify(this.firsts)}`,
       `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loop ? "yes" : "-"} goods2 ${this.goods2At < 0 ? "-" : `${Math.round(this.goods2At)} for ${this.goods2For}`}${this.goods2Cut ? " (jammed)" : ""} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min onlyNearest ${[...this.nearestPickup].join("+") || "-"} shopOff ${this.shopShut} schoolShared ${this.schoolShared} townGap ${(P.townGap / 60).toFixed(1)}min loops ${this.loopsAt.join("/") || "-"} stuckLoops ${this.stuckLoops.join("/") || "-"} headOn ${P.headOn} lineHeadOn ${P.headOnLine} stalls ${w.economy.stalls.begun} stuck ${(P.stuckSeconds / 60).toFixed(1)}min lineStall ${P.lineStall.toFixed(1)} arrivals ${P.arrivals} sectionWait ${(P.sectionSeconds / 60).toFixed(1)}min roomWait ${(P.roomSeconds / 60).toFixed(1)}min releases ${w.economy.sections.released}${ENV.BALANCE_TIMING ? ` capUs ${w.economy.sections.capCalls ? ((1000 * w.economy.sections.capMs) / w.economy.sections.capCalls).toFixed(2) : "-"} capCalls ${w.economy.sections.capCalls}` : ""}`,
       `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min on ${P.researchStallOn} (${P.researchStallCause.goodsTrains} goods train(s), ${P.researchStallCause.stops} stops${P.researchStallCause.planks ? ", short of planks" : ""}) school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
-      `COINS ${[30, 60, 90, 120, 150, 180].map((m) => `${m}:${P.rows.find((r) => r.minute === m)?.coins ?? "-"}`).join(" ")}`,
+      `COINS ${[30, 60, 90, 120, 150, 180, 240, 300].map((m) => `${m}:${P.rows.find((r) => r.minute === m)?.coins ?? "-"}`).join(" ")}`,
+      `HOURLY ${[1, 2, 3, 4, 5].filter((h) => P.rows.some((r) => r.minute === h * 60)).map((h) => {
+        const at = (m: number) => P.rows.find((r) => r.minute === m);
+        const a = at(h * 60)!;
+        const b = at((h - 1) * 60);
+        return `h${h}:${a.earned - (b?.earned ?? 0)}/${a.staples - (b?.staples ?? 0)}`;
+      }).join(" ")} (coins earned that hour / of that, for staples)`,
       `INCOME all ${P.income.all} grow ${P.income.grow} unneeded ${Object.values(P.income.unneeded).reduce((a, b) => a + b, 0)} (${Object.entries(P.income.unneeded).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ") || "none"})`,
       `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,
