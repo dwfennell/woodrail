@@ -29,7 +29,8 @@ export function keptText(why: Exclude<KeepWhy, "nothing" | "route">, kind: Cargo
     case "order":
       return `Keeping ${goods} for the workshop's order`;
     case "unwanted":
-      return role === "school" ? `${head}the research doesn't need any` : `${head}${place} doesn't need any now`;
+      // (A town: "Rookhurst doesn't need bricks", spec 2026-11-27-towns-buy-what-they-need.md.)
+      return role === "school" ? `${head}the research doesn't need any` : role === "town" ? `${head}${place} doesn't need ${goods}` : `${head}${place} doesn't need any now`;
     case "school":
       // How many (`Economy.heldForSchool`): a routed train holds at most one wagon's worth (issue #20).
       return held > 0 ? `Keeping ${held} ${goods} for the school (Research first)` : `Keeping ${goods} for the school (Research first)`;

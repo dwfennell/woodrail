@@ -171,8 +171,8 @@ export function drawLedger(box: HTMLElement, v: TownLedger, tabs: readonly TownT
   g.append(goods);
   // (Said by Next up already when it's the town's first need.)
   if (v.holding && !(next && next.tab === "grow" && next.button)) g.append(needRow(v, on));
-  // (What it pays first, then the goods it pays fully for besides: "Always buys 🧱 bricks" alone read as only bricks.)
-  g.append(el("p", "ledger-pay", "Buys any good: full pay for what it needs, half for others"));
+  // (What it pays for first, then the staples it buys besides: spec 2026-11-27-towns-buy-what-they-need.md.)
+  g.append(el("p", "ledger-pay", "Buys only what it needs to grow, for a place it's building, or for a grand project. Trains carry the rest on"));
   if (v.buys) g.append(el("p", "ledger-buys", v.buys));
 
   // Station: what the town has (school, market, road, vans, buses, post, the station), then the lines that call.

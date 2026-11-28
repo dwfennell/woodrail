@@ -5,7 +5,7 @@ import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { SURF_SEA } from "../landscape";
 import { BLUEPRINTS } from "./blueprints";
 import { buysText } from "./town-ledger";
-import { FULL_PAY, PRICES } from "./towns";
+import { PRICES, STAPLES } from "./towns";
 import { THING_RULES } from "./things";
 import { buildStarterWorld, INDUSTRY_ROLE } from "./world";
 import { checkYard } from "./depot-footprint";
@@ -62,10 +62,10 @@ describe("Tank wagons", () => {
     expect(RECIPES.waterpump).toMatchObject({ takes: [], gives: ["water"] });
   });
 
-  it("oil and water ride in tank wagons only, and towns buy both at full pay", () => {
+  it("oil and water ride in tank wagons only, and towns buy both at half price", () => {
     for (const k of ["oil", "water"] as const) {
       expect(CAR_KINDS.filter((c) => canCarry(c, k))).toEqual(["oiltank"]);
-      expect(FULL_PAY.has(k)).toBe(true);
+      expect(STAPLES.has(k)).toBe(true);
       expect(RECIPES.town.takes).toContain(k);
       expect(PRICES[k]).toBeGreaterThan(0);
     }
@@ -74,7 +74,7 @@ describe("Tank wagons", () => {
     expect(CARGO_KINDS.indexOf("oil")).toBe(CARGO.oil.index);
     expect(CARGO_KINDS.indexOf("water")).toBe(CARGO.water.index);
     expect(buysText(new Set(["tankers"]))).toContain("oil");
-    expect(firstFoodNews("oil", 1, 1, "Ashby")).toBe("First oil! 🛢️ Ashby buys it at full pay");
+    expect(firstFoodNews("oil", 1, 1, "Ashby")).toBe("First oil! 🛢️ Ashby buys it");
   });
 
   it("an oil well's oil goes to town in a tank wagon", () => {

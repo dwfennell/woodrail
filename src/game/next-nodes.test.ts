@@ -5,7 +5,7 @@ import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
 import { firstFoodNews } from "./food-text";
 import { buysText } from "./town-ledger";
-import { FULL_PAY, LUXURIES, payFor, PRICES, townStatus } from "./towns";
+import { FULL_PAY, STAPLES, payFor, PRICES, townStatus } from "./towns";
 import { STICKERS, type StickerContext } from "./stickers";
 import { THING_RULES } from "./things";
 import type { World } from "./world";
@@ -74,22 +74,22 @@ describe("Juice works", () => {
   }, 60_000);
 });
 
-describe("goods towns always buy at full pay", () => {
-  it("every one is taken by towns, paid in full at any level, and none is wanted to grow", () => {
-    for (const k of FULL_PAY) {
+describe("goods towns always buy (the staples)", () => {
+  it("every one is taken by towns at any level, paid half (the post in full), and none is wanted to grow", () => {
+    for (const k of STAPLES) {
       expect(RECIPES.town.takes, k).toContain(k);
-      expect(LUXURIES.has(k), k).toBe(true);
-      expect(payFor(k, townStatus({})), k).toBe(PRICES[k]);
+      expect(payFor(k, townStatus({})), k).toBe(FULL_PAY.has(k) ? PRICES[k] : Math.ceil(PRICES[k]! / 2));
       expect(CARGO_KINDS, k).toContain(k);
     }
+    for (const k of FULL_PAY) expect(STAPLES.has(k), k).toBe(true);
     // No study asks for them: the balance player would research toward them (`towardChains`).
-    for (const b of BLUEPRINTS) for (const k of Object.keys(b.research.goods)) expect(FULL_PAY.has(k as CargoKind), `${b.id} asks ${k}`).toBe(false);
+    for (const b of BLUEPRINTS) for (const k of Object.keys(b.research.goods)) expect(STAPLES.has(k as CargoKind), `${b.id} asks ${k}`).toBe(false);
   });
 
   it("the News says the first of each, and the town card lists the learned ones", () => {
-    expect(firstFoodNews("juice", 2, 2, "Ashby")).toBe("First juice! 🧃 Ashby buys it at full pay");
+    expect(firstFoodNews("juice", 2, 2, "Ashby")).toBe("First juice! 🧃 Ashby buys it");
     expect(firstFoodNews("juice", 2, 5, "Ashby")).toBeNull();
-    expect(buysText(new Set(["orchard", "juice"]))).toBe("Full pay for these too: 🍎 fruit and 🧃 juice");
+    expect(buysText(new Set(["orchard", "juice"]))).toBe("Also buys, at half price: 🍎 fruit and 🧃 juice");
   });
 });
 
@@ -168,9 +168,9 @@ describe("Brickworks", () => {
     expect(THING_RULES["piece:depot-brickworks"]).toMatchObject({ tech: "brickworks", coins: 320 });
     expect(RECIPES.brickworks).toMatchObject({ takes: ["stone", "coal"], gives: ["bricks"], cycle: { uses: { stone: 1, coal: 1 }, makes: { bricks: 1 } } });
     expect(CAR_KINDS.filter((k) => canCarry(k, "bricks"))).toEqual(["timber"]);
-    // Bricks aren't food, but towns buy them the same way, and the card says so once learned.
-    expect(FULL_PAY.has("bricks")).toBe(true);
-    expect(buysText(new Set(["brickworks"]))).toBe("Full pay for these too: 🧱 bricks");
+    // Bricks go into grand projects: a town takes them only for its own project under way (spec 2026-11-27).
+    expect(STAPLES.has("bricks")).toBe(false);
+    expect(buysText(new Set(["brickworks"]))).toBeNull();
   });
 
   it("(stone + coal) → bricks: hoppers bring both from a quarry and a mine, flatbeds take the bricks to town", () => {
@@ -203,10 +203,10 @@ describe("Car factory", () => {
     expect(RECIPES.carworks).toMatchObject({ takes: ["iron", "planks"], gives: ["autos"], cycle: { uses: { iron: 1, planks: 1 }, makes: { autos: 1 } } });
     // Cars ride on a car carrier and nothing else; towns pay the most for them, at any level.
     expect(CAR_KINDS.filter((k) => canCarry(k, "autos"))).toEqual(["carrier"]);
-    expect(FULL_PAY.has("autos")).toBe(true);
+    expect(STAPLES.has("autos")).toBe(true);
     expect(Math.max(...CARGO_KINDS.map((k) => PRICES[k] ?? 0))).toBe(PRICES.autos);
-    expect(buysText(new Set(["car-factory"]))).toBe("Full pay for these too: 🚗 cars");
-    expect(firstFoodNews("autos", 1, 1, "Ashby")).toBe("First cars! 🚗 Ashby buys them at full pay");
+    expect(buysText(new Set(["car-factory"]))).toBe("Also buys, at half price: 🚗 cars");
+    expect(firstFoodNews("autos", 1, 1, "Ashby")).toBe("First cars! 🚗 Ashby buys them");
   });
 
   it("(iron + planks) → cars: the train brings both, and a car carrier takes the cars to town", () => {
@@ -231,12 +231,12 @@ describe("Car factory", () => {
 });
 
 describe("Fishing boats", () => {
-  it("is built: tier 3 after Harbours, mostly coins; fish ride in vans or cold vans, and towns buy them at full pay", () => {
+  it("is built: tier 3 after Harbours, mostly coins; fish ride in vans or cold vans, and towns buy them at half price", () => {
     expect(bp("fishing")).toBeDefined();
     expect(bp("fishing")).toMatchObject({ needs: ["harbours"], tier: 3, research: { goods: { planks: 8 }, coins: 160 } });
     expect(CAR_KINDS.filter((k) => canCarry(k, "fish"))).toEqual(["van", "reefer"]);
-    expect(FULL_PAY.has("fish")).toBe(true);
-    expect(buysText(new Set(["fishing"]))).toBe("Full pay for these too: 🐟 fish");
+    expect(STAPLES.has("fish")).toBe(true);
+    expect(buysText(new Set(["fishing"]))).toBe("Also buys, at half price: 🐟 fish");
   });
 
   it("each boat in lands a catch of fish on the quay, once it's learned, and the boats don't take it back", () => {
