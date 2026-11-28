@@ -321,6 +321,10 @@ const rotated = await road(G.line[3]);
 check("B2 Rotate turns it a quarter", rotated !== before && (rotated & 63) === (before & 63), `${before} -> ${rotated}`);
 await p.evaluate(() => window.woodrail.interaction.undo());
 check("B3 Undo puts the turn back", (await road(G.line[3])) === before);
+// Its card is still open, and stands over the bend at this size (the card's ✕ is where the bend is): a tap there would
+// close the card, not select the road. Clear first, so the tap lands on the road.
+await p.mouse.click(1100, 120);
+await frame();
 await tap(G.line[3]);
 await cardShown();
 await p.locator(".piece-card button", { hasText: "Delete" }).click();
@@ -341,7 +345,9 @@ await dragSquare(G.line[3], G.side);
 await settle();
 const camAfter = await p.evaluate(() => window.woodrail.controls.target.toArray());
 check("C1 dragging an unselected road pans the view, leaving the road", (await road(G.line[3])) !== 0 && (await road(G.side)) === 0 && camBefore.some((v, k) => Math.abs(v - camAfter[k]) > 1));
-await focusOn(G.line[1]);
+// The bend framed in the middle: with line[1] there, its card (now 460 px wide) stood over it, and the drag began on
+// the card.
+await focusOn(G.line[3]);
 await tap(G.line[3]);
 await cardShown();
 await dragSquare(G.line[3], G.side);
