@@ -9,7 +9,7 @@ a preview without touching GitHub Pages, which deploys only `main`.
 2. Run `npm run build:artifact`. It builds into `dist-artifact/` (git-ignored) and writes `dist-artifact/files.json`.
 3. Publish with the Artifact tool:
    - `file_path`: `dist-artifact/index.html`.
-   - `files`: the map in `dist-artifact/files.json` (published path → file on disk).
+   - `files`: the map in `dist-artifact/files.json` (published path → file on disk; the sounds, `.m4a` and `.wav`, as `{ from, contentType }`, since their type isn't inferred).
    - `icon`: `train` (first publish only).
    - `label`: the branch and commit, e.g. `roads 0d611a9`.
 4. To update the same artifact later, publish `dist-artifact/index.html` again from the same session. From another

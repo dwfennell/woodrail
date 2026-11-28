@@ -41,11 +41,15 @@ if (renamed === 0 || patched === 0) {
   process.exit(1);
 }
 
-// What to publish: the page, and every other file at its path next to it (the Artifact tool's `files` map).
+// What to publish: the page, and every other file at its path next to it (the Artifact tool's `files` map). The
+// sounds (public/sounds/) say their type, which the tool doesn't infer from .m4a or .wav.
+const AUDIO = { ".m4a": "audio/mp4", ".wav": "audio/wav" };
 const map = {};
 for (const f of files(OUT)) {
   const rel = relative(OUT, f).split("\\").join("/");
-  if (rel !== "index.html" && rel !== "files.json") map[rel] = f;
+  if (rel === "index.html" || rel === "files.json") continue;
+  const type = AUDIO[rel.slice(rel.lastIndexOf("."))];
+  map[rel] = type ? { from: f, contentType: type } : f;
 }
 writeFileSync(join(OUT, "files.json"), JSON.stringify(map, null, 2) + "\n");
 const bytes = files(OUT).reduce((n, f) => n + statSync(f).size, 0);

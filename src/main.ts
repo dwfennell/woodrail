@@ -1,11 +1,13 @@
+import { ENGINE_SPEED } from "./sim/brakes";
 import { lazy } from "./lib/lazy";
 import { type Load, prefetchWhenIdle } from "./lib/prefetch";
 import { loadBlueprintBoard, loadCreditsSheet, loadExplainerSheet, loadFeedbackSheet, loadPaintSheet, loadStatsCard } from "./ui/lazy-chunks";
 import { CRANE_TEXT } from "./game/crane-text";
 import { placeNear, type Place as NearPlace } from "./game/place-near";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
-import { ToyAudio } from "./audio/audio";
+import { ENGINE_SOUNDS, type EngineSound, engineSound, ToyAudio } from "./audio/audio";
 import { CrossingBells } from "./audio/crossing-bell";
+import { hear, type SoundKind } from "./audio/hearing";
 import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
@@ -7879,18 +7881,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.firstVisitHelp();
   }
 
-  const listen = (x: number, z: number): [number, number] => {
-    // Volume falls off with distance from the camera's focus; pan follows screen position.
+  const listen = (kind: SoundKind, x: number, z: number): [number, number] => {
+    // Volume follows what's seen (0 off screen or too small to see: `hear`); pan follows screen position.
     const t = game.controls.target;
-    const cam = game.camera.position;
-    const d = Math.hypot(x - t.x, z - t.z) + cam.distanceTo(t) * 0.35;
-    const volume = Math.min(1, 500 / (d + 150));
+    const volume = hear(game.eye, kind, x, 0, z);
     const right = { x: Math.cos(game.camera.rotation.y), z: -Math.sin(game.camera.rotation.y) };
     const pan = ((x - t.x) * right.x + (z - t.z) * right.z) / 900;
     return [volume, pan];
   };
   // A big station's guard raises his flag as a train sets off: a soft whistle, heard from the camera as its trains are.
-  game.onGuardFlag = (x, z) => audio.guardWhistle(...listen(x, z));
+  game.onGuardFlag = (x, z) => audio.guardWhistle(...listen("station", x, z));
 
   const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
   const whistles = new WhistlePosts();
@@ -7898,10 +7898,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const telegraphWires = new TelegraphWires(game.mats.lacquer("#3a3a3a"));
   game.scene.add(telegraphWires.mesh);
   const crossingBells = new CrossingBells();
-  const bellScratch = new Vector3();
   /**
    * Which engine by a whistle post whistles in a frame, and how loud: heard from the camera as `listen` hears its
-   * clacks (louder and more central the nearer it is), the nearest train's whistle winning over a far one's.
+   * clacks (louder the bigger it is on screen), the most audible train's whistle winning over a fainter one's (audibility saturates when close, and ties go to the first).
    */
   const whistleCalls = new WhistleCalls();
   const playWhistle = (v: number, pan: number) => audio.whistle(v, pan);
@@ -7918,7 +7917,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!d || !p) return null;
     return { x: p.pose.x + Math.cos(p.pose.heading) * d.craneAt, z: p.pose.z + Math.sin(p.pose.heading) * d.craneAt };
   };
-  let sawClock = 0;
+  /** Each kind of engine sound's level and pace this frame (made once: filled every frame). */
+  const hums: Record<EngineSound, { level: number; pace: number }> = { steam: { level: 0, pace: 0 }, diesel: { level: 0, pace: 0 }, electric: { level: 0, pace: 0 } };
   let shownDelivered = new Map<number, number>();
   /** Update a town's sign when its delivery count changes (made once: called every frame). */
   const showDelivered = (n: number, townId: number) => {
@@ -8214,7 +8214,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       mapMoving = false;
       mapViewSeen[0] = NaN;
     }
-    let hum = 0;
+    for (const kind of ENGINE_SOUNDS) hums[kind].level = hums[kind].pace = 0; // pace: the heard engines' speed, of top speed, weighted by how audible each is
     // Whistle posts' near track: worked out again only when the props or the track change.
     whistles.sync(game.layout, game.props, game.trackVersion);
     if (telegraphWires.sync(game.props, interaction.telegraph?.() ?? false)) game.invalidate();
@@ -8230,9 +8230,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         audio.rotate();
         continue;
       }
-      const [v, pan] = listen(p.x, p.z);
+      const [v, pan] = listen("car", p.x, p.z);
+      if (v === 0) continue; // not seen, so not heard: no sound to make
+      // (Wheels over joints make no sound of their own: cut by ear, 2026-11-27.)
       if (e.kind === "joint") {
-        audio.clack(v, pan);
         // An engine coming onto track near a whistle post whistles (once as it passes).
         if (e.bogie === 0 && whistles.size > 0) whistleFor(e.trainId, v, pan);
       } else if (e.kind === "coupled") audio.magnet(v, pan);
@@ -8240,56 +8241,59 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else if (e.kind === "buffer") audio.magnet(v * 0.6, pan);
     }
     whistleCalls.flush(now, playWhistle, trainAlive);
-    // Level crossings: a soft "ding ding" as barriers come down, for one on the screen and near the camera's focus.
-    const rung = crossingBells.ring(game.crossingsView.closing, now, (x, z) => {
-      const c = bellScratch.set(x, 0, z).project(game.camera);
-      return Math.abs(c.x) <= 1 && Math.abs(c.y) <= 1 && c.z < 1 ? listen(x, z) : null;
-    });
+    // Level crossings: a soft "ding ding" as barriers come down, for one on the screen and big enough to see.
+    const rung = crossingBells.ring(game.crossingsView.closing, now, (x, z) => listen("crossing", x, z));
     if (rung) audio.crossingBell(rung[0], rung[1]);
+    // Engines: each kind's sound (steam, diesel, electric) at its running, heard engines' summed level, by the look of
+    // the first engine pulling (a train's other engines sound the same).
     for (const t of game.sim.trains()) {
-      if (t.derailed || t.speed < 5 || !t.cars.some((c) => c.kind === "engine" && c.lever !== 0)) continue;
-      hum += listen(t.world[0].x, t.world[0].z)[0];
+      if (t.derailed || t.speed < 5) continue;
+      let pulling = -1;
+      for (const c of t.cars) {
+        if (c.kind === "engine" && c.lever !== 0) {
+          pulling = c.id;
+          break;
+        }
+      }
+      if (pulling < 0) continue;
+      const heard = hear(game.eye, "car", t.world[0].x, 0, t.world[0].z);
+      if (heard === 0) continue;
+      const h = hums[engineSound(game.sim.lookOf(pulling))];
+      h.level += heard;
+      h.pace += heard * Math.min(1, t.speed / (game.sim.topSpeed ? game.sim.topSpeed(t) : ENGINE_SPEED));
     }
-    audio.setHum(game.paused ? 0 : hum);
-    // Train lifts: a clunk as one sets off and as it gets there, and its gear winding while it rides (paused, its ride
-    // holds, quiet). Nothing riding and none heard riding: one comparison.
+    for (const kind of ENGINE_SOUNDS) {
+      const h = hums[kind];
+      audio.setHum(game.paused ? 0 : h.level, h.level > 0 ? h.pace / h.level : 0, kind);
+    }
+    // Train lifts: a clunk as one sets off and as it gets there (its winding makes no sound: cut by ear, 2026-11-27).
+    // Nothing riding and none heard riding: one comparison.
     const riding = game.sim.ridingLifts();
     if (riding.length > 0 || liftsHeard.size > 0) {
-      let wind = 0;
       for (const id of riding) {
         const at = game.layout.getPiece(id) ? pieceCentre(game.layout, id) : null;
         if (!at) continue;
-        const [v, pan] = listen(at.x, at.z);
+        const [v, pan] = listen("lift", at.x, at.z);
+        // Booked whether or not it's audible: a silent clunk (v = 0) is a no-op in `knock`, so no stale entry arises.
         if (!liftsHeard.has(id)) {
           liftsHeard.set(id, at);
           audio.liftClunk(v, pan);
         }
-        wind = Math.max(wind, v);
       }
       for (const [id, at] of liftsHeard) {
         if (riding.includes(id)) continue;
         liftsHeard.delete(id);
-        audio.liftClunk(...listen(at.x, at.z));
+        audio.liftClunk(...listen("lift", at.x, at.z));
       }
-      audio.setWinding(game.paused ? 0 : wind);
     }
 
-    // Cranes: a clunk per unit, and a chime when planks reach a town. Saws buzz while they cut.
+    // Cranes: a clunk per unit, and a chime when planks reach a town. (Sawmills make no sound: cut by ear, 2026-11-27.)
     for (const e of game.economy.drainEvents()) {
       const at = depotPoint(e.depotId);
       if (!at) continue;
-      const [v, pan] = listen(at.x, at.z);
-      audio.clunk(v, pan);
+      const [v, pan] = listen("crane", at.x, at.z);
+      if (v > 0) audio.clunk(v, pan); // the chime below isn't positional: it plays wherever the town is
       if (e.kind === "unloaded" && game.economy.depot(e.depotId)?.role === "town") audio.chime();
-    }
-    sawClock += dt;
-    if (sawClock > 0.5 && !game.paused) {
-      sawClock = 0;
-      for (const d of game.economy.allDepots()) {
-        if (d.role !== "sawmill" || !game.economy.working(d)) continue;
-        const at = depotPoint(d.id);
-        if (at) audio.saw(...listen(at.x, at.z));
-      }
     }
     // Town signs: in Game mode what each town wants (and it grows when it gets it); in Sandbox, delivery counts.
     if (mode === "game") {

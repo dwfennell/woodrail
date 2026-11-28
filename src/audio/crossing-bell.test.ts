@@ -18,9 +18,15 @@ describe("level crossing bells", () => {
 
   it("an off-screen or far crossing doesn't ring (nor use up the gap); of several, the loudest rings", () => {
     const bells = new CrossingBells();
-    expect(bells.ring([{ x: 0, z: 0 }], 0, () => null)).toBeNull();
+    expect(bells.ring([{ x: 0, z: 0 }], 0, () => [0, 0])).toBeNull();
     expect(bells.ring([{ x: 0, z: 0 }], 10, () => [0.1, 0])).toBeNull();
     const heard = (x: number): [number, number] => (x === 1 ? [0.5, -0.5] : [0.9, 0.4]);
     expect(bells.ring([{ x: 1, z: 0 }, { x: 2, z: 0 }], 20, heard)).toEqual([0.9, 0.4]);
+  });
+
+  it("a crossing heard as [0, 0] doesn't ring and doesn't use the gap", () => {
+    const bells = new CrossingBells();
+    expect(bells.ring([{ x: 0, z: 0 }], 0, () => [0, 0])).toBeNull();
+    expect(bells.ring([{ x: 0, z: 0 }], 1, near)).toEqual([0.8, 0.1]);
   });
 });

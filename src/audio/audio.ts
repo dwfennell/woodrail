@@ -1,8 +1,23 @@
+import type { CarLook } from "../sim/cars";
+import { ClipBank, type ClipName } from "./clips";
+
+/** The kinds of engine sound: each has its own recorded loop. */
+export type EngineSound = "steam" | "diesel" | "electric";
+export const ENGINE_SOUNDS: readonly EngineSound[] = ["steam", "diesel", "electric"];
+const ENGINE_CLIP: Record<EngineSound, ClipName> = { steam: "engineSteam", diesel: "engineDiesel", electric: "engineElectric" };
+
+/** The sound an engine of this look makes: diesels and electrics (metro trains too) their own, every other engine steam. */
+export function engineSound(look: CarLook): EngineSound {
+  if (look === "diesel") return "diesel";
+  if (look === "electric" || look === "metro") return "electric";
+  return "steam";
+}
+
 /** Routed trains' switch throws are heard at most once in this long (ms). */
 export const SOFT_CLUNK_GAP_MS = 700;
 
 /**
- * This long after the last sound has died away (no motor hum or lift winding either), the AudioContext is suspended
+ * This long after the last sound has died away (and no engine sounding), the AudioContext is suspended
  * so its audio thread sleeps while nothing's heard; the next sound wakes it (ms).
  */
 export const IDLE_SUSPEND_MS = 3000;
@@ -11,7 +26,6 @@ export const IDLE_SUSPEND_MS = 3000;
 export const GUARD_WHISTLE_GAP_MS = 1500;
 
 /** Lets something through at most once every `ms` (by the times given). */
-
 export class Gate {
   private last = -Infinity;
 
@@ -26,16 +40,25 @@ export class Gate {
 }
 
 /**
- * Synthesised toy sounds (no audio files): wooden clacks over joints, magnet clicks, crash thuds, snap knocks
- * and a soft motor hum. The AudioContext starts on the first user gesture, as browsers require.
+ * The game's sounds: recorded clips where there are some (public/sounds/, loaded after the first tap), each falling
+ * back to a synthesised one until it has loaded (and for good if it can't), plus the synthesised UI ticks and chime.
+ * Wheels over joints, the sawmill and a lift's winding make no sound (2026-11-27: cut, by ear). The AudioContext
+ * starts on the first user gesture, as browsers require.
  */
 export class ToyAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
+  /** The synthesised hum, for the kinds of engine whose loop hasn't loaded (at their summed level). */
   private hum: { gain: GainNode; osc: OscillatorNode; lfo: OscillatorNode } | null = null;
-  private lastClack = 0;
-  private humLevel = 0;
+  /** Each kind's recorded engine loop (one for all its trains, at their summed level), when its clip has loaded. */
+  private readonly loops: Partial<Record<EngineSound, { gain: GainNode; src: AudioBufferSourceNode }>> = {};
+  private readonly clips = new ClipBank();
+  /** Each kind's hum level (its gain target) and pace, as last set. */
+  private readonly humLevel: Record<EngineSound, number> = { steam: 0, diesel: 0, electric: 0 };
+  private readonly humPace: Record<EngineSound, number> = { steam: 0, diesel: 0, electric: 0 };
+  /** The level each kind asks of the synthesised hum (0 once its clip plays it). */
+  private readonly synthHum: Record<EngineSound, number> = { steam: 0, diesel: 0, electric: 0 };
   muted = false;
   /**
    * A page driven by automation (Playwright's e2e suites, shot and clip scripts: `navigator.webdriver`) makes no
@@ -54,6 +77,9 @@ export class ToyAudio {
       const fresh = !this.ctx;
       const ctx = this.ensure();
       if (ctx && (fresh || ctx.state !== "running") && !this.muted && !document.hidden) this.wake(300);
+      // Recorded clips come after the first tap, and only for a page that's heard (not muted, hidden or automated:
+      // a driven page makes no sound, and its 404s for clips not yet added would show in a suite's console).
+      if (ctx && !this.muted && !document.hidden && !this.silent) this.clips.load(ctx);
     };
     for (const type of ["pointerdown", "pointerup", "keydown"]) window.addEventListener(type, gesture, { passive: true });
     document.addEventListener("visibilitychange", () => {
@@ -75,8 +101,8 @@ export class ToyAudio {
 
   private sleepWhenQuiet = (): void => {
     this.sleepTimer = null;
-    // (A motor humming or a lift winding holds it awake: checked again a while later.)
-    const held = this.humLevel > 0 || this.windingLevel > 0;
+    // (An engine sounding holds it awake: checked again a while later.)
+    const held = this.humLevel.steam > 0 || this.humLevel.diesel > 0 || this.humLevel.electric > 0;
     const left = held ? IDLE_SUSPEND_MS : this.quietAt + IDLE_SUSPEND_MS - performance.now();
     if (left > 0) this.sleepTimer = setTimeout(this.sleepWhenQuiet, left);
     else this.sleep();
@@ -115,12 +141,36 @@ export class ToyAudio {
   setMuted(m: boolean): void {
     this.muted = m;
     if (this.master) this.master.gain.value = m || this.silent ? 0 : 0.8;
-    // (Its winding's level is set again by the next frame that hears a lift ride.)
     if (m) {
-      this.setWinding(0);
-      this.setHum(0);
+      for (const kind of ENGINE_SOUNDS) this.setHum(0, 0, kind);
       this.sleep();
     }
+  }
+
+  /**
+   * Plays a recorded clip at `volume`, panned, at `rate` (1 = as recorded). False when there's none to play (not
+   * loaded, or it failed), it's muted or too quiet to hear: the caller plays its synthesised sound instead.
+   */
+  playClip(name: ClipName, volume: number, pan: number, rate = 1): boolean {
+    return this.startClip(name, volume, pan, rate) !== null;
+  }
+
+  /** `playClip`, giving back the clip's gain (to fade it out) or null when nothing played. */
+  private startClip(name: ClipName, volume: number, pan: number, rate = 1): GainNode | null {
+    const ctx = this.ctx;
+    const buffer = this.clips.get(name);
+    if (!ctx || !this.master || !buffer || this.muted || volume <= 0.001 || rate <= 0 || document.hidden) return null;
+    this.wake((buffer.duration / rate) * 1000);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    const g = ctx.createGain();
+    g.gain.value = volume;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = rate;
+    src.connect(g).connect(panner).connect(this.master);
+    src.start();
+    return g;
   }
 
   /** A short filtered noise burst plus a resonant "tock": the sound of wood on wood. */
@@ -157,15 +207,8 @@ export class ToyAudio {
     osc.stop(t + decay * 1.3);
   }
 
-  /** Wheels over a joint. Rate-limited so many trains don't turn into noise. */
-  clack(volume: number, pan: number): void {
-    const now = performance.now();
-    if (now - this.lastClack < 18) return;
-    this.lastClack = now;
-    this.knock(volume * 0.35, 700 + Math.random() * 120, 0.05, pan);
-  }
-
   magnet(volume: number, pan: number): void {
+    if (this.playClip("magnet", volume * 0.7, pan, this.vary(1))) return;
     this.knock(volume * 0.7, 1300, 0.04, pan);
     setTimeout(() => this.knock(volume * 0.4, 1100, 0.03, pan), 35);
   }
@@ -177,6 +220,7 @@ export class ToyAudio {
     const now = performance.now();
     if (now - this.lastBump < 450) return;
     this.lastBump = now;
+    if (this.playClip("bump", volume * 0.5, pan, this.vary(1))) return;
     this.knock(volume * 0.25, 900, 0.03, pan);
   }
 
@@ -202,6 +246,11 @@ export class ToyAudio {
 
   /** A wooden clunk: a log or plank bundle set down by a crane. */
   clunk(volume: number, pan: number): void {
+    if (this.playClip("clunk", volume, pan, this.vary(1))) return;
+    this.clunkSynth(volume, pan);
+  }
+
+  private clunkSynth(volume: number, pan: number): void {
     this.knock(volume * 0.8, 120 * this.vary(1), 0.22, pan);
     this.knock(volume * 0.35, 260 * this.vary(1), 0.08, pan);
   }
@@ -221,36 +270,14 @@ export class ToyAudio {
 
   /** A switch's lever thrown over: the wooden clunk, with a lower knock under it (the points coming home). */
   switchClunk(volume: number, pan: number): void {
-    this.clunk(volume, pan);
+    if (this.playClip("switch", volume, pan, this.vary(1))) return;
+    this.clunkSynth(volume, pan);
     this.knock(volume * 0.55, 72 * this.vary(1), 0.16, pan);
-  }
-
-  /** A short buzz of the sawmill's blade cutting (call about twice a second while it works). */
-  saw(volume: number, pan: number): void {
-    const ctx = this.ctx;
-    if (!ctx || !this.master || this.muted || volume <= 0.02) return;
-    this.wake(560);
-    const t = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(190 * this.vary(1), t);
-    osc.frequency.linearRampToValueAtTime(160, t + 0.45);
-    const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.value = 900;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.035 * volume, t + 0.05);
-    g.gain.linearRampToValueAtTime(0.0001, t + 0.5);
-    const panner = ctx.createStereoPanner();
-    panner.pan.value = Math.max(-1, Math.min(1, pan));
-    osc.connect(lp).connect(g).connect(panner).connect(this.master);
-    osc.start(t);
-    osc.stop(t + 0.55);
   }
 
   /** A small toy bell, two quick strikes, as an engine sets off. */
   bell(): void {
+    if (this.playClip("bell", 0.5, 0, this.vary(1))) return;
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted) return;
     this.wake(1600);
@@ -279,6 +306,7 @@ export class ToyAudio {
   crossingBell(volume: number, pan: number): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || volume <= 0.02) return;
+    if (this.playClip("crossingBell", volume * 0.5, pan, this.vary(1))) return;
     this.wake(1400);
     const t = ctx.currentTime;
     const panner = ctx.createStereoPanner();
@@ -307,7 +335,7 @@ export class ToyAudio {
 
   /**
    * A toy engine's whistle: two reedy notes a third apart, a breath of air under them, a short pip then a longer
-   * toot (an engine passing a whistle post). `volume` and `pan` as `listen` hears the engine: nearer the camera,
+   * toot (an engine passing a whistle post). `volume` and `pan` as `listen` hears the engine: bigger on screen,
    * louder. Rate-limited, so trains passing posts together don't blare: within 0.6 s of one only a clearly louder
    * (nearer) whistle is heard, and the one before it fades out under it. Returns whether it was heard.
    */
@@ -321,6 +349,11 @@ export class ToyAudio {
     }
     this.lastWhistle = now;
     this.lastWhistleVolume = volume;
+    const clip = this.startClip("whistle", volume * 0.6, pan, this.vary(1));
+    if (clip) {
+      this.whistleOut = clip;
+      return true;
+    }
     this.wake(1400);
     const t = ctx.currentTime;
     const out = ctx.createGain();
@@ -382,6 +415,7 @@ export class ToyAudio {
     const now = performance.now();
     if (now - this.lastGuardWhistle < GUARD_WHISTLE_GAP_MS) return false;
     this.lastGuardWhistle = now;
+    if (this.playClip("guardWhistle", Math.min(1, volume) * 0.5, pan, this.vary(1))) return true;
     this.wake(900);
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -462,6 +496,7 @@ export class ToyAudio {
   }
 
   crash(volume: number, pan: number): void {
+    if (this.playClip("crash", volume, pan, this.vary(1))) return;
     for (let i = 0; i < 5; i++) {
       setTimeout(() => this.knock(volume * (0.9 - i * 0.15), 260 + Math.random() * 500, 0.09, pan + (Math.random() - 0.5) * 0.3), i * 70 + Math.random() * 40);
     }
@@ -469,57 +504,69 @@ export class ToyAudio {
 
   /** A train lift setting off or arriving: a soft, deep wooden clunk and a click of its gear. */
   liftClunk(volume: number, pan: number): void {
+    if (this.playClip("liftClunk", volume * 0.6, pan, this.vary(1))) return;
     this.knock(volume * 0.5, 150 * this.vary(1), 0.16, pan);
     setTimeout(() => this.knock(volume * 0.22, 640 * this.vary(1), 0.03, pan), 45);
   }
 
-  private winding: { gain: GainNode; osc: OscillatorNode; lfo: OscillatorNode } | null = null;
-  private windingLevel = 0;
-
   /**
-   * A train lift's winding gear while it rides: a soft low whirr with a ratchet's flutter, level 0..1 (0: quiet, as
-   * when no lift rides or the game's paused). Built on first use; a call at the same level does nothing.
+   * One kind of engine's sound: `level` 0..1 from the number and size on screen of that kind's running engines, and
+   * `pace` 0..1 (how fast they run, of top speed) for the loop's pitch. Its recorded loop once the clip has loaded
+   * (gain follows level, rate follows pace), else the synthesised hum (level only, shared by the kinds without a
+   * loop). A hum already running when a clip arrives fades out at that kind's next change of level.
    */
-  setWinding(level: number): void {
+  setHum(level: number, pace = 0, kind: EngineSound = "steam"): void {
     const ctx = this.ctx;
-    const target = this.muted ? 0 : Math.min(1, Math.max(0, level)) * 0.03;
-    if (!ctx || !this.master || target === this.windingLevel || (!this.winding && target === 0)) return;
-    this.windingLevel = target;
-    this.wake(400);
-    if (!this.winding) {
-      const osc = ctx.createOscillator();
-      osc.type = "triangle";
-      osc.frequency.value = 130;
-      const lp = ctx.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.value = 520;
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      // The ratchet: the whirr's loudness fluttering a dozen times a second.
-      const flutter = ctx.createGain();
-      flutter.gain.value = 0.7;
-      const lfo = ctx.createOscillator();
-      lfo.type = "square";
-      lfo.frequency.value = 12;
-      const depth = ctx.createGain();
-      depth.gain.value = 0.3;
-      lfo.connect(depth).connect(flutter.gain);
-      osc.connect(lp).connect(flutter).connect(gain).connect(this.master);
-      osc.start();
-      lfo.start();
-      this.winding = { gain, osc, lfo };
-    }
-    this.winding.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.08);
+    const lvl = this.muted ? 0 : Math.min(1, Math.max(0, level));
+    const target = lvl * 0.045;
+    const rate = Math.min(1, Math.max(0, pace));
+    const was = this.humLevel[kind];
+    // (Called each frame trains run: a level and pace that've hardly changed, or silence that's already silent, does nothing.)
+    const levelSame = target === was || (target > 0 && Math.abs(target - was) < 0.0005);
+    const paceSame = Math.abs(rate - this.humPace[kind]) < 0.01;
+    if (!ctx || !this.master || (levelSame && paceSame) || (!this.hum && !this.loops[kind] && target === 0)) return;
+    this.humLevel[kind] = target;
+    this.humPace[kind] = rate;
+    this.wake(600);
+    const buffer = this.clips.get(ENGINE_CLIP[kind]);
+    if (buffer) {
+      this.synthHum[kind] = 0;
+      this.driveLoop(ctx, this.master, kind, buffer, lvl, rate);
+    } else this.synthHum[kind] = target;
+    this.driveSawHum(ctx, this.master);
   }
 
-  /** Motor hum level 0..1 from the number and nearness of running engines. */
-  setHum(level: number): void {
-    const ctx = this.ctx;
-    const target = this.muted ? 0 : Math.min(1, Math.max(0, level)) * 0.045;
-    // (Called each frame trains run: a level that's hardly changed, or silence that's already silent, does nothing.)
-    if (!ctx || !this.master || target === this.humLevel || (target > 0 && Math.abs(target - this.humLevel) < 0.0005) || (!this.hum && target === 0)) return;
-    this.humLevel = target;
-    this.wake(600);
+  /** A kind's loop at `lvl` (0..1): started when there's none, and at 0 faded out and stopped, so nothing keeps the context awake. */
+  private driveLoop(ctx: AudioContext, master: GainNode, kind: EngineSound, buffer: AudioBuffer, lvl: number, pace: number): void {
+    const t = ctx.currentTime;
+    let loop = this.loops[kind];
+    if (!loop) {
+      if (lvl === 0) return;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      src.connect(gain).connect(master);
+      src.start();
+      loop = this.loops[kind] = { gain, src };
+    }
+    const { gain, src } = loop;
+    src.playbackRate.setTargetAtTime(0.8 + 0.5 * pace, t, 0.15);
+    gain.gain.setTargetAtTime(lvl * 0.12, t, 0.15);
+    if (lvl === 0) {
+      src.stop(t + 0.15 * 5);
+      delete this.loops[kind];
+    }
+  }
+
+  /** The synthesised hum, at the kinds without a loaded loop's summed level: built when first needed, faded out and gone once none needs it. */
+  private driveSawHum(ctx: AudioContext, master: GainNode): void {
+    const target = Math.min(0.045, this.synthHum.steam + this.synthHum.diesel + this.synthHum.electric);
+    if (target === 0) {
+      this.retireHum(ctx);
+      return;
+    }
     if (!this.hum) {
       const osc = ctx.createOscillator();
       osc.type = "sawtooth";
@@ -534,11 +581,22 @@ export class ToyAudio {
       const lfoGain = ctx.createGain();
       lfoGain.gain.value = 6;
       lfo.connect(lfoGain).connect(osc.frequency);
-      osc.connect(lp).connect(gain).connect(this.master);
+      osc.connect(lp).connect(gain).connect(master);
       osc.start();
       lfo.start();
       this.hum = { gain, osc, lfo };
     }
     this.hum.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.15);
+  }
+
+  /** The synthesised hum fades out and goes. */
+  private retireHum(ctx: AudioContext): void {
+    const hum = this.hum;
+    if (!hum) return;
+    this.hum = null;
+    const t = ctx.currentTime;
+    hum.gain.gain.setTargetAtTime(0, t, 0.15);
+    hum.osc.stop(t + 0.15 * 5);
+    hum.lfo.stop(t + 0.15 * 5);
   }
 }

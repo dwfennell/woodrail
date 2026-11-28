@@ -458,7 +458,10 @@ if (want("lineside")) {
       w.__mine.props.push(post.id, frame.id, clock.id);
       return { post: post.id, frame: frame.id, clock: clock.id };
     }, built);
-    // Whistle: let the game run (not stepped by hand: the whistle comes from the frame loop's events).
+    // Whistle: let the game run (not stepped by hand: the whistle comes from the frame loop's events). The sound
+    // follows the view (heard only when the engine is on screen and drawn at least a few px across), so frame the post's stretch.
+    await p.evaluate((id) => window.woodrail.__look(id, 420), built.ids[3]);
+    await p.waitForTimeout(400);
     const whistle = await p.evaluate(async ({ ids }) => {
       const w = window.woodrail;
       let whistled = 0;
