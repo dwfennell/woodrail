@@ -1099,7 +1099,7 @@ export class Router {
    * by nobody and not pinned; their default is kept (the player's), and they go back to it once it has passed (it locks
    * them as they lie, step 7). True if thrown. Asked only when a ring has held, so a short walk is cheap.
    */
-  giveWayRoad(train: Train, avoid: ReadonlySet<number>): boolean {
+  giveWayRoad(train: Train, avoid: ReadonlySet<number>, onlyInto?: ReadonlyMap<number, number>): boolean {
     const { layout, sim } = this.host;
     const net = this.host.drive(train);
     if (net === 0 || train.derailed || train.bogies.length === 0) return false;
@@ -1120,8 +1120,32 @@ export class Router {
         if (!isPoints(layout, n.pieceId) || layout.isPinned(n.pieceId) || this.locks.has(n.pieceId) || sim.pointsHeld(n.pieceId)) return false;
         const now = pointsWayFrom(layout, n.pieceId, n.entry, ways.length);
         const need = trainLength(train) + 2 * STAND_SHORT;
+        // (`onlyInto`: thrown only where the road they lie for meets one of these pieces before the next points, entered
+        // from its other end (piece → the connector it's entered by there; −1: either way): a routed train standing on it,
+        // or granted it coming this way (the dispatcher's early give-way, `HAND_AHEAD`).)
+        if (onlyInto) {
+          const set = ways.find((w) => w.option === now);
+          if (!set) return false;
+          let meets = false;
+          walkOn(
+            layout,
+            n.pieceId,
+            set.exit,
+            (id, entry) => {
+              const v = onlyInto.get(id);
+              if (v !== undefined && (v === -1 || v !== entry)) meets = true;
+              return !meets;
+            },
+            WALK,
+          );
+          if (!meets) return false;
+        }
         for (const w of ways) {
           if (w.option === now || !this.roadFree(n.pieceId, w.exit, need, train.id, avoid)) continue;
+          // (Early (`onlyInto`): a road on to more points (a loop's other road), never into a dead end, where it would
+          // stand in the way of a routed train's stop there (wye 2×mix: sent up the branch, the routed one came to its
+          // stop on it, and the two stood nose to nose for good).)
+          if (onlyInto && walkOn(layout, n.pieceId, w.exit, (id) => !isPoints(layout, id), WALK) === "end") continue;
           this.laid();
           layout.setSwitchState(n.pieceId, pointsStateFor(layout, n.pieceId, n.entry, w.option));
           this.gaveWayThrows++;

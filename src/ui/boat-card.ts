@@ -1,11 +1,11 @@
 import type { BoatStopAction } from "../economy";
 
 /**
- * A boat's card (Game mode's River barges; docs/superpowers/specs/2026-11-04-water-transport.md §7): its name and
- * barges, what it carries, what it's doing, its route as numbered chips (a tap on one changes what it does there),
- * ✎ Route to plan (taps on landings add stops), and Go/Stop; more barges are built for it at a boatyard. Laid out as
- * the engine card is; drawn again
- * only when what it shows changes (`show` compares a key), never per frame for nothing.
+ * A boat's card (Game mode's River barges; docs/superpowers/specs/2026-11-04-water-transport.md §7), in the cards' one
+ * layout (docs/agents/card-system.md): its name and barges at the head; what it carries and what it's doing; its route
+ * as a row a stop (a tap on a stop's action changes what it does there, its ✕ takes it off while planning); ✎ Route
+ * (Done while planning: taps on landings add stops) and Go/Stop at the foot; more barges are built for it at a
+ * boatyard. Drawn again only when what it shows changes (`show` compares a key), never per frame for nothing.
  */
 
 export interface BoatCardStop {
@@ -78,37 +78,48 @@ export class BoatCard {
   private render(v: BoatCardView): void {
     const el = this.el;
     el.innerHTML = "";
-    const head = div("route-head");
-    const sw = document.createElement("span");
-    sw.className = "route-swatch";
-    sw.style.background = BOAT_LINE;
-    const title = document.createElement("b");
-    title.className = "boat-name";
-    title.textContent = v.name;
-    const what = document.createElement("span");
-    what.className = "route-none";
-    what.textContent = `tug and ${v.barges === 1 ? "a barge" : `${v.barges} barges`}`;
-    head.append(sw, title, what);
-    el.append(head);
-    el.append(text("depot-stock boat-load", v.load));
-    el.append(text("route-hint boat-status", v.planning ? "Tap landings on this river, in order: each is a stop." : v.status));
-    // The route: a chip a stop, numbered; a tap changes what the boat does there.
-    const stops = div("route-stops boat-stops");
-    v.stops.forEach((s, i) => {
-      const chip = button(`chip text route-chip has-goods${s.current ? " next" : ""}`, "", `Stop ${i + 1}: ${s.label}. Tap to change what the boat does here`, () => this.h.cycleStop(i));
-      chip.style.setProperty("--line", BOAT_LINE);
-      chip.innerHTML = `<span class="route-num">${i + 1}</span> ${escapeHtml(s.label)}<span class="route-goods">${ACTION_LABEL[s.action]}</span>`;
-      stops.append(chip);
-      if (v.planning && v.stops.length > 1) stops.append(button("chip text boat-unstop", "✕", `Take ${s.label} off the route`, () => this.h.removeStop(i)));
-    });
-    stops.append(button(`chip text route-plan${v.planning ? " on" : ""}`, v.planning ? "Done" : "✎ Route", v.planning ? "Done planning" : "Plan this boat's route: tap landings in order", () => this.h.plan(!v.planning)));
-    el.append(stops);
-    const row = div("card-row boat-actions");
-    const go = button(`chip text${v.going ? "" : " primary"}`, v.going ? `<span class="go-icon">■</span> Stop` : "Go", v.going ? "Stop the boat where it is" : "Set the boat going", () => this.h.goStop());
-    row.append(go);
-    el.append(row);
-    if (v.more) el.append(text("card-hint boat-more", v.more));
+    el.classList.toggle("planning-boat", v.planning);
+    // Head, as every place's card's: ✕ at the corner, the name on its own line, what it is under it.
     el.append(button("close", "✕", "Close", () => this.h.close()));
+    const title = div("card-title boat-name");
+    title.textContent = v.name;
+    el.append(title);
+    el.append(text("card-sub boat-kind", `Tug and ${v.barges === 1 ? "a barge" : `${v.barges} barges`}`));
+    // Body: what it carries and what it's doing (each kept two lines tall, so the card doesn't jump as they change).
+    el.append(text("card-line boat-load", v.load));
+    el.append(text("card-line live boat-status", v.planning ? "Tap landings on this river, in order: each one is a stop." : v.status));
+    // The route: a row a stop, on the river's blue rail: its number, its landing, what the boat does there (a tap
+    // changes it), and while planning its own ✕ at the row's end.
+    const stops = document.createElement("ol");
+    stops.className = "boat-stops";
+    stops.style.setProperty("--line", BOAT_LINE);
+    v.stops.forEach((s, i) => {
+      const row = document.createElement("li");
+      row.className = `boat-stop${s.current ? " next" : ""}`;
+      const num = document.createElement("span");
+      num.className = "boat-stop-num";
+      num.textContent = String(i + 1);
+      const name = document.createElement("span");
+      name.className = "boat-stop-name";
+      name.textContent = s.label;
+      row.append(num, name, button("chip text boat-stop-action", ACTION_LABEL[s.action], `Stop ${i + 1}, ${s.label}: ${ACTION_LABEL[s.action]}. Tap to change what the boat does here`, () => this.h.cycleStop(i)));
+      if (v.planning && v.stops.length > 1) row.append(button("boat-unstop", "✕", `Take ${s.label} off the route`, () => this.h.removeStop(i)));
+      stops.append(row);
+    });
+    // (Planning: where the next tap goes, a pencilled row of its own.)
+    if (v.planning) {
+      const next = document.createElement("li");
+      next.className = "boat-stop boat-stop-next";
+      next.innerHTML = `<span class="boat-stop-num">${v.stops.length + 1}</span><span class="boat-stop-name">Tap a landing</span>`;
+      stops.append(next);
+    }
+    el.append(stops);
+    // Actions: Route (Done while planning) and Go / Stop, side by side at the foot; one painted block at a time.
+    const row = div("card-actions boat-actions");
+    row.append(button(`chip text route-plan${v.planning ? " on" : ""}`, v.planning ? "Done" : "✎ Route", v.planning ? "Done planning" : "Plan this boat's route: tap landings in order", () => this.h.plan(!v.planning)));
+    row.append(button(`chip text boat-go${v.going ? " going" : " primary"}`, v.going ? `<span class="go-icon">■</span> Stop` : "Go", v.going ? "Stop the boat where it is" : "Set the boat going", () => this.h.goStop()));
+    el.append(row);
+    if (v.more) el.append(text("card-foot boat-more", v.more));
   }
 }
 
@@ -138,6 +149,3 @@ function button(cls: string, html: string, title: string, onClick: () => void): 
   return b;
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-}

@@ -5,8 +5,8 @@
 // options say what Drop & pick up does there): it runs, and planks are dropped at the warehouse. Then a second train, its
 // route warehouse → town by taps: planks are picked up there and delivered to the town. Goods counted by the crane's
 // own events. The warehouse's own setting per good, by taps: before anything arrives, planks listed ("+ Add a good")
-// and set to Takes only: route 1 still drops them, route 2 picks none up and its card says why ("Not picking up
-// planks: the warehouse is set to Takes only"); set back to Takes and gives, route 2 takes them to the town. Last, a
+// and set to Takes only: route 1 still drops them, route 2 picks none up and its card says why ("Warehouse only
+// takes planks: it won't give any"); set back to Takes and gives, route 2 takes them to the town. Last, a
 // mine on the line set by a tap to give coal only: a hopper train there leaves with coal only. Then a hopper's own
 // card: coal switched off and "Same for all wagons like this on this train": the train leaves with ore only.
 //
@@ -347,7 +347,7 @@ if (!setup.error && setup.engine !== -1) {
   check("route 2 planned by taps: warehouse, town", JSON.stringify(stops2) === JSON.stringify([warehouse, town]), JSON.stringify(stops2));
   const routeCard = () => p.evaluate(() => ({ goods: [...document.querySelectorAll(".engine-extra .route-chip")].map((c) => c.querySelector(".route-goods")?.textContent ?? ""), warn: [...document.querySelectorAll(".engine-extra .route-store-block")].map((e) => e.textContent) }));
   const held2 = await routeCard();
-  check("…planks Takes only: nothing to pick up at the warehouse, and the card says why", JSON.stringify(held2.goods) === JSON.stringify(["", ""]) && JSON.stringify(held2.warn) === JSON.stringify(["Not picking up planks: the warehouse is set to Takes only"]), JSON.stringify(held2));
+  check("…planks Takes only: nothing to pick up at the warehouse, and the card says why", JSON.stringify(held2.goods) === JSON.stringify(["", ""]) && held2.warn.length === 1 && /^Warehouse( \d+)? only takes planks: it won't give any$/.test(held2.warn[0]), JSON.stringify(held2));
   await shot("6a-route-2-takes-only");
   await p.keyboard.press("Escape");
   const kept = await planks(warehouse);

@@ -843,7 +843,7 @@ interface Branch {
 /** Per booked way (its `pos`, shared by the copies `relocate` makes): each node's branches. */
 const branchCache = new WeakMap<Int32Array[], Map<number, Branch[]>>();
 
-function branchesOf(t: DTrain, i: number): Branch[] {
+export function branchesOf(t: DTrain, i: number): Branch[] {
   let m = branchCache.get(t.pos);
   if (!m) branchCache.set(t.pos, (m = new Map()));
   const got = m.get(i);

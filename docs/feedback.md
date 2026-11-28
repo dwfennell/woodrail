@@ -86,7 +86,7 @@ Worker's `cloud/src/crash.ts`).
 
 | Field | Holds |
 | --- | --- |
-| `kind` | `error`, `rejection` or `context-lost` |
+| `kind` | `error`, `rejection`, `context-lost` or `save-mended` (a Game save that loaded lossily: the message names only what was cut or left out, by count, e.g. `save loaded lossily: dropped trains×1`) |
 | `message` | the error's message, 300 characters at most |
 | `stack` | its stack, links cut to `file:line:col` (no host, no query, no `#…`), 2000 characters at most |
 | `build` | the build id |

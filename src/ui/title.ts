@@ -6,7 +6,7 @@ import { blockWord } from "./blocks";
 export interface TitleHandlers {
   /** Play a mode: carry on with its autosave, or start it afresh. */
   play(mode: GameMode, fresh: boolean): void;
-  /** "Load a cloud save" (shown only when given: a build with a cloud): open the code entry over the title. */
+  /** "Load with a code" (shown only when given: a build with a cloud): open the code entry over the title. */
   loadCloud?(): void;
   /**
    * "Continue from cloud" on a mode's card (`setCloudOffers`): carry on with that railway. A message back: it couldn't
@@ -20,6 +20,11 @@ export interface TitleHandlers {
 export interface TitleOptions {
   /** Rendered tray pictures by key, to illustrate the cards (optional). */
   thumbnails?: ReadonlyMap<string, string> | null;
+  /**
+   * Said over "Load with a code", which is then the foot's main button: where this browser may forget the page's
+   * saves (an iPhone's in itch's frame), the code is the way back, and a returning player wants it first.
+   */
+  cloudNote?: string;
 }
 
 /** The pictures on the cards: a piece (carved before the title shows) and a train. */
@@ -98,7 +103,14 @@ export class TitleScreen {
     }
     if (handlers.loadCloud) {
       const foot = this.root.querySelector<HTMLElement>(".title-foot")!;
-      foot.append(button("☁ Load a cloud save", "Carry on with a railway saved on another device: type its code", "title-cloud", () => handlers.loadCloud!()));
+      if (opts.cloudNote) {
+        const note = document.createElement("p");
+        note.className = "title-cloud-note";
+        note.textContent = opts.cloudNote;
+        foot.append(note);
+      }
+      foot.append(button("☁ Load with a code", "Carry on with a railway saved online: type its code (three words and four numbers)", `title-cloud${opts.cloudNote ? " main" : ""}`, () => handlers.loadCloud!()));
+      foot.classList.toggle("noted", !!opts.cloudNote);
       foot.hidden = false;
     }
     parent.appendChild(this.root);

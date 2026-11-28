@@ -17,6 +17,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
 import { quiet } from "../../scripts/e2e/lib/shot.mjs";
+import { still } from "../../scripts/e2e/lib/still.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/learn-more";
@@ -66,6 +67,9 @@ const centre = (sel) =>
     return [r.left + r.width / 2, r.top + r.height / 2];
   }, sel);
 const tapSel = async (sel) => {
+  // (Measured once it stands still: the place card pops back in, scaled, as the sheet goes, and Learn more measured
+  // mid-pop was missed: 3's "Learn more again opens it" red.)
+  await still(p, sel, undefined, 10000);
   const at = await centre(sel);
   if (at) await tapAt(...at);
   return !!at;

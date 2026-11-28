@@ -4,7 +4,7 @@ import { AIRPORT_LOUNGE, AIRSHIP_SEATS, CARGO_KINDS, CARGO_SLOTS, KIT_DEPOT_ROLE
 import { MAX_CONNECTORS, PIECE_TYPES, type PieceTypeId } from "../track";
 import { MAX_VIAS } from "../game/lines";
 import { BARGE_LOADS, MAX_BARGES, MAX_BOATS } from "../game/boats";
-import { JOURNAL_CAP } from "../game/journal";
+import { JOURNAL_CAP, JOURNAL_KEY_MAX, JOURNAL_POINTS_MAX, JOURNAL_TEXT_MAX } from "../game/journal";
 import { landscapeSchema } from "./landscape-schema";
 import { MAX_PILE, MAX_RIDERS, MAX_SAVED_SPEED, SAVE_VERSION } from "./save-limits";
 
@@ -199,8 +199,8 @@ export const saveSchema = z.object({
   yards: z
     .array(z.object({ depot: z.number().int().min(0), build: z.enum(["tug", "barge", "ship", "ferry"]), got: z.record(z.string(), z.number().int().min(0).max(100)) }))
     .optional(),
-  /** Cargo ships and train ferries built at shipyards; absent: none. */
-  built: z.object({ ships: z.number().int().min(0).max(999), ferries: z.number().int().min(0).max(999) }).optional(),
+  /** Cargo ships and train ferries built at shipyards; absent: none. (No limit: the game builds as many as are paid for.) */
+  built: z.object({ ships: z.number().int().min(0), ferries: z.number().int().min(0) }).optional(),
   /** Placed catalogue models (optional: saves from before props load with none). */
   props: z
     .array(
@@ -231,10 +231,10 @@ export type SaveData = z.infer<typeof saveSchema>;
  */
 export const sessionEntry = z.object({
   kind: z.enum(["event", "milestone"]),
-  text: z.string().max(2000),
-  place: z.object({ x: z.number().finite(), z: z.number().finite(), points: z.array(z.object({ x: z.number().finite(), z: z.number().finite() })).max(64).optional() }).optional(),
+  text: z.string().max(JOURNAL_TEXT_MAX),
+  place: z.object({ x: z.number().finite(), z: z.number().finite(), points: z.array(z.object({ x: z.number().finite(), z: z.number().finite() })).max(JOURNAL_POINTS_MAX).optional() }).optional(),
   time: z.number().finite(),
-  key: z.string().max(500).optional(),
+  key: z.string().max(JOURNAL_KEY_MAX).optional(),
   count: z.number().int().min(1),
   qty: z.number().finite(),
   seq: z.number().int().min(0),

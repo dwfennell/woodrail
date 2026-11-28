@@ -69,13 +69,16 @@ export type Reply<T> = { ok: true; value: T } | { ok: false; status: number };
 export interface CloudBackend {
   /** The cloud's clock less this device's, as last heard (ms; 0 till then): how far off this one is. */
   readonly clockOffset?: number;
-  head(code: string, mode: GameMode): Promise<Reply<RemoteMeta | null>>;
-  get(code: string, mode: GameMode): Promise<Reply<{ meta: RemoteMeta; bytes: Uint8Array } | null>>;
+  /** `prev`: the copy the cloud keeps one step back (the railway as it was before the player last sat down to play). */
+  head(code: string, mode: GameMode, prev?: boolean): Promise<Reply<RemoteMeta | null>>;
+  get(code: string, mode: GameMode, prev?: boolean): Promise<Reply<{ meta: RemoteMeta; bytes: Uint8Array } | null>>;
   /**
    * Stored only if the copy there is still `base` (its `savedAt`; 0: none), else a 409. `kind`: has it a layout edit
-   * (since the copy it was made from)? The answer: when the cloud stored it, by its clock (0: not said).
+   * (since the copy it was made from)? `keepPrev`: the copy it replaces is kept one step back (a restore's first copy
+   * up: the one it went back from stays there to go back to). The answer: when the cloud stored it, by its clock (0:
+   * not said).
    */
-  put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, edit: { kind: EditKind; at: number }, keepalive: boolean): Promise<Reply<{ storedAt: number }>>;
+  put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, edit: { kind: EditKind; at: number; keepPrev?: boolean }, keepalive: boolean): Promise<Reply<{ storedAt: number }>>;
 }
 
 export type KeyStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -106,6 +109,8 @@ interface ModeMeta {
    * page closed has no answer here: found in the cloud at the next start, it's known as this device's own.
    */
   sentAt: number;
+  /** A restore's: the next copy up asks the cloud to keep the one it replaces one step back (`CloudBackend.put`). */
+  keepPrev?: boolean;
 }
 
 interface Meta {
@@ -140,7 +145,8 @@ export interface CloudSlots {
   parkOpen(mode: GameMode): Promise<boolean>;
 }
 
-export type UseCodeResult = { ok: true; took: GameMode[] } | { ok: false; error: "malformed" | "nothing" | "offline" | "newer" };
+/** `tries`: the cloud turned the lookup away (too many tries from this connection a minute: wrong codes count most). */
+export type UseCodeResult = { ok: true; took: GameMode[] } | { ok: false; error: "malformed" | "nothing" | "offline" | "newer" | "tries" };
 
 export interface CloudOptions {
   /** How progress is merged (none: a conflict is always one copy or the other). */
@@ -425,6 +431,7 @@ export class CloudSync {
 
   private async takeCode(code: string): Promise<UseCodeResult> {
     const heads = await Promise.all(MODES.map((m) => this.o.backend.head(code, m)));
+    if (heads.some((h) => !h.ok && h.status === 429)) return { ok: false, error: "tries" };
     if (heads.some((h) => !h.ok)) return { ok: false, error: "offline" };
     const remote = heads.map((h) => (h.ok ? h.value : null));
     if (remote.every((r) => r === null)) return { ok: false, error: "nothing" };
@@ -503,11 +510,52 @@ export class CloudSync {
       const m = this.meta.modes[mode];
       await this.keepBackup(mode, this.bundleHere(mode, m.changedAt || this.o.now()));
       if (!this.apply(bundle)) return false;
+      this.meta.modes[mode].keepPrev = true;
       this.edited(mode);
       return true;
     } finally {
       this.working = false;
     }
+  }
+
+  /**
+   * The copy the cloud keeps one step back for the code in use (the railway as it was before the player last sat down
+   * to play): when it was saved, or null: none (or not now: offline, cloud off, or it's the copy here already).
+   */
+  async earlier(mode: GameMode): Promise<{ savedAt: number } | null> {
+    const code = this.meta.code;
+    if (!code) return null;
+    const h = await this.o.backend.head(code, mode, true);
+    if (!h.ok || !h.value || h.value.saveVersion > this.o.saveVersion || h.value.savedAt === this.meta.modes[mode].remoteSavedAt) return null;
+    return { savedAt: h.value.savedAt };
+  }
+
+  /**
+   * Go back to the cloud's earlier copy (`earlier`): it becomes the mode's railway, the one here kept as the backup,
+   * and it goes up at once asking the cloud to keep the one it replaces one step back, so going back can be undone the
+   * same way, from this device or another. False: it couldn't (offline, gone, no room).
+   */
+  async restoreEarlier(mode: GameMode): Promise<boolean> {
+    const code = this.meta.code;
+    if (!code || this.working) return false;
+    this.working = true;
+    try {
+      const got = await this.o.backend.get(code, mode, true);
+      if (!got.ok || !got.value || got.value.meta.saveVersion > this.o.saveVersion) return false;
+      const bundle = await this.readBundle(got.value.bytes, mode);
+      if (!bundle) return false;
+      if (this.o.slots?.isOther(mode, bundle.keys) && !(await this.o.slots.parkOpen(mode))) return false;
+      const m = this.meta.modes[mode];
+      if (this.o.storage.getItem(this.o.keys[mode][0]) !== null) await this.keepBackup(mode, this.bundleHere(mode, m.changedAt || this.o.now()));
+      if (!this.apply(bundle)) return false;
+      m.keepPrev = true;
+      this.edited(mode);
+    } finally {
+      this.working = false;
+    }
+    // (Up now, not with the next round: the page starts again on it, and another device sees it.)
+    await this.flush();
+    return true;
   }
 
   /**
@@ -690,7 +738,7 @@ export class CloudSync {
       const bytes = await gzip(JSON.stringify(bundleOf(mode, savedAt, this.o.saveVersion, keys)));
       // (A layout edit goes with when it was made, on the cloud's clock: QA saw a later edit lose to an earlier one
       // stored later.)
-      const edit = { kind: (m.layout ? "layout" : "progress") as EditKind, at: m.layoutAt + (this.o.backend.clockOffset ?? 0) };
+      const edit = { kind: (m.layout ? "layout" : "progress") as EditKind, at: m.layoutAt + (this.o.backend.clockOffset ?? 0), ...(m.keepPrev ? { keepPrev: true } : {}) };
       const res = await this.o.backend.put(code, mode, bytes, { savedAt, saveVersion: this.o.saveVersion }, m.remoteSavedAt, edit, leaving && bytes.byteLength <= KEEPALIVE_MAX);
       // (Turned off, or another code taken, meanwhile.)
       if (this.meta.code !== code) return;
@@ -699,6 +747,7 @@ export class CloudSync {
         m.remoteSavedAt = savedAt;
         m.remoteStoredAt = res.value.storedAt;
         m.sentAt = 0;
+        delete m.keepPrev;
         this.sent[mode] = keys;
         this.writeBase(mode, Object.fromEntries(keys));
         if (gen === this.gen[mode]) {
@@ -947,15 +996,15 @@ export class WorkerBackend implements CloudBackend {
     private readonly gameVersion: string,
   ) {}
 
-  async head(code: string, mode: GameMode): Promise<Reply<RemoteMeta | null>> {
-    const res = await this.call("HEAD", code, mode);
+  async head(code: string, mode: GameMode, prev = false): Promise<Reply<RemoteMeta | null>> {
+    const res = await this.call("HEAD", code, mode, {}, prev);
     if (!res) return { ok: false, status: 0 };
     if (res.status === 404) return { ok: true, value: null };
     return res.ok ? { ok: true, value: metaOf(res) } : { ok: false, status: res.status };
   }
 
-  async get(code: string, mode: GameMode): Promise<Reply<{ meta: RemoteMeta; bytes: Uint8Array } | null>> {
-    const res = await this.call("GET", code, mode);
+  async get(code: string, mode: GameMode, prev = false): Promise<Reply<{ meta: RemoteMeta; bytes: Uint8Array } | null>> {
+    const res = await this.call("GET", code, mode, {}, prev);
     if (!res) return { ok: false, status: 0 };
     if (res.status === 404) return { ok: true, value: null };
     if (!res.ok) return { ok: false, status: res.status };
@@ -966,7 +1015,7 @@ export class WorkerBackend implements CloudBackend {
     }
   }
 
-  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, edit: { kind: EditKind; at: number }, keepalive: boolean): Promise<Reply<{ storedAt: number }>> {
+  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, edit: { kind: EditKind; at: number; keepPrev?: boolean }, keepalive: boolean): Promise<Reply<{ storedAt: number }>> {
     const res = await this.call("PUT", code, mode, {
       body: bytes as BodyInit,
       keepalive,
@@ -978,15 +1027,16 @@ export class WorkerBackend implements CloudBackend {
         "X-Base-Saved-At": String(base),
         "X-Edit-Kind": edit.kind,
         "X-Edited-At": String(Math.round(edit.at)),
+        ...(edit.keepPrev ? { "X-Keep-Prev": "1" } : {}),
       },
     });
     if (!res) return { ok: false, status: 0 };
     return res.ok ? { ok: true, value: { storedAt: Number(res.headers.get("X-Stored-At") ?? 0) } } : { ok: false, status: res.status };
   }
 
-  private async call(method: string, code: string, mode: GameMode, init: { body?: BodyInit; keepalive?: boolean; headers?: Record<string, string> } = {}): Promise<Response | null> {
+  private async call(method: string, code: string, mode: GameMode, init: { body?: BodyInit; keepalive?: boolean; headers?: Record<string, string> } = {}, prev = false): Promise<Response | null> {
     try {
-      const res = await fetch(`${this.base.replace(/\/$/, "")}/v1/saves/${mode}`, {
+      const res = await fetch(`${this.base.replace(/\/$/, "")}/v1/saves/${mode}${prev ? "?prev=1" : ""}`, {
         method,
         body: init.body,
         keepalive: init.keepalive,

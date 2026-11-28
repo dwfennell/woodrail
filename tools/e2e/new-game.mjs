@@ -20,6 +20,9 @@ import { still } from "../../scripts/e2e/lib/still.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/new-game";
+/** A picture for the record, not a check: a slow frame under SwiftShader (30 s and more for one at 844×390 on a busy
+ * machine) waits longer, and one that still doesn't come is said and passed over, never the suite's end. */
+const picture = (p, path) => p.screenshot({ path, timeout: 120000 }).catch((e) => console.log(`(no picture ${path}: ${e.message.split("\n")[0]})`));
 mkdirSync(OUT, { recursive: true });
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5398, strictPort: false }, logLevel: "error" });
 await server.listen();
@@ -160,7 +163,7 @@ const land = (p) =>
   check("…all on the screen, no sideways scroll", s.scrollW <= 390 && s.all.every((c) => c.l >= 0 && c.r <= 390 && c.b <= s.start.t), JSON.stringify({ scrollW: s.scrollW, scroll: s.bodyScroll }));
   check("…Start says Start", s.start.text === "Start", s.start.text);
   await p.waitForTimeout(600);
-  await p.screenshot({ path: `${OUT}/new-game-1-sheet.png` });
+  await picture(p, `${OUT}/new-game-1-sheet.png`);
   await p.waitForTimeout(500);
   const drawn0 = await p.evaluate(() => window.woodrail.framesDrawn);
   await p.waitForTimeout(1200);
@@ -171,7 +174,7 @@ const land = (p) =>
   s = await sheet(p);
   check("a tap on Mountainous picks it (and only it)", s.picked === "mountains" && s.chips.filter((c) => c.on).length === 1 && /High hills/.test(s.blurb), JSON.stringify({ picked: s.picked, blurb: s.blurb }));
   await p.waitForTimeout(600);
-  await p.screenshot({ path: `${OUT}/new-game-2-mountainous.png` });
+  await picture(p, `${OUT}/new-game-2-mountainous.png`);
   await tap(p, ".new-game-back");
   s = await sheet(p);
   const still = await p.evaluate(() => ({ title: window.woodrail.title.shown }));
@@ -209,7 +212,7 @@ const land = (p) =>
   s = await sheet(p);
   check("…it asks with the screen: New game, saying in two lines that this game is kept in Your games and the new one starts afresh", s.open && s.title === "New game" && /This game is kept in Your games\.\nThe new one starts from scratch\./.test(s.warn) && s.warnLines === 2, JSON.stringify({ open: s.open, warn: s.warn, lines: s.warnLines }));
   await p.waitForTimeout(600);
-  await p.screenshot({ path: `${OUT}/new-game-3-in-play.png` });
+  await picture(p, `${OUT}/new-game-3-in-play.png`);
   await tap(p, ".new-game-back");
   const backIn = await p.evaluate(() => ({ open: !document.querySelector(".new-game-sheet").hidden, mode: window.woodrail.mode(), title: window.woodrail.title.shown, hills: window.woodrail.landscape.hills }));
   check("…Back returns to the game as it was (nothing new made)", !backIn.open && backIn.mode === "game" && !backIn.title && backIn.hills === "flat", JSON.stringify(backIn));
@@ -222,7 +225,7 @@ const land = (p) =>
   const side = [s.back, s.start, s.seed, s.dice, ...s.all].filter((c) => c.t < 0 || c.b > 390 || c.l < 0 || c.r > 844 || c.h < 44);
   check("on its side (844×390): the screen fills it, Back, the seed, every row's chips and Start all on it without a scroll, 44 px or more, the warning kept", s.open && s.card.w === 844 && s.card.h === 390 && side.length === 0 && s.bodyScroll <= 1 && /This game is kept in Your games\.\nThe new one starts from scratch\./.test(s.warn) && s.warnLines >= 1 && s.warnLines <= 2, JSON.stringify({ card: s.card, side, scroll: s.bodyScroll, lines: s.warnLines }));
   await p.waitForTimeout(600);
-  await p.screenshot({ path: `${OUT}/new-game-3b-in-play-sideways.png` });
+  await picture(p, `${OUT}/new-game-3b-in-play-sideways.png`);
   await tap(p, ".new-game-back");
   await p.setViewportSize({ width: 390, height: 844 });
   await p.waitForTimeout(800);
@@ -307,7 +310,7 @@ const wet = (p) =>
   s = await sheet(p);
   check("…then 4242, Gentle, no water, no sea picked by taps", s.seed.value === "4242" && s.picked === "gentle" && s.pickedWater === "none" && s.pickedCoast === "false", JSON.stringify({ seed: s.seed.value, picked: s.picked, water: s.pickedWater, coast: s.pickedCoast }));
   await p.waitForTimeout(600);
-  await p.screenshot({ path: `${OUT}/new-game-1b-all-rows.png` });
+  await picture(p, `${OUT}/new-game-1b-all-rows.png`);
   await tap(p, ".new-game-start");
   await inGame(p);
   await settle(p);
@@ -356,7 +359,7 @@ const wet = (p) =>
   const side = [s.back, s.start, s.seed, s.dice, ...s.all].filter((c) => c.t < 0 || c.b > 390 || c.l < 0 || c.r > 844 || c.h < 44);
   check("on its side from the title (844×390): every row and Start on it without a scroll", s.open && side.length === 0 && s.bodyScroll <= 1, JSON.stringify({ side, scroll: s.bodyScroll }));
   await p.waitForTimeout(600);
-  await p.screenshot({ path: `${OUT}/new-game-1c-sideways.png` });
+  await picture(p, `${OUT}/new-game-1c-sideways.png`);
   await ctx.close();
 }
 
@@ -376,7 +379,7 @@ const wet = (p) =>
     await settle(p);
     await p.waitForTimeout(1500);
     seen[water] = await wet(p);
-    await p.screenshot({ path: `${OUT}/new-game-8-water-${water}.png` });
+    await picture(p, `${OUT}/new-game-8-water-${water}.png`);
     await ctx.close();
   }
   const r = seen;
@@ -399,7 +402,7 @@ const wet = (p) =>
     await settle(p);
     await p.waitForTimeout(1500);
     seen[hills] = await land(p);
-    await p.screenshot({ path: `${OUT}/new-game-${file}.png` });
+    await picture(p, `${OUT}/new-game-${file}.png`);
     check(`the first game on ${label}: the starter map, saved as ${label}`, seen[hills].starter && (seen[hills].hills === hills || (hills === "hilly" && seen[hills].hills === "(none)")), JSON.stringify(seen[hills]));
     await ctx.close();
   }

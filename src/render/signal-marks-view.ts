@@ -11,6 +11,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { kitModelKey } from "./props/library";
 import type { Materials } from "./materials";
 import { SEMAPHORE_CLEAR } from "./kit-motions";
+import { nonIndexed } from "./non-indexed";
 
 
 /** What the view reads of the sim: each mark's aspect (true: clear). */
@@ -182,7 +183,7 @@ function toyLight(mats: Materials): Part[] {
   // front-facing lights are fine".)
   const lamp = (y: number) => {
     const arrow = chevron().translate(CHEVRON_TIP, 0, CHEVRON_OUT);
-    const g = mergeGeometries([lens(LENS_R + 0.3, y, headX - 1.2).toNonIndexed(), arrow.toNonIndexed()]);
+    const g = mergeGeometries([nonIndexed(lens(LENS_R + 0.3, y, headX - 1.2)), nonIndexed(arrow)]);
     if (!g) throw new Error("signal lamp: geometries don't merge");
     return g;
   };

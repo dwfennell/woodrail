@@ -36,21 +36,32 @@ class FakeCloud implements CloudBackend {
   /** The cloud's own clock, when a test has one: copies are stored at its time (`storedAt`). */
   server: { t: number } | null = null;
   reply429 = false;
-  async head(code: string, mode: GameMode): Promise<Reply<RemoteMeta | null>> {
+  /** Lookups turned away (too many tries from here: the Worker's `CODE_LIMIT`). */
+  tooManyTries = false;
+  /** The copy kept one step back, as the Worker keeps it (moved there on a PUT asking, or when there's none yet). */
+  readonly prevs = new Map<string, { meta: RemoteMeta; bytes: Uint8Array }>();
+  /** Each PUT's `keepPrev`, in order. */
+  readonly keptPrev: boolean[] = [];
+  async head(code: string, mode: GameMode, prev = false): Promise<Reply<RemoteMeta | null>> {
     if (this.offline) return { ok: false, status: 0 };
-    return { ok: true, value: this.saves.get(`${code}/${mode}`)?.meta ?? null };
+    if (this.tooManyTries) return { ok: false, status: 429 };
+    return { ok: true, value: (prev ? this.prevs : this.saves).get(`${code}/${mode}`)?.meta ?? null };
   }
-  async get(code: string, mode: GameMode): Promise<Reply<{ meta: RemoteMeta; bytes: Uint8Array } | null>> {
+  async get(code: string, mode: GameMode, prev = false): Promise<Reply<{ meta: RemoteMeta; bytes: Uint8Array } | null>> {
     if (this.offline) return { ok: false, status: 0 };
-    return { ok: true, value: this.saves.get(`${code}/${mode}`) ?? null };
+    if (this.tooManyTries) return { ok: false, status: 429 };
+    return { ok: true, value: (prev ? this.prevs : this.saves).get(`${code}/${mode}`) ?? null };
   }
-  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, edit: { kind: EditKind; at: number }): Promise<Reply<{ storedAt: number }>> {
+  async put(code: string, mode: GameMode, bytes: Uint8Array, meta: RemoteMeta, base: number, edit: { kind: EditKind; at: number; keepPrev?: boolean }): Promise<Reply<{ storedAt: number }>> {
     const kind = edit.kind;
     if (this.offline) return { ok: false, status: 0 };
     if (this.reply429) return { ok: false, status: 429 };
     if ((this.saves.get(`${code}/${mode}`)?.meta.savedAt ?? 0) !== base) return { ok: false, status: 409 };
     this.puts++;
-    const was = this.saves.get(`${code}/${mode}`)?.meta;
+    this.keptPrev.push(!!edit.keepPrev);
+    const old = this.saves.get(`${code}/${mode}`);
+    if (old && (edit.keepPrev || !this.prevs.has(`${code}/${mode}`))) this.prevs.set(`${code}/${mode}`, old);
+    const was = old?.meta;
     const storedAt = this.server ? this.server.t : meta.savedAt;
     const layout = kind === "layout";
     this.saves.set(`${code}/${mode}`, {
@@ -1137,5 +1148,58 @@ describe("cloud saves with several games (persist/slots.ts)", () => {
     await a.sync.takeNewer("game");
     expect(a.store.getItem("g.save")).toBeNull();
     expect(a.slots.list()).toEqual([]);
+  });
+});
+
+describe("the cloud's earlier copy, and too many tries", () => {
+  it("offers the copy the cloud kept one step back, and going back to it keeps the one it replaced to go back to", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.save("sandbox", "before");
+    const code = (await a.sync.enable())!;
+    // (Nothing one step back yet: the first copy.)
+    expect(await a.sync.earlier("sandbox")).toBeNull();
+    a.clock.t += 60_000;
+    a.save("sandbox", "after");
+    await a.tick();
+    const earlier = await a.sync.earlier("sandbox");
+    expect(earlier).not.toBeNull();
+    expect(earlier!.savedAt).toBe(cloud.prevs.get(`${code}/sandbox`)!.meta.savedAt);
+    a.clock.t += 60_000;
+    expect(await a.sync.restoreEarlier("sandbox")).toBe(true);
+    // Here: the earlier railway, the one it replaced kept as the backup; up at once, asking the cloud to keep "after".
+    expect(a.store.getItem("s.save")).toContain("before");
+    expect(a.sync.backupOf("sandbox")).not.toBeNull();
+    expect(cloud.keptPrev.at(-1)).toBe(true);
+    expect((await cloud.keysOf(code, "sandbox"))["s.save"]).toContain("before");
+    expect((await gunzip(cloud.prevs.get(`${code}/sandbox`)!.bytes))).toContain("after");
+    // (Asked once: the next copy up doesn't.)
+    a.clock.t += 60_000;
+    a.save("sandbox", "later");
+    await a.tick();
+    expect(cloud.keptPrev.at(-1)).toBe(false);
+  });
+
+  it("a restore of the kept railway asks the cloud to keep the copy it replaces too", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    a.save("sandbox", "mine");
+    const code = (await a.sync.enable())!;
+    const b = device(cloud);
+    b.save("sandbox", "b's own");
+    expect((await b.sync.useCode(code)).ok).toBe(true);
+    expect(await b.sync.restore("sandbox")).toBe(true);
+    await b.tick();
+    expect(cloud.keptPrev.at(-1)).toBe(true);
+  });
+
+  it("says when the cloud turns a code away for too many tries, apart from being offline", async () => {
+    const cloud = new FakeCloud();
+    const a = device(cloud);
+    cloud.tooManyTries = true;
+    expect(await a.sync.useCode("acorn badge otter 0420")).toEqual({ ok: false, error: "tries" });
+    cloud.tooManyTries = false;
+    cloud.offline = true;
+    expect(await a.sync.useCode("acorn badge otter 0420")).toEqual({ ok: false, error: "offline" });
   });
 });

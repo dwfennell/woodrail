@@ -4,7 +4,8 @@ import { connectorRef, createWorldConnector, Layout, type PieceTypeId } from "..
 import { editLine } from "../game/lines";
 import { CARGO } from "./cargo";
 import { CRAWL_SPEED, PILE_CAP } from "./constants";
-import { Economy, type DepotRole, type DepotState, type RouteStopDef } from "./economy";
+import { capAt, Economy, RECIPES, type DepotRole, type DepotState, type RouteStopDef } from "./economy";
+import type { CargoKind } from "./cargo";
 
 /**
  * The intent rules for trains on a line ("auto" stops: docs/superpowers/specs/2026-10-17-routes-design.md §3.3):
@@ -581,9 +582,14 @@ describe("an auto stop picks up only what a later stop has room for now", () => 
     // (The quay keeps grain for the mill on the way: it's no room for it.)
     w.route(w.auto(farm, harbour, mill));
     expect(w.economy.needsService(farm, hopper)).toBe(false);
-    // Nor a warehouse's, for the same reason.
+    // A warehouse's is: it keeps what the mill has no room for, and gives it back when the mill has (a buffer: the
+    // user, 2026-11-27, "shouldn't we fill the bakery and then start filling the warehouse?"). A quay isn't one.
     w.route(w.auto(farm, store, mill));
+    expect(w.economy.needsService(farm, hopper)).toBe(true);
+    // Full, it's no room either.
+    store.piles[CARGO.grain.index] = capAt(store);
     expect(w.economy.needsService(farm, hopper)).toBe(false);
+    store.piles[CARGO.grain.index] = 0;
     // With no mill on the line, the quay takes it: room there.
     w.route(w.auto(farm, harbour));
     expect(w.economy.needsService(farm, hopper)).toBe(true);
@@ -647,7 +653,9 @@ describe("an auto stop picks up only what a later stop has room for now", () => 
  * The route card's plan (`Economy.routePlan`, ⬆/⬇ per stop) against what trains on the line do: run each line with
  * its goods stocked, note what the crane loads and unloads at each stop, visit by visit. What's done is what the plan
  * says, both ways. And no ping-pong at a warehouse: never a good dropped and picked up again on one visit, or dropped
- * on one visit and picked up on the next.
+ * on one visit and picked up on the next. Past what the plan says (it doesn't count room), a warehouse also keeps, as a
+ * buffer, goods a stop on the line uses (logs here, while the sawmill is full) and gives them back for it: never both
+ * on one visit.
  */
 describe("a line's plan, and no ping-pong at warehouses", () => {
   const cases: { name: string; roles: DepotRole[]; plan: string[]; stock: (d: DepotState[], first: boolean) => void }[] = [
@@ -702,15 +710,17 @@ describe("a line's plan, and no ping-pong at warehouses", () => {
         const vs = visits.get(d.id) ?? [];
         const loaded = new Set(vs.flatMap((v) => [...v.loaded]));
         const unloaded = new Set(vs.flatMap((v) => [...v.unloaded]));
-        // What's done is what the plan says (and all it says is done, with the goods stocked).
-        expect([...loaded].sort(), `${d.role} loads`).toEqual([...plan[k].picks].sort());
-        expect([...unloaded].sort(), `${d.role} unloads`).toEqual([...plan[k].drops].sort());
+        // What's done is what the plan says (and all it says is done, with the goods stocked); at a warehouse, and goods
+        // it kept as a buffer for a stop on the line that uses them.
+        const buffered = (g: string) => d.role === "warehouse" && w.depots.some((o) => o.role !== "warehouse" && RECIPES[o.role].takes.includes(g as CargoKind)) && !plan[k].picks.includes(g as CargoKind) && !plan[k].drops.includes(g as CargoKind);
+        expect([...loaded].filter((g) => !buffered(g)).sort(), `${d.role} loads`).toEqual([...plan[k].picks].sort());
+        expect([...unloaded].filter((g) => !buffered(g)).sort(), `${d.role} unloads`).toEqual([...plan[k].drops].sort());
         if (d.role !== "warehouse") return;
         expect(vs.length, "the warehouse visited several times").toBeGreaterThan(2);
         vs.forEach((v, j) => {
           for (const g of v.unloaded) {
             expect(v.loaded.has(g), `${g} dropped and picked up on visit ${j}`).toBe(false);
-            expect(vs[j + 1]?.loaded.has(g) ?? false, `${g} dropped on visit ${j}, picked up on the next`).toBe(false);
+            if (!buffered(g)) expect(vs[j + 1]?.loaded.has(g) ?? false, `${g} dropped on visit ${j}, picked up on the next`).toBe(false);
           }
         });
       });

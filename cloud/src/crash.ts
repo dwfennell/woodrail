@@ -25,7 +25,7 @@ const LIST_SIZE = 100;
 /** Larger than any time in ms for a long while: `MAX_TIME - now`, zero-padded, sorts newest first. */
 const MAX_TIME = 9_999_999_999_999;
 
-export type CrashKind = "error" | "rejection" | "context-lost";
+export type CrashKind = "error" | "rejection" | "context-lost" | "save-mended";
 
 export interface CrashReport {
   kind: CrashKind;
@@ -50,7 +50,7 @@ const num = (v: unknown, max: number): number => (typeof v === "number" && Numbe
 export function parseCrash(raw: unknown): CrashReport | string {
   if (typeof raw !== "object" || raw === null) return "not an object";
   const b = raw as Record<string, unknown>;
-  if (b.kind !== "error" && b.kind !== "rejection" && b.kind !== "context-lost") return "kind must be error, rejection or context-lost";
+  if (b.kind !== "error" && b.kind !== "rejection" && b.kind !== "context-lost" && b.kind !== "save-mended") return "kind must be error, rejection, context-lost or save-mended";
   const s = (typeof b.screen === "object" && b.screen !== null ? b.screen : {}) as Record<string, unknown>;
   return {
     kind: b.kind,

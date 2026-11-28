@@ -318,6 +318,11 @@ export function buildStation(town: Town, mats: Materials, b: Batcher, rows = tru
   const canopyMid = (side + 34 - CANOPY_FAR) / 2;
   // Each town's station in its own colours, from its name (`stationTheme`): the canopy, the house's roof, the bunting.
   const theme = stationTheme(town.name);
+  // The platform's deck runs on back under the house, so the house stands on it at the platform's height rather than
+  // hanging 14 over the felt behind it (2026-11-26: "the station just floats there"). In the platform's wood: no new
+  // material or draw. (From just inside the platform's back edge to the house's back wall, within the station's
+  // footprint: `STATION_L_MAX`.)
+  b.add(mats.blockWood, place(new RoundedBoxGeometry(HOUSE_PLINTH.along, 14, HOUSE_PLINTH.across, 2, 2.5), 108, side + HOUSE_PLINTH.mid, 7));
   b.add(mats.lacquer(theme.canopy), place(new RoundedBoxGeometry(176, 4, canopyW, 1, 1.5), 108, canopyMid, CANOPY_Y + 2));
   b.add(mats.lacquer("#fbf6ec"), place(new RoundedBoxGeometry(178, 3, canopyW + 2, 1, 1.2), 108, canopyMid, CANOPY_Y - 0.5));
   if (rows) {
@@ -366,6 +371,12 @@ export function buildStation(town: Town, mats: Materials, b: Batcher, rows = tru
   if (who & 4) traveller(b, mats, facing(170, 27));
   // (The peg-doll passengers waiting on the platform are drawn apart, by `buildWaiting`: their number can change.)
 }
+
+/**
+ * The deck under the station house (mm, across measured from the track's edge): from inside the platform's back edge
+ * (it ends at 40) to the house's back wall (73), and a little longer along than the house (70).
+ */
+export const HOUSE_PLINTH = { along: 74, across: 35, mid: 38 + 35 / 2 } as const;
 
 /** Where the station house's clock is: along the station, across, and up (its face's centre). */
 const STATION_CLOCK_AT = [108, TRACK_WIDTH / 2 + 43, 14 + 36] as const;

@@ -57,9 +57,13 @@ async function sandbox(ctx) {
   p.on("pageerror", (e) => errors.push(String(e)));
   await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
   await p.goto(URL);
-  await p.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-sandbox .title-buttons .primary") !== null, null, { timeout: 180000 });
-  await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
-  await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 120000 });
+  // (The #seed- link opens straight into Sandbox, no title. Its title card's button, clicked anyway while the opening
+  // played, left the loading screen up over the page, and the first click on a tray piece went to it: "a click on a
+  // tray piece carries it" red. So: into play, or the title up (a link it didn't take) and its button then.)
+  await p.waitForFunction(() => !!document.querySelector("#loading.done") || !!window.woodrail?.title?.shown, null, { timeout: 180000 });
+  if (await p.evaluate(() => window.woodrail.title.shown)) await p.evaluate(() => document.querySelector(".title-card.mode-sandbox .title-buttons .primary").click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
+  // (And the loading screen gone: over the page, it takes the tray's clicks.)
+  await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null && !!document.querySelector("#loading.done"), null, { timeout: 120000 });
   return p;
 }
 
@@ -302,7 +306,9 @@ suite.add("desktop", async () => {
   // (The wheel zooms toward the mouse, keeping the ground under it: the ghost rightly stays. A glide moves the view
   // under a still mouse: the ghost follows, under the mouse.)
   const w1 = await goal();
-  await p.evaluate(() => { const w = window.woodrail; const t = w.controls.target; w.director.glideTo(t.clone().setX(t.x + 400), w.camera.position.distanceTo(t), { duration: 0.2 }); });
+  // (Toward the middle of the land: at its edge a glide out is held at the bounds and the view doesn't move, and the
+  // check read that as the ghost not following.)
+  await p.evaluate(() => { const w = window.woodrail; const t = w.controls.target; const b = w.director.bounds; const mid = Number.isFinite(b.x0) && Number.isFinite(b.x1) ? (b.x0 + b.x1) / 2 : t.x + 1; w.director.glideTo(t.clone().setX(t.x + (mid >= t.x ? 400 : -400)), w.camera.position.distanceTo(t), { duration: 0.2 }); });
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await frames(p);
   const w2 = await goal();

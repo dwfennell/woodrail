@@ -29,6 +29,9 @@
  *   another train nose to nose, against its side, or short of points or a crossing it's on (`Sim.heldBy`): the
  *   physical guards caught what the grant let through. Said once a stand.
  *
+ * - **staleHold:** the dispatcher holding track a second for an engine that isn't a routed train on the track (taken
+ *   off it, derailed, off its line): its grant would stand taken for every other train (the user, 2026-11-26).
+ *
  * Checks read state only: running them never changes how a train moves (trajectory hashes identical with them on).
  */
 import { SIM_HZ, type Sim, type Train, type TurnSeen } from "./sim";
@@ -44,7 +47,7 @@ import { outOfShort, stubRule } from "../routing/stubs";
 import { trainLength } from "./train-cars";
 import { ReservationShadow } from "../routing/shadow";
 
-export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed", "heldFree", "twoOwners"] as const;
+export const INVARIANTS = ["wrongRoad", "split", "underTrain", "pinned", "restore", "deadlock", "lockRun", "redRun", "blockOne", "oneOwner", "greenHeld", "midTurn", "netActed", "heldFree", "twoOwners", "staleHold"] as const;
 
 /**
  * The invariants added by the routing redesign's step 0 (docs/superpowers/specs/2026-11-07-routing-redesign.md §4):
@@ -79,6 +82,8 @@ export interface InvariantWorld {
    * it (`twoOwners`; the dispatcher's hand-off, `HANDOFF`). Default: never.
    */
   dispatched?(train: Train): boolean;
+  /** The engines the dispatcher holds something for (`staleHold`). Default: none. */
+  heldEngines?(): Iterable<number>;
   /** The steering hint a routed train runs by (default sections'; the dispatcher's when it's on). */
   steerHint?(engine: number): { follow: (pieceId: number, path: number) => boolean; aim: number } | undefined;
 }
@@ -288,6 +293,30 @@ export class Invariants {
     this.noteSignals();
   }
 
+  /** staleHold: since when each engine held for has been gone (off the track, derailed, or off its line); said once. */
+  private readonly staleSince = new Map<number, number>();
+  private readonly staleSaid = new Set<number>();
+
+  /** staleHold: a hold kept a second for an engine that isn't a routed train on the track. */
+  private checkStaleHolds(tick: number): void {
+    const { sim } = this.world;
+    const now = new Set<number>();
+    for (const e of this.world.heldEngines!()) {
+      const found = sim.findCar(e);
+      if (found && !found.train.derailed && this.world.routed(e)) continue;
+      now.add(e);
+      if (!this.staleSince.has(e)) this.staleSince.set(e, tick);
+      if (tick - this.staleSince.get(e)! >= SIM_HZ && !this.staleSaid.has(e)) {
+        this.staleSaid.add(e);
+        this.break("staleHold", `the dispatcher holds track for engine ${e}, ${!found ? "not on the track" : found.train.derailed ? "derailed" : "on no line"}`, e);
+      }
+    }
+    for (const e of [...this.staleSince.keys()]) if (!now.has(e)) {
+      this.staleSince.delete(e);
+      this.staleSaid.delete(e);
+    }
+  }
+
   /** One check: call once a sim tick, after the sim and its services have ticked. */
   check(): void {
     const { sim } = this.world;
@@ -319,6 +348,7 @@ export class Invariants {
         m.twoSaid = true;
       }
     }
+    if (full && this.world.heldEngines) this.checkStaleHolds(tick);
     this.watchTurns();
     if (this.opts.heldFree) this.checkHeldFree();
     // (Signals every call, as fronts: a front crossing a joint is seen on the tick it does.)
@@ -401,7 +431,8 @@ export class Invariants {
       return;
     }
     const at = this.signalFaced(t, net > 0);
-    if (at === null || !sim.signalList().find((g) => g.key === at)?.clear) {
+    // (As the player is shown it: red for a train held standing at it, `Sim.shownRed`.)
+    if (at === null || !sim.signalList().find((g) => g.key === at)?.clear || sim.shownRedAt(at)) {
       m.green = 0;
       m.greenSaid = false;
       return;
@@ -496,6 +527,11 @@ export class Invariants {
           const pa = pathsOf(ids[i]);
           const pb = pathsOf(ids[j]);
           if (!pa.some((a) => pb.some((b) => meet(a, b)))) continue;
+          // (One following the other through on the same path, nose to its tail: not two on the points.)
+          if (this.followsThrough(ids[i], ids[j], pieceId) || this.followsThrough(ids[j], ids[i], pieceId)) {
+            this.followsExcused++;
+            continue;
+          }
           const k = `${pieceId}:${Math.min(ids[i], ids[j])}:${Math.max(ids[i], ids[j])}`;
           now.add(k);
           if (this.owners.has(k)) continue;
@@ -507,6 +543,74 @@ export class Invariants {
         }
     }
     this.owners = now;
+  }
+
+  /** oneOwner: ticks a pair was excused as one following the other through (`followsThrough`). */
+  followsExcused = 0;
+
+  /**
+   * oneOwner's one excuse: train `f` follows train `l` through points `pieceId` nose to tail, going its way, `l` moving.
+   * Either `l` has no axle left on them (a car over them only) and has one on the piece past the end `f` leaves them by,
+   * `f`'s axles on them all on one path, driven toward that end; or `f` has none on them yet (its front car over them),
+   * its front axle on the piece before, running in by the end `l`'s axles on them (all on one path) came in by; or both
+   * have axles on them, all on one path facing one way, `f`'s front axle behind `l`'s last along it.
+   * Over the 24 reference maps (1800 s, the dispatcher off): it excuses only own-12's two follows through points 33
+   * (186 ticks); own-12's two left are trains run onto points 33 behind a standing one's tail (a break still). (own-12, 748 s: Puffin a coupler's gap behind
+   * Muffin, Muffin's last axle just off points 33, Puffin's first just on.)
+   */
+  private followsThrough(f: number, l: number, pieceId: number): boolean {
+    const { sim, layout } = this.world;
+    const lt = sim.getTrain(l);
+    const ft = sim.getTrain(f);
+    if (!lt || !ft || lt.speed === 0) return false;
+    const p0 = layout.getPiece(pieceId);
+    if (!p0) return false;
+    const def0 = getPieceDef(p0.type, p0.flipped);
+    // (The follower's front car over them only, its front axle on the piece before, while the leader's axles are still
+    // on them, all on one path: the follower runs in by the end the leader came in by.)
+    if (!ft.bogies.some((b) => b.pieceId === pieceId)) {
+      const theirs = lt.bogies.filter((b) => b.pieceId === pieceId);
+      if (theirs.length === 0 || theirs.some((b) => b.pathIndex !== theirs[0].pathIndex)) return false;
+      const fnet = this.world.drive(ft);
+      const lnet = this.world.drive(lt);
+      if (fnet === 0 || lnet === 0) return false;
+      const fb = fnet > 0 ? ft.bogies[0] : ft.bogies[ft.bogies.length - 1];
+      const fp = layout.getPiece(fb.pieceId);
+      if (!fp) return false;
+      const fexit = pathExitConnector(getPieceDef(fp.type, fp.flipped), fb.pathIndex, fnet > 0 ? fb.reversed : !fb.reversed);
+      const into = fexit === -1 ? -1 : layout.joinedConnector(connectorRef(fb.pieceId, fexit));
+      if (into === -1 || pieceOfRef(into) !== pieceId) return false;
+      const lb = theirs[0];
+      const lexit = pathExitConnector(def0, lb.pathIndex, lnet > 0 ? lb.reversed : !lb.reversed);
+      const path = def0.paths[lb.pathIndex];
+      const lentry = lexit === path.from ? (path.to ?? -1) : path.from;
+      return connectorRef(pieceId, lentry) === into;
+    }
+    const fnet = this.world.drive(ft);
+    const lnet = this.world.drive(lt);
+    // (Both with axles on them: the follower's front axle and the leader's last on the same path, the same way, the
+    // follower's behind along it (a cursor's `s` runs the way it faces).)
+    if (lt.bogies.some((b) => b.pieceId === pieceId)) {
+      if (fnet <= 0 || lnet <= 0) return false;
+      const fb = ft.bogies[0];
+      const lb = lt.bogies[lt.bogies.length - 1];
+      if (fb.pieceId !== pieceId || lb.pieceId !== pieceId) return false;
+      const all = [...ft.bogies, ...lt.bogies].filter((b) => b.pieceId === pieceId);
+      if (all.some((b) => b.pathIndex !== fb.pathIndex || b.reversed !== fb.reversed)) return false;
+      return fb.s < lb.s;
+    }
+    const mine = ft.bogies.filter((b) => b.pieceId === pieceId);
+    if (mine.length === 0 || mine.some((b) => b.pathIndex !== mine[0].pathIndex)) return false;
+    const net = this.world.drive(ft);
+    if (net === 0) return false;
+    const def = def0;
+    const b = mine[0];
+    const exit = pathExitConnector(def, b.pathIndex, net > 0 ? b.reversed : !b.reversed);
+    if (exit === -1) return false;
+    const past = layout.joinedConnector(connectorRef(pieceId, exit));
+    if (past === -1) return false;
+    const beyond = pieceOfRef(past);
+    return lt.bogies.some((x) => x.pieceId === beyond);
   }
 
   /** oneOwner: the pieces and pairs said, while they last. */

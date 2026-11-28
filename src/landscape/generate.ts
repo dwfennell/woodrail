@@ -230,13 +230,13 @@ function starterTurn(a: { centre: { x: number; z: number } }): { x: number; side
   return { x: a.centre.x - HALF_STATION - STARTER_RUN, side: a.centre.z > 0 ? -1 : 1 };
 }
 
-const NAMES = [
+export const TOWN_NAMES = [
   "Applebury", "Millbrook", "Oakhollow", "Pinecrest", "Thimble Cross", "Larkfield", "Brambleton", "Copperdale",
   "Willowmere", "Fernhill", "Hazelwick", "Puddleby", "Kettle Green", "Foxley", "Tumbledown", "Ashcombe",
   "Buttercombe", "Clatterford", "Dimbleby", "Elderwick", "Gorsemoor", "Honeystead", "Inkpen", "Juniper Hey",
   "Marbleford", "Nettlecombe", "Otterbrook", "Quillsby", "Rookhurst", "Sorrelby", "Teasel End", "Wobbleton",
 ];
-const NAME_PREFIXES = ["Little", "Upper", "Lower", "Great", "East", "West", "North", "South", "Old", "New"];
+export const TOWN_NAME_PREFIXES = ["Little", "Upper", "Lower", "Great", "East", "West", "North", "South", "Old", "New"];
 
 /**
  * Towns a starter-style map is placed with: the first two (the starter line's), and three more about the start.
@@ -578,7 +578,7 @@ function placeTowns(random: () => number, region: Region, starter: boolean, inte
   const pick = random();
   // A single plot is usually one town, sometimes two, sometimes none (it has a depot instead: see `placeDepots`).
   const count = starter ? STARTER_PLACED : area === 1 ? (pick < 0.32 ? 0 : pick < 0.9 ? 1 : 2) : Math.round(((5 + Math.floor(random() * 3)) * area) / 4);
-  const names = [...NAMES];
+  const names = [...TOWN_NAMES];
   for (let i = names.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
     [names[i], names[j]] = [names[j], names[i]];
@@ -1184,8 +1184,8 @@ export function addExtraTown(land: Landscape, region: Region, random: () => numb
   }
   found.sort((a, b) => a.score - b.score);
   const names = new Set(land.towns.map((t) => t.name));
-  const free = NAMES.filter((n) => !names.has(n));
-  const name = free.length > 0 ? free[Math.floor(random() * free.length)] : NAMES[Math.floor(random() * NAMES.length)];
+  const free = TOWN_NAMES.filter((n) => !names.has(n));
+  const name = free.length > 0 ? free[Math.floor(random() * free.length)] : TOWN_NAMES[Math.floor(random() * TOWN_NAMES.length)];
   for (const { x, z, heading } of found.slice(skip, skip + 4)) {
     const keep = snapshotRegion(land);
     const fp = footprint({ x, z }, heading, EXTRA_TOWN_RADIUS, EXTRA_TOWN_APPROACH);
@@ -1340,7 +1340,7 @@ export function reachable(land: Landscape): boolean {
 /** A town's name no town in `names` has: its own, else with a prefix ("Little Foxley"), else numbered. */
 export function freeName(names: ReadonlySet<string>, name: string, salt: number): string {
   let out = name;
-  for (let k = 0; names.has(out); k++) out = k < NAME_PREFIXES.length ? `${NAME_PREFIXES[(k + salt) % NAME_PREFIXES.length]} ${name}` : `${name} ${k}`;
+  for (let k = 0; names.has(out); k++) out = k < TOWN_NAME_PREFIXES.length ? `${TOWN_NAME_PREFIXES[(k + salt) % TOWN_NAME_PREFIXES.length]} ${name}` : `${name} ${k}`;
   return out;
 }
 

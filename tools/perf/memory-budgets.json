@@ -71,9 +71,9 @@
     "mobile.js.heapMB": {
       "kind": "size",
       "unit": "MB",
-      "measured": 42.6,
-      "max": 45.2,
-      "why": "+1.1 MB (mobile), +1.9 MB (desktop) on 2026-11-14: towns in rows. The row model set (rows.glb: 91 models, 1,741 nodes; each house four ways for its storeys, 23 civic models) is held beside the buildings set. Main was 41.5 / 41.6 before it. The GPU's geometry fell 8.7 / 9.5 MB and the ArrayBuffers 11.3 / 11.5 MB with it (a row has about a third of a house's triangles)."
+      "measured": 45.4,
+      "max": 48.1,
+      "why": "+0.6 MB (mobile) on 2026-11-26: save safety (spec 2026-11-26-save-safety.md). The write guard keeps the stored railway's text it last wrote or loaded (the features map's: 121 K chars) to tell, by a string compare, whether what's stored is its own, plus the backups' and guard's code. Branch 45.6 / 45.4 / 45.1 over three runs, main 44.8 the same day; desktop unchanged (45.3 / 45.8 against main's 45.5). Before: +1.1 MB (mobile), +1.9 MB (desktop) on 2026-11-14: towns in rows. The row model set (rows.glb: 91 models, 1,741 nodes; each house four ways for its storeys, 23 civic models) is held beside the buildings set. Main was 41.5 / 41.6 before it. The GPU's geometry fell 8.7 / 9.5 MB and the ArrayBuffers 11.3 / 11.5 MB with it (a row has about a third of a house's triangles)."
     },
     "mobile.js.arrayBuffersMB": {
       "kind": "size",
