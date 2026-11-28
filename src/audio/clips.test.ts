@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { AVAILABLE_CLIPS, CLIP_FILES, ClipBank, type ClipName } from "./clips";
 
 const NAMES = Object.keys(CLIP_FILES) as ClipName[];
-/** The clips a bank under test fetches (the real list is empty until the files are added). */
-const SOME: readonly ClipName[] = ["clack1", "engineLoop", "whistle"];
+/** The clips a bank under test fetches. */
+const SOME: readonly ClipName[] = ["magnet", "engineSteam", "whistle"];
 const BUFFER = { duration: 1 } as unknown as AudioBuffer;
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -11,20 +11,25 @@ const okFetch = () => vi.fn(async () => ({ ok: true, arrayBuffer: async () => ne
 const ctxWith = (decode: () => Promise<AudioBuffer>) => ({ decodeAudioData: vi.fn(decode) }) as unknown as BaseAudioContext;
 
 describe("the clip bank", () => {
-  it("has a file for every clip, one .m4a each", () => {
-    expect(NAMES).toContain("engineLoop");
+  it("has a file for every clip: .m4a for one-shots, .wav for the engine loops (no gap at the seam)", () => {
+    expect(NAMES).toContain("engineSteam");
     expect(new Set(Object.values(CLIP_FILES)).size).toBe(NAMES.length);
-    for (const f of Object.values(CLIP_FILES)) expect(f).toMatch(/sounds\/[\w-]+\.m4a$/);
+    for (const [name, f] of Object.entries(CLIP_FILES)) expect(f).toMatch(name.startsWith("engine") ? /sounds\/[\w-]+\.wav$/ : /sounds\/[\w-]+\.m4a$/);
+  });
+
+  it("every clip it fetches is in public/sounds", () => {
+    const files = new Set(Object.keys(import.meta.glob("../../public/sounds/*")).map((f) => f.split("/").pop()));
+    for (const n of AVAILABLE_CLIPS) expect(files, n).toContain(CLIP_FILES[n].split("/").pop());
   });
 
   it("has nothing before load, and every clip decoded after", async () => {
     const bank = new ClipBank(okFetch(), SOME);
-    expect(bank.get("clack1")).toBeNull();
+    expect(bank.get("magnet")).toBeNull();
     bank.load(ctxWith(async () => BUFFER));
-    expect(bank.get("clack1")).toBeNull(); // not yet resolved
+    expect(bank.get("magnet")).toBeNull(); // not yet resolved
     await flush();
     for (const n of SOME) expect(bank.get(n)).toBe(BUFFER);
-    expect(bank.get("saw")).toBeNull(); // not in the list: never fetched
+    expect(bank.get("crash")).toBeNull(); // not in the list: never fetched
   });
 
   it("leaves a clip null for good on a 404, never retrying, never throwing", async () => {
@@ -65,7 +70,7 @@ describe("the clip bank", () => {
     expect(fetchFn).toHaveBeenCalledTimes(SOME.length);
   });
 
-  it("the real bank fetches only the available clips (none yet: no 404s for a real player)", async () => {
+  it("the real bank fetches only the available clips (no 404s for a real player)", async () => {
     const fetchFn = okFetch();
     new ClipBank(fetchFn).load(ctxWith(async () => BUFFER));
     await flush();

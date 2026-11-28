@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IDLE_SUSPEND_MS, ToyAudio } from "./audio";
+import { engineSound, IDLE_SUSPEND_MS, ToyAudio } from "./audio";
 
 type Param = { value: number; targets: [number, number, number][]; setTargetAtTime(v: number, t: number, tc: number): void };
 const param = (value = 0): Param => ({
@@ -74,7 +74,7 @@ describe("the recorded engine loop replaces the hum", () => {
   /** The test seam: the bank's `get` answers with a loaded fake buffer for the engine loop (or none). */
   const loadLoop = (loaded: boolean) => {
     const bank = (audio as unknown as { clips: { get: (n: string) => unknown } }).clips;
-    bank.get = (n: string) => (loaded && n === "engineLoop" ? { duration: 2 } : null);
+    bank.get = (n: string) => (loaded && n === "engineSteam" ? { duration: 2 } : null);
   };
   const loops = () => ctx.sources.filter((s) => s.loop);
 
@@ -140,8 +140,8 @@ describe("the recorded engine loop replaces the hum", () => {
     const src = loops()[0];
     audio.setMuted(true);
     expect(src.stops).toHaveLength(1);
-    expect((audio as unknown as { humLevel: number }).humLevel).toBe(0);
-    expect((audio as unknown as { loop: unknown }).loop).toBeNull();
+    expect((audio as unknown as { humLevel: Record<string, number> }).humLevel.steam).toBe(0);
+    expect((audio as unknown as { loops: Record<string, unknown> }).loops.steam).toBeUndefined();
     vi.advanceTimersByTime(IDLE_SUSPEND_MS * 2 + 1000);
     expect(ctx.state).toBe("suspended");
   });
@@ -196,6 +196,64 @@ describe("the recorded engine loop replaces the hum", () => {
   });
 });
 
+describe("each kind of engine has its own loop", () => {
+  let audio: ToyAudio;
+  let ctx: FakeContext;
+  const bank = (loaded: readonly string[]) => {
+    (audio as unknown as { clips: { get: (n: string) => unknown } }).clips.get = (n: string) => (loaded.includes(n) ? { duration: 2, name: n } : null);
+  };
+  const loops = () => ctx.sources.filter((s) => s.loop);
+  beforeEach(() => {
+    vi.useFakeTimers();
+    const listeners: Record<string, () => void> = {};
+    vi.stubGlobal("window", { addEventListener: (t: string, f: () => void) => (listeners[t] = f), AudioContext: class extends FakeContext {} });
+    vi.stubGlobal("document", { hidden: false, addEventListener: () => {} });
+    vi.stubGlobal("fetch", async () => ({ ok: false }));
+    audio = new ToyAudio();
+    listeners.pointerdown();
+    ctx = (audio as unknown as { ctx: FakeContext }).ctx;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("engines sound by their look: diesels diesel, electrics and metros electric, the rest steam", () => {
+    expect(engineSound("diesel")).toBe("diesel");
+    expect(engineSound("electric")).toBe("electric");
+    expect(engineSound("metro")).toBe("electric");
+    for (const look of ["classic", "tank", "express", "goods", "rack", "royal"] as const) expect(engineSound(look)).toBe("steam");
+  });
+
+  it("steam and diesel running together: two loops, each its own clip, each stopping alone", () => {
+    bank(["engineSteam", "engineDiesel", "engineElectric"]);
+    audio.setHum(0.5, 0.5, "steam");
+    audio.setHum(0.3, 0.5, "diesel");
+    audio.setHum(0, 0, "electric");
+    expect(loops().map((s) => (s.buffer as { name: string }).name)).toEqual(["engineSteam", "engineDiesel"]);
+    audio.setHum(0, 0, "diesel");
+    expect(loops()[1].stops).toHaveLength(1);
+    expect(loops()[0].stops).toHaveLength(0);
+  });
+
+  it("a kind whose clip hasn't loaded hums synthesised while another plays its loop; the hum goes when it stops", () => {
+    bank(["engineSteam"]);
+    audio.setHum(0.5, 0.5, "steam");
+    audio.setHum(0.5, 0.5, "electric");
+    expect(loops()).toHaveLength(1);
+    expect((audio as unknown as { hum: unknown }).hum).not.toBeNull();
+    audio.setHum(0, 0, "electric");
+    expect((audio as unknown as { hum: unknown }).hum).toBeNull();
+  });
+
+  it("muting stops every kind's loop", () => {
+    bank(["engineSteam", "engineDiesel", "engineElectric"]);
+    for (const k of ["steam", "diesel", "electric"] as const) audio.setHum(0.4, 0.5, k);
+    audio.setMuted(true);
+    for (const s of loops()) expect(s.stops).toHaveLength(1);
+  });
+});
+
 describe("playClip declines when it can't or shouldn't play", () => {
   it("false when the page is hidden or the rate isn't positive", () => {
     vi.useFakeTimers();
@@ -206,11 +264,11 @@ describe("playClip declines when it can't or shouldn't play", () => {
     const audio = new ToyAudio();
     listeners.pointerdown();
     (audio as unknown as { clips: { get: () => unknown } }).clips.get = () => ({ duration: 0.5 });
-    expect(audio.playClip("clack1", 0.5, 0)).toBe(true);
-    expect(audio.playClip("clack1", 0.5, 0, 0)).toBe(false);
-    expect(audio.playClip("clack1", 0.5, 0, -1)).toBe(false);
+    expect(audio.playClip("magnet", 0.5, 0)).toBe(true);
+    expect(audio.playClip("magnet", 0.5, 0, 0)).toBe(false);
+    expect(audio.playClip("magnet", 0.5, 0, -1)).toBe(false);
     doc.hidden = true;
-    expect(audio.playClip("clack1", 0.5, 0)).toBe(false);
+    expect(audio.playClip("magnet", 0.5, 0)).toBe(false);
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });

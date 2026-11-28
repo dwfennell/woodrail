@@ -82,14 +82,12 @@ describe("one-shots play recorded clips, and synthesise without them", () => {
   });
 
   const once: [string, () => unknown][] = [
-    ["clack", () => audio.clack(1, 0)],
     ["magnet", () => audio.magnet(1, 0)],
     ["bump", () => audio.bump(1, 0)],
     ["crash", () => audio.crash(1, 0)],
     ["clunk", () => audio.clunk(1, 0)],
     ["switchClunk", () => audio.switchClunk(1, 0)],
     ["liftClunk", () => audio.liftClunk(1, 0)],
-    ["saw", () => audio.saw(1, 0)],
     ["whistle", () => audio.whistle(1, 0)],
     ["guardWhistle", () => audio.guardWhistle(1, 0)],
     ["bell", () => audio.bell()],
@@ -112,16 +110,6 @@ describe("one-shots play recorded clips, and synthesise without them", () => {
       expect(ctx.oscillators).toBeGreaterThan(0);
     });
   }
-
-  it("clack keeps its 18 ms gap", () => {
-    load();
-    audio.clack(1, 0);
-    audio.clack(1, 0);
-    expect(played()).toBe(1);
-    vi.advanceTimersByTime(30);
-    audio.clack(1, 0);
-    expect(played()).toBe(2);
-  });
 
   it("bump keeps its 450 ms gap", () => {
     load();
@@ -149,15 +137,6 @@ describe("one-shots play recorded clips, and synthesise without them", () => {
     expect(audio.whistle(0.9, 0)).toBe(true);
     expect(played()).toBe(2);
     expect(first.gain.targets.at(-1)![0]).toBe(0);
-  });
-
-  it("saw is cut to its half second when the clip is longer, and not when it's shorter", () => {
-    load(2);
-    audio.saw(1, 0);
-    expect(ctx.sources[0].starts[0][2]).toBeCloseTo(0.55 * 1, 1);
-    load(0.3);
-    audio.saw(1, 0);
-    expect(ctx.sources[1].starts[0]).toHaveLength(0);
   });
 
   it("muted, nothing plays and nothing synthesises", () => {

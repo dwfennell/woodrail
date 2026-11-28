@@ -80,7 +80,7 @@ describe("the audio context sleeps when nothing's heard (and wakes for the next 
     audio.tap();
     vi.advanceTimersByTime(IDLE_SUSPEND_MS * 2);
     expect(ctx.state).toBe("suspended");
-    audio.clack(0.5, 0);
+    audio.magnet(0.5, 0);
     expect(ctx.state).toBe("running");
   });
 
@@ -154,8 +154,8 @@ describe("recorded clips load after the first tap, only when heard", () => {
   const start = (muted = false) => {
     const audio = new ToyAudio();
     audio.muted = muted;
-    // (The real bank fetches AVAILABLE_CLIPS, none yet: a bank over a few names stands in.)
-    (audio as unknown as { clips: ClipBank }).clips = new ClipBank(undefined, ["clack1", "bell"]);
+    // (A bank over a few names stands in for the real one.)
+    (audio as unknown as { clips: ClipBank }).clips = new ClipBank(undefined, ["magnet", "bell"]);
     return audio;
   };
 
@@ -197,12 +197,12 @@ describe("recorded clips load after the first tap, only when heard", () => {
   it("plays a clip once it's loaded, and not before, muted or too quiet", async () => {
     const audio = start();
     listeners.pointerdown();
-    expect(audio.playClip("clack1", 0.5, 0)).toBe(false); // still loading
+    expect(audio.playClip("magnet", 0.5, 0)).toBe(false); // still loading
     await vi.advanceTimersByTimeAsync(10);
-    expect(audio.playClip("clack1", 0.5, 0)).toBe(true);
-    expect(audio.playClip("clack1", 0.0005, 0)).toBe(false);
+    expect(audio.playClip("magnet", 0.5, 0)).toBe(true);
+    expect(audio.playClip("magnet", 0.0005, 0)).toBe(false);
     audio.muted = true;
-    expect(audio.playClip("clack1", 0.5, 0)).toBe(false);
+    expect(audio.playClip("magnet", 0.5, 0)).toBe(false);
   });
 
   it("wakes the context for a clip", async () => {
