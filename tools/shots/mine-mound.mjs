@@ -191,7 +191,6 @@ if (process.env.OVERLAP) {
     ({ M }) => {
       const w = window.woodrail;
       const out = [];
-      const Box = new w.camera.position.constructor().constructor;
       w.scene.traverse((o) => {
         if (!o.isMesh && !o.isInstancedMesh && !o.isBatchedMesh) return;
         if (!o.geometry?.attributes?.position) return;

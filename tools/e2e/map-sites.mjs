@@ -31,7 +31,7 @@ import { shot as picture } from "../../scripts/e2e/lib/shot.mjs";
 import { pinClocksIn, stillIndustriesIn } from "../../scripts/e2e/pin-clocks.mjs";
 import { groups } from "../../scripts/e2e/lib/groups.mjs";
 import { inFrames, testClockIn } from "../../scripts/e2e/lib/fast.mjs";
-import { printEvents, watchBrowser, watchServer } from "../../scripts/e2e/lib/page-watch.mjs";
+import { watchBrowser, watchServer } from "../../scripts/e2e/lib/page-watch.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out/sites";

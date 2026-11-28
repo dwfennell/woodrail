@@ -12,7 +12,7 @@ import { createServer } from "vite";
 import { FEEDBACK_URL, feedbackFlow } from "./feedback-flow.mjs";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
-import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
+import { watchBrowser, watchServer } from "./lib/page-watch.mjs";
 
 // "Report a bug or give feedback" sends here (Playwright answers for it: see feedback-flow.mjs).
 process.env.VITE_FEEDBACK_URL = FEEDBACK_URL;

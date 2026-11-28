@@ -97,7 +97,6 @@ const tapOn = async (what) => {
   const [x, y] = await onScreen(what);
   await tapped(() => p.touchscreen.tap(x, y));
 };
-const visible = (sel) => p.evaluate((sel) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0), sel);
 const tapButton = async (sel, text) => {
   await p.waitForFunction(([sel, text]) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0 && (!text || e.textContent.includes(text))), [sel, text], { timeout: 30000 });
   // (Scrolled into view first, as a finger would: the Goals sheet scrolls, and the tip's row may be below its fold.)

@@ -7,7 +7,7 @@ import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
 import { batterySaverIn, mouseMoves, steps, testClockIn, touchMoves } from "./lib/fast.mjs";
-import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
+import { watchBrowser, watchServer } from "./lib/page-watch.mjs";
 
 const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out";
 mkdirSync(OUT, { recursive: true });
@@ -196,7 +196,6 @@ const findSite = async () => {
   const G = w.landscape.grid;
   const c = createWorldConnector();
   for (const id of w.layout.pieceIds()) {
-    const piece = w.layout.getPiece(id);
     for (let i = 0; i < 4; i++) {
       const ref = connectorRef(id, i);
       if (w.layout.joinedConnector(ref) !== -1) continue;

@@ -43,12 +43,12 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
   return e;
 }
 
-function chip(label: string, cls: string, onTap: () => void): HTMLButtonElement {
+function chip(label: string, cls: string, onTap: () => void | Promise<void>): HTMLButtonElement {
   const b = el("button", `chip text ${cls}`, label);
   b.type = "button";
   b.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (!b.disabled) onTap();
+    if (!b.disabled) void onTap();
   });
   return b;
 }

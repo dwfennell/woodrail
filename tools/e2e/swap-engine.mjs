@@ -148,20 +148,6 @@ const run = (seconds, forest, mill) =>
     },
     { seconds, forest, mill },
   );
-const trainState = (engine) =>
-  p.evaluate(async (engine) => {
-    const w = window.woodrail;
-    const { getPieceDef } = await import("/src/track/index.ts");
-    const f = w.sim.findCar(engine);
-    if (!f) return null;
-    const onPoints = [...w.sim.piecesUnder(f.train.id)].some((id) => {
-      const q = w.layout.getPiece(id);
-      const d = q && getPieceDef(q.type, q.flipped);
-      return !!d?.isSwitch && !d.gated && !d.signal;
-    });
-    const at = f.train.world[0];
-    return { line: w.economy.lineIdOf.get(engine) ?? -1, routed: !!w.economy.routeOf(engine), lever: f.train.cars[f.index].lever, speed: Math.abs(f.train.speed), onPoints, x: at.x, z: at.z };
-  }, engine);
 
 // ---- Setup: a new game, routes learned, an oval with a forest, a sawmill and a workshop laid by the editor, and two
 // goods trains on it running one line (harness shortcuts, as e2e:routes-ux's: what's tested is taking a train off).

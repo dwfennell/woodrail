@@ -2,7 +2,7 @@
 // Game mode on a 390×844 phone at 2x (DESKTOP=1: 1440×900), an oval with forest, sawmill, workshop; two lines, three
 // trains. Then each screen in tour.mjs: opened through the game's own calls, shot as <out>/<screen>.jpg.
 // node tools/shots/hud-tour/stage.mjs <out> [screen,…]
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 

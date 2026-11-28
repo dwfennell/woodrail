@@ -98,7 +98,6 @@ const sheetLine = () =>
     const l = w.economy.lines.get(id);
     return l ? { id, name: l.name, stops: l.stops.map((s) => s.depotId), actions: l.stops.map((s) => s.action), trains: [...w.economy.lineIdOf].filter(([, x]) => x === id).map(([e]) => e) } : null;
   });
-const toastText = () => p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "));
 /** Every visible button in `sel` at least 44 px both ways. */
 const small = (sel) =>
   p.evaluate((sel) => {

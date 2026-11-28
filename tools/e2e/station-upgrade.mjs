@@ -101,7 +101,7 @@ if (!setup.pick) {
   await server.close();
   process.exit(1);
 }
-const { town: townId, i: townIndex } = setup.pick;
+const { town: townId } = setup.pick;
 
 // The train: an engine and two coaches on the line, routed between the two stations.
 const trainSet = await p.evaluate(async () => {

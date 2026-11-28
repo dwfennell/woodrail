@@ -48,7 +48,6 @@ const scene = await p.evaluate(async () => {
   const g = w.world.landscape.grid;
   const t = w.world.landscape.towns[0];
   const ok = (x0, z0) => {
-    let h0 = null;
     for (let x = x0 - 60; x <= x0 + 1140; x += 30)
       for (let z = z0 - 80; z <= z0 + 200; z += 30) {
         const i = g.cellAtWorld(x, z);

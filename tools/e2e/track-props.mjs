@@ -594,7 +594,7 @@ if (want("perf")) {
     // Settle everything first (no live parts): then each call is the trigger look-ups only.
     for (let i = 0; i < 400; i++) w.kitView.update(w.kitTriggered, 1 / 60);
     const update = time(2000, () => w.kitView.update(w.kitTriggered, 1 / 60));
-    const idleCheck = time(100000, () => w.kitView.hasMovers && (false || w.kitView.animating || w.economy.halts !== w.haltsSeen));
+    const idleCheck = time(100000, () => w.kitView.hasMovers && (w.kitView.animating || w.economy.halts !== w.haltsSeen));
     const bogies = ids.reduce((n, id) => n + w.sim.getTrain(id).bogies.length, 0);
     return { movers, trains: ids.length, bogies, updateMicros: Math.round(update * 100) / 100, idleCheckMicros: Math.round(idleCheck * 1000) / 1000 };
   });

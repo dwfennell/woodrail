@@ -178,7 +178,6 @@ const plan = await p.evaluate(async () => {
 check("a stacked house and a free lot of its town to move it to", plan.house !== undefined && plan.storeys > 0, JSON.stringify(plan));
 await frame(plan.from);
 await shot("1-before");
-const before = await town(plan.house);
 /** The town's other houses as props: which model, which colour (a row's neighbours aren't touched when one moves). */
 const others = (house) => p.evaluate((house) => [...window.woodrail.world.props.all()].filter((q) => q.building !== undefined && q.building !== house).map((q) => `${q.id}:${q.asset}:${q.variant ?? 0}:${q.storeys ?? 0}`).sort(), house);
 const othersBefore = await others(-1);

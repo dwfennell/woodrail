@@ -72,7 +72,7 @@ while (Date.now() < end) {
 out.samples.push(await sample("end"));
 // Context loss: lose it, wait, restore, and see what's shown and whether the game draws again.
 out.contextLoss = await page.evaluate(async () => {
-  const w = window.woodrail, c = w.renderer.domElement;
+  const w = window.woodrail;
   const ext = w.renderer.getContext().getExtension("WEBGL_lose_context");
   const f0 = w.framesDrawn;
   ext.loseContext();

@@ -1,5 +1,5 @@
 // Design screenshots (node tools/design/leftovers-shots.mjs <out> <before|after>), not a test: before/after pictures for the locked tiles, the tray tabs and the landscape town card.
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";

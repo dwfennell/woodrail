@@ -43,7 +43,7 @@ const base = [
       await tapSel(p, ".engine-extra .route-plan");
       await tapSel(p, ".route-chip[data-stop='1']");
       await clearToasts(p);
-      require_html: {
+      {
         const html = await p.evaluate(() => document.querySelector(".engine-card")?.outerHTML?.length);
         console.log("card html", html);
       }

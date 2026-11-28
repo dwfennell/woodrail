@@ -80,24 +80,8 @@ const screenOf = (v) =>
     const r = w.canvas.getBoundingClientRect();
     return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
   }, v);
-const sim = () => p.evaluate(() => window.woodrail.simSeconds);
 /** Wait (on wall time, `ms` at most) for the page's `fn(arg)` to hold. */
 const until = (fn, arg, ms) => p.waitForFunction(fn, arg, { timeout: ms, polling: 250 }).then(() => true, () => false);
-const toastText = () => p.evaluate(() => document.querySelector(".toast.show")?.textContent ?? "");
-const idleFrames = () =>
-  p.evaluate(async () => {
-    const w = window.woodrail;
-    await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 20000))]);
-    const n0 = w.framesDrawn;
-    await new Promise((r) => setTimeout(r, 2000));
-    return w.framesDrawn - n0;
-  });
-/** Paused or not, by the top bar's Pause button (not what's tested). */
-const pause = async (on) => {
-  if ((await p.evaluate(() => window.woodrail.paused)) !== on) await tapSel('.actions button[aria-label^="Pause"]');
-  if ((await p.evaluate(() => window.woodrail.paused)) !== on) await p.keyboard.press("Space");
-  await frames();
-};
 
 // A new game, on a flat map with no water (its code in the seed box): room for the long line.
 await p.goto(PAGE);

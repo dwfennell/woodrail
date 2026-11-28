@@ -38,7 +38,6 @@ await ctx.addInitScript(() => {
   window.addEventListener("click", () => window.__allClicks++, { capture: true });
 });
 const p = await ctx.newPage();
-const cdp = await ctx.newCDPSession(p);
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 p.on("console", (m) => {

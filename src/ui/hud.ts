@@ -195,7 +195,7 @@ const ASK_MS = 4000;
 /** Was Shift held on the last button clicked (a finer turn: Turn and Rotate read it)? */
 let shiftClick = false;
 
-function button(label: string, title: string, onClick: () => void, cls = "chip"): HTMLButtonElement {
+function button(label: string, title: string, onClick: () => void | Promise<void>, cls = "chip"): HTMLButtonElement {
   const b = el("button", cls, label);
   b.title = title;
   b.setAttribute("aria-label", title);
@@ -204,7 +204,7 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
     // Greyed for now (see `setRefused`): it would only be refused.
     if (b.getAttribute("aria-disabled") === "true") return;
     shiftClick = e.shiftKey;
-    onClick();
+    void onClick();
   });
   return b;
 }
@@ -2370,7 +2370,9 @@ export class Hud {
   showSignalModes(modes: readonly { label: string; title: string; lamps: readonly ("red" | "green")[] }[], on: number, onPick: (i: number) => void): void {
     this.signalModes.replaceChildren(
       ...modes.map((m, i) => {
-        const b = button("", m.title, () => i !== on && onPick(i), `chip text signal-mode${i === on ? " active" : ""}`);
+        const b = button("", m.title, () => {
+          if (i !== on) onPick(i);
+        }, `chip text signal-mode${i === on ? " active" : ""}`);
         // (Its lamps as the signal shows them: round lights drawn in CSS, not emoji the font hasn't got.)
         const lamps = el("span", "signal-mode-lamps");
         lamps.append(...m.lamps.map((c) => el("span", `signal-lamp ${c}`)));
@@ -2619,7 +2621,9 @@ export class Hud {
         send.disabled = false;
       }
     }, "chip text");
-    const cancel = button("Cancel", "Close", () => (c.hidden = true), "chip text");
+    const cancel = button("Cancel", "Close", () => {
+      c.hidden = true;
+    }, "chip text");
     const row = el("div", "card-row");
     row.append(cancel, send);
     c.append(el("div", "card-title", "Send to Claude"), this.reportNote, status, row);

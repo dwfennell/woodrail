@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
     "icons": "python3 scripts/icon-font.py",
     "perf": "node tools/perf/run.mjs",
     "perf:check": "node tools/perf/check.mjs",
@@ -139,6 +140,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "@biomejs/biome": "2.6.9",
     "@capacitor/assets": "^4.0.0",
     "@capacitor/cli": "^8.6.3",
     "@types/three": "^0.186.0",

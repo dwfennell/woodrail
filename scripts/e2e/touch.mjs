@@ -1518,7 +1518,6 @@ async function twoRoutes(ctx, p) {
   const setup = await p.evaluate(async () => {
     const w = window.woodrail;
     // (Open, flat ground for two runs side by side, anywhere the view can go: window.__openGround.)
-    const t = w.controls.target;
     const o = await window.__openGround(window.__runFootprint(1080, [0, 500]));
     const g = o;
     if (!g) throw new Error("no open ground for the runs");
@@ -1795,7 +1794,6 @@ async function routeRestore(ctx, p) {
   const setup = await p.evaluate(async () => {
     const w = window.woodrail;
     // (Open, flat ground for the run, anywhere the view can go: window.__openGround.)
-    const t = w.controls.target;
     const o = await window.__openGround(window.__runFootprint(1656, [0, 400]));
     const g = o;
     if (!g) throw new Error("no open ground for the run");
@@ -2232,7 +2230,6 @@ async function routeWait(ctx, p) {
     const order = [...trunk, points, ...a, ...b];
     const poses = order.map((id) => s.getPiece(id));
     // (Open, flat ground for the run, anywhere the view can go: window.__openGround.)
-    const t = w.controls.target;
     const o = await window.__openGround(poses.flatMap((q) => [0, 108, 216].map((d) => [q.pose.x + d * Math.cos(q.pose.heading), q.pose.z + d * Math.sin(q.pose.heading)])));
     const g = o;
     if (!g) throw new Error("no open ground for the run");
@@ -2373,7 +2370,6 @@ async function routeWait(ctx, p) {
   // path, its gate and its toast; a lever tapped by touch is `defaults`' check.)
   const locked = await p.evaluate(({ setup }) => {
     const w = window.woodrail;
-    const s = window.__wait;
     const r = w.economy.router;
     // (Its move granted by sections too: held at its slot's end, the points' lock is still the first's.)
     for (let i = 0; i < 60 * 120 && !(r.locked(setup.points) && !r.waitOf(setup.second) && !w.economy.sections.waitOf(setup.second) && !w.sim.pointsHeld(setup.points)); i++) {
@@ -2909,7 +2905,6 @@ async function putAwayButton(p) {
     const { editLine, joinLine } = await import("/src/game/lines.ts");
     const { frameDistance } = await import("/src/game/camera-director.ts");
     // (Open, flat ground for the line, anywhere the view can go: window.__openGround.)
-    const t = w.controls.target;
     const o = await window.__openGround(window.__runFootprint(2916, [0, 300]).map(([x, z]) => [x - 216, z]), { pieceGap: 900, propGap: 500 });
     const g = o;
     if (!g) throw new Error("no open ground for the line");
@@ -4570,7 +4565,7 @@ async function routeUxMore(ctx, p) {
       await p.evaluate(() => [...document.querySelectorAll(".menu button")].find((b) => b.textContent === "Lines")?.setAttribute("data-e2e", "lines"));
       await tapButton(".menu button[data-e2e='lines']");
       await p.waitForFunction(() => { const v = document.querySelector(".lines-view"); return v && !v.hidden; }, null, { timeout: 30000 });
-    } catch (e) {
+    } catch {
       throw new Error(`Lines didn't open: ${JSON.stringify(await state())}`);
     }
     await frames(p);

@@ -2,16 +2,6 @@
 // their own size, on a real Game map), for the asset review. FELT=before|after names the felt pictures.
 const RZ = 756;
 const FELT = process.env.FELT ?? "after";
-const dock = (p, x, side) =>
-  p.evaluate(({ x, side, RZ }) => {
-    const w = window.woodrail;
-    const g = w.world.landscape.grid;
-    const pz = RZ + side * (60 + 138);
-    const y = g.groundY(g.cellAtWorld(x, pz));
-    const id = w.editor().place("depot-harbour", { x, z: pz, heading: side > 0 ? Math.PI : 0 }, y, false);
-    w.economy.depotAtPiece(id) ?? w.economy.addDepot("harbour", id);
-    w.depotView.setWorld(w.economy, w.layout);
-  }, { x, side, RZ });
 const clean = (p) => p.addStyleTag({ content: ".hud .goal-bar, .hud [class*=goal] { visibility: hidden !important }" });
 const caption = (p, text) =>
   p.evaluate((text) => {

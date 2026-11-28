@@ -11,7 +11,7 @@ import { createServer } from "vite";
 import { pinClocksIn, stillIndustriesIn } from "./pin-clocks.mjs";
 import { groups } from "./lib/groups.mjs";
 import { batterySaverIn, mouseMoves, steps, testClockIn } from "./lib/fast.mjs";
-import { printEvents, watchBrowser, watchServer } from "./lib/page-watch.mjs";
+import { watchBrowser, watchServer } from "./lib/page-watch.mjs";
 
 const OUT = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "e2e-out";
 mkdirSync(OUT, { recursive: true });
@@ -266,7 +266,6 @@ const road = (i) => p.evaluate((i) => T.g().road[i], i);
 const toasts = () => p.evaluate(() => T.toasts());
 // A picture for a person to look at: slow under software drawing, and never a reason to stop the run.
 const shot = (name) => p.screenshot({ path: `${OUT}/${name}.png`, timeout: 60000 }).catch((e) => console.log(`(no picture ${name}: ${e.message.split("\n")[0]})`));
-const imp = (path) => `import(${JSON.stringify(path)})`;
 
 // The groups (E2E_ONLY, `-- --list`, resume: scripts/e2e/lib/groups.mjs; docs/agents/e2e.md): Sandbox's roads (A–J) on
 // one page, each section building on the roads the ones before laid; then Game mode's (K–X) on it, each on the route
@@ -934,7 +933,6 @@ if (route && route.path.length <= 60) {
     }
     // Off toward the forest: it passes the crane.
     w.sim.setLever(engine, 1);
-    let left = 0;
     const out = { unloaded: 0, vanLeft: false };
     for (let k = 0; k < 120 * 90; k++) {
       w.sim.tick();

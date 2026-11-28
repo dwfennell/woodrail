@@ -49,12 +49,6 @@ const check = (what, ok, detail = "") => {
 const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
 const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
-const tapped = async (act) => {
-  const before = await p.evaluate(() => window.__allClicks);
-  await act();
-  await p.waitForFunction((n) => window.__allClicks > n, before, { timeout: 30000 }).catch(() => {});
-  await frames();
-};
 const touch = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
 const screenOf = (v) =>
   p.evaluate((v) => {
@@ -68,40 +62,6 @@ const glideTo = async (v, dist = 900) => {
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 }).catch(() => {});
   await frames();
 };
-/** A button by selector, once it's drawn and has stood still past the card tap guard. */
-const tapButton = async (sel) => {
-  const ok = await p.waitForFunction((sel) => [...document.querySelectorAll(sel)].some((e) => e.getBoundingClientRect().width > 0), sel, { timeout: 20000 }).then(() => true, () => false);
-  if (!ok) return false;
-  await frames();
-  await p.waitForTimeout(400);
-  const [x, y] = await p.evaluate((sel) => {
-    const r = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0).getBoundingClientRect();
-    return [r.left + r.width / 2, r.top + r.height / 2];
-  }, sel);
-  await tapped(() => p.touchscreen.tap(x, y));
-  return true;
-};
-/** A depot's middle (its yard's track), in the world. */
-const depotAt = (depotId) =>
-  p.evaluate((id) => {
-    const w = window.woodrail;
-    const piece = w.layout.getPiece(w.economy.depot(id).pieceId);
-    return { x: piece.pose.x + Math.cos(piece.pose.heading) * 108, y: piece.y, z: piece.pose.z + Math.sin(piece.pose.heading) * 108 };
-  }, depotId);
-/** Tap a depot to open its card. */
-const openDepot = async (depotId) => {
-  for (let tries = 0; tries < 3; tries++) {
-    const at = await depotAt(depotId);
-    await glideTo(at, 900);
-    const [x, y] = await screenOf(at);
-    await tapped(() => p.touchscreen.tap(x, y));
-    await p.waitForTimeout(300);
-    if (await p.evaluate((id) => window.woodrail.hud.depotCardOpen && window.woodrail.interaction.openDepotId === id, depotId)) return true;
-  }
-  return false;
-};
-const powerLines = () => p.evaluate(() => [...document.querySelectorAll(".depot-power .power-line")].map((e) => e.textContent));
-const closeCards = () => p.evaluate(() => window.woodrail.hud.hideCards?.());
 const enterGame = async () => {
   await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
   await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click() || (document.querySelector('.new-game-sheet:not([hidden]) [data-hills="hilly"]')?.click(), document.querySelector(".new-game-sheet:not([hidden]) .new-game-start")?.click()));
@@ -152,8 +112,6 @@ const dragTurbine = async (at) => {
   await frames();
   return true;
 };
-const turbines = () => p.evaluate(() => [...window.woodrail.world.props.all()].filter((x) => x.asset === "mech-radio-mast").map((x) => ({ x: x.x, z: x.z, y: x.y })));
-const inBox = () => p.evaluate(() => document.querySelector(".tray-item[data-key='prop:mech-radio-mast'] .have")?.textContent ?? null);
 
 await p.goto(PAGE);
 await enterGame();

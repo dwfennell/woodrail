@@ -14,7 +14,6 @@ const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chro
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const report = [];
 const frames = (p) => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-const settle = (p) => p.evaluate(() => Promise.race([window.woodrail.settled?.() ?? null, new Promise((r) => setTimeout(r, 4000))]));
 
 /** Every visible, tappable thing: its size, and neighbours closer than 8 px. */
 function measure() {
