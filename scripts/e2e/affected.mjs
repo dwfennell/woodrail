@@ -24,6 +24,7 @@ export const SUITES = {
   tutorial: { script: "e2e:tutorial" },
   joints: { script: "e2e:joints", groups: true },
   rotate: { script: "e2e:rotate", groups: true, minutes: 6 },
+  flip: { script: "e2e:flip", groups: true, minutes: 8 },
   ramps: { script: "e2e:ramps", groups: true },
   tray: { script: "e2e:tray", groups: true },
   decks: { script: "e2e:decks" },
@@ -304,6 +305,8 @@ export const RULES = [
   ["src/game/interaction.ts", [TOUCH_INPUT, CLICK_INPUT]],
   // Turning a held piece: Turn's eighths, the finer 15° steps (Shift+R, a two-finger twist).
   [["src/game/headings.ts", "src/game/interaction.ts", "src/ui/hud.ts", "src/game/touch-camera.ts"], ["rotate"]],
+  // Flip on a piece being placed: the hand shown, a curve turning on as the one it meets (`keepTurning`), the seat.
+  [["src/game/interaction.ts", "src/ui/hud.ts", "src/track/snap.ts"], ["flip"]],
   [["src/game/touch-*", "src/game/drag-rule.ts", "src/game/drop.ts", "src/game/put-away.ts", "src/game/place-facing.ts"], [TOUCH_INPUT, CLICK_INPUT, "names"]],
   [["src/game/camera-director.ts"], [...SMOKE, "touch:select-drag,tight-curves,routes", "tutorial"]],
   [["src/game/draw-*", "src/game/erase.ts", "src/game/track-rules.ts", "src/game/lift-notice.ts"], ["draw", "joints", "ramps", "touch:select-drag,flick", "low-bridge"]],

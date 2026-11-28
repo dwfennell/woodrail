@@ -954,7 +954,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     audio.refuse();
     hud.haptic("refuse");
   };
-  interaction.onTurned = () => audio.rotate();
+  interaction.onTurned = () => {
+    audio.rotate();
+    // (F or Ctrl, as well as the tray's Flip: its button lit as pieces will come out.)
+    hud.setTrayOrientation(interaction.trayFlipped);
+  };
   interaction.onDepart = () => audio.bell();
   interaction.onSwitched = () => scheduleSave();
   interaction.onCalledHome = () => scheduleSave();
